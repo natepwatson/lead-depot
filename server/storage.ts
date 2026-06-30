@@ -13,6 +13,15 @@ const db = drizzle(sqlite);
 
 // Initialize tables
 sqlite.exec(`
+  PRAGMA journal_mode=WAL;
+`);
+
+// Migrations — add new columns to existing tables (safe to run repeatedly)
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN receive_leads INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN lead_flow_on INTEGER NOT NULL DEFAULT 1`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN receive_website_leads INTEGER NOT NULL DEFAULT 0`); } catch {}
+
+sqlite.exec(`
   CREATE TABLE IF NOT EXISTS agents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -20,7 +29,10 @@ sqlite.exec(`
     password TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'agent',
     round_robin_order INTEGER NOT NULL DEFAULT 0,
-    is_active INTEGER NOT NULL DEFAULT 1
+    is_active INTEGER NOT NULL DEFAULT 1,
+    receive_leads INTEGER NOT NULL DEFAULT 0,
+    lead_flow_on INTEGER NOT NULL DEFAULT 1,
+    receive_website_leads INTEGER NOT NULL DEFAULT 0
   );
   CREATE TABLE IF NOT EXISTS leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,15 +78,7 @@ sqlite.exec(`
     last_assigned_agent_id INTEGER REFERENCES agents(id),
     updated_at TEXT NOT NULL DEFAULT ''
   );
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT ''
-  );
 `);
-
-// Seed default global setting
-sqlite.exec(`INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES ('lead_flow_active', 'true', datetime('now'))`);
 
 export interface IStorage {
   // Auth
@@ -95,28 +99,14 @@ export interface IStorage {
   getNextLeadForAgent(agentId: number): Lead | undefined;
   updateLead(id: number, data: Partial<InsertLead>): Lead | undefined;
   getActiveLeadCountForAgent(agentId: number): number;
-  deleteLead(id: number): void;
 
   // Lead Activity
   createLeadActivity(data: InsertLeadActivity): LeadActivity;
   getActivitiesForLead(leadId: number): LeadActivity[];
-  getActivityHistoryForAgent(agentId: number): {
-    activityId: number;
-    leadId: number;
-    ownerName: string | null;
-    address: string;
-    outcome: string;
-    notes: string | null;
-    createdAt: string;
-  }[];
 
   // Round Robin
   getNextAgentInRotation(): Agent | undefined;
   updateRoundRobinState(agentId: number): void;
-
-  // Settings
-  getSetting(key: string): string | undefined;
-  setSetting(key: string, value: string): void;
 
   // Stats
   getAdminStats(): {
@@ -130,7 +120,7 @@ export interface IStorage {
 }
 
 const ACTIVE_STATUSES = ["assigned", "no_answer", "left_voicemail", "callback_requested"];
-const DEAD_STATUSES = ["contacted_not_interested", "wrong_number", "retired", "contacted_appointment", "keep_in_touch"];
+const DEAD_STATUSES = ["contacted_not_interested", "wrong_number", "retired", "contacted_appointment"];
 
 export class Storage implements IStorage {
   getAgentByEmail(email: string): Agent | undefined {
@@ -194,14 +184,6 @@ export class Storage implements IStorage {
   }
 
   getNextLeadForAgent(agentId: number): Lead | undefined {
-    // If global lead flow is paused, return nothing
-    const globalActive = this.getSetting("lead_flow_active");
-    if (globalActive === "false") return undefined;
-
-    // If the specific agent is inactive, return nothing
-    const agent = this.getAgentById(agentId);
-    if (!agent || !agent.isActive) return undefined;
-
     // Prioritize leads with callback dates that have passed
     const now = new Date().toISOString().split("T")[0];
     const callbackReady = db.select().from(leads)
@@ -235,20 +217,6 @@ export class Storage implements IStorage {
       .all().length;
   }
 
-  deleteLead(id: number): void {
-    db.delete(leads).where(eq(leads.id, id)).run();
-  }
-
-  getSetting(key: string): string | undefined {
-    const row = sqlite.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
-    return row?.value;
-  }
-
-  setSetting(key: string, value: string): void {
-    const now = new Date().toISOString();
-    sqlite.prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").run(key, value, now);
-  }
-
   createLeadActivity(data: InsertLeadActivity): LeadActivity {
     const now = new Date().toISOString();
     return db.insert(leadActivity).values({ ...data, createdAt: now }).returning().get();
@@ -261,39 +229,19 @@ export class Storage implements IStorage {
       .all();
   }
 
-  getActivityHistoryForAgent(agentId: number) {
-    // Raw SQL join so we get lead details alongside the activity log
-    const rows = sqlite.prepare(`
-      SELECT
-        la.id          AS activityId,
-        la.lead_id     AS leadId,
-        l.owner_name   AS ownerName,
-        l.address      AS address,
-        la.outcome     AS outcome,
-        la.notes       AS notes,
-        la.created_at  AS createdAt
-      FROM lead_activity la
-      LEFT JOIN leads l ON l.id = la.lead_id
-      WHERE la.agent_id = ?
-      ORDER BY la.created_at DESC
-      LIMIT 200
-    `).all(agentId) as {
-      activityId: number;
-      leadId: number;
-      ownerName: string | null;
-      address: string;
-      outcome: string;
-      notes: string | null;
-      createdAt: string;
-    }[];
-    return rows;
-  }
-
-  getNextAgentInRotation(): Agent | undefined {
+  getNextAgentInRotation(leadType?: string): Agent | undefined {
+    // Include: regular active agents with leadFlowOn=true, OR admins who opted in via receiveLeads=true
     const activeAgents = db.select().from(agents)
-      .where(and(eq(agents.isActive, true), ne(agents.role, "admin")))
+      .where(and(eq(agents.isActive, true), eq(agents.leadFlowOn, true)))
       .orderBy(asc(agents.roundRobinOrder))
-      .all();
+      .all()
+      .filter(a => {
+        // Must be an active agent or admin opted-in
+        if (a.role === "admin" && !a.receiveLeads) return false;
+        // Website leads: only agents with receiveWebsiteLeads flag
+        if (leadType === "website_lead" && !a.receiveWebsiteLeads) return false;
+        return true;
+      });
 
     if (activeAgents.length === 0) return undefined;
 
@@ -330,6 +278,27 @@ export class Storage implements IStorage {
       activeLeads: all.filter(l => ACTIVE_STATUSES.includes(l.status)).length,
       deadLeads: all.filter(l => DEAD_STATUSES.includes(l.status)).length,
     };
+  }
+
+  // Clear active queue — retire all active leads back to 'retired' status.
+  // Activity history and master record are fully preserved.
+  clearQueue(retiredBy?: number): number {
+    const activeLeads = db.select().from(leads)
+      .where(inArray(leads.status, ACTIVE_STATUSES))
+      .all();
+    const now = new Date().toISOString();
+    for (const lead of activeLeads) {
+      db.update(leads).set({ status: "retired" }).where(eq(leads.id, lead.id)).run();
+      db.insert(leadActivity).values({
+        leadId: lead.id,
+        agentId: retiredBy || null,
+        outcome: "retired",
+        notes: "Cleared from queue by admin — master record preserved.",
+        lpmamabSnapshot: null,
+        createdAt: now,
+      }).run();
+    }
+    return activeLeads.length;
   }
 }
 

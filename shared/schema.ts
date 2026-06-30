@@ -11,6 +11,9 @@ export const agents = sqliteTable("agents", {
   role: text("role").notNull().default("agent"), // "admin" | "agent"
   roundRobinOrder: integer("round_robin_order").notNull().default(0),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  receiveLeads: integer("receive_leads", { mode: "boolean" }).notNull().default(false),
+  leadFlowOn: integer("lead_flow_on", { mode: "boolean" }).notNull().default(true),
+  receiveWebsiteLeads: integer("receive_website_leads", { mode: "boolean" }).notNull().default(false),
 });
 
 export const insertAgentSchema = createInsertSchema(agents).omit({ id: true });
@@ -21,7 +24,7 @@ export type Agent = typeof agents.$inferSelect;
 export const leads = sqliteTable("leads", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   // Lead type
-  leadType: text("lead_type").notNull(), // "expired" | "distressed" | "land" | "website_lead"
+  leadType: text("lead_type").notNull(), // "expired" | "distressed" | "website_lead" | "fsbo" | "land"
   // Core fields
   address: text("address").notNull(),
   ownerName: text("owner_name"),

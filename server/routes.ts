@@ -1,11 +1,10 @@
 import type { Express } from "express";
 import { createServer } from "http";
 import { storage } from "./storage";
-import { pushAppointmentToFUB, pushKeepInTouchToFUB } from "./fubClient";
 
 export function registerRoutes(httpServer: ReturnType<typeof createServer>, app: Express) {
 
-  // AUTH
+  // ─── AUTH ──────────────────────────────────────────────────────────────────
   app.post("/api/login", (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Missing credentials" });
@@ -16,7 +15,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ agent: { id: agent.id, name: agent.name, email: agent.email, role: agent.role } });
   });
 
-  // AGENTS
+  // ─── AGENTS ───────────────────────────────────────────────────────────────
   app.get("/api/agents", (req, res) => {
     const all = storage.getAllAgents();
     res.json(all.map(a => ({ ...a, password: undefined })));
@@ -52,7 +51,119 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ok: true });
   });
 
-  // LEADS
+  // Toggle admin as lead receiver
+  app.patch("/api/agents/:id/receive-leads", (req, res) => {
+    const id = parseInt(req.params.id);
+    const { receiveLeads } = req.body;
+    const updated = storage.updateAgent(id, { receiveLeads: !!receiveLeads });
+    if (!updated) return res.status(404).json({ error: "Agent not found" });
+    res.json({ ...updated, password: undefined });
+  });
+
+  // Toggle individual agent lead flow on/off
+  app.patch("/api/agents/:id/lead-flow", (req, res) => {
+    const id = parseInt(req.params.id);
+    const { leadFlowOn } = req.body;
+    const updated = storage.updateAgent(id, { leadFlowOn: !!leadFlowOn });
+    if (!updated) return res.status(404).json({ error: "Agent not found" });
+    res.json({ ...updated, password: undefined });
+  });
+
+  // Toggle whether agent receives website leads
+  app.patch("/api/agents/:id/website-leads", (req, res) => {
+    const id = parseInt(req.params.id);
+    const { receiveWebsiteLeads } = req.body;
+    const updated = storage.updateAgent(id, { receiveWebsiteLeads: !!receiveWebsiteLeads });
+    if (!updated) return res.status(404).json({ error: "Agent not found" });
+    res.json({ ...updated, password: undefined });
+  });
+
+  // ─── CLEAR QUEUE ──────────────────────────────────────────────────────────
+  app.post("/api/leads/clear-queue", (req, res) => {
+    const { clearedBy } = req.body;
+    const count = (storage as any).clearQueue(clearedBy || null);
+    res.json({ cleared: count, message: `${count} active leads retired. Master records and history preserved.` });
+  });
+
+  // ─── INGEST: MotivatedSellers.com email → Lead ────────────────────────────
+  // Called by the external cron parser. Accepts a pre-parsed lead payload,
+  // deduplicates by leadSourceId, then inserts and round-robins it.
+  app.post("/api/leads/ingest", (req, res) => {
+    const {
+      firstName, lastName, email, phone,
+      address, city, state, zip, county,
+      propertyType, reasonForSelling, estimatedValue, timeframe,
+      leadSourceId, // MotivatedSellers LEAD ID field — used for dedup
+      ingestSecret,
+    } = req.body;
+
+    // Simple shared-secret auth so only our cron can hit this endpoint
+    const INGEST_SECRET = process.env.INGEST_SECRET || "ms-ingest-2026";
+    if (ingestSecret !== INGEST_SECRET) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    if (!phone && !email) {
+      return res.status(400).json({ error: "Lead must have phone or email" });
+    }
+
+    // Dedup: if we already have a lead with this source ID, skip
+    if (leadSourceId) {
+      const existing = storage.getAllLeads().find(l => {
+        try {
+          const extra = JSON.parse(l.extraData || "{}");
+          return extra.leadSourceId === leadSourceId;
+        } catch { return false; }
+      });
+      if (existing) {
+        return res.json({ skipped: true, reason: "Duplicate lead source ID", leadId: existing.id });
+      }
+    }
+
+    const ownerName = [firstName, lastName].filter(Boolean).join(" ").trim() || "Unknown";
+    const fullAddress = [address, city, state, zip].filter(Boolean).join(", ");
+    const motivation = reasonForSelling || (estimatedValue ? `Estimated value: $${Number(String(estimatedValue).replace(/[^0-9.]/g,"")).toLocaleString()}` : "");
+
+    const extraData = JSON.stringify({
+      leadSourceId, county, propertyType, reasonForSelling,
+      estimatedValue, timeframe,
+      City: city, State: state, Zip: zip,
+      ingestedAt: new Date().toISOString(),
+      source: "motivatedsellers.com",
+    });
+
+    const now = new Date().toISOString();
+    const allA = storage.getAllAgents();
+    const agentCount = allA.filter((a: any) => a.isActive && a.leadFlowOn !== false && (a.role === "agent" || (a.role === "admin" && a.receiveLeads))).length;
+
+    const [created] = storage.createLeadsFromBatch([{
+      leadType: "website_lead",
+      address: fullAddress,
+      ownerName,
+      phone: phone || "",
+      email: email || "",
+      motivation,
+      extraData,
+      status: agentCount > 0 ? "assigned" : "unassigned",
+      assignedAgentId: null,
+      attemptCount: 0,
+      uploadedAt: now,
+      uploadedBy: null,
+      batchId: `ms_${leadSourceId || Date.now()}`,
+    }]);
+
+    if (agentCount > 0) {
+      const nextAgent = storage.getNextAgentInRotation("website_lead");
+      if (nextAgent) {
+        storage.updateLead(created.id, { assignedAgentId: nextAgent.id, status: "assigned" });
+        storage.updateRoundRobinState(nextAgent.id);
+      }
+    }
+
+    res.json({ created: true, leadId: created.id, ownerName, address: fullAddress });
+  });
+
+  // ─── LEADS ────────────────────────────────────────────────────────────────
   app.get("/api/leads", (req, res) => {
     const all = storage.getAllLeads();
     res.json(all);
@@ -69,13 +180,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ lead: next || null, totalActive: total });
   });
 
-  app.get("/api/leads/my-history/:agentId", (req, res) => {
-    const agentId = parseInt(req.params.agentId);
-    if (isNaN(agentId)) return res.status(400).json({ error: "Invalid agentId" });
-    const history = storage.getActivityHistoryForAgent(agentId);
-    res.json({ history });
-  });
-
   app.post("/api/leads/upload", (req, res) => {
     const { leads: leadRows, leadType, uploadedBy, batchId } = req.body;
     if (!leadRows || !Array.isArray(leadRows) || !leadType) {
@@ -83,18 +187,28 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
 
     const now = new Date().toISOString();
-    const agentCount = storage.getAllAgents().filter(a => a.role === "agent" && a.isActive).length;
+    // Count eligible receivers for this specific lead type
+    const allA = storage.getAllAgents();
+    const agentCount = allA.filter(a => {
+      if (!a.isActive || !a.leadFlowOn) return false;
+      if (a.role === "admin" && !a.receiveLeads) return false;
+      if (leadType === "website_lead" && !a.receiveWebsiteLeads) return false;
+      return true;
+    }).length;
 
     const created = storage.createLeadsFromBatch(
       leadRows.map((row: any) => {
+        // Landvoice Expired format: First Name + Last Name columns
         const firstName = row["First Name"] || row["LandvoiceOwnerFirstName"] || row["LandvoiceContact1FirstName"] || "";
         const lastName  = row["Last Name"]  || row["LandvoiceOwnerLastName"]  || row["LandvoiceContact1LastName"]  || "";
         const fullName  = row["Owner Name"] || row.ownerName || row.name || row.Name
           || (firstName || lastName ? `${firstName} ${lastName}`.trim() : "");
 
+        // Prefer primary phone; fall back to Landvoice contact 1
         const primaryPhone = row["Primary Phone"] || row.phone || row.Phone || row["Phone Number"]
           || row["LandvoiceContact1Phone"] || "";
 
+        // Address: prefer "Property Address" col, fall back to Address + City
         const propAddress = row["Property Address"] || row.address || row.Address || "";
         const city  = row.City  || row.city  || "";
         const state = row.State || row.state || "";
@@ -105,6 +219,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
         const email = row.email || row.Email || row["LandvoiceOwnerEmail"] || "";
 
+        // Price as motivation context
         const price = row.Price || row.price || row["Listing Price"] || "";
         const beds  = row.Beds  || row.beds  || "";
         const motivation = row.motivation || row.Motivation
@@ -128,9 +243,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       })
     );
 
+    // Auto assign via round robin if agents exist
     if (agentCount > 0) {
       for (const lead of created) {
-        const nextAgent = storage.getNextAgentInRotation();
+        const nextAgent = storage.getNextAgentInRotation(leadType);
         if (nextAgent) {
           storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
           storage.updateRoundRobinState(nextAgent.id);
@@ -154,42 +270,29 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json(updated);
   });
 
-  // OUTCOMES
+  // ─── OUTCOMES ─────────────────────────────────────────────────────────────
   app.post("/api/leads/:id/outcome", (req, res) => {
     const leadId = parseInt(req.params.id);
-    const { agentId, outcome, notes, lpmamab, callbackDate, apptDetails, kitDetails } = req.body;
+    const { agentId, outcome, notes, lpmamab, callbackDate } = req.body;
 
     const lead = storage.getLeadById(leadId);
     if (!lead) return res.status(404).json({ error: "Lead not found" });
 
-    // declined_service: log activity then hard-delete the lead
-    if (outcome === "declined_service") {
-      storage.createLeadActivity({
-        leadId,
-        agentId: agentId || null,
-        outcome: "declined_service",
-        notes: "Lead declined services - removed from system.",
-        lpmamabSnapshot: null,
-        createdAt: new Date().toISOString(),
-      });
-      storage.deleteLead(leadId);
-      return res.json({ ok: true, deleted: true });
-    }
-
+    // Determine new lead status based on outcome
     let newStatus = lead.status;
     let newAssignedId = lead.assignedAgentId;
     let newCallbackDate = lead.callbackDate;
 
-    // Dead outcomes - no more calls, lead stays for records
-    const deadOutcomes = ["contacted_not_interested", "contacted_appointment", "keep_in_touch", "wrong_number"];
-    // Recycle outcomes - reassign to next agent in rotation
+    const deadOutcomes = ["contacted_not_interested", "contacted_appointment", "wrong_number"];
     const recycleOutcomes = ["no_answer", "left_voicemail"];
 
     if (deadOutcomes.includes(outcome)) {
       newStatus = outcome;
+      // Keep assigned agent for record keeping, but lead is done
     } else if (recycleOutcomes.includes(outcome)) {
       newStatus = outcome;
-      const nextAgent = storage.getNextAgentInRotation();
+      // Round-robin reassign to next agent (respect lead type eligibility)
+      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
       if (nextAgent) {
         newAssignedId = nextAgent.id;
         storage.updateRoundRobinState(nextAgent.id);
@@ -197,8 +300,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     } else if (outcome === "callback_requested") {
       newStatus = "callback_requested";
       newCallbackDate = callbackDate || null;
+      // Keep same agent for callback
     }
 
+    // Save LPMAMAB fields if provided
     const lpmamabUpdate = lpmamab ? {
       lLocation: lpmamab.location || lead.lLocation,
       lPricePaid: lpmamab.price || lead.lPricePaid,
@@ -209,80 +314,32 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       lBuy: lpmamab.buy || lead.lBuy,
     } : {};
 
-    // Build enriched notes including appointment / keep-in-touch details
-    let enrichedNotes = notes || "";
-    if (outcome === "contacted_appointment" && apptDetails) {
-      const locLine = apptDetails.atProperty
-        ? `Location: Subject property (${apptDetails.address})`
-        : `Location: Different from subject property`;
-      enrichedNotes = [
-        `Listing Appointment Set`,
-        `Date/Time: ${apptDetails.dateTime || "TBD"}`,
-        locLine,
-        notes ? `Notes: ${notes}` : "",
-      ].filter(Boolean).join(" | ");
-    } else if (outcome === "keep_in_touch" && kitDetails) {
-      enrichedNotes = [
-        `Keep In Touch`,
-        kitDetails.email ? `Email: ${kitDetails.email}` : "",
-        kitDetails.tempo ? `Tempo: ${kitDetails.tempo}` : "",
-        notes ? `Notes: ${notes}` : "",
-      ].filter(Boolean).join(" | ");
-    }
-
+    // Update lead
     const updatedLead = storage.updateLead(leadId, {
       status: newStatus,
       assignedAgentId: newAssignedId,
       callbackDate: newCallbackDate,
       attemptCount: lead.attemptCount + 1,
-      // Update email if KIT provided a confirmed one
-      ...(outcome === "keep_in_touch" && kitDetails?.email ? { email: kitDetails.email } : {}),
       ...lpmamabUpdate,
     });
 
+    // Log activity
     storage.createLeadActivity({
       leadId,
       agentId: agentId || null,
       outcome,
-      notes: enrichedNotes || null,
+      notes: notes || null,
       lpmamabSnapshot: lpmamab ? JSON.stringify(lpmamab) : null,
       createdAt: new Date().toISOString(),
     });
 
-    // Push to Follow Up Boss (fire-and-forget — don't block the response)
-    const agentRecord = agentId ? storage.getAgentById(agentId) : null;
-    if (outcome === "contacted_appointment" && process.env.FUB_API_KEY) {
-      pushAppointmentToFUB({
-        ownerName: lead.ownerName || "Unknown",
-        phone: lead.phone || "",
-        email: lead.email || "",
-        address: lead.address,
-        apptDetails: apptDetails || { dateTime: "", atProperty: true, address: lead.address },
-        lpmamab: lpmamab || null,
-        notes: notes || "",
-        leadType: lead.leadType,
-        agentName: agentRecord?.name,
-      }).catch(err => console.error("[FUB] Appointment push failed:", err.message));
-    } else if (outcome === "keep_in_touch" && process.env.FUB_API_KEY) {
-      pushKeepInTouchToFUB({
-        ownerName: lead.ownerName || "Unknown",
-        phone: lead.phone || "",
-        email: lead.email || "",
-        address: lead.address,
-        kitDetails: kitDetails || { email: lead.email || "", tempo: "" },
-        lpmamab: lpmamab || null,
-        notes: notes || "",
-        leadType: lead.leadType,
-        agentName: agentRecord?.name,
-      }).catch(err => console.error("[FUB] Keep In Touch push failed:", err.message));
-    }
-
     res.json(updatedLead);
   });
 
-  // ACTIVITY
+  // ─── ACTIVITY ─────────────────────────────────────────────────────────────
   app.get("/api/leads/:id/activity", (req, res) => {
     const activities = storage.getActivitiesForLead(parseInt(req.params.id));
+    // Annotate with agent names
     const allAgents = storage.getAllAgents();
     const annotated = activities.map(a => ({
       ...a,
@@ -292,11 +349,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
 
-  // ADMIN: PER-AGENT STATS
+  // ─── ADMIN: PER-AGENT STATS ───────────────────────────────────────────────
   app.get("/api/admin/agent-stats", (req, res) => {
     const allAgents = storage.getAllAgents().filter(a => a.role === "agent");
     const allLeads = storage.getAllLeads();
     const allActivities = (() => {
+      // Collect all activities for all leads
       const acts: any[] = [];
       for (const lead of allLeads) {
         const la = storage.getActivitiesForLead(lead.id);
@@ -311,9 +369,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
       const outcomes = {
         contacted_appointment: agentActs.filter(a => a.outcome === "contacted_appointment").length,
-        keep_in_touch: agentActs.filter(a => a.outcome === "keep_in_touch").length,
         contacted_not_interested: agentActs.filter(a => a.outcome === "contacted_not_interested").length,
-        declined_service: agentActs.filter(a => a.outcome === "declined_service").length,
         no_answer: agentActs.filter(a => a.outcome === "no_answer").length,
         left_voicemail: agentActs.filter(a => a.outcome === "left_voicemail").length,
         callback_requested: agentActs.filter(a => a.outcome === "callback_requested").length,
@@ -322,7 +378,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
       const totalAttempts = agentActs.length;
       const contactRate = totalAttempts > 0
-        ? Math.round(((outcomes.contacted_appointment + outcomes.keep_in_touch + outcomes.contacted_not_interested) / totalAttempts) * 100)
+        ? Math.round(((outcomes.contacted_appointment + outcomes.contacted_not_interested) / totalAttempts) * 100)
         : 0;
 
       return {
@@ -330,18 +386,18 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         leadsReceived: agentLeads.length,
         activeLeads: agentLeads.filter(l => ["assigned","no_answer","left_voicemail","callback_requested"].includes(l.status)).length,
         appointmentsSet: outcomes.contacted_appointment,
-        keepInTouch: outcomes.keep_in_touch,
         totalAttempts,
         contactRate,
         outcomes,
       };
     });
 
+    // Sort by appointments set desc (leaderboard order)
     stats.sort((a, b) => b.appointmentsSet - a.appointmentsSet || b.totalAttempts - a.totalAttempts);
     res.json(stats);
   });
 
-  // ADMIN: PIPELINE VIEW
+  // ─── ADMIN: PIPELINE VIEW ─────────────────────────────────────────────────
   app.get("/api/admin/pipeline", (req, res) => {
     const allLeads = storage.getAllLeads();
     const allAgents = storage.getAllAgents();
@@ -359,7 +415,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       left_voicemail: enriched.filter(l => l.status === "left_voicemail"),
       callback_requested: enriched.filter(l => l.status === "callback_requested"),
       contacted_appointment: enriched.filter(l => l.status === "contacted_appointment"),
-      keep_in_touch: enriched.filter(l => l.status === "keep_in_touch"),
       contacted_not_interested: enriched.filter(l => l.status === "contacted_not_interested"),
       wrong_number: enriched.filter(l => l.status === "wrong_number"),
     };
@@ -367,7 +422,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ leads: enriched, byStatus, total: allLeads.length });
   });
 
-  // ADMIN: LEADS FOR SPECIFIC AGENT
+  // ─── ADMIN: LEADS FOR SPECIFIC AGENT ─────────────────────────────────────
   app.get("/api/admin/agent/:id/leads", (req, res) => {
     const agentId = parseInt(req.params.id);
     const agent = storage.getAgentById(agentId);
@@ -382,15 +437,19 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
 
-  // SCRIPTS (DB-backed, editable)
+  // ─── SCRIPTS (DB-backed, editable) ────────────────────────────────────────
+  // Initialize default scripts on first run
   const initScript = (leadType: string, defaultContent: string) => {
-    const sqlite3 = require("better-sqlite3");
-    const db3 = new sqlite3("data.db");
-    const exists = db3.prepare("SELECT id FROM scripts WHERE lead_type = ?").get(leadType);
+    const db2 = (storage as any);
+    // Use raw sqlite to check/insert scripts
+    const { drizzle } = require("drizzle-orm/better-sqlite3");
+    const Database = require("better-sqlite3");
+    const sqlite2 = new Database("data.db");
+    const exists = sqlite2.prepare("SELECT id FROM scripts WHERE lead_type = ?").get(leadType);
     if (!exists) {
-      db3.prepare("INSERT INTO scripts (lead_type, content, updated_at) VALUES (?, ?, ?)").run(leadType, defaultContent, new Date().toISOString());
+      sqlite2.prepare("INSERT INTO scripts (lead_type, content, updated_at) VALUES (?, ?, ?)").run(leadType, defaultContent, new Date().toISOString());
     }
-    db3.close();
+    sqlite2.close();
   };
 
   const expiredScript = `EXPIRED LISTING SCRIPT
@@ -398,51 +457,156 @@ Brothers Group at Momentum Realty
 ─────────────────────────────────────────────────
 
 OPENING
-
-"Hi, is this [Owner's Name]? Great — my name is [Your Name] with Brothers Group at Momentum Realty here in Northeast Florida. I'm reaching out because I noticed your home on [Street Address] was recently on the market and the listing came off without selling. I know that's not what you were hoping for, and I just wanted to reach out personally — not to pitch you, but to have an honest conversation about what might have gotten in the way and whether there's a better path forward. Do you have just a couple of minutes?"
-
-─────────────────────────────────────────────────
-TRANSITION / BRIDGE
-
-"I appreciate that. We work with a lot of sellers in your area, and honestly, when a listing expires it's almost never the property — it's usually the strategy. Pricing, presentation, marketing reach, or some combination. What we do differently is take a data-driven approach before we ever go to market, and our team has a strong track record of getting homes sold that didn't sell the first time. I'd love to learn a little more about your situation and share what we're seeing in your specific area right now. Can I ask you a few quick questions?"
+"Hi, this is [YOUR NAME] from The Brothers Group Real Estate Team. I was looking at [ADDRESS] here in [CITY] — it looks like the home was for sale but came off the market. What happened there? Did it sell?"
 
 ─────────────────────────────────────────────────
 COMMON OBJECTIONS
 
-OBJECTION 1 — "I'm not interested in listing again right now."
-"That's completely fair — going through a listing that didn't sell is exhausting. I'm not asking you to jump back in tomorrow. I just want to understand what happened and give you a clearer picture of what the market is doing now. Even if you wait six months, that information will serve you. Would it be okay if we just talked for a few minutes?"
+If they ask "Who is this again?"
+  → "Great question — my name is [NAME], I'm with The Brothers Group at Momentum Realty. We're one of the top producing teams in Northeast Florida. We keep a close eye on everything happening in this market."
 
-OBJECTION 2 — "I already have another agent lined up."
-"That's great — I'm glad you have a plan. I'll respect that completely. The only thing I'd ask is, before you sign anything, make sure you've had a chance to compare approaches. After a listing expires, the way you re-enter the market really matters. If you ever want a second opinion, even just as a gut check, I'm happy to be that resource."
+If they ask "Why are you calling?"
+  → "We work with a lot of active buyers right now, and this home caught our attention. We'd love to be able to show it — but I also wanted to see if you were still thinking about selling."
 
-OBJECTION 3 — "The market is bad. I'll just wait."
-"I hear that a lot, and it's worth thinking through — but in Northeast Florida specifically, we're still seeing motivated buyers active in certain price points and neighborhoods. The market isn't one-size-fits-all. What I'd want to do is show you exactly what's happened in your zip code over the last 90 days — what sold, what didn't, and why. Would that be worth 20 minutes?"
+If they say "We're not in a rush" or "We just took it down for now"
+  → "Totally understandable. A lot of sellers do that. Can I ask — what would need to change for you to move forward?"
 
 ─────────────────────────────────────────────────
-DISCOVERY — LPMAMAB
+ABOUT US (when they're open — keep it brief)
+"I'm [NAME] — my partner and I run The Brothers Group here in [CITY]. We've been recognized as a top 1% producing team and top team in Northeast Florida, JBJ Award winners, and we have an office right on the island. We sell homes fast and at strong prices — but more importantly, we take care of our clients the right way."
 
-  L — Location: "Just so I'm looking at the right comps — is the property still at [address], or have there been any changes to what you'd be selling?"
+─────────────────────────────────────────────────
+GATHER — LPMAMAB (let them talk, ask one at a time)
 
-  P — Price: "When you listed before, what were you hoping to net out of the sale? And looking back, do you feel the price was right, or do you think that played a role in it not selling?"
-
-  M — Motivation: "When you originally listed, what was driving the timing? Is that same motivation still there, or has your situation changed since then?"
-
-  A — Agent: "Without getting into the details — what do you feel was missing from your last experience? Was it communication, marketing, the price strategy, something else?"
-
-  M — Mortgage: "Do you have an existing mortgage on the property, or do you own it free and clear? I ask because that affects what flexibility you have on price and timing."
-
-  A — Appointment: "Based on everything you've told me, I think it'd be worth 20 to 30 minutes to sit down and show you exactly what we'd do differently. Would [Day] or [Day] work better — morning or afternoon?"
-
-  B — Buy: "Once this home sells, what's the plan — are you moving within the area, relocating, or is this more of an investment situation?"
+  L — Location:     "Where are you planning to go after you sell?"
+  P — Price:        "What were you listed at? What do you need to net to make the move work?"
+  M — Motivation:   "What's driving the move — job, family, lifestyle change?"
+  A — Agent:        "Were you working with an agent? What do you feel could have gone better?"
+  M — Mortgage:     "Do you have a sense of what you owe on the property right now?"
+  A — Appointment:  "I'd love to come by and walk through what we'd do differently. What does [DAY] or [DAY] look like for a quick 20-minute visit?"
+  B — Buy:          "Once you sell — will you be buying something here or in your destination?"
 
 ─────────────────────────────────────────────────
 CLOSE
 
 If appointment set:
-"Perfect. I'll send you a confirmation right now with my contact info. Before we meet, I'm going to pull a full market analysis specific to your address so we're not guessing — we'll have real numbers in front of us. I'll see you [Day] at [Time]. Thanks for giving us a shot, [Name]."
+  "Perfect — we'll send you a calendar invite and a quick email with our team info and what to expect. We're looking forward to it."
+
+If not ready yet:
+  "I completely understand. Can I at least send you our info so you know who we are when you're ready? And would it be okay if I checked back in [X weeks]?"
+
+─────────────────────────────────────────────────`;
+
+  const flipScript = `FLIP LEAD SCRIPT
+Brothers Group at Momentum Realty
+─────────────────────────────────────────────────
+
+OPENING
+"Hi, this is [YOUR NAME] from The Brothers Group Real Estate Team. I came across [ADDRESS] in [CITY] — it looks like an investment property and I wanted to reach out. Are you the owner?"
+
+─────────────────────────────────────────────────
+COMMON OBJECTIONS
+
+If they ask "How did you get my number?"
+  → "We monitor investment activity closely in this market — we work with both buyers and sellers in this space and stay very dialed in to what's moving."
+
+If they say "I'm not interested"
+  → "Totally fair. Can I just ask — are you planning to hold it, flip it, or is the strategy still being worked out?" (Re-engage with curiosity)
+
+If they say "I already have an agent"
+  → "No problem at all — we work alongside a lot of investors who already have relationships. We're really just staying connected so if anything changes, you know who to call."
+
+─────────────────────────────────────────────────
+ABOUT US (brief — investors don't want a pitch)
+"We specialize in helping investors move properties quickly and at strong margins. We also help them find their next deal. The Brothers Group is a top 1% team in Northeast Florida — we move fast and keep things simple."
+
+─────────────────────────────────────────────────
+GATHER — LPMAMAB
+
+  L — Location:     "Are you local, or are you investing from out of area?"
+  P — Price:        "What did you pay for it? What are you targeting for your resale or exit?"
+  M — Motivation:   "What's the play — fix and flip, wholesale, hold as a rental?"
+  A — Agent:        "Do you have a buyer's agent or listing agent you're already working with?"
+  M — Mortgage:     "Are you in it with cash, hard money, or conventional financing?"
+  A — Appointment:  "Would it make sense to connect — even just a quick 15-minute call — to see how we can help you move it or find your next one?"
+  B — Buy:          "Are you actively looking for the next deal, or are you focused on exiting this one first?"
+
+─────────────────────────────────────────────────
+CLOSE
+
+If appointment set:
+  "Great — let's lock that in. I'll send a calendar invite and our info so you have it. We'll keep it short and make it worth your time."
 
 If not ready:
-"No pressure at all. I'll send you a quick market snapshot for your neighborhood so you have something useful regardless of what you decide. And if it's okay, I'd like to check back in with you in a few weeks — just to see if anything's shifted. What's the best way to reach you, email or text?"
+  "I hear you. Mind if I follow up in [X weeks] once you're closer to making a move? We'd love to be in your corner when the time comes."
+
+─────────────────────────────────────────────────`;
+
+  const websiteLeadScript = `WEBSITE LEAD SCRIPT
+─────────────────────────────────────────────────
+LEAD SOURCE: MotivatedSellers.com — Inbound Seller Inquiry
+TYPE: Motivated Seller (they reached out to us)
+
+─────────────────────────────────────────────────
+OPENING
+
+"Hi, is this [First Name]? Hey [First Name], this is [Your Name] calling from Brothers Group at Momentum Realty. I'm reaching out because you submitted your property at [Address] through our website — I just wanted to follow up and see how we can help. Is now an okay time?"
+
+─────────────────────────────────────────────────
+IF GOOD TIME → TRANSITION
+
+"Great. So I see your home is at [Address] in [City] — [Property Type], estimated around $[Value]. I just want to make sure I understand your situation so I can point you in the right direction."
+
+─────────────────────────────────────────────────
+GATHER — LPMAMAB
+
+  L — Location:
+    "Are you currently living in the home, or is it a rental / vacant?"
+
+  P — Price:
+    "I see the estimated value came in around $[Estimated Value] — does that feel accurate to you? What were you hoping to walk away with?"
+
+  M — Motivation:
+    "You mentioned [Reason for Selling] — can you tell me a little more about what's driving the timeline?"
+    (If blank: "What's the main reason you're looking to sell?")
+
+  A — Agent:
+    "Have you spoken with any other agents or companies about selling?"
+
+  M — Mortgage:
+    "Is there currently a mortgage on the property, or do you own it free and clear?"
+
+  A — Appointment:
+    "It sounds like we should connect in person — I'd love to come take a look at the property and put together some real numbers for you. Would [Day] or [Day] work better?"
+
+  B — Buy:
+    "Once this sells, are you planning to buy something else, or are you done for now?"
+
+─────────────────────────────────────────────────
+TIMEFRAME CHECK
+
+"You put down [Timeframe] — is that still accurate? Are you flexible, or is there a hard deadline driving that?"
+
+─────────────────────────────────────────────────
+OBJECTION HANDLERS
+
+If "I'm just exploring options":
+  → "Totally understand — that's exactly what this call is for. No pressure at all. I just want to make sure you have accurate information so you can make the best decision for your situation."
+
+If "I already have an agent":
+  → "No problem. Are you under contract with them, or just in conversation? We work with a lot of sellers who are still weighing their options."
+
+If "What can you get me for it?":
+  → "That's the most important question — I don't want to give you a number without seeing it. That's why I'd love to come by. It won't take long and I'll have real comps in hand."
+
+─────────────────────────────────────────────────
+CLOSE
+
+If appointment set:
+  "Perfect — I'll lock that in and send you a confirmation. I'll also pull some comparable sales so we come prepared. Looking forward to it."
+
+If not ready:
+  "No worries at all. When would be a better time to reconnect? I want to make sure you have everything you need when you're ready to move forward."
 
 ─────────────────────────────────────────────────`;
 
@@ -451,167 +615,129 @@ Brothers Group at Momentum Realty
 ─────────────────────────────────────────────────
 
 OPENING
-
-"Hi, is this [Owner's Name]? My name is [Your Name] — I'm with Brothers Group at Momentum Realty in Northeast Florida. I'm calling about your property over on [Street Address]. We work closely with a group of investors and buyers who are specifically looking for properties in that area, including homes that may need some work or updating. I'm not sure if selling is something you're thinking about, but properties like yours are actually in high demand right now with a certain type of buyer. Do you have just a minute?"
-
-─────────────────────────────────────────────────
-TRANSITION / BRIDGE
-
-"What I've found is that a lot of owners in your situation assume they'd have to do a ton of repairs before they could sell — and that's just not the case anymore. We have buyers and investors who want properties as-is. They handle everything after closing. No repairs, no hassle. My job is just to figure out if there's a number that makes sense for you and connect the right party. Can I ask you a few questions about the property?"
+"Hi, is this [Owner Name]? This is [YOUR NAME] with The Brothers Group at Momentum Realty. I specialize in helping homeowners in difficult or time-sensitive situations — and I came across your property at [ADDRESS]. I just wanted to reach out and see if there's anything I could help with. Is now an okay time?"
 
 ─────────────────────────────────────────────────
 COMMON OBJECTIONS
 
-OBJECTION 1 — "The house needs a lot of work. Nobody would want it."
-"That's actually exactly why I'm calling. Our investors aren't looking for move-in ready — they're looking for properties with potential, and yours fits that profile. The condition isn't a problem for them. What matters is the location, the lot, and the numbers. You might be surprised what the number looks like."
+If they ask "How did you get my information?"
+  → "We track properties in this area closely — sometimes homes show signs that the owner might be weighing options. I'm not here to pressure you, just to let you know we have options and can move quickly if needed."
 
-OBJECTION 2 — "I'm not looking to give it away."
-"Completely understood — and that's not what we're proposing. What we do is look at what the property could be worth after updates, work backward from there, and make sure the offer reflects a fair deal for you. You'd know exactly how we arrived at the number. If it doesn't make sense, no hard feelings — but at least you'd have a real offer to compare against."
+If they say "I'm handling it myself"
+  → "I respect that. Can I ask — what direction are you leaning right now? Sometimes having a real estate professional in your corner can open up options you didn't know were there."
 
-OBJECTION 3 — "I need to talk to my family first."
-"That makes total sense — a decision like this should involve everyone with a stake. What I'd suggest is let's set up a brief conversation, no pressure, where I can walk everyone through what we're seeing in the market and what an offer might look like. That way your family has actual numbers to discuss, not just a general idea. Would it be easier to do that when everyone's available?"
+If they say "I'm not interested"
+  → "That's okay. Would it be alright if I at least shared what your home might be worth in today's market? No strings attached."
 
 ─────────────────────────────────────────────────
-DISCOVERY — LPMAMAB
+GATHER — LPMAMAB
 
-  L — Location: "Just to make sure I have the right property — is [address] the only structure, or are there additional lots or buildings on that same site?"
-
-  P — Price: "I don't want to waste your time with numbers that don't work for you — do you have a ballpark in mind of what you'd need to walk away feeling good about the sale?"
-
-  M — Motivation: "Has selling been on your radar at all, or is this more of a 'right number would change my mind' situation? Just want to understand where you're coming from."
-
-  A — Agent: "Have you spoken with any other agents or investors about the property? I just want to know what you've already heard so I'm not repeating things."
-
-  M — Mortgage: "Is there a mortgage or any liens on the property, or do you own it outright? That helps me understand how much flexibility we're working with."
-
-  A — Appointment: "I'd love to take a quick look at the property in person — even just a 15-minute walk-through. Would [Day] or [Day] work for you? I'll come to you."
-
-  B — Buy: "Once this property is off your plate, do you have plans for the proceeds — investing in something else, or just simplifying things?"
+  L — Location:    "Where are you hoping to be after this is resolved?"
+  P — Price:       "Do you have a sense of what the home might be worth right now?"
+  M — Motivation:  "What's the main challenge you're facing with the property?"
+  A — Agent:       "Have you spoken with an agent or attorney about this yet?"
+  M — Mortgage:    "Is there still a mortgage on the property, and do you know roughly what's owed?"
+  A — Appointment: "Would it make sense for me to come out, take a look, and put together some options for you? I can usually do that within 24-48 hours."
+  B — Buy:         "After this situation is resolved — will you be looking to buy somewhere else?"
 
 ─────────────────────────────────────────────────
 CLOSE
 
 If appointment set:
-"Great — I'll be there [Day] at [Time]. I'll do some homework on the property before I come so I'm not walking in blind. I'll have a realistic range ready to discuss. No paperwork, no pressure — just a conversation with real numbers. Thanks, [Name], I'll see you then."
+  "We'll be in touch to confirm. We work fast and treat every situation with care."
 
 If not ready:
-"No problem at all. I'll put together a quick profile of what similar properties in your area have sold for recently, including some as-is sales to investors, and send it your way. That'll give you a baseline to think about. What's the best email or number to reach you?"
-
+  "Completely understand. Let me send you our info so you have it when you're ready. May I follow up in [X days]?"
 ─────────────────────────────────────────────────`;
 
-  const landScript = `LAND LEAD SCRIPT
+  const fsboScript = `FOR SALE BY OWNER (FSBO) SCRIPT
 Brothers Group at Momentum Realty
 ─────────────────────────────────────────────────
 
 OPENING
+"Hi, is this [Owner Name]? Hey [Name] — I'm [YOUR NAME] with The Brothers Group at Momentum Realty. I saw your home at [ADDRESS] listed for sale by owner. I'm not calling to convince you to list with an agent — I actually work with a lot of buyers and wanted to see if I could bring one of them through. Would you be open to that?"
 
-"Hi, is this [Owner's Name]? My name is [Your Name] with Brothers Group at Momentum Realty in Northeast Florida. I'm reaching out because your name came up in connection with a parcel of vacant land over on [Parcel Address / Cross Streets]. I work with a lot of land buyers and developers in this region, and I just wanted to touch base — I'm not sure if selling that parcel is something you've thought about, but I've been seeing real activity in that corridor lately and wanted to give you a heads-up. Do you have just a minute?"
-
-─────────────────────────────────────────────────
-TRANSITION / BRIDGE
-
-"I appreciate it. Here's where I'm coming from — Northeast Florida land has been moving in a way I haven't seen in a while. Developers, investors, and private buyers are actively looking for parcels, and a lot of landowners haven't revisited what their land is actually worth in today's market. I'm not here to pressure you into anything — I just think you deserve to know what's going on around you and what options might be on the table. Can I ask you a few questions about the parcel?"
+(If yes) → Great. Then naturally move into LPMAMAB.
+(If "I'm only selling direct") → "Totally respect that. Out of curiosity, how long have you been on the market? Are you getting much traffic?"
 
 ─────────────────────────────────────────────────
 COMMON OBJECTIONS
 
-OBJECTION 1 — "I'm holding onto it as an investment."
-"That's a smart approach — land can be a great long-term hold. The question I'd gently push back on is: are you holding because you believe it'll appreciate more, or because selling just hasn't been top of mind? In some areas right now, the appreciation people expected over five to ten years has already happened in the last two. I'm not saying sell — I'm saying let's make sure your decision is based on current data, not old assumptions."
+If they say "I don't want to pay commission"
+  → "That makes total sense. If I bring you a buyer, my commission comes from the buyer side — it doesn't have to cost you anything. Can I share how that typically works?"
 
-OBJECTION 2 — "I don't even know much about the parcel."
-"That's more common than you'd think — a lot of owners have land they inherited or bought years ago and haven't revisited. That's actually where we can help. We can pull the county records, give you the parcel details, zoning, utilities access, and a real picture of what it's worth. No cost, no obligation. Would it help just to know what you're actually sitting on?"
+If they say "We have a buyer already"
+  → "Perfect! How far along are you? If that falls through, I work with multiple backup buyers and can move fast."
 
-OBJECTION 3 — "Someone else already approached me about it."
-"That's good to hear — it means the market is active around your parcel. The only thing I'd make sure of is that whoever approached you is giving you a fair number. A lot of direct buyer offers lowball because the owner doesn't have representation. We'd want to make sure you have the full picture before making any decisions. Would you be open to a quick comparison?"
+If they say "I'm handling it myself"
+  → "Respect that. How long have you been trying? We have a lot of buyer inquiries we send to FSBO homes. If the traffic hasn't been there, we can change that fast."
 
 ─────────────────────────────────────────────────
-DISCOVERY — LPMAMAB
+GATHER — LPMAMAB
 
-  L — Location: "Just to confirm I'm looking at the right parcel — is it [address / cross streets], and roughly how large is it? Acreage, frontage, anything you remember?"
-
-  P — Price: "Have you had any sense of what the parcel might be worth today, or has it been a while since you looked at that?"
-
-  M — Motivation: "What was the original plan when you acquired it — build on it, hold it, or was it more of an opportunistic buy at the time?"
-
-  A — Agent: "Has anyone else reached out about it recently — agents, investors, developers? I just want to know if you're in the middle of something or if this is a fresh conversation."
-
-  M — Mortgage: "Is there any debt tied to the parcel, or is it owned free and clear? That's helpful when we look at what makes sense financially."
-
-  A — Appointment: "What I'd love to do is pull a full land comps report for your area and walk you through it — in person or over the phone, whatever's easier. Would [Day] or [Day] work for a quick 20-minute call or meeting?"
-
-  B — Buy: "If you did decide to sell, would you be looking to reinvest in other land or property, or would this be more of a liquidity event?"
+  L — Location:    "Where are you planning to go once this sells?"
+  P — Price:       "What are you listed at? Is that firm, or do you have some flexibility?"
+  M — Motivation:  "What's pushing you to sell right now?"
+  A — Agent:       "Have you worked with an agent before, or is this your first time going at it solo?"
+  M — Mortgage:    "Do you owe anything on the property currently?"
+  A — Appointment: "Can I swing by to see it in person? Sometimes just walking through helps me match it to the right buyer faster. What does [Day] look like?"
+  B — Buy:         "After this closes — will you be buying your next place or moving on?"
 
 ─────────────────────────────────────────────────
 CLOSE
 
 If appointment set:
-"Perfect. I'll pull the county parcel data and run comps before we meet so you're not walking in blind. It'll be 20 minutes and you'll walk away with a much clearer picture of where you stand. I'll see you [Day] at [Time] — confirmation coming your way now. Thanks, [Name]."
+  "Great — I'll send a quick email with my info and what to expect. We'll keep it brief and make it worth your time."
 
 If not ready:
-"No problem — I appreciate you taking the call. I'll put together a quick land market summary for your area and send it your way. No pitch, just information. What's the best way to get that to you — email or text?"
-
+  "No pressure. Mind if I send over a quick market report for your area? And I'll check back in [X weeks] — deal?"
 ─────────────────────────────────────────────────`;
 
-  const websiteLeadScript = `WEBSITE LEAD SCRIPT
+  const landScript = `LAND / VACANT LOT SCRIPT
 Brothers Group at Momentum Realty
 ─────────────────────────────────────────────────
-LEAD SOURCE: MotivatedSellers.com — Inbound Seller Inquiry
-TYPE: Motivated Seller (they reached out to us)
 
-─────────────────────────────────────────────────
 OPENING
-
-"Hi, is this [Owner's Name]? This is [Your Name] calling from Brothers Group at Momentum Realty — I'm following up because you submitted your property info through our website a little while ago. Thank you for reaching out — I wanted to make sure I got back to you quickly because these situations move fast and I didn't want you waiting around. Is now a decent time to talk for a few minutes?"
-
-─────────────────────────────────────────────────
-TRANSITION / BRIDGE
-
-"Great. So you reached out through our site, which tells me you're at least considering your options — and I want to make sure I understand exactly where you're at and what would be most helpful. We work with sellers across Northeast Florida, and whether you want to sell fast, sell for top dollar, or just explore what's possible, we can walk you through all of it. I just want to ask you a few quick questions so I can point you in the right direction."
+"Hi, is this [Owner Name]? Hey — this is [YOUR NAME] with The Brothers Group at Momentum Realty. I came across your parcel at [ADDRESS/PARCEL ID] in [CITY/COUNTY]. We've been getting a lot of inquiries from buyers looking for land in that area, and I wanted to reach out to see if you'd ever considered selling. Is now a good time?"
 
 ─────────────────────────────────────────────────
 COMMON OBJECTIONS
 
-OBJECTION 1 — "I was just browsing, I'm not sure I'm ready to sell."
-"That's totally fine — and that's exactly what the site is there for. A lot of people just want to see what their home might be worth before making any decisions, and that's smart. There's no commitment involved. What I can do is give you a real picture of where your home sits in today's market — no pressure, just useful information. Would that help?"
+If they say "I'm not interested in selling"
+  → "Totally understand. Would you be open to knowing what it might be worth right now? The land market in this area has moved a lot."
 
-OBJECTION 2 — "I want to try selling it myself first."
-"I respect that — FSBOs can work. What I'd encourage is at least having a conversation with us before you go that route. There are a few things we're seeing right now on buyer activity and pricing in your area that could actually help you even if you go on your own. And if after talking you still want to try it yourself, at least you'll have better data. Fair enough?"
+If they say "What would I get for it?"
+  → "Great question — it really depends on the acreage, utilities available, and zoning. Can I get a few quick details from you so I can put together a number?"
 
-OBJECTION 3 — "I'm not in a rush."
-"Good — that actually puts you in a stronger position. The sellers who get the best results are usually the ones who aren't desperate to close by next week. If you've got time, we can be more strategic about how we go to market. Let me ask you a few questions to understand your timeline and what outcome looks best for you."
+If they say "I bought it as an investment"
+  → "Smart move. Has it appreciated the way you hoped? We work with builders and developers who pay strong prices for the right parcels right now."
 
 ─────────────────────────────────────────────────
-DISCOVERY — LPMAMAB
+GATHER — LPMAMAB
 
-  L — Location: "Tell me about the property — what's the address, and is it your primary home, a rental, or something else?"
-
-  P — Price: "Do you have a number in mind that you'd want to walk away with, or are you still figuring that out based on what the market says?"
-
-  M — Motivation: "What prompted you to reach out now — is there a specific timeline driving this, or are you more open-ended at this point?"
-
-  A — Agent: "Are you currently working with anyone else, or is Brothers Group the first team you've connected with?"
-
-  M — Mortgage: "Roughly, do you know what you owe on the property? That helps me understand what you'd net and whether the timing makes financial sense for you."
-
-  A — Appointment: "I'd love to come by, take a look, and give you a real number — not an algorithm estimate, but an actual market analysis based on your specific home. Would [Day] or [Day] work for a 30-minute visit?"
-
-  B — Buy: "After the sale, are you planning to buy something else in the area, or are you heading in a different direction?"
+  L — Location:    "Are you local, or do you own this parcel from out of the area?"
+  P — Price:       "Do you have a number in mind, or are you open to hearing what the market supports?"
+  M — Motivation:  "What was the original plan for the land? Has that changed?"
+  A — Agent:       "Have you worked with a real estate agent on land before?"
+  M — Mortgage:    "Is there any debt on the parcel, or do you own it free and clear?"
+  A — Appointment: "I'd love to put together a land analysis and bring it to you. Could we schedule a quick call this week?"
+  B — Buy:         "If you do sell — would you be looking to reinvest in another property?"
 
 ─────────────────────────────────────────────────
 CLOSE
 
 If appointment set:
-"Perfect — I'll confirm that right now with a text so you have my contact info. Before I come out I'll pull your address and do prep work so we're using our time efficiently. Expect a full market analysis when I arrive — something specific to your home, not a generic estimate. Looking forward to meeting you, [Name]. I'll see you [Day] at [Time]."
+  "Great — I'll pull the comps and reach out to confirm. We work with land all the time and can give you an honest picture of what it's worth."
 
 If not ready:
-"Understood — and I'm glad you reached out, even just to start the conversation. I'll send over a current market report for your neighborhood so you have something to look at on your own time. Whenever you're ready to take the next step, I'm here. Do you prefer text or email going forward?"
-
+  "No rush. Would it be okay if I sent you a quick overview of recent land sales nearby? And I'll check in with you in [X weeks]."
 ─────────────────────────────────────────────────`;
 
   initScript("expired", expiredScript);
   initScript("distressed", distressedScript);
-  initScript("land", landScript);
   initScript("website_lead", websiteLeadScript);
+  initScript("fsbo", fsboScript);
+  initScript("land", landScript);
 
   app.get("/api/scripts/:type", (req, res) => {
     const leadType = req.params.type;
@@ -643,31 +769,6 @@ If not ready:
     res.json({ leadType, content, updatedAt: now });
   });
 
-
-
-
-  // SETTINGS — global lead flow toggle
-  app.get("/api/settings/lead-flow", (req, res) => {
-    const val = storage.getSetting("lead_flow_active");
-    res.json({ active: val !== "false" });
-  });
-
-  app.post("/api/settings/lead-flow", (req, res) => {
-    const { active } = req.body;
-    if (typeof active !== "boolean") return res.status(400).json({ error: "Missing active boolean" });
-    storage.setSetting("lead_flow_active", active ? "true" : "false");
-    res.json({ active });
-  });
-
-  // AGENT TOGGLE — activate / deactivate individual agent lead flow
-  app.post("/api/agents/:id/toggle-active", (req, res) => {
-    const id = parseInt(req.params.id);
-    const agent = storage.getAgentById(id);
-    if (!agent) return res.status(404).json({ error: "Agent not found" });
-    const newActive = !agent.isActive;
-    const updated = storage.updateAgent(id, { isActive: newActive });
-    res.json({ ...updated, password: undefined });
-  });
 
   return httpServer;
 }

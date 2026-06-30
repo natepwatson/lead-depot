@@ -5,15 +5,25 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollText, Save, RotateCcw, Eye, Edit3, CheckCircle } from "lucide-react";
+import { ScrollText, Save, RotateCcw, Edit3 } from "lucide-react";
 
-interface ScriptEditorProps {
-  leadType: "expired" | "distressed" | "land" | "website_lead";
+const SCRIPT_TYPES = [
+  { key: "expired",      label: "Expired Listing Script",     accentClass: "text-orange-400" },
+  { key: "distressed",   label: "Distressed Property Script", accentClass: "text-red-400" },
+  { key: "website_lead", label: "Website Lead Script",        accentClass: "text-blue-400" },
+  { key: "fsbo",         label: "FSBO Script",                accentClass: "text-violet-400" },
+  { key: "land",         label: "Land / Vacant Lot Script",   accentClass: "text-emerald-400" },
+] as const;
+
+type ScriptKey = typeof SCRIPT_TYPES[number]["key"];
+
+interface ScriptEditorPanelProps {
+  leadType: ScriptKey;
   label: string;
   accentClass: string;
 }
 
-function ScriptEditorPanel({ leadType, label, accentClass }: ScriptEditorProps) {
+function ScriptEditorPanel({ leadType, label, accentClass }: ScriptEditorPanelProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -31,7 +41,7 @@ function ScriptEditorPanel({ leadType, label, accentClass }: ScriptEditorProps) 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/scripts", leadType] });
       setEditing(false);
-      toast({ title: "Script saved", description: `${label} script updated successfully.` });
+      toast({ title: "Script saved", description: `${label} updated successfully.` });
     },
     onError: () => toast({ title: "Save failed", variant: "destructive" }),
   });
@@ -108,7 +118,7 @@ function ScriptEditorPanel({ leadType, label, accentClass }: ScriptEditorProps) 
         ) : editing ? (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Edit the script below. Use plain text formatting — blank lines between sections, dashes for dividers. Changes are saved to the database immediately.
+              Edit the script below. Use plain text — blank lines between sections, dashes for dividers. Changes go live immediately on save.
             </p>
             <Textarea
               value={draft}
@@ -137,13 +147,12 @@ export default function ScriptEditor() {
           <ScrollText size={14} className="text-primary" /> Call Scripts
         </h2>
         <p className="text-xs text-muted-foreground mt-1">
-          Scripts appear on each agent's lead card during calls. Edit anytime — changes go live immediately.
+          Scripts appear on each agent's lead card during calls. Edit anytime — changes go live immediately across all active agent sessions.
         </p>
       </div>
-      <ScriptEditorPanel leadType="expired" label="Expired Listing Script" accentClass="text-orange-400" />
-      <ScriptEditorPanel leadType="distressed" label="Distressed Lead Script" accentClass="text-orange-400" />
-      <ScriptEditorPanel leadType="land"       label="Land Lead Script"       accentClass="text-emerald-400" />
-      <ScriptEditorPanel leadType="website_lead" label="Website Lead Script"  accentClass="text-blue-400" />
+      {SCRIPT_TYPES.map(s => (
+        <ScriptEditorPanel key={s.key} leadType={s.key} label={s.label} accentClass={s.accentClass} />
+      ))}
     </div>
   );
 }

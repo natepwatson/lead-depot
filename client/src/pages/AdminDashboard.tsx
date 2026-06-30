@@ -16,8 +16,7 @@ import {
   LogOut, Upload, Users, BarChart3, List, Plus, Trash2,
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneOff, PhoneMissed, Calendar, XCircle, CheckCircle2,
-  AlertTriangle, ChevronRight, X, Layers, ScrollText,
-  PowerOff, Power, PauseCircle, PlayCircle, ToggleLeft, ToggleRight
+  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 
@@ -34,12 +33,10 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function TypeBadge({ type }: { type: string }) {
-  const label =
-    type === "expired"     ? "Source: Expired"    :
-    type === "distressed"  ? "Source: Distressed" :
-    type === "website_lead"? "Source: Website"    :
-    type === "land"        ? "Source: Land"       : "Source: Unknown";
-  return <span className={`text-xs px-2 py-0.5 rounded-full font-medium type-${type}`}>{label}</span>;
+  const labels: Record<string, string> = {
+    expired: "Expired", distressed: "Distressed", website_lead: "Website Lead", fsbo: "FSBO", land: "Land",
+  };
+  return <span className={`text-xs px-2 py-0.5 rounded-full font-medium type-${type}`}>{labels[type] || type}</span>;
 }
 
 function StatCard({ label, value, sub, accent }: { label: string; value: number | string; sub?: string; accent?: string }) {
@@ -195,7 +192,7 @@ export default function AdminDashboard() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadType, setUploadType] = useState<"expired" | "distressed" | "land" | "website_lead">("expired");
+  const [uploadType, setUploadType] = useState<"expired" | "distressed" | "website_lead" | "fsbo" | "land">("expired");
   const [websiteLeadForm, setWebsiteLeadForm] = useState({ firstName: "", lastName: "", email: "", phone: "", address: "", city: "", state: "FL", zip: "", county: "", propertyType: "", reasonForSelling: "", estimatedValue: "", timeframe: "" });
   const [submittingWebsiteLead, setSubmittingWebsiteLead] = useState(false);
   const [newAgent, setNewAgent] = useState({ name: "", email: "", password: "" });
@@ -248,29 +245,34 @@ export default function AdminDashboard() {
     },
   });
 
-  const toggleAgentMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("POST", `/api/agents/${id}/toggle-active`).then(r => r.json()),
-    onSuccess: (updated: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/agents"] });
-      qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
-      toast({ title: updated.isActive ? `${updated.name} activated` : `${updated.name} paused`, description: updated.isActive ? "Agent will receive leads." : "Agent paused — no new leads assigned." });
-    },
-    onError: () => toast({ title: "Failed to toggle agent", variant: "destructive" }),
+  const toggleReceiveLeadsMutation = useMutation({
+    mutationFn: ({ id, receiveLeads }: { id: number; receiveLeads: boolean }) =>
+      apiRequest("PATCH", `/api/agents/${id}/receive-leads`, { receiveLeads }).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/agents"] }),
   });
-
-  const { data: leadFlowData, refetch: refetchLeadFlow } = useQuery<{ active: boolean }>({
-    queryKey: ["/api/settings/lead-flow"],
-    queryFn: () => apiRequest("GET", "/api/settings/lead-flow").then(r => r.json()),
-  });
-  const leadFlowActive = leadFlowData?.active ?? true;
 
   const toggleLeadFlowMutation = useMutation({
-    mutationFn: (active: boolean) => apiRequest("POST", "/api/settings/lead-flow", { active }).then(r => r.json()),
-    onSuccess: (data: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/settings/lead-flow"] });
-      toast({ title: data.active ? "Lead flow resumed" : "Lead flow paused", description: data.active ? "Agents will now receive leads." : "All lead distribution paused globally." });
+    mutationFn: ({ id, leadFlowOn }: { id: number; leadFlowOn: boolean }) =>
+      apiRequest("PATCH", `/api/agents/${id}/lead-flow`, { leadFlowOn }).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/agents"] }),
+  });
+
+  const toggleWebsiteLeadsMutation = useMutation({
+    mutationFn: ({ id, receiveWebsiteLeads }: { id: number; receiveWebsiteLeads: boolean }) =>
+      apiRequest("PATCH", `/api/agents/${id}/website-leads`, { receiveWebsiteLeads }).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/agents"] }),
+  });
+
+  const clearQueueMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/leads/clear-queue", { clearedBy: user?.id }).then(r => r.json()),
+    onSuccess: (data) => {
+      toast({ title: "Queue cleared", description: data.message });
+      qc.invalidateQueries({ queryKey: ["/api/leads"] });
+      qc.invalidateQueries({ queryKey: ["/api/leads/stats"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/pipeline"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
     },
-    onError: () => toast({ title: "Failed to update lead flow", variant: "destructive" }),
+    onError: () => toast({ title: "Error clearing queue", variant: "destructive" }),
   });
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -287,7 +289,8 @@ export default function AdminDashboard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
-      toast({ title: `${data.created} leads uploaded`, description: `Distributed via round-robin as ${uploadType === "expired" ? "Expired Listings" : uploadType === "distressed" ? "Distressed Leads" : uploadType === "land" ? "Land Leads" : "Website Leads"}.` });
+      const typeLabels: Record<string,string> = { expired:"Expired Listings", distressed:"Distressed", website_lead:"Website Lead", fsbo:"FSBO", land:"Land" };
+      toast({ title: `${data.created} leads uploaded`, description: `Distributed via round-robin as ${typeLabels[uploadType] || uploadType}.` });
       qc.invalidateQueries({ queryKey: ["/api/leads"] });
       qc.invalidateQueries({ queryKey: ["/api/leads/stats"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/pipeline"] });
@@ -379,34 +382,10 @@ export default function AdminDashboard() {
             <p className="text-xs text-muted-foreground">{user?.name} — Admin</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => toggleLeadFlowMutation.mutate(!leadFlowActive)}
-            disabled={toggleLeadFlowMutation.isPending}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-semibold transition-all ${leadFlowActive ? "bg-green-600/15 border-green-600/40 text-green-400 hover:bg-red-600/15 hover:border-red-600/40 hover:text-red-400" : "bg-red-600/15 border-red-600/40 text-red-400 hover:bg-green-600/15 hover:border-green-600/40 hover:text-green-400"}`}
-            data-testid="button-toggle-lead-flow"
-            title={leadFlowActive ? "Pause lead flow for everyone" : "Resume lead flow"}
-          >
-            {leadFlowActive ? <><PlayCircle size={12}/> Live</> : <><PauseCircle size={12}/> Paused</>}
-          </button>
-          <Button variant="ghost" size="sm" onClick={logout} className="gap-1.5 text-muted-foreground text-xs">
-            <LogOut size={13}/> Sign out
-          </Button>
-        </div>
+        <Button variant="ghost" size="sm" onClick={logout} className="gap-1.5 text-muted-foreground text-xs">
+          <LogOut size={13}/> Sign out
+        </Button>
       </header>
-
-      {/* Global lead flow pause banner */}
-      {!leadFlowActive && (
-        <div className="bg-red-900/30 border-b border-red-700/40 px-6 py-2.5 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-red-300 text-sm font-semibold">
-            <PauseCircle size={16} className="shrink-0" />
-            Lead flow is globally paused — no leads are being served to any agent
-          </div>
-          <Button size="sm" onClick={() => toggleLeadFlowMutation.mutate(true)} disabled={toggleLeadFlowMutation.isPending} className="bg-green-600 text-white hover:bg-green-500 text-xs shrink-0 gap-1.5">
-            <PlayCircle size={13}/> Resume
-          </Button>
-        </div>
-      )}
 
       <main className="p-5 max-w-7xl mx-auto space-y-5">
         <Tabs defaultValue="leaderboard">
@@ -648,15 +627,44 @@ export default function AdminDashboard() {
                 <h2 className="text-base font-semibold text-foreground mb-1">Upload Lead CSV</h2>
                 <p className="text-sm text-muted-foreground">Leads auto-distribute to agents via round-robin the moment they're uploaded.</p>
               </div>
+
+              {/* Clear Queue */}
+              <div className="bg-red-950/20 border border-red-900/30 rounded-xl p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Trash size={13} className="text-red-400"/>
+                  <p className="text-sm font-semibold text-red-300">Clear Active Queue</p>
+                </div>
+                <p className="text-xs text-muted-foreground">Retires all active leads from the queue so you can load a fresh batch. Master records and full history are preserved — no data is deleted.</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-red-900/40 text-red-400 hover:bg-red-900/20 hover:text-red-300 text-xs gap-1.5"
+                  onClick={() => {
+                    if (confirm("Clear the active queue? All in-progress leads will be marked Retired. Their history and master records are kept — only the active queue is cleared.")) {
+                      clearQueueMutation.mutate();
+                    }
+                  }}
+                  disabled={clearQueueMutation.isPending}
+                  data-testid="button-clear-queue"
+                >
+                  <Trash size={11}/>{clearQueueMutation.isPending ? "Clearing…" : "Clear Queue & Load New Batch"}
+                </Button>
+              </div>
               <div className="space-y-4">
                 <div className="space-y-1.5">
                   <Label className="text-sm text-foreground/80">Lead Type</Label>
-                  <div className="flex gap-2">
-                    {(["expired", "distressed", "land", "website_lead"] as const).map(type => (
-                      <button key={type} onClick={() => setUploadType(type)}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${uploadType === type ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-foreground/70 border-border hover:border-primary/50"}`}
-                        data-testid={`button-type-${type}`}>
-                        {type === "expired" ? "Expired Listings" : type === "distressed" ? "Distressed Leads" : type === "land" ? "Land Leads" : "Website Leads"}
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { key: "expired", label: "Expired" },
+                      { key: "distressed", label: "Distressed" },
+                      { key: "website_lead", label: "Website Lead" },
+                      { key: "fsbo", label: "FSBO" },
+                      { key: "land", label: "Land" },
+                    ] as const).map(({ key, label }) => (
+                      <button key={key} onClick={() => setUploadType(key)}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${uploadType === key ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-foreground/70 border-border hover:border-primary/50"}`}
+                        data-testid={`button-type-${key}`}>
+                        {label}
                       </button>
                     ))}
                   </div>
@@ -717,72 +725,130 @@ export default function AdminDashboard() {
           </TabsContent>
 
           {/* ─── AGENTS ──────────────────────────────────────────────────────────── */}
-          <TabsContent value="agents" className="mt-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-semibold text-foreground">Agents</h2>
-                <p className="text-sm text-muted-foreground">Toggle agents on/off to control who receives leads. Round-robin order: top → bottom.</p>
+          <TabsContent value="agents" className="mt-4 space-y-5">
+
+            {/* Admin as Agent section */}
+            <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <UserCheck size={14} className="text-primary"/>
+                <h3 className="text-sm font-bold text-foreground">Admin Lead Receiving</h3>
+                <span className="text-xs text-muted-foreground">— toggle All Leads to join round-robin; Website toggle controls website lead eligibility separately</span>
               </div>
-              <Dialog open={agentDialogOpen} onOpenChange={setAgentDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm" className="gap-1.5 bg-primary text-primary-foreground text-xs" data-testid="button-add-agent"><Plus size={12}/>Add Agent</Button>
-                </DialogTrigger>
-                <DialogContent className="bg-card border-border">
-                  <DialogHeader><DialogTitle className="text-foreground">Add Agent</DialogTitle></DialogHeader>
-                  <div className="space-y-3 mt-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-foreground/70">Full Name</Label>
-                      <Input value={newAgent.name} onChange={e => setNewAgent(p => ({...p, name: e.target.value}))} className="bg-secondary border-border" placeholder="Jane Smith" data-testid="input-agent-name"/>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-foreground/70">Email</Label>
-                      <Input type="email" value={newAgent.email} onChange={e => setNewAgent(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="jane@watsonbrothersgroup.com" data-testid="input-agent-email"/>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-foreground/70">Password</Label>
-                      <Input type="text" value={newAgent.password} onChange={e => setNewAgent(p => ({...p, password: e.target.value}))} className="bg-secondary border-border" placeholder="Set their initial password" data-testid="input-agent-password"/>
-                    </div>
-                    <Button className="w-full bg-primary text-primary-foreground" onClick={() => createAgentMutation.mutate({ ...newAgent, role: "agent" })} disabled={createAgentMutation.isPending || !newAgent.name || !newAgent.email || !newAgent.password} data-testid="button-save-agent">
-                      {createAgentMutation.isPending ? "Adding…" : "Add Agent"}
-                    </Button>
+              {agents.filter(a => a.role === "admin").map((admin) => (
+                <div key={admin.id} className="flex items-center justify-between bg-secondary/50 border border-border rounded-lg px-4 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{admin.name}</p>
+                    <p className="text-xs text-muted-foreground">{admin.email}</p>
                   </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-            <div className="space-y-2">
-              {agents.filter(a => a.role === "agent").map((agent, idx) => (
-                <div key={agent.id} className="bg-card border border-border rounded-xl px-4 py-3 flex items-center gap-4" data-testid={`row-agent-${agent.id}`}>
-                  <div className="w-7 h-7 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
-                    <span className="text-xs font-bold text-primary">{idx + 1}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-foreground">{agent.name}</p>
-                      {!agent.isActive && <span className="text-xs bg-red-900/20 text-red-400 border border-red-900/30 rounded-full px-2 py-0.5">Paused</span>}
+                  <div className="flex items-center gap-3">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-[10px] text-muted-foreground">All Leads</span>
+                      <button
+                        onClick={() => toggleReceiveLeadsMutation.mutate({ id: admin.id, receiveLeads: !admin.receiveLeads })}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors border ${admin.receiveLeads ? "bg-green-500/20 border-green-500/40" : "bg-secondary border-border"}`}
+                        data-testid={`toggle-receive-leads-${admin.id}`}
+                      >
+                        <span className={`inline-block h-3 w-3 transform rounded-full transition-transform ${admin.receiveLeads ? "translate-x-5 bg-green-400" : "translate-x-1 bg-muted-foreground"}`}/>
+                      </button>
                     </div>
-                    <p className="text-xs text-muted-foreground">{agent.email}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => toggleAgentMutation.mutate(agent.id)}
-                      disabled={toggleAgentMutation.isPending}
-                      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-semibold transition-all ${agent.isActive ? "bg-green-600/15 border-green-500/30 text-green-400 hover:bg-red-600/15 hover:border-red-500/30 hover:text-red-400" : "bg-secondary border-border text-muted-foreground hover:bg-green-600/15 hover:border-green-500/30 hover:text-green-400"}`}
-                      data-testid={`button-toggle-agent-${agent.id}`}
-                      title={agent.isActive ? "Pause leads for this agent" : "Resume leads for this agent"}
-                    >
-                      {agent.isActive
-                        ? <><ToggleRight size={14}/> Active</>
-                        : <><ToggleLeft size={14}/> Paused</>}
-                    </button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteAgentMutation.mutate(agent.id)} data-testid={`button-delete-agent-${agent.id}`}>
-                      <Trash2 size={13}/>
-                    </Button>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-[10px] text-muted-foreground">Website</span>
+                      <button
+                        onClick={() => toggleWebsiteLeadsMutation.mutate({ id: admin.id, receiveWebsiteLeads: !admin.receiveWebsiteLeads })}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors border ${admin.receiveWebsiteLeads ? "bg-blue-500/20 border-blue-500/40" : "bg-secondary border-border"}`}
+                        title={admin.receiveWebsiteLeads ? "Receiving website leads" : "Not receiving website leads"}
+                        data-testid={`toggle-website-leads-admin-${admin.id}`}
+                      >
+                        <span className={`inline-block h-3 w-3 transform rounded-full transition-transform ${admin.receiveWebsiteLeads ? "translate-x-5 bg-blue-400" : "translate-x-1 bg-muted-foreground"}`}/>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
-              {agents.filter(a => a.role === "agent").length === 0 && (
-                <div className="py-10 text-center text-sm text-muted-foreground border border-dashed border-border rounded-xl">No agents yet.</div>
-              )}
+            </div>
+
+            {/* Regular Agents */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">Agents</h2>
+                  <p className="text-sm text-muted-foreground">Round-robin order: top → bottom. Toggle lead flow to pause/resume individual agents.</p>
+                </div>
+                <Dialog open={agentDialogOpen} onOpenChange={setAgentDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" className="gap-1.5 bg-primary text-primary-foreground text-xs" data-testid="button-add-agent"><Plus size={12}/>Add Agent</Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-card border-border">
+                    <DialogHeader><DialogTitle className="text-foreground">Add Agent</DialogTitle></DialogHeader>
+                    <div className="space-y-3 mt-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-foreground/70">Full Name</Label>
+                        <Input value={newAgent.name} onChange={e => setNewAgent(p => ({...p, name: e.target.value}))} className="bg-secondary border-border" placeholder="Jane Smith" data-testid="input-agent-name"/>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-foreground/70">Email</Label>
+                        <Input type="email" value={newAgent.email} onChange={e => setNewAgent(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="jane@watsonbrothersgroup.com" data-testid="input-agent-email"/>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-foreground/70">Password</Label>
+                        <Input type="text" value={newAgent.password} onChange={e => setNewAgent(p => ({...p, password: e.target.value}))} className="bg-secondary border-border" placeholder="Set their initial password" data-testid="input-agent-password"/>
+                      </div>
+                      <Button className="w-full bg-primary text-primary-foreground" onClick={() => createAgentMutation.mutate({ ...newAgent, role: "agent" })} disabled={createAgentMutation.isPending || !newAgent.name || !newAgent.email || !newAgent.password} data-testid="button-save-agent">
+                        {createAgentMutation.isPending ? "Adding…" : "Add Agent"}
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+
+              <div className="space-y-2">
+                {agents.filter(a => a.role === "agent").map((agent, idx) => (
+                  <div key={agent.id} className="bg-card border border-border rounded-xl px-4 py-3 flex items-center gap-4" data-testid={`row-agent-${agent.id}`}>
+                    <div className="w-7 h-7 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
+                      <span className="text-xs font-bold text-primary">{idx + 1}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">{agent.name}</p>
+                      <p className="text-xs text-muted-foreground">{agent.email}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {/* Lead flow toggle */}
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-[10px] text-muted-foreground">Flow</span>
+                        <button
+                          onClick={() => toggleLeadFlowMutation.mutate({ id: agent.id, leadFlowOn: !agent.leadFlowOn })}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors border ${agent.leadFlowOn !== false ? "bg-green-500/20 border-green-500/40" : "bg-secondary border-border"}`}
+                          title={agent.leadFlowOn !== false ? "Lead flow ON — click to pause" : "Lead flow PAUSED — click to resume"}
+                          data-testid={`toggle-lead-flow-${agent.id}`}
+                        >
+                          <span className={`inline-block h-3 w-3 transform rounded-full transition-transform ${agent.leadFlowOn !== false ? "translate-x-5 bg-green-400" : "translate-x-1 bg-muted-foreground"}`}/>
+                        </button>
+                      </div>
+                      {/* Website leads toggle */}
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-[10px] text-muted-foreground">Website</span>
+                        <button
+                          onClick={() => toggleWebsiteLeadsMutation.mutate({ id: agent.id, receiveWebsiteLeads: !agent.receiveWebsiteLeads })}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors border ${agent.receiveWebsiteLeads ? "bg-blue-500/20 border-blue-500/40" : "bg-secondary border-border"}`}
+                          title={agent.receiveWebsiteLeads ? "Receiving website leads — click to disable" : "Not receiving website leads — click to enable"}
+                          data-testid={`toggle-website-leads-${agent.id}`}
+                        >
+                          <span className={`inline-block h-3 w-3 transform rounded-full transition-transform ${agent.receiveWebsiteLeads ? "translate-x-5 bg-blue-400" : "translate-x-1 bg-muted-foreground"}`}/>
+                        </button>
+                      </div>
+                      <Badge variant="outline" className={`text-xs border-border ${agent.isActive ? "text-green-400 border-green-400/30" : "text-muted-foreground"}`}>
+                        {agent.isActive ? "Active" : "Inactive"}
+                      </Badge>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteAgentMutation.mutate(agent.id)} data-testid={`button-delete-agent-${agent.id}`}>
+                        <Trash2 size={13}/>
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {agents.filter(a => a.role === "agent").length === 0 && (
+                  <div className="py-10 text-center text-sm text-muted-foreground border border-dashed border-border rounded-xl">No agents yet.</div>
+                )}
+              </div>
             </div>
           </TabsContent>
 

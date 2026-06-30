@@ -14,6 +14,7 @@ export const agents = sqliteTable("agents", {
   receiveLeads: integer("receive_leads", { mode: "boolean" }).notNull().default(false),
   leadFlowOn: integer("lead_flow_on", { mode: "boolean" }).notNull().default(true),
   receiveWebsiteLeads: integer("receive_website_leads", { mode: "boolean" }).notNull().default(false),
+  lastLoginAt: text("last_login_at"),
 });
 
 export const insertAgentSchema = createInsertSchema(agents).omit({ id: true });

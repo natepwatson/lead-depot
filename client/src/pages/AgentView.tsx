@@ -136,7 +136,7 @@ function LeadCard({ lead, queueCount }: { lead: Lead; queueCount: number }) {
     : null;
 
   const emailSubject = encodeURIComponent(`Regarding your property at ${lead.address}`);
-  const emailBody = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nWatson Brothers Group`);
+  const emailBody = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nBrothers Group Real Estate at Momentum Realty`);
   const mailtoLink = lead.email ? `mailto:${lead.email}?subject=${emailSubject}&body=${emailBody}` : null;
 
   const typeLabel: Record<string, string> = {

@@ -20,6 +20,7 @@ sqlite.exec(`
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN receive_leads INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN lead_flow_on INTEGER NOT NULL DEFAULT 1`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN receive_website_leads INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN last_login_at TEXT`); } catch {}
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS agents (

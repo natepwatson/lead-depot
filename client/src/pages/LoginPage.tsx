@@ -3,18 +3,18 @@ import { useAuth } from "../contexts/AuthContext";
 
 // ─── 12 Unsplash photos — 2400px retina quality ──────────────────────────────
 const PHOTOS = [
-  { id: "1613977257363-707ba9348227", label: "Scottsdale · Desert Ridge Estate",    headline: "Your Pipeline.\nYour <em>Dominance.</em>" },
-  { id: "1600596542815-ffad4c1539a9", label: "Los Angeles · Hollywood Hills",       headline: "Elite Agents\nClose <em>First.</em>" },
-  { id: "1600585154340-be6161a56a0c", label: "Malibu · Pacific Coast",              headline: "Every Lead\nIs An <em>Opportunity.</em>" },
-  { id: "1512917774080-9991f1c4c750", label: "Miami · Star Island",                 headline: "Speed Wins.\nBe <em>First.</em>" },
-  { id: "1631049307264-da0ec9d70304", label: "Manhattan · Central Park West",       headline: "Top Performers\nAct <em>Now.</em>" },
-  { id: "1564013799919-ab600027ffc6", label: "Palm Beach · Estate Row",             headline: "Your Next\nClosing <em>Starts Here.</em>" },
-  { id: "1558618666-fcd25c85cd64",   label: "Aspen · Snowmass Ridge",              headline: "Built To\nWin <em>Together.</em>" },
-  { id: "1582268611958-ebfd161ef9cf", label: "Beverly Hills · Sunset Strip",        headline: "Work Smarter.\nClose <em>Bigger.</em>" },
-  { id: "1523217582562-09d0def993a6", label: "Scottsdale · Desert Mountain",        headline: "The System\nBuilt For <em>Closers.</em>" },
-  { id: "1600047509358-9dc75507daeb", label: "Austin · Barton Creek Reserve",       headline: "Leads Delivered.\nResults <em>Expected.</em>" },
-  { id: "1560448204-e02f11c3d0e2",   label: "Chicago · Gold Coast Penthouse",       headline: "Show Up Ready.\nWin <em>Every Day.</em>" },
-  { id: "1568605114967-8130f3a36994", label: "Naples · Gulf Shore",                headline: "Watson Brothers\nElite <em>Network.</em>" },
+  { id: "1613977257363-707ba9348227", label: "Scottsdale · Desert Ridge Estate",    headline: "Desert Prestige,\nUnrivaled <em>Scale.</em>" },
+  { id: "1600596542815-ffad4c1539a9", label: "Los Angeles · Hollywood Hills",       headline: "Hillside Living\nAt Its <em>Finest.</em>" },
+  { id: "1600585154340-be6161a56a0c", label: "Malibu · Pacific Coast",              headline: "Where The Ocean\nMeets <em>Luxury.</em>" },
+  { id: "1512917774080-9991f1c4c750", label: "Miami · Star Island",                 headline: "Island Estate,\nStar <em>Caliber.</em>" },
+  { id: "1631049307264-da0ec9d70304", label: "Manhattan · Central Park West",       headline: "Above The City,\nBeyond <em>Compare.</em>" },
+  { id: "1564013799919-ab600027ffc6", label: "Palm Beach · Estate Row",             headline: "Legacy Estates,\nEndless <em>Prestige.</em>" },
+  { id: "1558618666-fcd25c85cd64",   label: "Aspen · Snowmass Ridge",              headline: "Mountain Grandeur,\nModern <em>Opulence.</em>" },
+  { id: "1582268611958-ebfd161ef9cf", label: "Beverly Hills · Sunset Strip",        headline: "Views Worth\nEvery <em>Dollar.</em>" },
+  { id: "1523217582562-09d0def993a6", label: "Scottsdale · Desert Mountain",        headline: "Architectural\nMastery <em>Perfected.</em>" },
+  { id: "1600047509358-9dc75507daeb", label: "Austin · Barton Creek Reserve",       headline: "Hill Country\nLives <em>Beautifully.</em>" },
+  { id: "1560448204-e02f11c3d0e2",   label: "Chicago · Gold Coast Penthouse",       headline: "Penthouse Views,\nGold Coast <em>Living.</em>" },
+  { id: "1568605114967-8130f3a36994", label: "Naples · Gulf Shore",                headline: "Gulf Waters,\nPrivate <em>Sanctuary.</em>" },
 ];
 
 function getPhotoUrl(id: string) {
@@ -141,7 +141,7 @@ export default function LoginPage() {
             display: "flex", alignItems: "center", gap: 10,
           }}>
             <span style={{ display: "block", width: 24, height: 1, background: "rgba(200,170,90,0.55)" }} />
-            Watson Brothers Group
+            Exclusive Properties
           </p>
           <h2
             style={{
@@ -216,10 +216,10 @@ export default function LoginPage() {
             fontSize: "clamp(2.2rem,3.5vw,3rem)", fontWeight: 300,
             color: "#fff", letterSpacing: "-0.01em", marginBottom: 8, lineHeight: 1.05,
           }}>
-            Your Leads.<br /><em style="font-style:italic;color:rgba(200,170,90,0.88)">Your Success.</em>
+            Welcome<br />Back.
           </h1>
           <p style={{ fontSize: 13, color: "rgba(255,255,255,0.35)", marginBottom: 40, letterSpacing: "0.02em" }}>
-            The elite system built for closers
+            Access your exclusive property pipeline
           </p>
 
           {/* Form */}

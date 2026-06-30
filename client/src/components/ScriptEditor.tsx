@@ -8,11 +8,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollText, Save, RotateCcw, Edit3 } from "lucide-react";
 
 const SCRIPT_TYPES = [
-  { key: "expired",      label: "Expired Listing Script",     accentClass: "text-orange-400" },
-  { key: "distressed",   label: "Distressed Property Script", accentClass: "text-red-400" },
-  { key: "website_lead", label: "Website Lead Script",        accentClass: "text-blue-400" },
-  { key: "fsbo",         label: "FSBO Script",                accentClass: "text-violet-400" },
-  { key: "land",         label: "Land / Vacant Lot Script",   accentClass: "text-emerald-400" },
+  { key: "expired",        label: "Expired Listing Script",     accentClass: "text-orange-400" },
+  { key: "distressed",     label: "Distressed Property Script", accentClass: "text-red-400" },
+  { key: "website_lead",   label: "Website Lead Script",        accentClass: "text-blue-400" },
+  { key: "fsbo",           label: "FSBO Script",                accentClass: "text-violet-400" },
+  { key: "land",           label: "Land / Vacant Lot Script",   accentClass: "text-emerald-400" },
+  { key: "email_outreach", label: "Email Outreach Template",    accentClass: "text-cyan-400" },
 ] as const;
 
 type ScriptKey = typeof SCRIPT_TYPES[number]["key"];

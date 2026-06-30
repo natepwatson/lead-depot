@@ -186,7 +186,7 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
-export default function AgentView() {
+export default function AgentView({ onBackToAdmin }: { onBackToAdmin?: () => void } = {}) {
   const { user, logout } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -252,10 +252,11 @@ export default function AgentView() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {totalActive > 0 && (
-            <span className="text-xs bg-secondary border border-border rounded-full px-2.5 py-1 text-muted-foreground">
-              <span className="text-white/70 font-bold">{totalActive}</span> in queue
-            </span>
+
+          {onBackToAdmin && (
+            <Button variant="ghost" size="sm" onClick={onBackToAdmin} className="gap-1.5 text-xs text-muted-foreground border border-border">
+              ← Admin
+            </Button>
           )}
           <Button variant="ghost" size="sm" onClick={logout} className="gap-1.5 text-muted-foreground text-xs">
             <LogOut size={13}/> Sign out
@@ -273,15 +274,15 @@ export default function AgentView() {
           </div>
         ) : !lead ? (
           <div className="mt-16 flex flex-col items-center text-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-secondary border border-border flex items-center justify-center">
-              <Inbox className="text-muted-foreground" size={28} />
+            <div className="w-20 h-20 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
+              <CheckCircle2 className="text-green-400" size={36} />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-foreground">Queue is empty</h2>
-              <p className="text-sm text-muted-foreground mt-1">No leads assigned yet. Check back soon.</p>
+              <h2 className="text-base font-semibold text-foreground">You're all caught up</h2>
+              <p className="text-sm text-muted-foreground mt-1">No leads right now. A new one will appear here when it arrives.</p>
             </div>
             <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5 border-border text-xs mt-2">
-              <RotateCcw size={12}/> Check for leads
+              <RotateCcw size={12}/> Check for new lead
             </Button>
           </div>
         ) : (
@@ -335,6 +336,26 @@ export default function AgentView() {
                   >
                     <ExternalLink size={11} />
                     View on Zillow
+                  </a>
+                );
+              })()}
+
+              {/* Email Lead mailto button */}
+              {lead.email && (() => {
+                const emailScript = (window as any).__emailTemplate || "";
+                const subject = encodeURIComponent(`Regarding Your Property at ${lead.address || ""}`);
+                const agentName = user?.name || "[YOUR NAME]";
+                const body = encodeURIComponent(
+                  `Hi ${lead.ownerName || "there"},\n\nMy name is ${agentName} with The Brothers Group at Momentum Realty. I came across your property at ${lead.address || ""} and wanted to reach out personally.\n\nWe work with qualified buyers actively looking in your area, and I\'d love to have a quick conversation to see if there\'s an opportunity to help you.\n\nWould you be open to a brief call this week?\n\nBest regards,\n${agentName}\nThe Brothers Group at Momentum Realty\nwatsonbrothersgroup.com`
+                );
+                return (
+                  <a
+                    href={`mailto:${lead.email}?subject=${subject}&body=${body}`}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-400 hover:text-green-300 transition-colors bg-green-500/10 hover:bg-green-500/20 border border-green-500/30 rounded-lg px-3 py-1.5"
+                    data-testid="link-email-lead"
+                  >
+                    <Mail size={11} />
+                    Email Lead
                   </a>
                 );
               })()}

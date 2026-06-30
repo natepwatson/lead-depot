@@ -15,11 +15,28 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// Simple in-memory persistence using a module-level variable
-let _sessionUser: AuthUser | null = null;
+const STORAGE_KEY = "lead_depot_user";
+
+function loadUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+function saveUser(u: AuthUser | null) {
+  if (u) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
+  } else {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(_sessionUser);
+  const [user, setUser] = useState<AuthUser | null>(loadUser);
 
   const login = async (email: string, password: string) => {
     try {
@@ -30,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const data = await res.json();
       if (!res.ok) return { error: data.error || "Login failed" };
-      _sessionUser = data.agent;
+      saveUser(data.agent);
       setUser(data.agent);
       return {};
     } catch {
@@ -39,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    _sessionUser = null;
+    saveUser(null);
     setUser(null);
   };
 

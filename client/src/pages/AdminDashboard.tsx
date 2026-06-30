@@ -186,7 +186,7 @@ function AgentDrilldown({ agentId, agentName, onClose }: { agentId: number; agen
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () => void } = {}) {
   const { user, logout } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -198,6 +198,7 @@ export default function AdminDashboard() {
   const [submittingWebsiteLead, setSubmittingWebsiteLead] = useState(false);
   const [newAgent, setNewAgent] = useState({ name: "", email: "", password: "" });
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
+  const [selectedLead, setSelectedLead] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [drilldownAgent, setDrilldownAgent] = useState<{ id: number; name: string } | null>(null);
@@ -212,6 +213,13 @@ export default function AdminDashboard() {
   const { data: agentStats = [], isLoading: agentStatsLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/agent-stats"],
     queryFn: () => apiRequest("GET", "/api/admin/agent-stats").then(r => r.json()),
+    refetchInterval: 15000,
+  });
+
+  const { data: myQueueData } = useQuery<{ count: number }>({
+    queryKey: [`/api/leads/my-count/${user?.id}`],
+    queryFn: () => apiRequest("GET", `/api/leads/my-count/${user?.id}`).then(r => r.json()),
+    enabled: !!user?.id,
     refetchInterval: 15000,
   });
 
@@ -253,6 +261,14 @@ export default function AdminDashboard() {
       qc.invalidateQueries({ queryKey: ["/api/agents"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
       toast({ title: "Agent reactivated" });
+    },
+  });
+
+  const leaderboardResetMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/leaderboard-reset", {}).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
+      toast({ title: "Leaderboard reset", description: "Stats now count from this moment forward." });
     },
   });
 
@@ -303,7 +319,8 @@ export default function AdminDashboard() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
       const typeLabels: Record<string,string> = { expired:"Expired Listings", distressed:"Distressed", website_lead:"Website Lead", fsbo:"FSBO", land:"Land" };
-      toast({ title: `${data.created} leads uploaded`, description: `Distributed via round-robin as ${typeLabels[uploadType] || uploadType}.` });
+      const disqNote = data.disqualified > 0 ? ` ${data.disqualified} skipped (missing name or phone).` : "";
+      toast({ title: `${data.created} leads uploaded`, description: `Distributed via round-robin as ${typeLabels[uploadType] || uploadType}.${disqNote}` });
       qc.invalidateQueries({ queryKey: ["/api/leads"] });
       qc.invalidateQueries({ queryKey: ["/api/leads/stats"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/pipeline"] });
@@ -415,9 +432,22 @@ export default function AdminDashboard() {
             <p className="text-xs text-muted-foreground">{user?.name} — Admin</p>
           </div>
         </div>
-        <Button variant="ghost" size="sm" onClick={logout} className="gap-1.5 text-muted-foreground text-xs">
-          <LogOut size={13}/> Sign out
-        </Button>
+        <div className="flex items-center gap-2">
+          {agents.filter(a => a.role === "admin" && a.id === user?.id && a.receiveLeads).length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
+              onClick={() => onWorkMyLeads?.()}
+              title="Switch to Agent View to work your assigned leads"
+            >
+              <Phone size={11}/> Work My Leads
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={logout} className="gap-1.5 text-muted-foreground text-xs">
+            <LogOut size={13}/> Sign out
+          </Button>
+        </div>
       </header>
 
       <main className="p-5 max-w-7xl mx-auto space-y-5">
@@ -438,16 +468,30 @@ export default function AdminDashboard() {
               <StatCard label="Total Leads" value={stats?.totalLeads ?? 0} />
               <StatCard label="Active in Queue" value={stats?.activeLeads ?? 0} accent="text-white" />
               <StatCard label="Appointments Set" value={stats?.appointmentsSet ?? 0} accent="text-green-400" />
-              <StatCard label="Unassigned" value={stats?.unassignedLeads ?? 0} />
+              <StatCard label="My Lead Queue" value={myQueueData?.count ?? 0} accent={myQueueData?.count ? "text-blue-400" : undefined} />
             </div>
 
             {/* Leaderboard */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-bold text-foreground flex items-center gap-2"><Trophy size={14} className="text-white/60"/>Agent Leaderboard</h2>
-                <Button variant="ghost" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] })} className="gap-1 text-xs text-muted-foreground">
-                  <RefreshCw size={11}/>Refresh
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => {
+                      if (confirm("Reset leaderboard? Stats will restart from now. All lead history is preserved.")) {
+                        leaderboardResetMutation.mutate();
+                      }
+                    }}
+                    disabled={leaderboardResetMutation.isPending}
+                    className="gap-1 text-xs text-red-400 hover:text-red-300"
+                  >
+                    <RefreshCw size={11}/>Reset Stats
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] })} className="gap-1 text-xs text-muted-foreground">
+                    <RefreshCw size={11}/>Refresh
+                  </Button>
+                </div>
               </div>
 
               {agentStatsLoading ? (
@@ -633,7 +677,7 @@ export default function AdminDashboard() {
             ) : (
               <div className="space-y-1.5">
                 {filteredLeads.map((lead: any) => (
-                  <div key={lead.id} className="bg-card border border-border rounded-lg px-4 py-3 flex items-center gap-4" data-testid={`row-lead-${lead.id}`}>
+                  <div key={lead.id} className="bg-card border border-border rounded-lg px-4 py-3 flex items-center gap-4 cursor-pointer hover:border-primary/40 transition-colors" onClick={() => setSelectedLead(lead)} data-testid={`row-lead-${lead.id}`}>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
                         <TypeBadge type={lead.leadType} />
@@ -652,6 +696,72 @@ export default function AdminDashboard() {
               </div>
             )}
           </TabsContent>
+
+          {/* ─── READ-ONLY LEAD MODAL ────────────────────────────────────────────── */}
+          {selectedLead && (() => {
+            const lead = selectedLead;
+            const extra = (() => { try { return JSON.parse(lead.extraData || "{}"); } catch { return {}; } })();
+            const zillow = lead.address
+              ? `https://www.zillow.com/homes/${encodeURIComponent(lead.address + (extra.city ? ", " + extra.city : ""))}_rb/`
+              : null;
+            const subject = encodeURIComponent(`Regarding your property at ${lead.address}`);
+            const body = encodeURIComponent(`Hi ${lead.ownerName || "there"},
+
+I wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.
+
+Would you be available for a quick call?
+
+Best,
+Watson Brothers Group`);
+            const mailtoLink = lead.email ? `mailto:${lead.email}?subject=${subject}&body=${body}` : null;
+            return (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setSelectedLead(null)}>
+                <div className="bg-card border border-border rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <TypeBadge type={lead.leadType} />
+                        <StatusBadge status={lead.status} />
+                      </div>
+                      <p className="text-base font-semibold text-foreground">{lead.ownerName || "—"}</p>
+                    </div>
+                    <button onClick={() => setSelectedLead(null)} className="text-muted-foreground hover:text-foreground"><X size={16}/></button>
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    {lead.address && <div className="flex items-start gap-2"><MapPin size={13} className="text-muted-foreground mt-0.5 shrink-0"/><span className="text-foreground">{lead.address}</span></div>}
+                    {lead.phone && <div className="flex items-center gap-2"><Phone size={13} className="text-muted-foreground"/><span className="text-foreground">{lead.phone}</span></div>}
+                    {lead.email && <div className="flex items-center gap-2"><Mail size={13} className="text-muted-foreground"/><span className="text-foreground">{lead.email}</span></div>}
+                    {lead.motivation && <div className="flex items-start gap-2"><AlertTriangle size={13} className="text-yellow-400 mt-0.5 shrink-0"/><span className="text-muted-foreground">{lead.motivation}</span></div>}
+                    {extra.county && <div className="text-xs text-muted-foreground">County: {extra.county}</div>}
+                    {extra.propertyType && <div className="text-xs text-muted-foreground">Type: {extra.propertyType}</div>}
+                    {extra.estimatedValue && <div className="text-xs text-muted-foreground">Est. Value: {extra.estimatedValue}</div>}
+                    {extra.timeframe && <div className="text-xs text-muted-foreground">Timeframe: {extra.timeframe}</div>}
+                    {lead.assignedAgentName && <div className="text-xs text-muted-foreground pt-1 border-t border-border">Assigned to: <span className="text-foreground">{lead.assignedAgentName}</span></div>}
+                  </div>
+
+                  <div className="flex gap-2 pt-1">
+                    {zillow && (
+                      <a href={zillow} target="_blank" rel="noopener noreferrer"
+                        className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/30 transition-colors">
+                        <TrendingUp size={12}/> View on Zillow
+                      </a>
+                    )}
+                    {mailtoLink && (
+                      <a href={mailtoLink}
+                        className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2 rounded-lg bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 transition-colors">
+                        <Mail size={12}/> Email Lead
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="pt-2 border-t border-border">
+                    <p className="text-xs text-muted-foreground/50 text-center italic">Read-only view — outcome selection available to assigned agent only</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ─── UPLOAD ──────────────────────────────────────────────────────────── */}
           <TabsContent value="upload" className="mt-4">

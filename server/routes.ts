@@ -210,8 +210,20 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return true;
     }).length;
 
+    let disqualified = 0;
+    const validRows = leadRows.filter((row: any) => {
+      const name = row["Owner Name"] || row.ownerName || row.name || row.Name ||
+        row["First Name"] || row["LandvoiceOwnerFirstName"] || "";
+      const phone = row["Primary Phone"] || row.phone || row.Phone ||
+        row["Phone Number"] || row["LandvoiceContact1Phone"] || "";
+      const hasName = name.trim().length > 0;
+      const hasPhone = phone.replace(/\D/g, "").length >= 7;
+      if (!hasName || !hasPhone) { disqualified++; return false; }
+      return true;
+    });
+
     const created = storage.createLeadsFromBatch(
-      leadRows.map((row: any) => {
+      validRows.map((row: any) => {
         // Landvoice Expired format: First Name + Last Name columns
         const firstName = row["First Name"] || row["LandvoiceOwnerFirstName"] || row["LandvoiceContact1FirstName"] || "";
         const lastName  = row["Last Name"]  || row["LandvoiceOwnerLastName"]  || row["LandvoiceContact1LastName"]  || "";
@@ -268,7 +280,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
     }
 
-    res.json({ created: created.length, batchId });
+    res.json({ created: created.length, disqualified, batchId });
   });
 
   app.get("/api/leads/:id", (req, res) => {
@@ -365,6 +377,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   // ─── ADMIN: PER-AGENT STATS ───────────────────────────────────────────────
   app.get("/api/admin/agent-stats", (req, res) => {
+    // Load leaderboard reset timestamp
+    const sqlite3r = require("better-sqlite3");
+    const dbr = new sqlite3r("data.db");
+    dbr.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
+    const resetRow = dbr.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
+    dbr.close();
+    const resetAt: string | null = resetRow?.value || null;
+
     // Show agents (active + flow on) AND admins with receiveLeads=true
     const allAgents = storage.getAllAgents().filter(a =>
       a.isActive &&
@@ -375,11 +395,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     );
     const allLeads = storage.getAllLeads();
     const allActivities = (() => {
-      // Collect all activities for all leads
       const acts: any[] = [];
       for (const lead of allLeads) {
         const la = storage.getActivitiesForLead(lead.id);
-        acts.push(...la);
+        // Filter activities after reset date if set
+        acts.push(...(resetAt ? la.filter((a: any) => a.createdAt > resetAt) : la));
       }
       return acts;
     })();
@@ -760,6 +780,27 @@ If not ready:
   initScript("fsbo", fsboScript);
   initScript("land", landScript);
 
+  const emailOutreachTemplate = `Subject: Regarding Your Property at {address}
+
+Hi {ownerName},
+
+My name is [YOUR NAME] with The Brothers Group at Momentum Realty. I came across your property at {address} and wanted to reach out personally.
+
+We work with a lot of qualified buyers actively looking in your area, and I'd love to have a quick conversation to see if there's an opportunity to help you.
+
+Would you be open to a brief call this week?
+
+Best regards,
+[YOUR NAME]
+The Brothers Group at Momentum Realty
+[YOUR PHONE]
+watsonbrothersgroup.com
+
+---
+Note: Replace {ownerName} and {address} with lead details before sending.
+This template is for informational/outreach purposes only.`;
+  initScript("email_outreach", emailOutreachTemplate);
+
   app.get("/api/scripts/:type", (req, res) => {
     const leadType = req.params.type;
     const sqlite3 = require("better-sqlite3");
@@ -790,6 +831,36 @@ If not ready:
     res.json({ leadType, content, updatedAt: now });
   });
 
+
+  // ─── ADMIN: MY LEAD QUEUE COUNT ──────────────────────────────────────────
+  app.get("/api/leads/my-count/:agentId", (req, res) => {
+    const agentId = parseInt(req.params.agentId);
+    const allLeads = storage.getAllLeads();
+    const activeStatuses = ["assigned", "no_answer", "left_voicemail", "callback_requested"];
+    const count = allLeads.filter(l => l.assignedAgentId === agentId && activeStatuses.includes(l.status)).length;
+    res.json({ count });
+  });
+
+  // ─── LEADERBOARD RESET ────────────────────────────────────────────────────
+  app.post("/api/admin/leaderboard-reset", (req, res) => {
+    const sqlite3 = require("better-sqlite3");
+    const db3 = new sqlite3("data.db");
+    const now = new Date().toISOString();
+    // Upsert a single-row settings record with leaderboard_reset_at
+    db3.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
+    db3.prepare(`INSERT INTO settings (key, value) VALUES ('leaderboard_reset_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(now);
+    db3.close();
+    res.json({ ok: true, resetAt: now });
+  });
+
+  app.get("/api/admin/leaderboard-reset", (req, res) => {
+    const sqlite3 = require("better-sqlite3");
+    const db3 = new sqlite3("data.db");
+    db3.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
+    const row = db3.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
+    db3.close();
+    res.json({ resetAt: row?.value || null });
+  });
 
   // ─── CSV EXPORT ───────────────────────────────────────────────────────────
   app.get("/api/export/leads", (req, res) => {

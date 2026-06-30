@@ -8,12 +8,17 @@ import LoginPage from "./pages/LoginPage";
 import AdminDashboard from "./pages/AdminDashboard";
 import AgentView from "./pages/AgentView";
 import NotFound from "./pages/not-found";
+import { useState } from "react";
 
 function AppRoutes() {
   const { user } = useAuth();
+  const [adminViewingLeads, setAdminViewingLeads] = useState(false);
 
   if (!user) return <LoginPage />;
-  if (user.role === "admin") return <AdminDashboard />;
+  if (user.role === "admin" && adminViewingLeads) {
+    return <AgentView onBackToAdmin={() => setAdminViewingLeads(false)} />;
+  }
+  if (user.role === "admin") return <AdminDashboard onWorkMyLeads={() => setAdminViewingLeads(true)} />;
   return <AgentView />;
 }
 

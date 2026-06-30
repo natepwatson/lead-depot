@@ -12,8 +12,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (!agent || agent.password !== password) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
-    // Stamp last login time
-    storage.updateAgent(agent.id, { lastLoginAt: new Date().toISOString() } as any);
     res.json({ agent: { id: agent.id, name: agent.name, email: agent.email, role: agent.role } });
   });
 
@@ -123,10 +121,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return res.status(400).json({ error: "Lead must have phone or email" });
     }
 
-    if (!address || !address.trim()) {
-      return res.status(400).json({ error: "Lead must have a property address" });
-    }
-
     // Dedup: if we already have a lead with this source ID, skip
     if (leadSourceId) {
       const existing = storage.getAllLeads().find(l => {
@@ -189,31 +183,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json(all);
   });
 
-  // Map endpoint — returns lightweight lead data for geocoding
-  app.get("/api/leads/map", (req, res) => {
-    const all = storage.getAllLeads();
-    const mapLeads = all.map(l => {
-      let city = ""; let state = "FL"; let zip = "";
-      if (l.extraData) {
-        try {
-          const ex = JSON.parse(l.extraData);
-          city = ex.city || ex.City || "";
-          state = ex.state || ex.State || "FL";
-          zip = ex.zip || ex.Zip || ex.zipcode || "";
-        } catch {}
-      }
-      return {
-        id: l.id,
-        address: l.address,
-        ownerName: l.ownerName,
-        status: l.status,
-        leadType: l.leadType,
-        city, state, zip,
-      };
-    });
-    res.json(mapLeads);
-  });
-
   app.get("/api/leads/stats", (req, res) => {
     res.json(storage.getAdminStats());
   });
@@ -247,11 +216,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         row["First Name"] || row["LandvoiceOwnerFirstName"] || "";
       const phone = row["Primary Phone"] || row.phone || row.Phone ||
         row["Phone Number"] || row["LandvoiceContact1Phone"] || "";
-      const address = row["Address"] || row.address || row.Address || row["Property Address"] || "";
       const hasName = name.trim().length > 0;
       const hasPhone = phone.replace(/\D/g, "").length >= 7;
-      const hasAddress = address.trim().length > 0;
-      if (!hasName || !hasPhone || !hasAddress) { disqualified++; return false; }
+      if (!hasName || !hasPhone) { disqualified++; return false; }
       return true;
     });
 
@@ -825,9 +792,9 @@ Would you be open to a brief call this week?
 
 Best regards,
 [YOUR NAME]
-Brothers Group Real Estate at Momentum Realty
+The Brothers Group at Momentum Realty
 [YOUR PHONE]
-bgre.com
+watsonbrothersgroup.com
 
 ---
 Note: Replace {ownerName} and {address} with lead details before sending.

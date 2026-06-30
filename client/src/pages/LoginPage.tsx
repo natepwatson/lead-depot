@@ -14,7 +14,7 @@ const PHOTOS = [
   { id: "1523217582562-09d0def993a6", label: "Scottsdale · Desert Mountain",        headline: "The System\nBuilt For <em>Closers.</em>" },
   { id: "1600047509358-9dc75507daeb", label: "Austin · Barton Creek Reserve",       headline: "Leads Delivered.\nResults <em>Expected.</em>" },
   { id: "1560448204-e02f11c3d0e2",   label: "Chicago · Gold Coast Penthouse",       headline: "Show Up Ready.\nWin <em>Every Day.</em>" },
-  { id: "1568605114967-8130f3a36994", label: "Naples · Gulf Shore",                headline: "BGRE\nElite <em>Closers.</em>" },
+  { id: "1568605114967-8130f3a36994", label: "Naples · Gulf Shore",                headline: "Watson Brothers\nElite <em>Network.</em>" },
 ];
 
 function getPhotoUrl(id: string) {
@@ -141,7 +141,7 @@ export default function LoginPage() {
             display: "flex", alignItems: "center", gap: 10,
           }}>
             <span style={{ display: "block", width: 24, height: 1, background: "rgba(200,170,90,0.55)" }} />
-            Brothers Group Real Estate
+            Watson Brothers Group
           </p>
           <h2
             style={{
@@ -234,7 +234,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="you@bgre.com"
+                placeholder="you@watsonbrothers.com"
                 autoComplete="email"
                 style={{
                   width: "100%", background: "rgba(255,255,255,0.04)",
@@ -307,7 +307,7 @@ export default function LoginPage() {
             marginTop: 32, fontSize: 10, color: "rgba(255,255,255,0.16)",
             letterSpacing: "0.08em", textAlign: "center", textTransform: "uppercase",
           }}>
-            Brothers Group Real Estate · Confidential
+            Watson Brothers Group · Confidential
           </p>
           <p style={{
             marginTop: 8, fontSize: 9, color: "rgba(255,255,255,0.1)",

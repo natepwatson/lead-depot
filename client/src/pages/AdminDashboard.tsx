@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  LogOut, Upload, Users, BarChart3, List, Plus, Trash2,
+  LogOut, Upload, Download, Users, BarChart3, List, Plus, Trash2,
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneOff, PhoneMissed, Calendar, XCircle, CheckCircle2,
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck
@@ -192,6 +192,7 @@ export default function AdminDashboard() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [uploadType, setUploadType] = useState<"expired" | "distressed" | "website_lead" | "fsbo" | "land">("expired");
   const [websiteLeadForm, setWebsiteLeadForm] = useState({ firstName: "", lastName: "", email: "", phone: "", address: "", city: "", state: "FL", zip: "", county: "", propertyType: "", reasonForSelling: "", estimatedValue: "", timeframe: "" });
   const [submittingWebsiteLead, setSubmittingWebsiteLead] = useState(false);
@@ -288,8 +289,7 @@ export default function AdminDashboard() {
     onError: () => toast({ title: "Error clearing queue", variant: "destructive" }),
   });
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const processFile = async (file: File) => {
     if (!file) return;
     setUploading(true);
     try {
@@ -314,6 +314,26 @@ export default function AdminDashboard() {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
     }
+  };
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.name.endsWith(".csv")) {
+      processFile(file);
+    } else {
+      toast({ title: "Please drop a .csv file", variant: "destructive" });
+    }
+  };
+
+  const handleExportCSV = () => {
+    window.open("/api/export/leads", "_blank");
   };
 
   const handleSubmitWebsiteLead = async () => {
@@ -712,10 +732,31 @@ export default function AdminDashboard() {
                 ) : (
                   <>
                     <div className="space-y-1.5">
-                      <Label className="text-sm text-foreground/80">CSV File</Label>
-                      <div className="border-2 border-dashed border-border rounded-xl p-8 text-center cursor-pointer hover:border-primary/50 transition-colors" onClick={() => fileRef.current?.click()}>
-                        <Upload className="mx-auto mb-2 text-muted-foreground" size={24} />
-                        <p className="text-sm text-muted-foreground">{uploading ? "Uploading…" : "Click to select a CSV file"}</p>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm text-foreground/80">CSV File</Label>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 text-xs border-border text-muted-foreground hover:text-foreground"
+                          onClick={handleExportCSV}
+                          title="Download full database as CSV"
+                        >
+                          <Download size={12}/> Export DB
+                        </Button>
+                      </div>
+                      <div
+                        className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+                          dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+                        }`}
+                        onClick={() => fileRef.current?.click()}
+                        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                        onDragLeave={() => setDragOver(false)}
+                        onDrop={handleDrop}
+                      >
+                        <Upload className={`mx-auto mb-2 ${dragOver ? "text-primary" : "text-muted-foreground"}`} size={24} />
+                        <p className="text-sm text-muted-foreground">
+                          {uploading ? "Uploading…" : dragOver ? "Drop CSV here" : "Click or drag a CSV file here"}
+                        </p>
                         <p className="text-xs text-muted-foreground/50 mt-1">Expected columns: Address, Owner Name, Phone, Email, Motivation</p>
                       </div>
                       <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleUpload} data-testid="input-csv-file" />

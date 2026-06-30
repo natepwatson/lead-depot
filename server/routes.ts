@@ -365,8 +365,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   // ─── ADMIN: PER-AGENT STATS ───────────────────────────────────────────────
   app.get("/api/admin/agent-stats", (req, res) => {
-    // Only show agents that are active AND have lead flow on (i.e. not inactive/paused)
-    const allAgents = storage.getAllAgents().filter(a => a.role === "agent" && a.isActive && a.leadFlowOn !== false);
+    // Show agents (active + flow on) AND admins with receiveLeads=true
+    const allAgents = storage.getAllAgents().filter(a =>
+      a.isActive &&
+      (
+        (a.role === "agent" && a.leadFlowOn !== false) ||
+        (a.role === "admin" && a.receiveLeads)
+      )
+    );
     const allLeads = storage.getAllLeads();
     const allActivities = (() => {
       // Collect all activities for all leads
@@ -784,6 +790,60 @@ If not ready:
     res.json({ leadType, content, updatedAt: now });
   });
 
+
+  // ─── CSV EXPORT ───────────────────────────────────────────────────────────
+  app.get("/api/export/leads", (req, res) => {
+    const allLeads = storage.getAllLeads();
+    const agents = storage.getAllAgents();
+    const agentMap = Object.fromEntries(agents.map(a => [a.id, a.name]));
+
+    const headers = [
+      "ID", "Lead Type", "First Name", "Last Name", "Email", "Phone",
+      "Address", "City", "State", "Zip", "County",
+      "Property Type", "Reason for Selling", "Estimated Value", "Timeframe",
+      "Status", "Assigned Agent", "Uploaded At", "Lead Source ID"
+    ];
+
+    const escape = (val: any) => {
+      if (val == null) return "";
+      const str = String(val);
+      if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+        return '"' + str.replace(/"/g, '""') + '"';
+      }
+      return str;
+    };
+
+    const rows = allLeads.map(lead => {
+      const extra = (() => { try { return JSON.parse(lead.extraData || "{}"); } catch { return {}; } })();
+      return [
+        lead.id,
+        lead.leadType || "",
+        lead.firstName || "",
+        lead.lastName || "",
+        lead.email || "",
+        lead.phone || "",
+        extra.address || lead.address || "",
+        extra.city || lead.city || "",
+        extra.state || lead.state || "",
+        extra.zip || lead.zip || "",
+        extra.county || lead.county || "",
+        extra.propertyType || "",
+        extra.reasonForSelling || "",
+        extra.estimatedValue || "",
+        extra.timeframe || "",
+        lead.status || "",
+        agentMap[lead.assignedAgentId ?? 0] || "",
+        lead.uploadedAt || "",
+        extra.leadSourceId || lead.leadSourceId || "",
+      ].map(escape).join(",");
+    });
+
+    const csv = [headers.join(","), ...rows].join("\n");
+    const filename = `lead-depot-export-${new Date().toISOString().slice(0,10)}.csv`;
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(csv);
+  });
 
   return httpServer;
 }

@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import ScriptEditor from "../components/ScriptEditor";
+import MapView from "./MapView";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "../contexts/AuthContext";
@@ -16,7 +17,7 @@ import {
   LogOut, Upload, Download, Users, BarChart3, List, Plus, Trash2,
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneOff, PhoneMissed, Calendar, XCircle, CheckCircle2,
-  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck
+  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck, Map
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 
@@ -532,6 +533,9 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
             <p style={{ fontSize: 10, color: "rgba(200,170,90,0.6)", letterSpacing: "0.06em" }}>
               {user?.name} — Admin
             </p>
+            <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
+              v9.0
+            </p>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -573,6 +577,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               { value: "leaderboard", icon: Trophy,     label: "Leaderboard" },
               { value: "pipeline",    icon: Layers,      label: "Pipeline" },
               { value: "leads",       icon: List,        label: "All Leads" },
+              { value: "map",         icon: Map,         label: "Map View" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
@@ -908,7 +913,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               ? `https://www.zillow.com/homes/${encodeURIComponent(lead.address + (extra.city ? ", " + extra.city : ""))}_rb/`
               : null;
             const subject = encodeURIComponent(`Regarding your property at ${lead.address}`);
-            const body = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nWatson Brothers Group`);
+            const body = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nBrothers Group Real Estate at Momentum Realty`);
             const mailtoLink = lead.email ? `mailto:${lead.email}?subject=${subject}&body=${body}` : null;
             return (
               <div style={{
@@ -1150,6 +1155,90 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           {/* ── AGENTS ──────────────────────────────────────────────────────── */}
           <TabsContent value="agents" className="mt-5 space-y-5">
 
+            {/* ── AGENT ACTIVITY PANEL ─────────────────────────────────────── */}
+            {(() => {
+              const now = Date.now();
+              const MS_3D = 3 * 24 * 60 * 60 * 1000;
+              const allForActivity = agents.filter(a => a.role === "agent" || a.role === "admin");
+              const inactive3d = allForActivity.filter(a => {
+                if (!(a as any).lastLoginAt) return true;
+                return now - new Date((a as any).lastLoginAt).getTime() > MS_3D;
+              });
+              const fmt = (ms: number) => {
+                const m = Math.floor(ms / 60000);
+                if (m < 1) return "just now";
+                if (m < 60) return `${m}m ago`;
+                const h = Math.floor(m / 60);
+                if (h < 24) return `${h}h ago`;
+                return `${Math.floor(h / 24)}d ago`;
+              };
+              return (
+                <div style={{ background: "linear-gradient(135deg,#0f0f0f 0%,#0a0a0a 100%)", border: "1px solid rgba(200,170,90,0.12)", borderRadius: 12, padding: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Users size={14} style={{ color: "rgba(200,170,90,0.7)" }} />
+                      <h3 className="text-sm font-semibold text-foreground">Agent Activity</h3>
+                      <span className="text-xs text-muted-foreground">— login history</span>
+                    </div>
+                    {inactive3d.length > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", background: "rgba(221,105,116,0.1)", border: "1px solid rgba(221,105,116,0.3)", borderRadius: 20 }}>
+                        <AlertTriangle size={11} style={{ color: "#dd6974" }} />
+                        <span style={{ fontSize: 11, color: "#dd6974" }}>{inactive3d.length} agent{inactive3d.length > 1 ? "s" : ""} inactive 3+ days</span>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {allForActivity.map(ag => {
+                      const loginAt = (ag as any).lastLoginAt ? new Date((ag as any).lastLoginAt) : null;
+                      const msSince = loginAt ? now - loginAt.getTime() : null;
+                      const inactive = !loginAt || (msSince !== null && msSince > MS_3D);
+                      const dotColor = !loginAt ? "#555250" : msSince !== null && msSince < 3600000 ? "#6daa45" : inactive ? "#dd6974" : "#4f98a3";
+                      const dotGlow = msSince !== null && msSince < 3600000 ? "0 0 6px #6daa45" : "none";
+                      return (
+                        <div key={ag.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: inactive ? "rgba(221,105,116,0.04)" : "rgba(255,255,255,0.02)", border: `1px solid ${inactive ? "rgba(221,105,116,0.18)" : "rgba(255,255,255,0.06)"}`, borderRadius: 8, padding: "9px 14px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0, boxShadow: dotGlow }} />
+                            <div>
+                              <p style={{ fontSize: 13, color: "#e8e4dc", fontWeight: 500, lineHeight: 1.2 }}>{ag.name}</p>
+                              <p style={{ fontSize: 10, color: "#555250", letterSpacing: "0.04em" }}>{ag.email} · {ag.role}</p>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            {loginAt ? (
+                              <>
+                                <p style={{ fontSize: 12, color: inactive ? "#dd6974" : "#c8aa5a", fontWeight: 500 }}>{msSince !== null ? fmt(msSince) : ""}</p>
+                                <p style={{ fontSize: 10, color: "#555250" }}>{loginAt.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                              </>
+                            ) : (
+                              <p style={{ fontSize: 11, color: "#555250", letterSpacing: "0.06em" }}>Never logged in</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {inactive3d.length > 0 && (
+                    <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(221,105,116,0.06)", border: "1px solid rgba(221,105,116,0.2)", borderRadius: 8 }}>
+                      <p style={{ fontSize: 11, color: "#dd6974", fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                        <AlertTriangle size={11}/> Check in with these agents:
+                      </p>
+                      {inactive3d.map(a => (
+                        <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
+                          <span style={{ fontSize: 11, color: "#e8e4dc" }}>{a.name}</span>
+                          <a
+                            href={`mailto:${a.email}?subject=Checking%20in%20%E2%80%94%20Lead%20Depot&body=Hey%20${encodeURIComponent(a.name)}%2C%20just%20checking%20in!%20Log%20in%20to%20Lead%20Depot%20and%20work%20your%20leads.%0A%0ABrothers%20Group%20Real%20Estate%20at%20Momentum%20Realty`}
+                            style={{ fontSize: 10, color: "#c8aa5a", letterSpacing: "0.06em", textDecoration: "none", padding: "3px 10px", border: "1px solid rgba(200,170,90,0.3)", borderRadius: 4 }}
+                          >
+                            Email
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Admin as Agent */}
             <div style={{
               background: "linear-gradient(135deg,#0f0f0f 0%,#0a0a0a 100%)",
@@ -1242,7 +1331,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs text-foreground/60">Email</Label>
-                              <Input type="email" value={newAgent.email} onChange={e => setNewAgent(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="jane@watsonbrothersgroup.com" data-testid="input-agent-email"/>
+                              <Input type="email" value={newAgent.email} onChange={e => setNewAgent(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="jane@bgre.com" data-testid="input-agent-email"/>
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs text-foreground/60">Password</Label>
@@ -1410,6 +1499,11 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           {/* ── SCRIPTS ─────────────────────────────────────────────────────── */}
           <TabsContent value="scripts" className="mt-5">
             <ScriptEditor />
+          </TabsContent>
+
+          {/* ── MAP VIEW ────────────────────────────────────────────────────── */}
+          <TabsContent value="map" className="mt-5">
+            <MapView />
           </TabsContent>
 
         </Tabs>

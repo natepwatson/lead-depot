@@ -46,9 +46,20 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ...updated, password: undefined });
   });
 
+  // Soft-delete: mark agent as trashed (isActive=false) instead of hard delete
   app.delete("/api/agents/:id", (req, res) => {
-    storage.deleteAgent(parseInt(req.params.id));
-    res.json({ ok: true });
+    const id = parseInt(req.params.id);
+    const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false, receiveWebsiteLeads: false });
+    if (!updated) return res.status(404).json({ error: "Agent not found" });
+    res.json({ ...updated, password: undefined });
+  });
+
+  // Reactivate a trashed agent
+  app.patch("/api/agents/:id/reactivate", (req, res) => {
+    const id = parseInt(req.params.id);
+    const updated = storage.updateAgent(id, { isActive: true, leadFlowOn: true });
+    if (!updated) return res.status(404).json({ error: "Agent not found" });
+    res.json({ ...updated, password: undefined });
   });
 
   // Toggle admin as lead receiver
@@ -61,10 +72,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
   // Toggle individual agent lead flow on/off
+  // If turning flow OFF, also force website leads off
   app.patch("/api/agents/:id/lead-flow", (req, res) => {
     const id = parseInt(req.params.id);
     const { leadFlowOn } = req.body;
-    const updated = storage.updateAgent(id, { leadFlowOn: !!leadFlowOn });
+    const patch: any = { leadFlowOn: !!leadFlowOn };
+    if (!leadFlowOn) patch.receiveWebsiteLeads = false;
+    const updated = storage.updateAgent(id, patch);
     if (!updated) return res.status(404).json({ error: "Agent not found" });
     res.json({ ...updated, password: undefined });
   });
@@ -351,7 +365,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   // ─── ADMIN: PER-AGENT STATS ───────────────────────────────────────────────
   app.get("/api/admin/agent-stats", (req, res) => {
-    const allAgents = storage.getAllAgents().filter(a => a.role === "agent");
+    // Only show agents that are active AND have lead flow on (i.e. not inactive/paused)
+    const allAgents = storage.getAllAgents().filter(a => a.role === "agent" && a.isActive && a.leadFlowOn !== false);
     const allLeads = storage.getAllLeads();
     const allActivities = (() => {
       // Collect all activities for all leads

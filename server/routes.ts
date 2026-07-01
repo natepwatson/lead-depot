@@ -1,6 +1,10 @@
+import { createRequire } from "node:module";
 import type { Express } from "express";
 import { createServer } from "http";
 import { storage } from "./storage";
+
+// Works in both ESM (tsx dev) and CJS (esbuild production bundle)
+const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
 
 export function registerRoutes(httpServer: ReturnType<typeof createServer>, app: Express) {
 
@@ -183,6 +187,31 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json(all);
   });
 
+  // Map endpoint — returns lightweight lead data for geocoding
+  app.get("/api/leads/map", (req, res) => {
+    const all = storage.getAllLeads();
+    const mapLeads = all.map(l => {
+      let city = ""; let state = "FL"; let zip = "";
+      if (l.extraData) {
+        try {
+          const ex = JSON.parse(l.extraData);
+          city = ex.city || ex.City || "";
+          state = ex.state || ex.State || "FL";
+          zip = ex.zip || ex.Zip || ex.zipcode || "";
+        } catch {}
+      }
+      return {
+        id: l.id,
+        address: l.address,
+        ownerName: l.ownerName,
+        status: l.status,
+        leadType: l.leadType,
+        city, state, zip,
+      };
+    });
+    res.json(mapLeads);
+  });
+
   app.get("/api/leads/stats", (req, res) => {
     res.json(storage.getAdminStats());
   });
@@ -192,6 +221,15 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const next = storage.getNextLeadForAgent(agentId);
     const total = storage.getActiveLeadCountForAgent(agentId);
     res.json({ lead: next || null, totalActive: total });
+  });
+
+  // ─── AGENT: NEXT LEAD (query-param version used by AgentView) ─────────────
+  app.get("/api/leads/my-next", (req, res) => {
+    const agentId = parseInt(String(req.query.agentId || ""));
+    if (!agentId || isNaN(agentId)) return res.status(400).json({ error: "Missing agentId" });
+    const next = storage.getNextLeadForAgent(agentId);
+    if (!next) return res.status(204).end();
+    res.json(next);
   });
 
   app.post("/api/leads/upload", (req, res) => {
@@ -792,9 +830,9 @@ Would you be open to a brief call this week?
 
 Best regards,
 [YOUR NAME]
-The Brothers Group at Momentum Realty
+Brothers Group Real Estate at Momentum Realty
 [YOUR PHONE]
-watsonbrothersgroup.com
+bgre.com
 
 ---
 Note: Replace {ownerName} and {address} with lead details before sending.

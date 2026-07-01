@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import ScriptEditor from "../components/ScriptEditor";
+import MapView from "./MapView";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "../contexts/AuthContext";
@@ -16,7 +17,7 @@ import {
   LogOut, Upload, Download, Users, BarChart3, List, Plus, Trash2,
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneOff, PhoneMissed, Calendar, XCircle, CheckCircle2,
-  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck
+  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck, Map as MapIcon
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 
@@ -576,6 +577,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               { value: "leaderboard", icon: Trophy,     label: "Leaderboard" },
               { value: "pipeline",    icon: Layers,      label: "Pipeline" },
               { value: "leads",       icon: List,        label: "All Leads" },
+              { value: "map",         icon: MapIcon,         label: "Map View" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
@@ -911,7 +913,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               ? `https://www.zillow.com/homes/${encodeURIComponent(lead.address + (extra.city ? ", " + extra.city : ""))}_rb/`
               : null;
             const subject = encodeURIComponent(`Regarding your property at ${lead.address}`);
-            const body = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nWatson Brothers Group`);
+            const body = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nBrothers Group Real Estate at Momentum Realty`);
             const mailtoLink = lead.email ? `mailto:${lead.email}?subject=${subject}&body=${body}` : null;
             return (
               <div style={{
@@ -1245,7 +1247,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs text-foreground/60">Email</Label>
-                              <Input type="email" value={newAgent.email} onChange={e => setNewAgent(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="jane@watsonbrothersgroup.com" data-testid="input-agent-email"/>
+                              <Input type="email" value={newAgent.email} onChange={e => setNewAgent(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="jane@bgre.com" data-testid="input-agent-email"/>
                             </div>
                             <div className="space-y-1">
                               <Label className="text-xs text-foreground/60">Password</Label>
@@ -1413,6 +1415,11 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           {/* ── SCRIPTS ─────────────────────────────────────────────────────── */}
           <TabsContent value="scripts" className="mt-5">
             <ScriptEditor />
+          </TabsContent>
+
+          {/* ── MAP VIEW ────────────────────────────────────────────────────── */}
+          <TabsContent value="map" className="mt-5">
+            <MapView />
           </TabsContent>
 
         </Tabs>

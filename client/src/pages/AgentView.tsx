@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -913,6 +914,7 @@ const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
 export default function AgentView({ onBackToAdmin }: { onBackToAdmin?: () => void } = {}) {
   const { user, logout } = useAuth();
   const [tab, setTab] = useState<Tab>("leaderboard");
+  useRealtimeUpdates();
 
   const { data: nextLead, isLoading: leadLoading } = useQuery<Lead | null>({
     queryKey: ["/api/leads/my-next"],
@@ -921,7 +923,6 @@ export default function AgentView({ onBackToAdmin }: { onBackToAdmin?: () => voi
         if (r.status === 204) return null;
         return r.json();
       }),
-    refetchInterval: 30000,
     enabled: !!user?.id,
   });
 

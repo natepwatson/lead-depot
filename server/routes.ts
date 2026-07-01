@@ -3,6 +3,7 @@ import type { Express } from "express";
 import { createServer } from "http";
 import { storage } from "./storage";
 import { Resend } from "resend";
+import { broadcast } from "./ws";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -502,25 +503,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       createdAt: new Date().toISOString(),
     });
 
-    // Send admin email notification for appointment set or keep in touch
-    if (outcome === "contacted_appointment" || outcome === "keep_in_touch") {
-      const agent = storage.getAgentById(agentId);
-      sendApptEmail({
-        outcome,
-        agentName: agent?.name || "Unknown Agent",
-        ownerName: lead.ownerName || "Unknown Owner",
-        address: lead.address || "",
-        confirmedAddress: confirmedAddress || lead.address || "",
-        ownerEmail: apptEmail || lead.email || "",
-        apptDate: apptDate || "",
-        apptTime: apptTime || "",
-        stage: stage || "",
-        source: SOURCE_LABELS[lead.leadType] || lead.leadType,
-        intention: intention || "",
-        notes: notes || "",
-      }).catch(err => console.error("[Resend] Failed to send email:", err));
-    }
-
+    // Per-event emails removed — all results delivered via 5:45 PM daily digest
     res.json(updatedLead);
   });
 
@@ -1120,6 +1103,7 @@ This template is for informational/outreach purposes only.`;
       uploadedBy: submitterAgentId,
       batchId: `network_${Date.now()}`,
     }]);
+    broadcast({ type: "lead_created", leadId: created.id, assignedAgentId: submitterAgentId });
     res.json({ created: true, leadId: created.id });
   });
 
@@ -1223,3 +1207,148 @@ This template is for informational/outreach purposes only.`;
 
   return httpServer;
 }
+
+// ─── DAILY DIGEST EMAIL ────────────────────────────────────────────────────────
+async function sendDailyDigest() {
+  if (!resend) {
+    console.log("[digest] RESEND_API_KEY not set — skipping digest");
+    return;
+  }
+
+  const require2 = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
+  const Database = require2("better-sqlite3");
+  const db2 = new Database("data.db");
+
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const startOfDay = `${todayStr}T00:00:00`;
+  const endOfDay   = `${todayStr}T23:59:59`;
+
+  const activities: any[] = db2.prepare(
+    `SELECT la.*, a.name as agentName FROM lead_activity la
+     LEFT JOIN agents a ON a.id = la.agent_id
+     WHERE la.created_at >= ? AND la.created_at <= ?`
+  ).all(startOfDay, endOfDay);
+
+  const newLeadsToday: number = db2.prepare(
+    `SELECT COUNT(*) as cnt FROM leads WHERE uploaded_at >= ? AND uploaded_at <= ?`
+  ).get(startOfDay, endOfDay)?.cnt ?? 0;
+
+  const agents2: any[] = db2.prepare(
+    `SELECT * FROM agents WHERE role = 'agent' AND is_active = 1`
+  ).all();
+
+  const agentStats = agents2.map((agent: any) => {
+    const agentActs  = activities.filter((a: any) => a.agent_id === agent.id);
+    const dials      = agentActs.filter((a: any) => a.outcome !== "email_sent").length;
+    const emails     = agentActs.filter((a: any) => a.outcome === "email_sent").length;
+    const appts      = agentActs.filter((a: any) => a.outcome === "contacted_appointment").length;
+    const kit        = agentActs.filter((a: any) => a.outcome === "keep_in_touch").length;
+    const notInt     = agentActs.filter((a: any) => a.outcome === "contacted_not_interested").length;
+    const contactRate = dials > 0 ? Math.round(((appts + kit + notInt) / dials) * 100) : 0;
+    return { name: agent.name, dials, emails, appts, kit, contactRate };
+  }).filter((s: any) => s.dials > 0 || s.emails > 0);
+
+  const totalDials  = agentStats.reduce((s: number, a: any) => s + a.dials, 0);
+  const totalAppts  = agentStats.reduce((s: number, a: any) => s + a.appts, 0);
+  const totalEmails = agentStats.reduce((s: number, a: any) => s + a.emails, 0);
+  const totalKIT    = agentStats.reduce((s: number, a: any) => s + a.kit, 0);
+
+  const dateLabel = now.toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", timeZone: "America/New_York",
+  });
+
+  const agentRows = agentStats.length > 0
+    ? agentStats
+        .sort((a: any, b: any) => b.appts - a.appts || b.dials - a.dials)
+        .map((a: any) => `
+      <tr style="border-bottom:1px solid rgba(200,170,90,0.1)">
+        <td style="padding:10px 14px;font-size:13px;color:#f0f0f0">${a.name}</td>
+        <td style="padding:10px 14px;font-size:14px;font-weight:700;color:#86efac;text-align:center">${a.appts}</td>
+        <td style="padding:10px 14px;font-size:13px;color:#c8aa5a;text-align:center">${a.kit}</td>
+        <td style="padding:10px 14px;font-size:13px;color:#fff;text-align:center">${a.dials}</td>
+        <td style="padding:10px 14px;font-size:13px;color:#fbcfe8;text-align:center">${a.emails}</td>
+        <td style="padding:10px 14px;font-size:13px;color:#67e8f9;text-align:center">${a.contactRate}%</td>
+      </tr>`).join("")
+    : `<tr><td colspan="6" style="padding:20px;text-align:center;color:rgba(255,255,255,0.3);font-size:13px">No activity logged today</td></tr>`;
+
+  const html = `
+<div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:640px;margin:0 auto;background:#0c0c0c;color:#f0f0f0;border-radius:14px;overflow:hidden;border:1px solid rgba(200,170,90,0.25)">
+  <div style="background:linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%);padding:28px 32px">
+    <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:rgba(0,0,0,0.55);margin-bottom:6px">Brothers Group at Momentum Realty</div>
+    <h1 style="margin:0;font-size:24px;color:#080808;font-weight:700">Daily Results</h1>
+    <p style="margin:5px 0 0;font-size:13px;color:rgba(0,0,0,0.6)">${dateLabel}</p>
+  </div>
+  <div style="display:flex;border-bottom:1px solid rgba(200,170,90,0.15)">
+    <div style="flex:1;padding:20px 12px;text-align:center;border-right:1px solid rgba(200,170,90,0.1)">
+      <div style="font-size:30px;font-weight:700;color:#86efac">${totalAppts}</div>
+      <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-top:5px">Appts Set</div>
+    </div>
+    <div style="flex:1;padding:20px 12px;text-align:center;border-right:1px solid rgba(200,170,90,0.1)">
+      <div style="font-size:30px;font-weight:700;color:#c8aa5a">${totalKIT}</div>
+      <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-top:5px">Keep in Touch</div>
+    </div>
+    <div style="flex:1;padding:20px 12px;text-align:center;border-right:1px solid rgba(200,170,90,0.1)">
+      <div style="font-size:30px;font-weight:700;color:#fff">${totalDials}</div>
+      <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-top:5px">Total Dials</div>
+    </div>
+    <div style="flex:1;padding:20px 12px;text-align:center">
+      <div style="font-size:30px;font-weight:700;color:#fbcfe8">${totalEmails}</div>
+      <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-top:5px">Emails Sent</div>
+    </div>
+  </div>
+  <div style="padding:13px 24px;background:rgba(200,170,90,0.06);border-bottom:1px solid rgba(200,170,90,0.1);font-size:13px;color:rgba(255,255,255,0.55)">
+    <span style="color:#c8aa5a;font-weight:600">${newLeadsToday} new lead${newLeadsToday !== 1 ? "s" : ""}</span> added to the pool today
+  </div>
+  <div style="padding:24px 0 8px">
+    <div style="padding:0 24px 12px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:rgba(200,170,90,0.55);font-weight:600">Agent Breakdown</div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1px solid rgba(200,170,90,0.2)">
+          <th style="padding:8px 14px;text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">Agent</th>
+          <th style="padding:8px 14px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">Appts</th>
+          <th style="padding:8px 14px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">KIT</th>
+          <th style="padding:8px 14px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">Dials</th>
+          <th style="padding:8px 14px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">Emails</th>
+          <th style="padding:8px 14px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">Contact%</th>
+        </tr>
+      </thead>
+      <tbody>${agentRows}</tbody>
+    </table>
+  </div>
+  <div style="padding:16px 24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
+    <span>Lead Depot v11.9</span><span>Brothers Group · Momentum Realty</span>
+  </div>
+</div>`;
+
+  await resend.emails.send({
+    from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+    to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+    subject: `📊 Daily Results — ${dateLabel} — ${totalAppts} Appt${totalAppts !== 1 ? "s" : ""}, ${totalDials} Dials`,
+    html,
+  });
+
+  console.log(`[digest] Sent — ${totalAppts} appts, ${totalDials} dials, ${agentStats.length} active agents`);
+  db2.close();
+}
+
+// Fires at 5:45 PM EDT = 21:45 UTC every day
+function scheduleDailyDigest() {
+  function msUntilNext(): number {
+    const now = new Date();
+    const next = new Date(now);
+    next.setUTCHours(21, 45, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    return next.getTime() - now.getTime();
+  }
+
+  const delay = msUntilNext();
+  console.log(`[digest] Scheduled in ${Math.round(delay / 60000)} min (5:45 PM EDT)`);
+
+  setTimeout(function fire() {
+    sendDailyDigest().catch(err => console.error("[digest] Error:", err));
+    setTimeout(fire, 24 * 60 * 60 * 1000); // repeat every 24h
+  }, delay);
+}
+
+scheduleDailyDigest();

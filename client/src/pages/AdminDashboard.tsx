@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import ScriptEditor from "../components/ScriptEditor";
 import MapView from "./MapView";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -251,6 +252,7 @@ function AgentDrilldown({ agentId, agentName, onClose }: { agentId: number; agen
 
 export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () => void } = {}) {
   const { user, logout } = useAuth();
+  useRealtimeUpdates();
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -537,7 +539,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.7
+              v11.9
             </p>
           </div>
         </div>

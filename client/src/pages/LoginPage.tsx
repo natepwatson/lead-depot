@@ -90,7 +90,10 @@ export default function LoginPage() {
   const headlineHtml = photo.headline.replace(/\n/g, "<br>");
 
   return (
-    <div style={{ display: "flex", height: "100dvh", background: "#080808", fontFamily: "'Switzer','Inter',sans-serif" }}>
+    <div className="ld-bg-wrap" style={{ display: "flex", height: "100dvh", background: "#080808", fontFamily: "'Switzer','Inter',sans-serif" }}>
+      {/* Luxury ambient glows */}
+      <div className="ld-glow" />
+      <div className="ld-glow-corner" />
 
       {/* ── PHOTO SIDE ─────────────────────────────────────────────────────── */}
       <div
@@ -101,6 +104,7 @@ export default function LoginPage() {
           flex: "0 0 58%",
           position: "relative",
           overflow: "hidden",
+          zIndex: 3,
         }}
         className="hidden md:block"
       >
@@ -189,13 +193,15 @@ export default function LoginPage() {
       {/* ── FORM SIDE ──────────────────────────────────────────────────────── */}
       <div style={{
         flex: 1,
-        background: "#080808",
+        background: "transparent",
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
         alignItems: "center",
         padding: "60px 52px",
         overflowY: "auto",
+        position: "relative",
+        zIndex: 3,
       }}>
         <div style={{ width: "100%", maxWidth: 360 }}>
           {/* Logo */}
@@ -313,7 +319,7 @@ export default function LoginPage() {
             marginTop: 8, fontSize: 9, color: "rgba(255,255,255,0.1)",
             letterSpacing: "0.14em", textAlign: "center", textTransform: "uppercase",
           }}>
-            Lead Depot v11.1
+            Lead Depot v11.2
           </p>
         </div>
       </div>

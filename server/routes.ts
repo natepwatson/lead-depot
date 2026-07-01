@@ -1001,6 +1001,7 @@ This template is for informational/outreach purposes only.`;
       networkNotes: notes || "",
       ingestedAt: now,
     });
+    const submitterAgentId = submittedBy ? parseInt(String(submittedBy)) : null;
     const [created] = storage.createLeadsFromBatch([{
       leadType: "website_lead",
       address: address || "",
@@ -1009,11 +1010,11 @@ This template is for informational/outreach purposes only.`;
       email: email || "",
       motivation: notes || "",
       extraData,
-      status: "unassigned",
-      assignedAgentId: null,
+      status: submitterAgentId ? "assigned" : "unassigned",
+      assignedAgentId: submitterAgentId,
       attemptCount: 0,
       uploadedAt: now,
-      uploadedBy: submittedBy ? parseInt(String(submittedBy)) : null,
+      uploadedBy: submitterAgentId,
       batchId: `network_${Date.now()}`,
     }]);
     res.json({ created: true, leadId: created.id });

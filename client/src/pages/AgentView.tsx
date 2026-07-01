@@ -717,7 +717,10 @@ export default function AgentView({ onBackToAdmin }: { onBackToAdmin?: () => voi
   const hasLeads   = queueCount > 0;
 
   return (
-    <div style={{ minHeight: "100dvh", background: "#080808", display: "flex", flexDirection: "column" }}>
+    <div className="ld-bg-wrap" style={{ minHeight: "100dvh", background: "#080808", display: "flex", flexDirection: "column" }}>
+      {/* Luxury ambient glows */}
+      <div className="ld-glow" />
+      <div className="ld-glow-corner" />
 
       {/* ── Header ── */}
       <header style={{

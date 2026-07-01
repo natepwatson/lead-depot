@@ -509,7 +509,10 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   );
 
   return (
-    <div style={{ minHeight: "100dvh", background: "#080808" }}>
+    <div className="ld-bg-wrap" style={{ minHeight: "100dvh", background: "#080808" }}>
+      {/* Luxury ambient glows */}
+      <div className="ld-glow" />
+      <div className="ld-glow-corner" />
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <header style={{
@@ -534,7 +537,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.1
+              v11.2
             </p>
           </div>
         </div>

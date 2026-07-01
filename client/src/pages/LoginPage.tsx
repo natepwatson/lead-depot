@@ -48,6 +48,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [current, setCurrent] = useState(getDayIndex());
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const photoRef = useRef<HTMLDivElement>(null);
 
@@ -63,6 +66,33 @@ export default function LoginPage() {
     startTimer();
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
+
+  // PWA install detection
+  useEffect(() => {
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const standalone = (navigator as any).standalone;
+    setIsIOS(ios);
+    // Show iOS banner if not already installed
+    if (ios && !standalone) {
+      setShowInstallBanner(true);
+    }
+    // Android / Chrome install prompt
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      setShowInstallBanner(true);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (installPrompt) {
+      installPrompt.prompt();
+      const { outcome } = await installPrompt.userChoice;
+      if (outcome === "accepted") setShowInstallBanner(false);
+    }
+  };
 
   const handleDotClick = (idx: number) => {
     setCurrent(idx);
@@ -319,8 +349,58 @@ export default function LoginPage() {
             marginTop: 8, fontSize: 9, color: "rgba(255,255,255,0.1)",
             letterSpacing: "0.14em", textAlign: "center", textTransform: "uppercase",
           }}>
-            Lead Depot v11.3
+            Lead Depot v11.6
           </p>
+
+          {/* ── PWA Install Banner ── */}
+          {showInstallBanner && (
+            <div style={{
+              marginTop: 28,
+              padding: "16px 18px",
+              background: "linear-gradient(135deg, rgba(200,170,90,0.12) 0%, rgba(200,170,90,0.05) 100%)",
+              border: "1px solid rgba(200,170,90,0.35)",
+              borderRadius: 14,
+              display: "flex", alignItems: "center", gap: 14,
+            }}>
+              <img src="/icon-192x192.png" alt="Lead Depot" style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: "#c8aa5a", margin: 0, letterSpacing: "0.02em" }}>
+                  Add to Home Screen
+                </p>
+                {isIOS ? (
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", margin: "3px 0 0", lineHeight: 1.4 }}>
+                    Tap <span style={{ color: "rgba(255,255,255,0.75)" }}>Share</span> then <span style={{ color: "rgba(255,255,255,0.75)" }}>Add to Home Screen</span>
+                  </p>
+                ) : (
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", margin: "3px 0 0" }}>
+                    Install for the full app experience
+                  </p>
+                )}
+              </div>
+              {!isIOS && (
+                <button
+                  onClick={handleInstall}
+                  style={{
+                    flexShrink: 0, padding: "8px 14px",
+                    background: "linear-gradient(135deg,#c8aa5a,#a8893a)",
+                    border: "none", borderRadius: 8,
+                    fontSize: 12, fontWeight: 700, color: "#080808",
+                    cursor: "pointer", letterSpacing: "0.04em",
+                  }}
+                >
+                  Install
+                </button>
+              )}
+              <button
+                onClick={() => setShowInstallBanner(false)}
+                style={{
+                  flexShrink: 0, background: "none", border: "none",
+                  color: "rgba(255,255,255,0.3)", fontSize: 18,
+                  cursor: "pointer", padding: "0 2px", lineHeight: 1,
+                }}
+              >×</button>
+            </div>
+          )}
         </div>
       </div>
 

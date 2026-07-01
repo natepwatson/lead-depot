@@ -68,6 +68,183 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ─── Appt / Keep-in-Touch Modal ─────────────────────────────────────────────
+const STAGES = ["Hot Prospect", "Active", "Nurture"] as const;
+const INTENTIONS = [
+  { key: "sell_now",      label: "Sell Now" },
+  { key: "future_sell",  label: "Future Sell" },
+  { key: "buy_now",      label: "Buy Now" },
+  { key: "future_buy",  label: "Future Buy" },
+  { key: "rental_now",  label: "Rental Now" },
+  { key: "rental_later",label: "Rental Later" },
+] as const;
+
+function ApptModal({
+  lead, outcome, onClose, onSubmit, isPending,
+}: {
+  lead: Lead;
+  outcome: "contacted_appointment" | "keep_in_touch";
+  onClose: () => void;
+  onSubmit: (data: {
+    apptEmail: string; confirmedAddress: string;
+    apptDate: string; apptTime: string; stage: string; intention: string;
+  }) => void;
+  isPending: boolean;
+}) {
+  const isAppt = outcome === "contacted_appointment";
+  const [apptEmail, setApptEmail] = React.useState(lead.email || "");
+  const [addressConfirmed, setAddressConfirmed] = React.useState(true);
+  const [altAddress, setAltAddress] = React.useState("");
+  const [apptDate, setApptDate] = React.useState("");
+  const [apptTime, setApptTime] = React.useState("");
+  const [stage, setStage] = React.useState<string>("Hot Prospect");
+  const [intention, setIntention] = React.useState<string>("");
+
+  const confirmedAddress = addressConfirmed ? (lead.address || "") : altAddress;
+  const canSubmit = apptEmail.trim() &&
+    (addressConfirmed || altAddress.trim()) &&
+    (!isAppt || (apptDate && apptTime)) &&
+    stage && intention;
+
+  const sourceLabel: Record<string, string> = {
+    expired: "Expired Listing", distressed: "Distressed Property",
+    website_lead: "Website / Network Lead", fsbo: "FSBO", land: "Land Lead",
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(200,170,90,0.3)",
+    padding: "12px 14px", borderRadius: 10,
+    fontFamily: "'Switzer','Inter',sans-serif", fontSize: 14,
+    color: "#fff", outline: "none", colorScheme: "dark",
+    boxSizing: "border-box" as const,
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase" as const,
+    color: "rgba(200,170,90,0.7)", marginBottom: 7, display: "block", fontWeight: 600,
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      display: "flex", flexDirection: "column", justifyContent: "flex-end",
+    }}>
+      <div onClick={onClose} style={{
+        position: "absolute", inset: 0,
+        background: "rgba(0,0,0,0.72)", backdropFilter: "blur(4px)",
+      }} />
+      <div style={{
+        position: "relative", zIndex: 1,
+        background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)",
+        border: "1px solid rgba(200,170,90,0.3)",
+        borderBottom: "none",
+        borderRadius: "20px 20px 0 0",
+        padding: "28px 22px 48px",
+        maxHeight: "90dvh",
+        overflowY: "auto",
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 22px" }} />
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 26, fontWeight: 400, color: "#fff", margin: 0 }}>
+            {isAppt ? "Appointment Set" : "Keep in Touch"}
+          </h2>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>
+            {isAppt ? "In-person appointment" : "Connected — future opportunity"}
+          </p>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div>
+            <label style={labelStyle}>Owner Email</label>
+            <input type="email" value={apptEmail} onChange={e => setApptEmail(e.target.value)}
+              placeholder="owner@email.com" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Subject Property</label>
+            <div style={{ padding: "12px 14px", background: "rgba(200,170,90,0.07)", border: "1px solid rgba(200,170,90,0.25)", borderRadius: 10, marginBottom: 10 }}>
+              <p style={{ fontSize: 14, color: "rgba(255,255,255,0.8)", margin: 0 }}>{lead.address || "No address on file"}</p>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13, color: "rgba(255,255,255,0.65)" }}>
+              <input type="checkbox" checked={addressConfirmed} onChange={e => setAddressConfirmed(e.target.checked)}
+                style={{ width: 17, height: 17, accentColor: "#c8aa5a", flexShrink: 0 }} />
+              This is the correct subject property
+            </label>
+            {!addressConfirmed && (
+              <input type="text" value={altAddress} onChange={e => setAltAddress(e.target.value)}
+                placeholder="Enter correct property address" style={{ ...inputStyle, marginTop: 12 }} />
+            )}
+          </div>
+          {isAppt && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={labelStyle}>Appointment Date</label>
+                <input type="date" value={apptDate} onChange={e => setApptDate(e.target.value)} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Appointment Time</label>
+                <input type="time" value={apptTime} onChange={e => setApptTime(e.target.value)} style={inputStyle} />
+              </div>
+            </div>
+          )}
+          <div>
+            <label style={labelStyle}>Stage</label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+              {STAGES.map(s => (
+                <button key={s} type="button" onClick={() => setStage(s)} style={{
+                  padding: "11px 6px", borderRadius: 9, border: "1px solid",
+                  fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s",
+                  borderColor: stage === s ? "#c8aa5a" : "rgba(255,255,255,0.15)",
+                  background: stage === s ? "rgba(200,170,90,0.18)" : "rgba(255,255,255,0.04)",
+                  color: stage === s ? "#c8aa5a" : "rgba(255,255,255,0.5)",
+                }}>{s}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Client Intention</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {INTENTIONS.map(i => (
+                <button
+                  key={i.key}
+                  type="button"
+                  onClick={() => setIntention(i.key)}
+                  style={{
+                    padding: "11px 8px", borderRadius: 9, border: "1px solid",
+                    fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    transition: "all 0.15s", textAlign: "center",
+                    borderColor: intention === i.key ? "#93c5fd" : "rgba(255,255,255,0.12)",
+                    background: intention === i.key ? "rgba(147,197,253,0.15)" : "rgba(255,255,255,0.04)",
+                    color: intention === i.key ? "#93c5fd" : "rgba(255,255,255,0.45)",
+                  }}
+                >{i.label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Source</label>
+            <div style={{ padding: "12px 14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, fontSize: 13, color: "rgba(255,255,255,0.5)" }}>
+              {sourceLabel[lead.leadType] || lead.leadType}
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => onSubmit({ apptEmail, confirmedAddress, apptDate, apptTime, stage, intention })}
+          disabled={!canSubmit || isPending}
+          style={{
+            marginTop: 28, width: "100%", padding: "16px", borderRadius: 12, border: "none",
+            background: canSubmit && !isPending ? "linear-gradient(135deg,#c8aa5a,#a8893a)" : "rgba(255,255,255,0.08)",
+            color: canSubmit && !isPending ? "#080808" : "rgba(255,255,255,0.3)",
+            fontSize: 15, fontWeight: 700, cursor: canSubmit && !isPending ? "pointer" : "default",
+            letterSpacing: "0.04em",
+          }}
+        >
+          {isPending ? "Saving…" : "Confirm & Submit"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Lead card ────────────────────────────────────────────────────────────────
 function LeadCard({ lead }: { lead: Lead }) {
   const { user } = useAuth();
@@ -77,6 +254,7 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [callbackDate, setCallbackDate] = useState(lead.callbackDate || "");
   const [showScript, setShowScript] = useState(false);
   const [hoveredOutcome, setHoveredOutcome] = useState<string | null>(null);
+  const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
 
   const extra = (() => { try { return JSON.parse(lead.extraData || "{}"); } catch { return {}; } })();
 
@@ -87,7 +265,7 @@ function LeadCard({ lead }: { lead: Lead }) {
   });
 
   const outcomeMutation = useMutation({
-    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string }) =>
+    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string }) =>
       apiRequest("POST", `/api/leads/${lead.id}/outcome`, { ...data, agentId: user?.id }).then(r => r.json()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
@@ -99,11 +277,25 @@ function LeadCard({ lead }: { lead: Lead }) {
   });
 
   const handleOutcome = (key: string) => {
+    if (key === "contacted_appointment" || key === "keep_in_touch") {
+      setPendingOutcome(key as "contacted_appointment" | "keep_in_touch");
+      return;
+    }
     if (key === "callback_requested" && !callbackDate) {
       toast({ title: "Select callback date", description: "Pick a date before marking Callback.", variant: "destructive" });
       return;
     }
     outcomeMutation.mutate({ outcome: key, notes, callbackDate: key === "callback_requested" ? callbackDate : undefined });
+  };
+
+  const handleApptSubmit = (data: { apptEmail: string; confirmedAddress: string; apptDate: string; apptTime: string; stage: string; intention: string }) => {
+    if (!pendingOutcome) return;
+    outcomeMutation.mutate({
+      outcome: pendingOutcome,
+      notes,
+      ...data,
+    });
+    setPendingOutcome(null);
   };
 
   const zillow = lead.address ? `https://www.zillow.com/homes/${encodeURIComponent(lead.address)}_rb/` : null;
@@ -357,6 +549,17 @@ function LeadCard({ lead }: { lead: Lead }) {
           </div>
         )}
       </div>
+
+      {/* Appt / Keep-in-Touch modal */}
+      {pendingOutcome && (
+        <ApptModal
+          lead={lead}
+          outcome={pendingOutcome}
+          onClose={() => setPendingOutcome(null)}
+          onSubmit={handleApptSubmit}
+          isPending={outcomeMutation.isPending}
+        />
+      )}
     </div>
   );
 }

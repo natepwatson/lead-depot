@@ -2,6 +2,67 @@ import { createRequire } from "node:module";
 import type { Express } from "express";
 import { createServer } from "http";
 import { storage } from "./storage";
+import { Resend } from "resend";
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+// Source label map
+const SOURCE_LABELS: Record<string, string> = {
+  expired: "Expired Listing",
+  distressed: "Distressed Property",
+  website_lead: "Website / Network Lead",
+  fsbo: "FSBO",
+  land: "Land Lead",
+};
+
+async function sendApptEmail(opts: {
+  outcome: string;
+  agentName: string;
+  ownerName: string;
+  address: string;
+  confirmedAddress: string;
+  ownerEmail: string;
+  apptDate: string;
+  apptTime: string;
+  stage: string;
+  intention: string;
+  source: string;
+  notes?: string;
+}) {
+  if (!resend) return;
+  const isAppt = opts.outcome === "contacted_appointment";
+  const subject = isAppt
+    ? `🏠 Appt Set — ${opts.ownerName} | ${opts.confirmedAddress}`
+    : `💛 Keep in Touch — ${opts.ownerName} | ${opts.confirmedAddress}`;
+
+  const html = `
+<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0c0c0c;color:#f0f0f0;border-radius:12px;overflow:hidden">
+  <div style="background:linear-gradient(135deg,#c8aa5a,#a8893a);padding:24px 28px">
+    <h1 style="margin:0;font-size:20px;color:#080808">${isAppt ? "Appointment Set" : "Keep in Touch"}</h1>
+    <p style="margin:6px 0 0;font-size:13px;color:#333">Logged by ${opts.agentName}</p>
+  </div>
+  <div style="padding:28px">
+    <table style="width:100%;border-collapse:collapse">
+      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px">Owner</td><td style="padding:8px 0;font-size:14px">${opts.ownerName}</td></tr>
+      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Email</td><td style="padding:8px 0;font-size:14px">${opts.ownerEmail || "—"}</td></tr>
+      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Property</td><td style="padding:8px 0;font-size:14px">${opts.confirmedAddress}</td></tr>
+      ${isAppt ? `<tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Date &amp; Time</td><td style="padding:8px 0;font-size:14px">${opts.apptDate} at ${opts.apptTime}</td></tr>` : ""}
+      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Stage</td><td style="padding:8px 0;font-size:14px">${opts.stage}</td></tr>
+      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Source</td><td style="padding:8px 0;font-size:14px">${opts.source}</td></tr>
+      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Intention</td><td style="padding:8px 0;font-size:14px">${opts.intention || "—"}</td></tr>
+      ${opts.notes ? `<tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Notes</td><td style="padding:8px 0;font-size:14px">${opts.notes}</td></tr>` : ""}
+    </table>
+  </div>
+  <div style="padding:16px 28px;background:#111;font-size:11px;color:#555">Lead Depot v11.4 — Brothers Group at Momentum Realty</div>
+</div>`;
+
+  await resend.emails.send({
+    from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+    to: ["alex@watsonbrothersgroup.com"],
+    subject,
+    html,
+  });
+}
 
 // Works in both ESM (tsx dev) and CJS (esbuild production bundle)
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
@@ -361,9 +422,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
   // ─── OUTCOMES ─────────────────────────────────────────────────────────────
-  app.post("/api/leads/:id/outcome", (req, res) => {
+  app.post("/api/leads/:id/outcome", async (req, res) => {
     const leadId = parseInt(req.params.id);
-    const { agentId, outcome, notes, lpmamab, callbackDate } = req.body;
+    const { agentId, outcome, notes, lpmamab, callbackDate,
+            apptEmail, confirmedAddress, apptDate, apptTime, stage, intention } = req.body;
 
     const lead = storage.getLeadById(leadId);
     if (!lead) return res.status(404).json({ error: "Lead not found" });
@@ -439,6 +501,25 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       lpmamabSnapshot: lpmamab ? JSON.stringify(lpmamab) : null,
       createdAt: new Date().toISOString(),
     });
+
+    // Send admin email notification for appointment set or keep in touch
+    if (outcome === "contacted_appointment" || outcome === "keep_in_touch") {
+      const agent = storage.getAgentById(agentId);
+      sendApptEmail({
+        outcome,
+        agentName: agent?.name || "Unknown Agent",
+        ownerName: lead.ownerName || "Unknown Owner",
+        address: lead.address || "",
+        confirmedAddress: confirmedAddress || lead.address || "",
+        ownerEmail: apptEmail || lead.email || "",
+        apptDate: apptDate || "",
+        apptTime: apptTime || "",
+        stage: stage || "",
+        source: SOURCE_LABELS[lead.leadType] || lead.leadType,
+        intention: intention || "",
+        notes: notes || "",
+      }).catch(err => console.error("[Resend] Failed to send email:", err));
+    }
 
     res.json(updatedLead);
   });

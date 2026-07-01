@@ -216,7 +216,7 @@ export default function LoginPage() {
             fontSize: "clamp(2.2rem,3.5vw,3rem)", fontWeight: 300,
             color: "#fff", letterSpacing: "-0.01em", marginBottom: 8, lineHeight: 1.05,
           }}>
-            Your Leads.<br /><em style="font-style:italic;color:rgba(200,170,90,0.88)">Your Success.</em>
+            Your Leads.<br /><em style={{ fontStyle: "italic", color: "rgba(200,170,90,0.88)" }}>Your Success.</em>
           </h1>
           <p style={{ fontSize: 13, color: "rgba(255,255,255,0.35)", marginBottom: 40, letterSpacing: "0.02em" }}>
             The elite system built for closers

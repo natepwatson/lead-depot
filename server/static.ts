@@ -15,8 +15,8 @@ export function serveStatic(app: Express) {
     );
   }
 
-  // ── Gzip compression for all responses ────────────────────────────────────
-  app.use(compression({ level: 6 }));
+  // ── Gzip compression — level 1 is 10x faster than level 6, still ~70% smaller ──
+  app.use(compression({ level: 1, threshold: 1024 }));
 
   // ── Hashed assets (JS/CSS bundles) → 1 year immutable cache ──────────────
   // Vite fingerprints filenames: index-AbCdEfGh.js — safe to cache forever

@@ -1,10 +1,14 @@
 import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
+import { createRequire } from "node:module";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { initWebSocket } from "./ws";
 import { createServer } from "node:http";
+
+const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
+const compression = require("compression");
 
 const app = express();
 const httpServer = createServer(app);
@@ -14,6 +18,9 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+// Compression first — before ALL routes including API, at level 1 (fast)
+app.use(compression({ level: 1, threshold: 1024 }));
 
 app.use(
   express.json({

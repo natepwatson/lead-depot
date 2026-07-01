@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import type { Express } from "express";
 import { createServer } from "http";
 import { storage } from "./storage";
+import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 
@@ -540,11 +541,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // ─── ADMIN: PER-AGENT STATS ───────────────────────────────────────────────
   app.get("/api/admin/agent-stats", (req, res) => {
     // Load leaderboard reset timestamp
-    const sqlite3r = require("better-sqlite3");
-    const dbr = new sqlite3r("data.db");
-    dbr.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
-    const resetRow = dbr.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
-    dbr.close();
+    const resetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
     const resetAt: string | null = resetRow?.value || null;
 
     // Show agents (active + flow on) AND admins with receiveLeads=true
@@ -646,16 +643,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // ─── SCRIPTS (DB-backed, editable) ────────────────────────────────────────
   // Initialize default scripts on first run
   const initScript = (leadType: string, defaultContent: string) => {
-    const db2 = (storage as any);
-    // Use raw sqlite to check/insert scripts
-    const { drizzle } = require("drizzle-orm/better-sqlite3");
-    const Database = require("better-sqlite3");
-    const sqlite2 = new Database("data.db");
-    const exists = sqlite2.prepare("SELECT id FROM scripts WHERE lead_type = ?").get(leadType);
+    const exists = rawDb.prepare("SELECT id FROM scripts WHERE lead_type = ?").get(leadType);
     if (!exists) {
-      sqlite2.prepare("INSERT INTO scripts (lead_type, content, updated_at) VALUES (?, ?, ?)").run(leadType, defaultContent, new Date().toISOString());
+      rawDb.prepare("INSERT INTO scripts (lead_type, content, updated_at) VALUES (?, ?, ?)").run(leadType, defaultContent, new Date().toISOString());
     }
-    sqlite2.close();
   };
 
   const expiredScript = `EXPIRED LISTING SCRIPT
@@ -968,19 +959,13 @@ This template is for informational/outreach purposes only.`;
 
   app.get("/api/scripts/:type", (req, res) => {
     const leadType = req.params.type;
-    const sqlite3 = require("better-sqlite3");
-    const db3 = new sqlite3("data.db");
-    const row = db3.prepare("SELECT * FROM scripts WHERE lead_type = ?").get(leadType);
-    db3.close();
+    const row = rawDb.prepare("SELECT * FROM scripts WHERE lead_type = ?").get(leadType);
     if (!row) return res.status(404).json({ error: "Script not found" });
     res.json({ leadType: row.lead_type, content: row.content, updatedAt: row.updated_at });
   });
 
   app.get("/api/scripts", (req, res) => {
-    const sqlite3 = require("better-sqlite3");
-    const db3 = new sqlite3("data.db");
-    const rows = db3.prepare("SELECT lead_type, updated_at FROM scripts").all();
-    db3.close();
+    const rows = rawDb.prepare("SELECT lead_type, updated_at FROM scripts").all();
     res.json(rows);
   });
 
@@ -988,11 +973,8 @@ This template is for informational/outreach purposes only.`;
     const leadType = req.params.type;
     const { content } = req.body;
     if (!content) return res.status(400).json({ error: "Missing content" });
-    const sqlite3 = require("better-sqlite3");
-    const db3 = new sqlite3("data.db");
     const now = new Date().toISOString();
-    db3.prepare("UPDATE scripts SET content = ?, updated_at = ? WHERE lead_type = ?").run(content, now, leadType);
-    db3.close();
+    rawDb.prepare("UPDATE scripts SET content = ?, updated_at = ? WHERE lead_type = ?").run(content, now, leadType);
     res.json({ leadType, content, updatedAt: now });
   });
 
@@ -1006,34 +988,99 @@ This template is for informational/outreach purposes only.`;
     res.json({ count });
   });
 
+  // ─── MY PIPELINE (callbacks + KIT, 60-day window) ────────────────────────
+  app.get("/api/leads/my-pipeline/:agentId", (req, res) => {
+    const agentId = parseInt(req.params.agentId);
+    if (!agentId || isNaN(agentId)) return res.status(400).json({ error: "Missing agentId" });
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 60);
+    const cutoffStr = cutoff.toISOString();
+
+    const allLeads = storage.getAllLeads().filter((l: any) =>
+      l.assignedAgentId === agentId &&
+      (l.status === "callback_requested" || l.status === "keep_in_touch" || l.status === "contacted_appointment") &&
+      l.uploadedAt >= cutoffStr
+    );
+
+    // Enrich with last activity notes
+    const enriched = allLeads.map((l: any) => {
+      const acts = storage.getActivitiesForLead(l.id);
+      const lastAct = acts.length > 0 ? acts[acts.length - 1] : null;
+      return {
+        ...l,
+        lastNote: lastAct?.notes || null,
+        activityCount: acts.filter((a: any) => a.outcome !== "email_sent").length,
+        emailCount: acts.filter((a: any) => a.outcome === "email_sent").length,
+      };
+    });
+
+    const callbacks = enriched
+      .filter((l: any) => l.status === "callback_requested")
+      .sort((a: any, b: any) => (a.callbackDate || "").localeCompare(b.callbackDate || ""));
+
+    const kitLeads = enriched
+      .filter((l: any) => l.status === "keep_in_touch")
+      .sort((a: any, b: any) => b.uploadedAt.localeCompare(a.uploadedAt));
+
+    const appointments = enriched
+      .filter((l: any) => l.status === "contacted_appointment")
+      .sort((a: any, b: any) => b.uploadedAt.localeCompare(a.uploadedAt));
+
+    res.json({ callbacks, kitLeads, appointments });
+  });
+
+  // ─── RECYCLE LEAD ──────────────────────────────────────────────────────────
+  // Agent connected but believes another agent can do better.
+  // Removes assignment claim, returns lead to pool for round-robin reassignment.
+  app.post("/api/leads/:id/recycle", (req, res) => {
+    const leadId = parseInt(req.params.id);
+    const { agentId, notes } = req.body;
+    const lead = storage.getLeadById(leadId);
+    if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+    // Log the recycle — still counts as a dial attempt
+    storage.logActivity({
+      leadId,
+      agentId: agentId || null,
+      outcome: "recycled",
+      notes: notes || "Lead recycled — returned to pool for reassignment.",
+      createdAt: new Date().toISOString(),
+    });
+
+    // Unassign and bump attempt count
+    storage.updateLead(leadId, {
+      assignedAgentId: null,
+      status: "unassigned",
+      attemptCount: (lead.attemptCount || 0) + 1,
+    });
+
+    // Immediately reassign via round-robin
+    const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+    if (nextAgent) {
+      storage.updateLead(leadId, { assignedAgentId: nextAgent.id, status: "assigned" });
+      storage.updateRoundRobinState(nextAgent.id);
+    }
+
+    broadcast({ type: "lead_updated", leadId });
+    res.json({ recycled: true, reassignedTo: nextAgent?.name || null });
+  });
+
   // ─── LEADERBOARD RESET ────────────────────────────────────────────────────
   app.post("/api/admin/leaderboard-reset", (req, res) => {
-    const sqlite3 = require("better-sqlite3");
-    const db3 = new sqlite3("data.db");
     const now = new Date().toISOString();
-    // Upsert a single-row settings record with leaderboard_reset_at
-    db3.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
-    db3.prepare(`INSERT INTO settings (key, value) VALUES ('leaderboard_reset_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(now);
-    db3.close();
+    rawDb.prepare(`INSERT INTO settings (key, value) VALUES ('leaderboard_reset_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(now);
     res.json({ ok: true, resetAt: now });
   });
 
   app.get("/api/admin/leaderboard-reset", (req, res) => {
-    const sqlite3 = require("better-sqlite3");
-    const db3 = new sqlite3("data.db");
-    db3.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
-    const row = db3.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
-    db3.close();
+    const row = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
     res.json({ resetAt: row?.value || null });
   });
 
   // ─── AGENT-FACING LEADERBOARD (no admin-only data) ────────────────────────
   app.get("/api/agent/leaderboard", (req, res) => {
-    const sqlite3a = require("better-sqlite3");
-    const dba = new sqlite3a("data.db");
-    dba.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
-    const resetRow = dba.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
-    dba.close();
+    const resetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
     const resetAt: string | null = resetRow?.value || null;
 
     const allAgents = storage.getAllAgents().filter(a =>
@@ -1111,43 +1158,16 @@ This template is for informational/outreach purposes only.`;
   app.post("/api/referrals", (req, res) => {
     const { name, phone, email, brokerage, notes, referredBy, referredByName } = req.body;
     if (!name || !phone) return res.status(400).json({ error: "Name and phone required" });
-    const sqlite3r2 = require("better-sqlite3");
-    const dbr2 = new sqlite3r2("data.db");
-    dbr2.prepare(`
-      CREATE TABLE IF NOT EXISTS referrals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        phone TEXT NOT NULL,
-        email TEXT,
-        brokerage TEXT,
-        notes TEXT,
-        referred_by INTEGER,
-        referred_by_name TEXT,
-        created_at TEXT NOT NULL DEFAULT ''
-      )
-    `).run();
     const now = new Date().toISOString();
-    const info = dbr2.prepare(
+    const info = rawDb.prepare(
       `INSERT INTO referrals (name, phone, email, brokerage, notes, referred_by, referred_by_name, created_at) VALUES (?,?,?,?,?,?,?,?)`
     ).run(name, phone, email || "", brokerage || "", notes || "", referredBy || null, referredByName || "", now);
-    dbr2.close();
     res.json({ created: true, id: info.lastInsertRowid });
   });
 
   // ─── ADMIN: VIEW REFERRALS ─────────────────────────────────────────────────
   app.get("/api/referrals", (req, res) => {
-    const sqlite3r3 = require("better-sqlite3");
-    const dbr3 = new sqlite3r3("data.db");
-    dbr3.prepare(`
-      CREATE TABLE IF NOT EXISTS referrals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL, phone TEXT NOT NULL, email TEXT, brokerage TEXT,
-        notes TEXT, referred_by INTEGER, referred_by_name TEXT,
-        created_at TEXT NOT NULL DEFAULT ''
-      )
-    `).run();
-    const rows = dbr3.prepare(`SELECT * FROM referrals ORDER BY created_at DESC`).all();
-    dbr3.close();
+    const rows = rawDb.prepare(`SELECT * FROM referrals ORDER BY created_at DESC`).all();
     res.json(rows);
   });
 
@@ -1215,26 +1235,22 @@ async function sendDailyDigest() {
     return;
   }
 
-  const require2 = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
-  const Database = require2("better-sqlite3");
-  const db2 = new Database("data.db");
-
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const startOfDay = `${todayStr}T00:00:00`;
   const endOfDay   = `${todayStr}T23:59:59`;
 
-  const activities: any[] = db2.prepare(
+  const activities: any[] = rawDb.prepare(
     `SELECT la.*, a.name as agentName FROM lead_activity la
      LEFT JOIN agents a ON a.id = la.agent_id
      WHERE la.created_at >= ? AND la.created_at <= ?`
   ).all(startOfDay, endOfDay);
 
-  const newLeadsToday: number = db2.prepare(
+  const newLeadsToday: number = rawDb.prepare(
     `SELECT COUNT(*) as cnt FROM leads WHERE uploaded_at >= ? AND uploaded_at <= ?`
   ).get(startOfDay, endOfDay)?.cnt ?? 0;
 
-  const agents2: any[] = db2.prepare(
+  const agents2: any[] = rawDb.prepare(
     `SELECT * FROM agents WHERE role = 'agent' AND is_active = 1`
   ).all();
 
@@ -1317,7 +1333,7 @@ async function sendDailyDigest() {
     </table>
   </div>
   <div style="padding:16px 24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.9</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.11</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>`;
 
@@ -1329,7 +1345,6 @@ async function sendDailyDigest() {
   });
 
   console.log(`[digest] Sent — ${totalAppts} appts, ${totalDials} dials, ${agentStats.length} active agents`);
-  db2.close();
 }
 
 // Fires at 5:45 PM EDT = 21:45 UTC every day

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "../contexts/AuthContext";
@@ -11,6 +11,7 @@ import {
   CheckCircle2, AlertTriangle, MapPin, Mail, LogOut,
   TrendingUp, ChevronLeft, ScrollText, ChevronDown,
   ChevronUp, Trophy, Users, Send, UserPlus, Heart,
+  RefreshCw, Briefcase, Clock, PhoneCall, Star,
 } from "lucide-react";
 import type { Lead } from "@shared/schema";
 
@@ -38,10 +39,10 @@ const LPMAMAB_PHRASES = [
 
 // ─── Outcome configs ───────────────────────────────────────────────────────────
 const OUTCOMES = [
-  { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
   { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.12)",  border: "rgba(236,72,153,0.4)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.22)" },
   { key: "callback_requested",      label: "Callback",      icon: Calendar,      bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
   { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.12)",   border: "rgba(34,197,94,0.4)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.22)" },
+  { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
   { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },
   { key: "wrong_number",            label: "Wrong #",       icon: AlertTriangle, bg: "rgba(239,68,68,0.08)",   border: "rgba(239,68,68,0.25)",   text: "rgba(252,165,165,0.8)", hoverBg: "rgba(239,68,68,0.15)" },
 ] as const;
@@ -246,16 +247,217 @@ function ApptModal({
   );
 }
 
+
+// ─── Callback Modal ──────────────────────────────────────────────────────────
+function CallbackModal({
+  onClose, onSubmit, isPending,
+}: {
+  onClose: () => void;
+  onSubmit: (data: { callbackDate: string; callbackTime: string }) => void;
+  isPending: boolean;
+}) {
+  const [callbackDate, setCallbackDate] = React.useState("");
+  const [callbackTime, setCallbackTime] = React.useState("");
+  const canSubmit = callbackDate.trim() !== "";
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(200,170,90,0.3)",
+    padding: "12px 14px", borderRadius: 10,
+    fontFamily: "'Switzer','Inter',sans-serif", fontSize: 14,
+    color: "#fff", outline: "none", colorScheme: "dark",
+    boxSizing: "border-box" as const,
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase" as const,
+    color: "rgba(200,170,90,0.7)", marginBottom: 7, display: "block", fontWeight: 600,
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      display: "flex", flexDirection: "column", justifyContent: "flex-end",
+    }}>
+      <div onClick={onClose} style={{
+        position: "absolute", inset: 0,
+        background: "rgba(0,0,0,0.72)", backdropFilter: "blur(4px)",
+      }} />
+      <div style={{
+        position: "relative", zIndex: 1,
+        background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)",
+        border: "1px solid rgba(34,211,238,0.3)",
+        borderBottom: "none",
+        borderRadius: "20px 20px 0 0",
+        padding: "28px 22px 48px",
+        maxHeight: "70dvh",
+        overflowY: "auto",
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 22px" }} />
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 26, fontWeight: 400, color: "#fff", margin: 0 }}>
+            Schedule Callback
+          </h2>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>
+            Set a date and time to follow up
+          </p>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Callback Date</label>
+              <input type="date" value={callbackDate} onChange={e => setCallbackDate(e.target.value)} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Callback Time</label>
+              <input type="time" value={callbackTime} onChange={e => setCallbackTime(e.target.value)} style={inputStyle} />
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => onSubmit({ callbackDate, callbackTime })}
+          disabled={!canSubmit || isPending}
+          style={{
+            marginTop: 28, width: "100%", padding: "16px", borderRadius: 12, border: "none",
+            background: canSubmit && !isPending ? "linear-gradient(135deg,#22d3ee,#0891b2)" : "rgba(255,255,255,0.08)",
+            color: canSubmit && !isPending ? "#080808" : "rgba(255,255,255,0.3)",
+            fontSize: 15, fontWeight: 700, cursor: canSubmit && !isPending ? "pointer" : "default",
+            letterSpacing: "0.04em",
+          }}
+        >
+          {isPending ? "Saving…" : "Confirm Callback"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Recycle Button ──────────────────────────────────────────────────────────
+function RecycleButton({ lead }: { lead: Lead }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const [notes, setNotes] = useState("");
+
+  const recycleMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/leads/${lead.id}/recycle`, {
+        agentId: user?.id,
+        notes: notes || "Lead recycled — returned to pool for reassignment.",
+      }).then(r => r.json()),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+      qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
+      toast({
+        title: "Lead recycled",
+        description: data.reassignedTo
+          ? `Reassigned to ${data.reassignedTo}.`
+          : "Returned to pool.",
+      });
+      setConfirming(false);
+    },
+    onError: () => toast({ title: "Error recycling lead", variant: "destructive" }),
+  });
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(239,68,68,0.3)",
+    padding: "10px 12px", borderRadius: 8,
+    fontFamily: "'Switzer','Inter',sans-serif", fontSize: 13,
+    color: "#fff", outline: "none",
+    boxSizing: "border-box" as const, marginTop: 10,
+    resize: "none" as const,
+  };
+
+  return (
+    <>
+      <div style={{ padding: "0 20px 16px" }}>
+        <button
+          onClick={() => setConfirming(true)}
+          style={{
+            width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            padding: "13px", borderRadius: 10, border: "1px solid rgba(239,68,68,0.3)",
+            background: "rgba(239,68,68,0.06)", cursor: "pointer",
+            fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
+            color: "rgba(252,165,165,0.85)", transition: "all 0.18s",
+          }}
+        >
+          <RefreshCw size={14} /> Recycle Lead
+        </button>
+      </div>
+
+      {/* Recycle confirm sheet */}
+      {confirming && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+          <div onClick={() => setConfirming(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.72)", backdropFilter: "blur(4px)" }} />
+          <div style={{
+            position: "relative", zIndex: 1,
+            background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)",
+            border: "1px solid rgba(239,68,68,0.3)", borderBottom: "none",
+            borderRadius: "20px 20px 0 0", padding: "28px 22px 48px",
+          }}>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 22px" }} />
+            <div style={{ marginBottom: 20 }}>
+              <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 24, fontWeight: 400, color: "#fff", margin: 0 }}>
+                Recycle Lead
+              </h2>
+              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginTop: 5, lineHeight: 1.55 }}>
+                This lead will be removed from your queue and reassigned to the next agent in rotation. The dial still counts toward your activity.
+              </p>
+            </div>
+            <div style={{ padding: "12px 16px", background: "rgba(200,170,90,0.07)", border: "1px solid rgba(200,170,90,0.2)", borderRadius: 10, marginBottom: 16 }}>
+              <p style={{ fontSize: 14, color: "#fff", margin: "0 0 2px", fontWeight: 600 }}>{lead.ownerName || "Unknown"}</p>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: 0 }}>{lead.address}</p>
+            </div>
+            <label style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600 }}>
+              Reason (optional)
+            </label>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="e.g. Connected but they need a different approach…"
+              rows={2}
+              style={inputStyle}
+            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 20 }}>
+              <button
+                onClick={() => setConfirming(false)}
+                style={{
+                  padding: "14px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.15)",
+                  background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)",
+                  fontSize: 14, fontWeight: 600, cursor: "pointer",
+                }}
+              >Cancel</button>
+              <button
+                onClick={() => recycleMutation.mutate()}
+                disabled={recycleMutation.isPending}
+                style={{
+                  padding: "14px", borderRadius: 10, border: "none",
+                  background: recycleMutation.isPending ? "rgba(239,68,68,0.3)" : "rgba(239,68,68,0.85)",
+                  color: "#fff", fontSize: 14, fontWeight: 700, cursor: recycleMutation.isPending ? "default" : "pointer",
+                }}
+              >
+                {recycleMutation.isPending ? "Recycling…" : "Confirm Recycle"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Lead card ────────────────────────────────────────────────────────────────
 function LeadCard({ lead }: { lead: Lead }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [notes, setNotes] = useState("");
-  const [callbackDate, setCallbackDate] = useState(lead.callbackDate || "");
   const [showScript, setShowScript] = useState(false);
   const [hoveredOutcome, setHoveredOutcome] = useState<string | null>(null);
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
+  const [pendingCallback, setPendingCallback] = useState(false);
 
   const extra = (() => { try { return JSON.parse(lead.extraData || "{}"); } catch { return {}; } })();
 
@@ -282,11 +484,19 @@ function LeadCard({ lead }: { lead: Lead }) {
       setPendingOutcome(key as "contacted_appointment" | "keep_in_touch");
       return;
     }
-    if (key === "callback_requested" && !callbackDate) {
-      toast({ title: "Select callback date", description: "Pick a date before marking Callback.", variant: "destructive" });
+    if (key === "callback_requested") {
+      setPendingCallback(true);
       return;
     }
-    outcomeMutation.mutate({ outcome: key, notes, callbackDate: key === "callback_requested" ? callbackDate : undefined });
+    outcomeMutation.mutate({ outcome: key, notes });
+  };
+
+  const handleCallbackSubmit = (data: { callbackDate: string; callbackTime: string }) => {
+    const callbackDateTime = data.callbackTime
+      ? `${data.callbackDate}T${data.callbackTime}`
+      : data.callbackDate;
+    outcomeMutation.mutate({ outcome: "callback_requested", notes, callbackDate: callbackDateTime });
+    setPendingCallback(false);
   };
 
   const handleApptSubmit = (data: { apptEmail: string; confirmedAddress: string; apptDate: string; apptTime: string; stage: string; intention: string }) => {
@@ -461,21 +671,6 @@ function LeadCard({ lead }: { lead: Lead }) {
 
       <GoldDivider />
 
-      {/* ── Callback date ── */}
-      <div style={{ padding: "0 20px 16px" }}>
-        <SectionLabel>Callback Date</SectionLabel>
-        <input type="date" value={callbackDate} onChange={e => setCallbackDate(e.target.value)}
-          style={{
-            width: "100%", background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(200,170,90,0.25)",
-            padding: "11px 14px", borderRadius: 8,
-            fontFamily: "'Switzer','Inter',sans-serif", fontSize: 14,
-            color: "#fff", outline: "none", colorScheme: "dark",
-            boxSizing: "border-box",
-          }}
-        />
-      </div>
-
       {/* ── Notes ── */}
       <div style={{ padding: "0 20px 18px" }}>
         <SectionLabel>Call Notes</SectionLabel>
@@ -521,6 +716,9 @@ function LeadCard({ lead }: { lead: Lead }) {
         </div>
       </div>
 
+      {/* ── Recycle Lead ── */}
+      <RecycleButton lead={lead} />
+
       {/* ── Script panel ── */}
       <div style={{ borderTop: "1px solid rgba(200,170,90,0.15)" }}>
         <button onClick={() => setShowScript(s => !s)}
@@ -558,6 +756,15 @@ function LeadCard({ lead }: { lead: Lead }) {
           outcome={pendingOutcome}
           onClose={() => setPendingOutcome(null)}
           onSubmit={handleApptSubmit}
+          isPending={outcomeMutation.isPending}
+        />
+      )}
+
+      {/* Callback modal */}
+      {pendingCallback && (
+        <CallbackModal
+          onClose={() => setPendingCallback(false)}
+          onSubmit={handleCallbackSubmit}
           isPending={outcomeMutation.isPending}
         />
       )}
@@ -776,6 +983,270 @@ function LeaderboardTab() {
   );
 }
 
+
+// ─── My Leads Tab ─────────────────────────────────────────────────────────────
+interface PipelineLead extends Lead {
+  lastNote: string | null;
+  activityCount: number;
+  emailCount: number;
+}
+
+interface PipelineData {
+  callbacks: PipelineLead[];
+  kitLeads: PipelineLead[];
+  appointments: PipelineLead[];
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  expired: "Expired", distressed: "Distressed", website_lead: "Website/Network",
+  fsbo: "FSBO", land: "Land",
+};
+
+function PipelineCard({ lead, type }: { lead: PipelineLead; type: "callback" | "kit" | "appt" }) {
+  const isCallback = type === "callback";
+  const isAppt = type === "appt";
+  const accent = isCallback ? "rgb(103,232,249)" : isAppt ? "rgb(134,239,172)" : "rgb(249,168,212)";
+  const accentBg = isCallback ? "rgba(34,211,238,0.08)" : isAppt ? "rgba(34,197,94,0.08)" : "rgba(236,72,153,0.08)";
+  const accentBorder = isCallback ? "rgba(34,211,238,0.25)" : isAppt ? "rgba(34,197,94,0.25)" : "rgba(236,72,153,0.25)";
+
+  const callbackDt = lead.callbackDate ? (() => {
+    const d = new Date(lead.callbackDate);
+    if (isNaN(d.getTime())) return lead.callbackDate;
+    return d.toLocaleString("en-US", {
+      weekday: "short", month: "short", day: "numeric",
+      hour: "numeric", minute: "2-digit", hour12: true,
+      timeZone: "America/New_York",
+    });
+  })() : null;
+
+  const isPast = lead.callbackDate
+    ? lead.callbackDate <= new Date().toISOString().slice(0, 10)
+    : false;
+
+  return (
+    <div style={{
+      background: "linear-gradient(135deg, rgba(20,20,20,0.98) 0%, rgba(12,12,12,0.98) 100%)",
+      border: `1px solid ${accentBorder}`,
+      borderRadius: 14, overflow: "hidden",
+      boxShadow: "0 2px 16px rgba(0,0,0,0.4)",
+    }}>
+      {/* Header bar */}
+      <div style={{
+        background: accentBg, borderBottom: `1px solid ${accentBorder}`,
+        padding: "10px 16px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {isCallback
+            ? <Clock size={13} style={{ color: accent }} />
+            : isAppt
+              ? <CheckCircle2 size={13} style={{ color: accent }} />
+              : <Star size={13} style={{ color: accent }} />}
+          <span style={{ fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: accent, fontWeight: 700 }}>
+            {isCallback ? "Callback" : isAppt ? "Appointment Set" : "Keep in Touch"}
+          </span>
+        </div>
+        <span style={{
+          fontSize: 10, color: "rgba(255,255,255,0.35)",
+          background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "3px 8px",
+        }}>
+          {SOURCE_LABEL[lead.leadType] || lead.leadType}
+        </span>
+      </div>
+
+      {/* Body */}
+      <div style={{ padding: "14px 16px" }}>
+        <p style={{
+          fontFamily: "'Cormorant Garamond','Georgia',serif",
+          fontSize: 18, fontWeight: 400, color: "#fff", margin: "0 0 2px",
+        }}>{lead.ownerName || "Unknown"}</p>
+        {lead.address && (
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: "0 0 12px", display: "flex", alignItems: "center", gap: 5 }}>
+            <MapPin size={11} /> {lead.address}
+          </p>
+        )}
+
+        {/* Contact row */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          {lead.phone && (
+            <a href={`tel:${lead.phone}`} style={{
+              display: "flex", alignItems: "center", gap: 5, fontSize: 12,
+              color: "rgba(255,255,255,0.7)", textDecoration: "none",
+              background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 8, padding: "6px 10px",
+            }}>
+              <PhoneCall size={12} style={{ color: "#c8aa5a" }} /> {lead.phone}
+            </a>
+          )}
+          {lead.email && (
+            <a href={`mailto:${lead.email}`} style={{
+              display: "flex", alignItems: "center", gap: 5, fontSize: 12,
+              color: "rgba(255,255,255,0.7)", textDecoration: "none",
+              background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 8, padding: "6px 10px",
+            }}>
+              <Mail size={12} style={{ color: "#c8aa5a" }} /> Email
+            </a>
+          )}
+        </div>
+
+        {/* Callback date */}
+        {isCallback && callbackDt && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 7,
+            padding: "8px 12px", borderRadius: 8, marginBottom: 10,
+            background: isPast ? "rgba(239,68,68,0.1)" : "rgba(34,211,238,0.07)",
+            border: `1px solid ${isPast ? "rgba(239,68,68,0.3)" : "rgba(34,211,238,0.2)"}`,
+          }}>
+            <Calendar size={13} style={{ color: isPast ? "#f87171" : accent, flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: isPast ? "#f87171" : accent, fontWeight: 600 }}>
+              {isPast ? "OVERDUE — " : ""}{callbackDt}
+            </span>
+          </div>
+        )}
+
+        {/* Last note */}
+        {lead.lastNote && (
+          <div style={{
+            padding: "8px 12px", borderRadius: 8, marginBottom: 10,
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+          }}>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: 0, lineHeight: 1.5, fontStyle: "italic" }}>
+              "{lead.lastNote}"
+            </p>
+          </div>
+        )}
+
+        {/* Stats row */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", display: "flex", alignItems: "center", gap: 4 }}>
+            <Phone size={10} /> {lead.activityCount} call{lead.activityCount !== 1 ? "s" : ""}
+          </div>
+          {lead.emailCount > 0 && (
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", display: "flex", alignItems: "center", gap: 4 }}>
+              <Mail size={10} /> {lead.emailCount} email{lead.emailCount !== 1 ? "s" : ""}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MyLeadsTab() {
+  const { user } = useAuth();
+
+  const { data, isLoading, refetch } = useQuery<PipelineData>({
+    queryKey: ["/api/leads/my-pipeline", user?.id],
+    queryFn: () => apiRequest("GET", `/api/leads/my-pipeline/${user?.id}`).then(r => r.json()),
+    refetchInterval: 60000,
+    enabled: !!user?.id,
+  });
+
+  const callbacks    = data?.callbacks    || [];
+  const kitLeads     = data?.kitLeads     || [];
+  const appointments = data?.appointments || [];
+  const total = callbacks.length + kitLeads.length + appointments.length;
+
+  if (isLoading) return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "8px 0" }}>
+      {[1,2,3].map(i => <div key={i} style={{ height: 140, borderRadius: 14, background: "rgba(255,255,255,0.04)" }} />)}
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "0 0 24px" }}>
+
+      {/* ── Summary bar ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 24 }}>
+        <div style={{
+          padding: "14px 8px", textAlign: "center", borderRadius: 12,
+          background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.22)",
+        }}>
+          <p style={{ fontSize: 26, fontWeight: 600, color: "rgb(134,239,172)", fontFamily: "'Cormorant Garamond','Georgia',serif", lineHeight: 1, margin: 0 }}>
+            {appointments.length}
+          </p>
+          <p style={{ fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginTop: 6 }}>
+            Appts
+          </p>
+        </div>
+        <div style={{
+          padding: "14px 8px", textAlign: "center", borderRadius: 12,
+          background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.22)",
+        }}>
+          <p style={{ fontSize: 26, fontWeight: 600, color: "rgb(103,232,249)", fontFamily: "'Cormorant Garamond','Georgia',serif", lineHeight: 1, margin: 0 }}>
+            {callbacks.length}
+          </p>
+          <p style={{ fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginTop: 6 }}>
+            Callbacks
+          </p>
+        </div>
+        <div style={{
+          padding: "14px 8px", textAlign: "center", borderRadius: 12,
+          background: "rgba(236,72,153,0.08)", border: "1px solid rgba(236,72,153,0.22)",
+        }}>
+          <p style={{ fontSize: 26, fontWeight: 600, color: "rgb(249,168,212)", fontFamily: "'Cormorant Garamond','Georgia',serif", lineHeight: 1, margin: 0 }}>
+            {kitLeads.length}
+          </p>
+          <p style={{ fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginTop: 6 }}>
+            Connected
+          </p>
+        </div>
+      </div>
+
+      {total === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 24px" }}>
+          <Briefcase size={36} style={{ color: "rgba(200,170,90,0.3)", margin: "0 auto 16px" }} />
+          <p style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.4rem", fontWeight: 300, color: "rgba(255,255,255,0.6)", marginBottom: 8 }}>
+            Your pipeline is empty
+          </p>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.3)", lineHeight: 1.6 }}>
+            Appointments, callbacks, and keep-in-touch leads appear here for 60 days.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* ── Appointments ── */}
+          {appointments.length > 0 && (
+            <div style={{ marginBottom: 28 }}>
+              <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(134,239,172,0.7)", marginBottom: 12, fontWeight: 600 }}>
+                Appointments Set
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {appointments.map(l => <PipelineCard key={l.id} lead={l} type="appt" />)}
+              </div>
+            </div>
+          )}
+
+          {/* ── Callbacks ── */}
+          {callbacks.length > 0 && (
+            <div style={{ marginBottom: 28 }}>
+              <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(103,232,249,0.7)", marginBottom: 12, fontWeight: 600 }}>
+                Callback Schedule
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {callbacks.map(l => <PipelineCard key={l.id} lead={l} type="callback" />)}
+              </div>
+            </div>
+          )}
+
+          {/* ── Keep in Touch ── */}
+          {kitLeads.length > 0 && (
+            <div>
+              <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(249,168,212,0.7)", marginBottom: 12, fontWeight: 600 }}>
+                Connected Leads
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {kitLeads.map(l => <PipelineCard key={l.id} lead={l} type="kit" />)}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Referral Tab ─────────────────────────────────────────────────────────────
 function ReferralTab() {
   const { user } = useAuth();
@@ -903,11 +1374,12 @@ const inputStyle: React.CSSProperties = {
 };
 
 // ─── Nav tabs ─────────────────────────────────────────────────────────────────
-type Tab = "leads" | "leaderboard" | "refer";
+type Tab = "leads" | "leaderboard" | "refer" | "my-leads";
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
-  { id: "leaderboard", label: "Dashboard",  icon: Trophy },
-  { id: "leads",       label: "My Leads",   icon: Phone },
-  { id: "refer",       label: "Refer",      icon: UserPlus },
+  { id: "leaderboard", label: "Dashboard", icon: Trophy },
+  { id: "leads",       label: "Dial",      icon: Phone },
+  { id: "my-leads",    label: "My Leads",  icon: Briefcase },
+  { id: "refer",       label: "Refer",     icon: UserPlus },
 ];
 
 // ─── Main AgentView ───────────────────────────────────────────────────────────
@@ -1041,6 +1513,7 @@ export default function AgentView({ onBackToAdmin }: { onBackToAdmin?: () => voi
           </div>
         )}
 
+        {tab === "my-leads" && <MyLeadsTab />}
         {tab === "refer" && <ReferralTab />}
       </main>
 

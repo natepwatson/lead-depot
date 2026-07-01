@@ -50,12 +50,22 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ...updated, password: undefined });
   });
 
-  // Soft-delete: mark agent as trashed (isActive=false) instead of hard delete
+  // Soft-delete: mark agent as trashed, re-pool their active leads back to unassigned
   app.delete("/api/agents/:id", (req, res) => {
     const id = parseInt(req.params.id);
     const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false, receiveWebsiteLeads: false });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
-    res.json({ ...updated, password: undefined });
+    // Re-pool: unassign all active leads belonging to this agent
+    const ACTIVE = ["assigned", "no_answer", "left_voicemail", "callback_requested"];
+    const allLeads = storage.getAllLeads();
+    let repooled = 0;
+    for (const lead of allLeads) {
+      if (lead.assignedAgentId === id && ACTIVE.includes(lead.status)) {
+        storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
+        repooled++;
+      }
+    }
+    res.json({ ...updated, password: undefined, repooled });
   });
 
   // Reactivate a trashed agent
@@ -195,10 +205,26 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       if (l.extraData) {
         try {
           const ex = JSON.parse(l.extraData);
-          city = ex.city || ex.City || "";
-          state = ex.state || ex.State || "FL";
-          zip = ex.zip || ex.Zip || ex.zipcode || "";
+          // Support all CSV column variants (Landvoice, MotivatedSellers, manual)
+          city  = ex.city  || ex.City  || ex.PropertyCity  || ex["Property City"]  || "";
+          state = ex.state || ex.State || ex.PropertyState || ex["Property State"] || "FL";
+          zip   = ex.zip   || ex.Zip   || ex.zipcode || ex.Zipcode || ex.PostalCode ||
+                  ex["Postal Code"] || ex.PropertyZip || ex["Property Zip"] || "";
         } catch {}
+      }
+      // Also try to parse city/state/zip out of the address string as last resort
+      if (!city && l.address) {
+        const parts = l.address.split(",").map((s: string) => s.trim());
+        if (parts.length >= 3) {
+          city = parts[parts.length - 3] || "";
+          const stateZip = (parts[parts.length - 2] || "").split(" ").filter(Boolean);
+          if (stateZip.length >= 1) state = stateZip[0];
+          if (stateZip.length >= 2) zip   = stateZip[1];
+        } else if (parts.length === 2) {
+          const stateZip = (parts[1] || "").split(" ").filter(Boolean);
+          if (stateZip.length >= 1) state = stateZip[0];
+          if (stateZip.length >= 2) zip   = stateZip[1];
+        }
       }
       return {
         id: l.id,
@@ -563,7 +589,7 @@ GATHER — LPMAMAB (let them talk, ask one at a time)
   A — Agent:        "Were you working with an agent? What do you feel could have gone better?"
   M — Mortgage:     "Do you have a sense of what you owe on the property right now?"
   A — Appointment:  "I'd love to come by and walk through what we'd do differently. What does [DAY] or [DAY] look like for a quick 20-minute visit?"
-  B — Buy:          "Once you sell — will you be buying something here or in your destination?"
+  B — Buyer:          "Once you sell — will you be buying something here or in your destination?"
 
 ─────────────────────────────────────────────────
 CLOSE
@@ -608,7 +634,7 @@ GATHER — LPMAMAB
   A — Agent:        "Do you have a buyer's agent or listing agent you're already working with?"
   M — Mortgage:     "Are you in it with cash, hard money, or conventional financing?"
   A — Appointment:  "Would it make sense to connect — even just a quick 15-minute call — to see how we can help you move it or find your next one?"
-  B — Buy:          "Are you actively looking for the next deal, or are you focused on exiting this one first?"
+  B — Buyer:          "Are you actively looking for the next deal, or are you focused on exiting this one first?"
 
 ─────────────────────────────────────────────────
 CLOSE
@@ -658,7 +684,7 @@ GATHER — LPMAMAB
   A — Appointment:
     "It sounds like we should connect in person — I'd love to come take a look at the property and put together some real numbers for you. Would [Day] or [Day] work better?"
 
-  B — Buy:
+  B — Buyer:
     "Once this sells, are you planning to buy something else, or are you done for now?"
 
 ─────────────────────────────────────────────────
@@ -717,7 +743,7 @@ GATHER — LPMAMAB
   A — Agent:       "Have you spoken with an agent or attorney about this yet?"
   M — Mortgage:    "Is there still a mortgage on the property, and do you know roughly what's owed?"
   A — Appointment: "Would it make sense for me to come out, take a look, and put together some options for you? I can usually do that within 24-48 hours."
-  B — Buy:         "After this situation is resolved — will you be looking to buy somewhere else?"
+  B — Buyer:         "After this situation is resolved — will you be looking to buy somewhere else?"
 
 ─────────────────────────────────────────────────
 CLOSE
@@ -760,7 +786,7 @@ GATHER — LPMAMAB
   A — Agent:       "Have you worked with an agent before, or is this your first time going at it solo?"
   M — Mortgage:    "Do you owe anything on the property currently?"
   A — Appointment: "Can I swing by to see it in person? Sometimes just walking through helps me match it to the right buyer faster. What does [Day] look like?"
-  B — Buy:         "After this closes — will you be buying your next place or moving on?"
+  B — Buyer:         "After this closes — will you be buying your next place or moving on?"
 
 ─────────────────────────────────────────────────
 CLOSE
@@ -800,7 +826,7 @@ GATHER — LPMAMAB
   A — Agent:       "Have you worked with a real estate agent on land before?"
   M — Mortgage:    "Is there any debt on the parcel, or do you own it free and clear?"
   A — Appointment: "I'd love to put together a land analysis and bring it to you. Could we schedule a quick call this week?"
-  B — Buy:         "If you do sell — would you be looking to reinvest in another property?"
+  B — Buyer:         "If you do sell — would you be looking to reinvest in another property?"
 
 ─────────────────────────────────────────────────
 CLOSE
@@ -898,6 +924,126 @@ This template is for informational/outreach purposes only.`;
     const row = db3.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
     db3.close();
     res.json({ resetAt: row?.value || null });
+  });
+
+  // ─── AGENT-FACING LEADERBOARD (no admin-only data) ────────────────────────
+  app.get("/api/agent/leaderboard", (req, res) => {
+    const sqlite3a = require("better-sqlite3");
+    const dba = new sqlite3a("data.db");
+    dba.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();
+    const resetRow = dba.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
+    dba.close();
+    const resetAt: string | null = resetRow?.value || null;
+
+    const allAgents = storage.getAllAgents().filter(a =>
+      a.isActive && (
+        (a.role === "agent" && a.leadFlowOn !== false) ||
+        (a.role === "admin" && a.receiveLeads)
+      )
+    );
+    const allLeads = storage.getAllLeads();
+    const allActivities = (() => {
+      const acts: any[] = [];
+      for (const lead of allLeads) {
+        const la = storage.getActivitiesForLead(lead.id);
+        acts.push(...(resetAt ? la.filter((a: any) => a.createdAt > resetAt) : la));
+      }
+      return acts;
+    })();
+
+    const stats = allAgents.map(agent => {
+      const agentActs = allActivities.filter((a: any) => a.agentId === agent.id);
+      const appts = agentActs.filter((a: any) => a.outcome === "contacted_appointment").length;
+      const total = agentActs.length;
+      const contacted = agentActs.filter((a: any) => ["contacted_appointment","contacted_not_interested"].includes(a.outcome)).length;
+      return {
+        agent: { id: agent.id, name: agent.name, email: agent.email },
+        appointmentsSet: appts,
+        totalAttempts: total,
+        contactRate: total > 0 ? Math.round((contacted / total) * 100) : 0,
+        outcomes: {
+          contacted_appointment: appts,
+          no_answer: agentActs.filter((a: any) => a.outcome === "no_answer").length,
+          left_voicemail: agentActs.filter((a: any) => a.outcome === "left_voicemail").length,
+        },
+      };
+    });
+    stats.sort((a, b) => b.appointmentsSet - a.appointmentsSet || b.totalAttempts - a.totalAttempts);
+    res.json(stats);
+  });
+
+  // ─── NETWORK LEAD (agent submits a referral seller lead) ──────────────────
+  app.post("/api/leads/network", (req, res) => {
+    const { ownerName, phone, email, address, notes, submittedBy, submittedByName } = req.body;
+    if (!ownerName || !phone) return res.status(400).json({ error: "Name and phone required" });
+    const now = new Date().toISOString();
+    const extraData = JSON.stringify({
+      source: "network",
+      submittedByName: submittedByName || "Unknown",
+      submittedById: submittedBy,
+      networkNotes: notes || "",
+      ingestedAt: now,
+    });
+    const [created] = storage.createLeadsFromBatch([{
+      leadType: "website_lead",
+      address: address || "",
+      ownerName,
+      phone,
+      email: email || "",
+      motivation: notes || "",
+      extraData,
+      status: "unassigned",
+      assignedAgentId: null,
+      attemptCount: 0,
+      uploadedAt: now,
+      uploadedBy: submittedBy ? parseInt(String(submittedBy)) : null,
+      batchId: `network_${Date.now()}`,
+    }]);
+    res.json({ created: true, leadId: created.id });
+  });
+
+  // ─── REFERRALS (agent refers a person to join the team) ───────────────────
+  app.post("/api/referrals", (req, res) => {
+    const { name, phone, email, brokerage, notes, referredBy, referredByName } = req.body;
+    if (!name || !phone) return res.status(400).json({ error: "Name and phone required" });
+    const sqlite3r2 = require("better-sqlite3");
+    const dbr2 = new sqlite3r2("data.db");
+    dbr2.prepare(`
+      CREATE TABLE IF NOT EXISTS referrals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        email TEXT,
+        brokerage TEXT,
+        notes TEXT,
+        referred_by INTEGER,
+        referred_by_name TEXT,
+        created_at TEXT NOT NULL DEFAULT ''
+      )
+    `).run();
+    const now = new Date().toISOString();
+    const info = dbr2.prepare(
+      `INSERT INTO referrals (name, phone, email, brokerage, notes, referred_by, referred_by_name, created_at) VALUES (?,?,?,?,?,?,?,?)`
+    ).run(name, phone, email || "", brokerage || "", notes || "", referredBy || null, referredByName || "", now);
+    dbr2.close();
+    res.json({ created: true, id: info.lastInsertRowid });
+  });
+
+  // ─── ADMIN: VIEW REFERRALS ─────────────────────────────────────────────────
+  app.get("/api/referrals", (req, res) => {
+    const sqlite3r3 = require("better-sqlite3");
+    const dbr3 = new sqlite3r3("data.db");
+    dbr3.prepare(`
+      CREATE TABLE IF NOT EXISTS referrals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL, phone TEXT NOT NULL, email TEXT, brokerage TEXT,
+        notes TEXT, referred_by INTEGER, referred_by_name TEXT,
+        created_at TEXT NOT NULL DEFAULT ''
+      )
+    `).run();
+    const rows = dbr3.prepare(`SELECT * FROM referrals ORDER BY created_at DESC`).all();
+    dbr3.close();
+    res.json(rows);
   });
 
   // ─── CSV EXPORT ───────────────────────────────────────────────────────────

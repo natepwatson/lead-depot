@@ -47,7 +47,7 @@ export const leads = sqliteTable("leads", {
   lAgentHistory: text("l_agent_history"), // A - Agent (have they worked with an agent?)
   lMortgage: text("l_mortgage"),        // M - Mortgage (what do they owe?)
   lAppointment: text("l_appointment"),  // A - Appointment (are they available to meet?)
-  lBuy: text("l_buy"),                  // B - Buy (do they want to buy after selling?)
+  lBuy: text("l_buy"),                  // B - Buyer (do they want to buy after selling?)
   // Upload metadata
   uploadedAt: text("uploaded_at").notNull().default(""),
   uploadedBy: integer("uploaded_by").references(() => agents.id),

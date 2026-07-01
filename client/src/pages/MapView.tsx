@@ -44,17 +44,27 @@ const gc: Record<string, { lat: number; lng: number } | null> = {};
 async function geocode(addr: string, city: string, state: string, zip: string) {
   const k = [addr, city, state, zip].join("|").toLowerCase();
   if (k in gc) return gc[k];
-  await new Promise(r => setTimeout(r, 380));
+  // Nominatim rate limit: max 1 req/sec — use 1100ms to be safe
+  await new Promise(r => setTimeout(r, 1100));
   try {
+    // Try full address first
     const q = [addr, city, state || "FL", "USA"].filter(Boolean).join(", ");
     const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}&countrycodes=us`, { headers: { "Accept-Language": "en", "User-Agent": "BGRELeadDepot/9" } });
     const d = await r.json();
     if (d?.[0]) { const v = { lat: +d[0].lat, lng: +d[0].lon }; gc[k] = v; return v; }
+    // Fallback 1: zip code with jitter
     if (zip) {
-      await new Promise(r => setTimeout(r, 380));
+      await new Promise(r => setTimeout(r, 1100));
       const r2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&postalcode=${zip}&country=US`, { headers: { "Accept-Language": "en", "User-Agent": "BGRELeadDepot/9" } });
       const d2 = await r2.json();
-      if (d2?.[0]) { const j = () => (Math.random() - 0.5) * 0.015; const v = { lat: +d2[0].lat + j(), lng: +d2[0].lon + j() }; gc[k] = v; return v; }
+      if (d2?.[0]) { const j = () => (Math.random() - 0.5) * 0.02; const v = { lat: +d2[0].lat + j(), lng: +d2[0].lon + j() }; gc[k] = v; return v; }
+    }
+    // Fallback 2: city + state only
+    if (city && state) {
+      await new Promise(r => setTimeout(r, 1100));
+      const r3 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(city + ", " + state + ", USA")}&countrycodes=us`, { headers: { "Accept-Language": "en", "User-Agent": "BGRELeadDepot/9" } });
+      const d3 = await r3.json();
+      if (d3?.[0]) { const j = () => (Math.random() - 0.5) * 0.025; const v = { lat: +d3[0].lat + j(), lng: +d3[0].lon + j() }; gc[k] = v; return v; }
     }
   } catch {}
   gc[k] = null; return null;

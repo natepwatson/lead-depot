@@ -456,6 +456,23 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
 
+  // ─── EMAIL SENT TRACKING ─────────────────────────────────────────────────
+  app.post("/api/leads/:id/email-sent", (req, res) => {
+    const leadId = parseInt(req.params.id);
+    const { agentId } = req.body;
+    const lead = storage.getLeadById(leadId);
+    if (!lead) return res.status(404).json({ error: "Lead not found" });
+    storage.createLeadActivity({
+      leadId,
+      agentId: agentId || null,
+      outcome: "email_sent",
+      notes: null,
+      lpmamabSnapshot: null,
+      createdAt: new Date().toISOString(),
+    });
+    res.json({ logged: true });
+  });
+
   // ─── ADMIN: PER-AGENT STATS ───────────────────────────────────────────────
   app.get("/api/admin/agent-stats", (req, res) => {
     // Load leaderboard reset timestamp
@@ -498,7 +515,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         wrong_number: agentActs.filter(a => a.outcome === "wrong_number").length,
       };
 
-      const totalAttempts = agentActs.length;
+      const emailsSent = agentActs.filter(a => a.outcome === "email_sent").length;
+      // Exclude email_sent from call attempt count
+      const totalAttempts = agentActs.filter(a => a.outcome !== "email_sent").length;
       const contactRate = totalAttempts > 0
         ? Math.round(((outcomes.contacted_appointment + outcomes.contacted_not_interested + outcomes.keep_in_touch) / totalAttempts) * 100)
         : 0;
@@ -509,6 +528,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         activeLeads: agentLeads.filter(l => ["assigned","no_answer","keep_in_touch","callback_requested"].includes(l.status)).length,
         appointmentsSet: outcomes.contacted_appointment,
         totalAttempts,
+        emailsSent,
         contactRate,
         outcomes,
       };
@@ -971,12 +991,14 @@ This template is for informational/outreach purposes only.`;
     const stats = allAgents.map(agent => {
       const agentActs = allActivities.filter((a: any) => a.agentId === agent.id);
       const appts = agentActs.filter((a: any) => a.outcome === "contacted_appointment").length;
-      const total = agentActs.length;
+      const emailsSent = agentActs.filter((a: any) => a.outcome === "email_sent").length;
+      const total = agentActs.filter((a: any) => a.outcome !== "email_sent").length;
       const contacted = agentActs.filter((a: any) => ["contacted_appointment","contacted_not_interested"].includes(a.outcome)).length;
       return {
         agent: { id: agent.id, name: agent.name, email: agent.email },
         appointmentsSet: appts,
         totalAttempts: total,
+        emailsSent,
         contactRate: total > 0 ? Math.round((contacted / total) * 100) : 0,
         outcomes: {
           contacted_appointment: appts,

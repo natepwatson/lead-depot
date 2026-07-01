@@ -180,13 +180,24 @@ function LeadCard({ lead }: { lead: Lead }) {
             </a>
           )}
           {mailtoLink && (
-            <a href={mailtoLink} style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "13px 18px",
-              background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.18)",
-              borderRadius: 8, textDecoration: "none",
-              fontSize: 13, color: "rgba(255,255,255,0.7)", minHeight: 48,
-            }}>
+            <a
+              href={mailtoLink}
+              onClick={() => {
+                // Log email sent activity
+                fetch(`/api/leads/${lead.id}/email-sent`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ agentId: user?.id }),
+                }).catch(() => {});
+              }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "13px 18px",
+                background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.18)",
+                borderRadius: 8, textDecoration: "none",
+                fontSize: 13, color: "rgba(255,255,255,0.7)", minHeight: 48,
+              }}
+            >
               <Mail size={14} /> Email
             </a>
           )}
@@ -407,14 +418,15 @@ function LeaderboardTab() {
 
       {/* ── Personal stats ── */}
       {myStats && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 28 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 28 }}>
           {[
             { label: "Appts Set",   value: myStats.appointmentsSet },
             { label: "Total Calls", value: myStats.totalAttempts },
+            { label: "Emails Sent", value: myStats.emailsSent ?? 0 },
             { label: "Contact %",   value: `${myStats.contactRate}%` },
           ].map(s => (
             <div key={s.label} style={{
-              padding: "16px 10px", textAlign: "center",
+              padding: "14px 8px", textAlign: "center",
               background: "linear-gradient(135deg, rgba(200,170,90,0.1) 0%, rgba(200,170,90,0.04) 100%)",
               border: "1px solid rgba(200,170,90,0.28)",
               borderRadius: 12,
@@ -477,7 +489,7 @@ function LeaderboardTab() {
                       {s.agent.name}{isMe ? " (you)" : ""}
                     </p>
                   </div>
-                  <div style={{ display: "flex", gap: 18, flexShrink: 0 }}>
+                  <div style={{ display: "flex", gap: 14, flexShrink: 0 }}>
                     <div style={{ textAlign: "right" }}>
                       <p style={{ fontSize: 17, fontWeight: 700, color: "#c8aa5a", lineHeight: 1 }}>{s.appointmentsSet}</p>
                       <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 2 }}>APPTS</p>
@@ -485,6 +497,10 @@ function LeaderboardTab() {
                     <div style={{ textAlign: "right" }}>
                       <p style={{ fontSize: 17, fontWeight: 600, color: "rgba(255,255,255,0.7)", lineHeight: 1 }}>{s.totalAttempts}</p>
                       <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 2 }}>CALLS</p>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <p style={{ fontSize: 17, fontWeight: 600, color: "rgba(147,197,253,0.85)", lineHeight: 1 }}>{s.emailsSent ?? 0}</p>
+                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 2 }}>EMAILS</p>
                     </div>
                   </div>
                 </div>

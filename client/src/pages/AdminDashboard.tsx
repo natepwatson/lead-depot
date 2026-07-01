@@ -537,7 +537,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.2
+              v11.3
             </p>
           </div>
         </div>
@@ -708,6 +708,10 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             <div>
                               <div style={{ fontSize: 18, fontWeight: 300, color: "rgba(255,255,255,0.7)" }}>{stat.totalAttempts}</div>
                               <div className="text-xs text-muted-foreground">Dials</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 18, fontWeight: 300, color: "#fbcfe8" }}>{(stat as any).emailsSent ?? 0}</div>
+                              <div className="text-xs text-muted-foreground">Emails</div>
                             </div>
                             <div>
                               <div style={{ fontSize: 18, fontWeight: 300, color: "#67e8f9" }}>{stat.contactRate}%</div>

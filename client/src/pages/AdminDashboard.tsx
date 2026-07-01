@@ -17,7 +17,7 @@ import {
   LogOut, Upload, Download, Users, BarChart3, List, Plus, Trash2,
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneOff, PhoneMissed, Calendar, XCircle, CheckCircle2,
-  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck, Map as MapIcon
+  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck, Heart, Map as MapIcon
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 
@@ -36,7 +36,7 @@ function LogoIcon({ size = 28 }: { size?: number }) {
 
 function StatusBadge({ status }: { status: string }) {
   const labels: Record<string, string> = {
-    assigned: "Assigned", no_answer: "No Answer", left_voicemail: "Voicemail",
+    assigned: "Assigned", no_answer: "No Answer", keep_in_touch: "Keep in Touch",
     callback_requested: "Callback", contacted_appointment: "Appt Set",
     contacted_not_interested: "Not Interested", wrong_number: "Wrong #",
     unassigned: "Unassigned", retired: "Retired",
@@ -89,7 +89,7 @@ const OUTCOME_ICONS: Record<string, any> = {
   contacted_appointment: CheckCircle2,
   contacted_not_interested: XCircle,
   no_answer: PhoneMissed,
-  left_voicemail: PhoneOff,
+  keep_in_touch: Heart,
   callback_requested: Calendar,
   wrong_number: AlertTriangle,
 };
@@ -98,7 +98,7 @@ const OUTCOME_COLORS: Record<string, string> = {
   contacted_appointment: "text-green-400",
   contacted_not_interested: "text-red-400",
   no_answer: "text-yellow-400",
-  left_voicemail: "text-purple-400",
+  keep_in_touch: "text-pink-400",
   callback_requested: "text-cyan-400",
   wrong_number: "text-red-600",
 };
@@ -107,7 +107,7 @@ const OUTCOME_LABELS: Record<string, string> = {
   contacted_appointment: "Appts",
   contacted_not_interested: "Not Int.",
   no_answer: "No Ans.",
-  left_voicemail: "VM",
+  keep_in_touch: "KIT",
   callback_requested: "Callback",
   wrong_number: "Wrong #",
 };
@@ -470,7 +470,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     { key: "unassigned",              label: "Unassigned",    color: "rgba(255,255,255,0.4)",  bg: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.08)" },
     { key: "assigned",                label: "Assigned",      color: "rgb(147,197,253)",        bg: "rgba(59,130,246,0.06)",  border: "rgba(59,130,246,0.15)" },
     { key: "no_answer",               label: "No Answer",     color: "rgb(253,224,71)",          bg: "rgba(234,179,8,0.06)",   border: "rgba(234,179,8,0.15)" },
-    { key: "left_voicemail",          label: "Voicemail",     color: "rgb(196,181,253)",        bg: "rgba(167,139,250,0.06)", border: "rgba(167,139,250,0.15)" },
+    { key: "keep_in_touch",           label: "Keep in Touch", color: "rgb(249,168,212)",        bg: "rgba(236,72,153,0.06)",  border: "rgba(236,72,153,0.15)" },
     { key: "callback_requested",      label: "Callback",      color: "rgb(103,232,249)",        bg: "rgba(34,211,238,0.06)",  border: "rgba(34,211,238,0.15)" },
     { key: "contacted_appointment",   label: "Appt Set ✓",   color: "rgb(134,239,172)",        bg: "rgba(34,197,94,0.06)",   border: "rgba(34,197,94,0.15)" },
     { key: "contacted_not_interested",label: "Not Interested",color: "rgb(252,165,165)",        bg: "rgba(239,68,68,0.06)",   border: "rgba(239,68,68,0.15)" },
@@ -534,7 +534,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v9.0
+              v11.1
             </p>
           </div>
         </div>
@@ -786,7 +786,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   </p>
                   <div className="space-y-1.5">
                     {(pipeline?.leads || [])
-                      .filter((l: any) => ["unassigned","assigned","no_answer","left_voicemail","callback_requested"].includes(l.status))
+                      .filter((l: any) => ["unassigned","assigned","no_answer","keep_in_touch","callback_requested"].includes(l.status))
                       .slice(0, 50)
                       .map((lead: any) => (
                         <div key={lead.id} style={{
@@ -811,7 +811,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           </div>
                         </div>
                       ))}
-                    {(pipeline?.leads || []).filter((l: any) => ["unassigned","assigned","no_answer","left_voicemail","callback_requested"].includes(l.status)).length === 0 && (
+                    {(pipeline?.leads || []).filter((l: any) => ["unassigned","assigned","no_answer","keep_in_touch","callback_requested"].includes(l.status)).length === 0 && (
                       <div style={{
                         padding: "32px 20px", textAlign: "center",
                         border: "1px dashed rgba(200,170,90,0.1)",
@@ -845,7 +845,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   <SelectItem value="unassigned">Unassigned</SelectItem>
                   <SelectItem value="assigned">Assigned</SelectItem>
                   <SelectItem value="no_answer">No Answer</SelectItem>
-                  <SelectItem value="left_voicemail">Left Voicemail</SelectItem>
+                  <SelectItem value="keep_in_touch">Keep in Touch</SelectItem>
                   <SelectItem value="callback_requested">Callback</SelectItem>
                   <SelectItem value="contacted_appointment">Appt Set</SelectItem>
                   <SelectItem value="contacted_not_interested">Not Interested</SelectItem>

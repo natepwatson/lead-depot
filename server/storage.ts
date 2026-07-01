@@ -98,6 +98,7 @@ export interface IStorage {
   getLeadsForAgent(agentId: number): Lead[];
   getNextLeadForAgent(agentId: number): Lead | undefined;
   updateLead(id: number, data: Partial<InsertLead>): Lead | undefined;
+  deleteLead(id: number): void;
   getActiveLeadCountForAgent(agentId: number): number;
 
   // Lead Activity
@@ -119,7 +120,7 @@ export interface IStorage {
   };
 }
 
-const ACTIVE_STATUSES = ["assigned", "no_answer", "left_voicemail", "callback_requested"];
+const ACTIVE_STATUSES = ["assigned", "no_answer", "keep_in_touch", "callback_requested"];
 const DEAD_STATUSES = ["contacted_not_interested", "wrong_number", "retired", "contacted_appointment"];
 
 export class Storage implements IStorage {
@@ -201,7 +202,7 @@ export class Storage implements IStorage {
     return db.select().from(leads)
       .where(and(
         eq(leads.assignedAgentId, agentId),
-        inArray(leads.status, ["assigned", "no_answer", "left_voicemail"])
+        inArray(leads.status, ["assigned", "no_answer", "keep_in_touch"])
       ))
       .orderBy(asc(leads.attemptCount), asc(leads.uploadedAt))
       .get();
@@ -209,6 +210,10 @@ export class Storage implements IStorage {
 
   updateLead(id: number, data: Partial<InsertLead>): Lead | undefined {
     return db.update(leads).set(data).where(eq(leads.id, id)).returning().get();
+  }
+
+  deleteLead(id: number): void {
+    db.delete(leads).where(eq(leads.id, id)).run();
   }
 
   getActiveLeadCountForAgent(agentId: number): number {

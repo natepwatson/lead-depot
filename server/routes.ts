@@ -56,7 +56,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false, receiveWebsiteLeads: false });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
     // Re-pool: unassign all active leads belonging to this agent
-    const ACTIVE = ["assigned", "no_answer", "left_voicemail", "callback_requested"];
+    const ACTIVE = ["assigned", "no_answer", "keep_in_touch", "callback_requested"];
     const allLeads = storage.getAllLeads();
     let repooled = 0;
     for (const lead of allLeads) {
@@ -373,8 +373,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     let newAssignedId = lead.assignedAgentId;
     let newCallbackDate = lead.callbackDate;
 
-    const deadOutcomes = ["contacted_not_interested", "contacted_appointment", "wrong_number"];
-    const recycleOutcomes = ["no_answer", "left_voicemail"];
+    const deadOutcomes = ["contacted_not_interested", "contacted_appointment"];
+    const recycleOutcomes = ["no_answer"];
 
     if (deadOutcomes.includes(outcome)) {
       newStatus = outcome;
@@ -387,6 +387,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         newAssignedId = nextAgent.id;
         storage.updateRoundRobinState(nextAgent.id);
       }
+    } else if (outcome === "keep_in_touch") {
+      newStatus = "keep_in_touch";
+      // Connected call — not ready now but trust us for future; stays with same agent
     } else if (outcome === "callback_requested") {
       newStatus = "callback_requested";
       newCallbackDate = callbackDate || null;
@@ -403,6 +406,20 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       lAppointment: lpmamab.appointment || lead.lAppointment,
       lBuy: lpmamab.buy || lead.lBuy,
     } : {};
+
+    // Wrong number: log the attempt then permanently delete the lead
+    if (outcome === "wrong_number") {
+      storage.createLeadActivity({
+        leadId,
+        agentId: agentId || null,
+        outcome,
+        notes: notes || null,
+        lpmamabSnapshot: null,
+        createdAt: new Date().toISOString(),
+      });
+      storage.deleteLead(leadId);
+      return res.json({ deleted: true, leadId });
+    }
 
     // Update lead
     const updatedLead = storage.updateLead(leadId, {
@@ -476,20 +493,20 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         contacted_appointment: agentActs.filter(a => a.outcome === "contacted_appointment").length,
         contacted_not_interested: agentActs.filter(a => a.outcome === "contacted_not_interested").length,
         no_answer: agentActs.filter(a => a.outcome === "no_answer").length,
-        left_voicemail: agentActs.filter(a => a.outcome === "left_voicemail").length,
+        keep_in_touch: agentActs.filter(a => a.outcome === "keep_in_touch").length,
         callback_requested: agentActs.filter(a => a.outcome === "callback_requested").length,
         wrong_number: agentActs.filter(a => a.outcome === "wrong_number").length,
       };
 
       const totalAttempts = agentActs.length;
       const contactRate = totalAttempts > 0
-        ? Math.round(((outcomes.contacted_appointment + outcomes.contacted_not_interested) / totalAttempts) * 100)
+        ? Math.round(((outcomes.contacted_appointment + outcomes.contacted_not_interested + outcomes.keep_in_touch) / totalAttempts) * 100)
         : 0;
 
       return {
         agent: { id: agent.id, name: agent.name, email: agent.email },
         leadsReceived: agentLeads.length,
-        activeLeads: agentLeads.filter(l => ["assigned","no_answer","left_voicemail","callback_requested"].includes(l.status)).length,
+        activeLeads: agentLeads.filter(l => ["assigned","no_answer","keep_in_touch","callback_requested"].includes(l.status)).length,
         appointmentsSet: outcomes.contacted_appointment,
         totalAttempts,
         contactRate,
@@ -517,7 +534,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       unassigned: enriched.filter(l => l.status === "unassigned"),
       assigned: enriched.filter(l => l.status === "assigned"),
       no_answer: enriched.filter(l => l.status === "no_answer"),
-      left_voicemail: enriched.filter(l => l.status === "left_voicemail"),
+      keep_in_touch: enriched.filter(l => l.status === "keep_in_touch"),
       callback_requested: enriched.filter(l => l.status === "callback_requested"),
       contacted_appointment: enriched.filter(l => l.status === "contacted_appointment"),
       contacted_not_interested: enriched.filter(l => l.status === "contacted_not_interested"),
@@ -900,7 +917,7 @@ This template is for informational/outreach purposes only.`;
   app.get("/api/leads/my-count/:agentId", (req, res) => {
     const agentId = parseInt(req.params.agentId);
     const allLeads = storage.getAllLeads();
-    const activeStatuses = ["assigned", "no_answer", "left_voicemail", "callback_requested"];
+    const activeStatuses = ["assigned", "no_answer", "keep_in_touch", "callback_requested"];
     const count = allLeads.filter(l => l.assignedAgentId === agentId && activeStatuses.includes(l.status)).length;
     res.json({ count });
   });
@@ -964,7 +981,7 @@ This template is for informational/outreach purposes only.`;
         outcomes: {
           contacted_appointment: appts,
           no_answer: agentActs.filter((a: any) => a.outcome === "no_answer").length,
-          left_voicemail: agentActs.filter((a: any) => a.outcome === "left_voicemail").length,
+          keep_in_touch: agentActs.filter((a: any) => a.outcome === "keep_in_touch").length,
         },
       };
     });

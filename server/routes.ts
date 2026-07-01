@@ -1333,7 +1333,7 @@ async function sendDailyDigest() {
     </table>
   </div>
   <div style="padding:16px 24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.11</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.12</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>`;
 

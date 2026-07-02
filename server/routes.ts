@@ -106,7 +106,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.20 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.21 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -1440,111 +1440,234 @@ async function sendDailyDigest() {
   const startOfDay = `${todayStr}T00:00:00`;
   const endOfDay   = `${todayStr}T23:59:59`;
 
+  // ── Raw data ──────────────────────────────────────────────────────────────
   const activities: any[] = rawDb.prepare(
     `SELECT la.*, a.name as agentName FROM lead_activity la
      LEFT JOIN agents a ON a.id = la.agent_id
-     WHERE la.created_at >= ? AND la.created_at <= ?`
+     WHERE la.created_at >= ? AND la.created_at <= ?
+     ORDER BY la.created_at DESC`
   ).all(startOfDay, endOfDay);
 
-  const newLeadsToday: number = rawDb.prepare(
+  const allLeadsRaw: any[] = rawDb.prepare(`SELECT * FROM leads`).all();
+  const allAgentsRaw: any[] = rawDb.prepare(`SELECT * FROM agents`).all();
+  const agentNameMap: Record<number, string> = {};
+  allAgentsRaw.forEach((a: any) => { agentNameMap[a.id] = a.name; });
+
+  const newLeadsToday: number = (rawDb.prepare(
     `SELECT COUNT(*) as cnt FROM leads WHERE uploaded_at >= ? AND uploaded_at <= ?`
-  ).get(startOfDay, endOfDay)?.cnt ?? 0;
-
-  const agents2: any[] = rawDb.prepare(
-    `SELECT * FROM agents WHERE role = 'agent' AND is_active = 1`
-  ).all();
-
-  const agentStats = agents2.map((agent: any) => {
-    const agentActs  = activities.filter((a: any) => a.agent_id === agent.id);
-    const dials      = agentActs.filter((a: any) => a.outcome !== "email_sent").length;
-    const emails     = agentActs.filter((a: any) => a.outcome === "email_sent").length;
-    const appts      = agentActs.filter((a: any) => a.outcome === "contacted_appointment").length;
-    const kit        = agentActs.filter((a: any) => a.outcome === "keep_in_touch").length;
-    const notInt     = agentActs.filter((a: any) => a.outcome === "contacted_not_interested").length;
-    const contactRate = dials > 0 ? Math.round(((appts + kit + notInt) / dials) * 100) : 0;
-    return { name: agent.name, dials, emails, appts, kit, contactRate };
-  }).filter((s: any) => s.dials > 0 || s.emails > 0);
-
-  const totalDials  = agentStats.reduce((s: number, a: any) => s + a.dials, 0);
-  const totalAppts  = agentStats.reduce((s: number, a: any) => s + a.appts, 0);
-  const totalEmails = agentStats.reduce((s: number, a: any) => s + a.emails, 0);
-  const totalKIT    = agentStats.reduce((s: number, a: any) => s + a.kit, 0);
+  ).get(startOfDay, endOfDay) as any)?.cnt ?? 0;
 
   const dateLabel = now.toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", timeZone: "America/New_York",
   });
 
+  // ── Per-agent breakdown ───────────────────────────────────────────────────
+  const activeAgents: any[] = allAgentsRaw.filter((a: any) => a.is_active && a.role === "agent");
+
+  const agentStats = activeAgents.map((agent: any) => {
+    const acts = activities.filter((a: any) => a.agent_id === agent.id && a.outcome !== "email_sent");
+    return {
+      name: agent.name,
+      dials:      acts.length,
+      emails:     activities.filter((a: any) => a.agent_id === agent.id && a.outcome === "email_sent").length,
+      appts:      acts.filter((a: any) => a.outcome === "contacted_appointment").length,
+      kit:        acts.filter((a: any) => a.outcome === "keep_in_touch").length,
+      callbacks:  acts.filter((a: any) => a.outcome === "callback_requested").length,
+      noAnswer:   acts.filter((a: any) => a.outcome === "no_answer").length,
+      notInt:     acts.filter((a: any) => a.outcome === "contacted_not_interested").length,
+      wrongNum:   acts.filter((a: any) => a.outcome === "wrong_number").length,
+      recycled:   acts.filter((a: any) => a.outcome === "recycled").length,
+    };
+  }).filter((s: any) => s.dials > 0 || s.emails > 0);
+
+  const totalDials  = agentStats.reduce((s: number, a: any) => s + a.dials, 0);
+  const totalAppts  = agentStats.reduce((s: number, a: any) => s + a.appts, 0);
+  const totalKIT    = agentStats.reduce((s: number, a: any) => s + a.kit, 0);
+  const totalEmails = agentStats.reduce((s: number, a: any) => s + a.emails, 0);
+  const totalCB     = agentStats.reduce((s: number, a: any) => s + a.callbacks, 0);
+  const totalNA     = agentStats.reduce((s: number, a: any) => s + a.noAnswer, 0);
+  const totalNI     = agentStats.reduce((s: number, a: any) => s + a.notInt, 0);
+  const totalWN     = agentStats.reduce((s: number, a: any) => s + a.wrongNum, 0);
+
+  // ── Outcome detail rows ───────────────────────────────────────────────────
+  function leadRow(act: any, accentColor: string, outcomeLabel: string): string {
+    const lead = allLeadsRaw.find((l: any) => l.id === act.lead_id);
+    let snap: any = {};
+    try { snap = JSON.parse(act.lpmamab_snapshot || "{}"); } catch {}
+    const name    = lead ? `${lead.owner_name || lead.first_name || ""}`.trim() || "Unknown" : "Unknown";
+    const phone   = lead?.phone || "—";
+    const address = snap.confirmedAddress || lead?.address || "—";
+    const agent   = act.agentName || agentNameMap[act.agent_id] || "—";
+    const notes   = act.notes ? `<div style="margin-top:4px;font-size:11px;color:rgba(255,255,255,0.45);font-style:italic">${act.notes}</div>` : "";
+    const extra   = outcomeLabel === "Appointment Set" ? `
+      <div style="margin-top:4px;font-size:11px;color:#86efac">${snap.apptDate || ""} ${snap.apptTime || ""} · ${snap.stage || ""} · ${snap.intention || ""}</div>` :
+      outcomeLabel === "Callback" ? `<div style="margin-top:4px;font-size:11px;color:#93c5fd">Scheduled: ${lead?.callback_date || snap.callbackDate || "—"}</div>` : "";
+    return `
+      <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+        <td style="padding:10px 14px;vertical-align:top">
+          <div style="font-size:13px;font-weight:600;color:#f0f0f0">${name}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:2px">${phone} · ${address}</div>
+          ${extra}${notes}
+        </td>
+        <td style="padding:10px 14px;vertical-align:top;font-size:12px;color:${accentColor};white-space:nowrap">${agent}</td>
+      </tr>`;
+  }
+
+  function outcomeSection(label: string, color: string, outcomeKey: string): string {
+    const rows = activities.filter((a: any) => a.outcome === outcomeKey);
+    if (rows.length === 0) return "";
+    return `
+    <div style="padding:20px 24px 0">
+      <div style="font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:${color};font-weight:700;margin-bottom:10px;opacity:0.85">${label} (${rows.length})</div>
+      <table style="width:100%;border-collapse:collapse;background:rgba(255,255,255,0.02);border-radius:8px;overflow:hidden">
+        <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.07)">
+          <th style="padding:7px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);font-weight:600;text-transform:uppercase;letter-spacing:.08em">Lead</th>
+          <th style="padding:7px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);font-weight:600;text-transform:uppercase;letter-spacing:.08em">Agent</th>
+        </tr></thead>
+        <tbody>${rows.map((a: any) => leadRow(a, color, label)).join("")}</tbody>
+      </table>
+    </div>`;
+  }
+
+  // ── Redistributed leads today ─────────────────────────────────────────────
+  const redistributedActs = activities.filter((a: any) => a.outcome === "recycled" && a.agent_id === null);
+  const redistributedSection = redistributedActs.length > 0 ? `
+    <div style="padding:20px 24px 0">
+      <div style="font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:700;margin-bottom:10px">Redistributed Leads (${redistributedActs.length})</div>
+      <table style="width:100%;border-collapse:collapse;background:rgba(255,255,255,0.02);border-radius:8px;overflow:hidden">
+        <tbody>${redistributedActs.map((act: any) => {
+          const lead = allLeadsRaw.find((l: any) => l.id === act.lead_id);
+          const newAgent = lead?.assigned_agent_id ? agentNameMap[lead.assigned_agent_id] : "Unassigned";
+          const name = lead ? (lead.owner_name || `${lead.first_name || ""} ${lead.last_name || ""}`.trim()) : "Unknown";
+          return `<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+            <td style="padding:10px 14px;vertical-align:top">
+              <div style="font-size:13px;font-weight:600;color:#f0f0f0">${name}</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:2px">${lead?.phone || "—"} · ${lead?.address || "—"}</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px;font-style:italic">${act.notes || ""}</div>
+            </td>
+            <td style="padding:10px 14px;font-size:12px;color:rgba(255,255,255,0.5);white-space:nowrap;vertical-align:top">Now: ${newAgent}</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>
+    </div>` : "";
+
+  // ── Unassigned leads (sitting in pool) ───────────────────────────────────
+  const unassignedLeads = allLeadsRaw.filter((l: any) => l.status === "unassigned" || (!l.assigned_agent_id && !["contacted_not_interested","contacted_appointment","wrong_number"].includes(l.status)));
+  const unassignedSection = unassignedLeads.length > 0 ? `
+    <div style="padding:20px 24px 0">
+      <div style="font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#f87171;font-weight:700;margin-bottom:8px">⚠️ Unassigned Leads (${unassignedLeads.length})</div>
+      <p style="font-size:12px;color:rgba(255,255,255,0.4);margin:0 0 10px">These leads are in the pool but have no agent — use Redistribute in the dashboard.</p>
+      <table style="width:100%;border-collapse:collapse;background:rgba(239,68,68,0.04);border-radius:8px;overflow:hidden;border:1px solid rgba(239,68,68,0.12)">
+        <tbody>${unassignedLeads.slice(0, 20).map((l: any) => `
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+            <td style="padding:9px 14px;font-size:13px;color:#f0f0f0">${l.owner_name || `${l.first_name || ""} ${l.last_name || ""}`.trim() || "Unknown"}</td>
+            <td style="padding:9px 14px;font-size:12px;color:rgba(255,255,255,0.35)">${l.phone || "—"}</td>
+            <td style="padding:9px 14px;font-size:12px;color:rgba(255,255,255,0.35)">${l.address || "—"}</td>
+          </tr>`).join("")}
+          ${unassignedLeads.length > 20 ? `<tr><td colspan="3" style="padding:9px 14px;font-size:12px;color:rgba(255,255,255,0.3);font-style:italic">…and ${unassignedLeads.length - 20} more</td></tr>` : ""}
+        </tbody>
+      </table>
+    </div>` : "";
+
+  // ── Agent table ───────────────────────────────────────────────────────────
   const agentRows = agentStats.length > 0
-    ? agentStats
-        .sort((a: any, b: any) => b.appts - a.appts || b.dials - a.dials)
-        .map((a: any) => `
-      <tr style="border-bottom:1px solid rgba(200,170,90,0.1)">
-        <td style="padding:10px 14px;font-size:13px;color:#f0f0f0">${a.name}</td>
-        <td style="padding:10px 14px;font-size:14px;font-weight:700;color:#86efac;text-align:center">${a.appts}</td>
-        <td style="padding:10px 14px;font-size:13px;color:#c8aa5a;text-align:center">${a.kit}</td>
-        <td style="padding:10px 14px;font-size:13px;color:#fff;text-align:center">${a.dials}</td>
-        <td style="padding:10px 14px;font-size:13px;color:#fbcfe8;text-align:center">${a.emails}</td>
-        <td style="padding:10px 14px;font-size:13px;color:#67e8f9;text-align:center">${a.contactRate}%</td>
-      </tr>`).join("")
-    : `<tr><td colspan="6" style="padding:20px;text-align:center;color:rgba(255,255,255,0.3);font-size:13px">No activity logged today</td></tr>`;
+    ? agentStats.sort((a: any, b: any) => b.appts - a.appts || b.dials - a.dials).map((a: any) => {
+        const contactRate = a.dials > 0 ? Math.round(((a.appts + a.kit + a.notInt) / a.dials) * 100) : 0;
+        return `<tr style="border-bottom:1px solid rgba(200,170,90,0.08)">
+          <td style="padding:10px 14px;font-size:13px;color:#f0f0f0">${a.name}</td>
+          <td style="padding:10px 14px;font-size:14px;font-weight:700;color:#86efac;text-align:center">${a.appts}</td>
+          <td style="padding:10px 14px;font-size:13px;color:#c8aa5a;text-align:center">${a.kit}</td>
+          <td style="padding:10px 14px;font-size:13px;color:#93c5fd;text-align:center">${a.callbacks}</td>
+          <td style="padding:10px 14px;font-size:13px;color:rgba(255,255,255,0.6);text-align:center">${a.noAnswer}</td>
+          <td style="padding:10px 14px;font-size:13px;color:rgba(255,255,255,0.4);text-align:center">${a.notInt}</td>
+          <td style="padding:10px 14px;font-size:13px;color:rgba(255,255,255,0.3);text-align:center">${a.wrongNum}</td>
+          <td style="padding:10px 14px;font-size:13px;color:#fff;text-align:center;font-weight:600">${a.dials}</td>
+          <td style="padding:10px 14px;font-size:13px;color:#67e8f9;text-align:center">${contactRate}%</td>
+        </tr>`;
+      }).join("")
+    : `<tr><td colspan="9" style="padding:20px;text-align:center;color:rgba(255,255,255,0.3);font-size:13px">No activity logged today</td></tr>`;
 
   const html = `
-<div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:640px;margin:0 auto;background:#0c0c0c;color:#f0f0f0;border-radius:14px;overflow:hidden;border:1px solid rgba(200,170,90,0.25)">
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Arial,sans-serif">
+<div style="max-width:680px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid rgba(200,170,90,0.25)">
+
+  <!-- Header -->
   <div style="background:linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%);padding:28px 32px">
-    <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:rgba(0,0,0,0.55);margin-bottom:6px">Brothers Group at Momentum Realty</div>
-    <h1 style="margin:0;font-size:24px;color:#080808;font-weight:700">Daily Results</h1>
+    <div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:rgba(0,0,0,0.5);margin-bottom:6px">Brothers Group at Momentum Realty</div>
+    <h1 style="margin:0;font-size:24px;color:#080808;font-weight:700">End of Day Report</h1>
     <p style="margin:5px 0 0;font-size:13px;color:rgba(0,0,0,0.6)">${dateLabel}</p>
   </div>
-  <div style="display:flex;border-bottom:1px solid rgba(200,170,90,0.15)">
-    <div style="flex:1;padding:20px 12px;text-align:center;border-right:1px solid rgba(200,170,90,0.1)">
-      <div style="font-size:30px;font-weight:700;color:#86efac">${totalAppts}</div>
-      <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-top:5px">Appts Set</div>
-    </div>
-    <div style="flex:1;padding:20px 12px;text-align:center;border-right:1px solid rgba(200,170,90,0.1)">
-      <div style="font-size:30px;font-weight:700;color:#c8aa5a">${totalKIT}</div>
-      <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-top:5px">Keep in Touch</div>
-    </div>
-    <div style="flex:1;padding:20px 12px;text-align:center;border-right:1px solid rgba(200,170,90,0.1)">
-      <div style="font-size:30px;font-weight:700;color:#fff">${totalDials}</div>
-      <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-top:5px">Total Dials</div>
-    </div>
-    <div style="flex:1;padding:20px 12px;text-align:center">
-      <div style="font-size:30px;font-weight:700;color:#fbcfe8">${totalEmails}</div>
-      <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-top:5px">Emails Sent</div>
-    </div>
+
+  <!-- KPI strip -->
+  <div style="display:flex;border-bottom:1px solid rgba(200,170,90,0.15);flex-wrap:wrap">
+    ${[
+      { val: totalAppts, label: "Appts Set",      color: "#86efac" },
+      { val: totalKIT,   label: "Keep in Touch",  color: "#c8aa5a" },
+      { val: totalCB,    label: "Callbacks",       color: "#93c5fd" },
+      { val: totalNA,    label: "No Answer",       color: "rgba(255,255,255,0.5)" },
+      { val: totalNI,    label: "Not Interested",  color: "#fca5a5" },
+      { val: totalWN,    label: "Wrong #",         color: "rgba(255,255,255,0.3)" },
+      { val: totalDials, label: "Total Dials",     color: "#fff" },
+    ].map(k => `
+    <div style="flex:1;min-width:80px;padding:18px 10px;text-align:center;border-right:1px solid rgba(200,170,90,0.08)">
+      <div style="font-size:26px;font-weight:700;color:${k.color}">${k.val}</div>
+      <div style="font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-top:4px">${k.label}</div>
+    </div>`).join("")}
   </div>
-  <div style="padding:13px 24px;background:rgba(200,170,90,0.06);border-bottom:1px solid rgba(200,170,90,0.1);font-size:13px;color:rgba(255,255,255,0.55)">
+
+  <!-- New leads strip -->
+  <div style="padding:12px 24px;background:rgba(200,170,90,0.06);border-bottom:1px solid rgba(200,170,90,0.1);font-size:13px;color:rgba(255,255,255,0.55)">
     <span style="color:#c8aa5a;font-weight:600">${newLeadsToday} new lead${newLeadsToday !== 1 ? "s" : ""}</span> added to the pool today
   </div>
-  <div style="padding:24px 0 8px">
+
+  <!-- Agent breakdown table -->
+  <div style="padding:24px 0 0">
     <div style="padding:0 24px 12px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:rgba(200,170,90,0.55);font-weight:600">Agent Breakdown</div>
-    <table style="width:100%;border-collapse:collapse">
-      <thead>
-        <tr style="border-bottom:1px solid rgba(200,170,90,0.2)">
-          <th style="padding:8px 14px;text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">Agent</th>
-          <th style="padding:8px 14px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">Appts</th>
-          <th style="padding:8px 14px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">KIT</th>
-          <th style="padding:8px 14px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">Dials</th>
-          <th style="padding:8px 14px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">Emails</th>
-          <th style="padding:8px 14px;text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600">Contact%</th>
-        </tr>
-      </thead>
-      <tbody>${agentRows}</tbody>
-    </table>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;min-width:560px">
+        <thead>
+          <tr style="border-bottom:1px solid rgba(200,170,90,0.2)">
+            ${["Agent","Appts","KIT","Callbacks","No Ans","Not Int","Wrong #","Dials","Contact%"].map(h =>
+              `<th style="padding:8px 14px;text-align:${h==="Agent"?"left":"center"};font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,0.3);font-weight:600;white-space:nowrap">${h}</th>`
+            ).join("")}
+          </tr>
+        </thead>
+        <tbody>${agentRows}</tbody>
+      </table>
+    </div>
   </div>
-  <div style="padding:16px 24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.20</span><span>Brothers Group · Momentum Realty</span>
+
+  <!-- Outcome detail sections -->
+  ${outcomeSection("Appointment Set",    "#86efac", "contacted_appointment")}
+  ${outcomeSection("Keep in Touch",      "#c8aa5a", "keep_in_touch")}
+  ${outcomeSection("Callback Scheduled", "#93c5fd", "callback_requested")}
+  ${outcomeSection("Not Interested",     "#fca5a5", "contacted_not_interested")}
+  ${outcomeSection("Wrong Number",       "rgba(255,255,255,0.35)", "wrong_number")}
+
+  <!-- Redistributed -->
+  ${redistributedSection}
+
+  <!-- Unassigned warning -->
+  ${unassignedSection}
+
+  <!-- Footer -->
+  <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
+    <span>Lead Depot v11.21</span><span>Brothers Group · Momentum Realty</span>
   </div>
-</div>`;
+</div>
+</body>
+</html>`;
 
   await resend.emails.send({
     from: "Lead Depot <noreply@watsonbrothersgroup.com>",
     to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
-    subject: `📊 Daily Results — ${dateLabel} — ${totalAppts} Appt${totalAppts !== 1 ? "s" : ""}, ${totalDials} Dials`,
+    subject: `📊 EOD Report — ${dateLabel} — ${totalAppts} Appt${totalAppts !== 1 ? "s" : ""} · ${totalKIT} KIT · ${totalDials} Dials`,
     html,
   });
 
-  console.log(`[digest] Sent — ${totalAppts} appts, ${totalDials} dials, ${agentStats.length} active agents`);
+  console.log(`[digest] Sent — ${totalAppts} appts, ${totalKIT} KIT, ${totalDials} dials`);
 }
 
 // Fires at 5:45 PM EDT = 21:45 UTC every day

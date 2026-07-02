@@ -616,7 +616,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
   const deleteAgentMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("DELETE", `/api/agents/${id}`);
+      const res = await fetch(`/api/agents/${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to deactivate agent");
       return data;
@@ -656,7 +656,11 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
   const toggleLeadFlowMutation = useMutation({
     mutationFn: async ({ id, leadFlowOn }: { id: number; leadFlowOn: boolean }) => {
-      const res = await apiRequest("PATCH", `/api/agents/${id}/lead-flow`, { leadFlowOn });
+      const res = await fetch(`/api/agents/${id}/lead-flow`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadFlowOn }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to update lead flow");
       return data;
@@ -680,9 +684,16 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     mutationFn: () => apiRequest("POST", "/api/admin/redistribute-unseen").then(r => r.json()),
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      toast({ title: "Unseen leads redistributed", description: `${data.reassigned} untouched lead${data.reassigned === 1 ? "" : "s"} re-assigned across active agents.` });
+      const skippedNote = data.skipped > 0 ? ` ${data.skipped} could not be assigned (no eligible agent for that lead type).` : "";
+      if (data.reassigned === 0 && data.total === 0) {
+        toast({ title: "No unseen leads", description: "All leads have already been contacted or are in a closed state." });
+      } else if (data.reassigned === 0) {
+        toast({ title: "No leads redistributed", description: `${data.total} unseen lead${data.total === 1 ? "" : "s"} found but none could be assigned — check that at least one agent is active and receiving leads.` });
+      } else {
+        toast({ title: "Unseen leads redistributed", description: `${data.reassigned} lead${data.reassigned === 1 ? "" : "s"} re-assigned across active agents.${skippedNote}` });
+      }
     },
-    onError: () => toast({ title: "Error", description: "Failed to redistribute unseen leads.", variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Error", description: err?.message || "Failed to redistribute unseen leads.", variant: "destructive" }),
   });
 
   const clearQueueMutation = useMutation({
@@ -866,7 +877,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.25
+              v11.26
             </p>
           </div>
         </div>

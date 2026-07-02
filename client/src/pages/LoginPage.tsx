@@ -4,11 +4,22 @@ import { useAuth } from "../contexts/AuthContext";
 // ─── Logo SVG ─────────────────────────────────────────────────────────────────
 function LogoIcon() {
   return (
-    <svg width="40" height="40" viewBox="0 0 36 36" fill="none" aria-label="Lead Depot">
-      <rect x="2" y="18" width="32" height="15" rx="1" stroke="#c8aa5a" strokeWidth="1.4"/>
-      <path d="M2 18 L18 5 L34 18" stroke="#c8aa5a" strokeWidth="1.4" strokeLinejoin="round" fill="none"/>
-      <rect x="13" y="24" width="10" height="9" rx="0.5" stroke="#c8aa5a" strokeWidth="1.2"/>
+    <svg width="44" height="44" viewBox="0 0 36 36" fill="none" aria-label="Lead Depot">
+      <rect x="2" y="18" width="32" height="15" rx="1" stroke="#c8aa5a" strokeWidth="1.3"/>
+      <path d="M2 18 L18 5 L34 18" stroke="#c8aa5a" strokeWidth="1.3" strokeLinejoin="round" fill="none"/>
+      <rect x="13" y="24" width="10" height="9" rx="0.5" stroke="#c8aa5a" strokeWidth="1.1"/>
     </svg>
+  );
+}
+
+// ─── Thin gold divider ────────────────────────────────────────────────────────
+function GoldRule() {
+  return (
+    <div style={{
+      width: "100%", height: 1,
+      background: "linear-gradient(90deg, transparent 0%, rgba(200,170,90,0.35) 40%, rgba(200,170,90,0.35) 60%, transparent 100%)",
+      margin: "24px 0",
+    }} />
   );
 }
 
@@ -23,7 +34,6 @@ export default function LoginPage() {
   const [isIOS, setIsIOS]       = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
 
-  // PWA install detection
   useEffect(() => {
     const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
     const standalone = (navigator as any).standalone;
@@ -63,171 +73,254 @@ export default function LoginPage() {
     }
   };
 
-  const inputStyle: React.CSSProperties = {
-    width: "100%",
-    background: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    padding: "14px 16px",
-    borderRadius: 10,
-    fontFamily: "'Switzer','Inter',sans-serif",
-    fontSize: 15,
-    color: "#fff",
-    outline: "none",
-    boxSizing: "border-box",
-    transition: "border-color 0.2s, background 0.2s",
-  };
-
   return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "center",
-      minHeight: "100dvh", backgroundImage: "url(/login-bg.jpg)", backgroundSize: "cover", backgroundPosition: "center 30%", backgroundAttachment: "fixed",
-      background: "radial-gradient(ellipse at 60% 0%, rgba(200,170,90,0.08) 0%, #080808 55%)",
-      fontFamily: "'Switzer','Inter',sans-serif",
-      padding: "24px 20px",
-    }}>
-      {/* Ambient glow */}
-      <div style={{
-        position: "fixed", top: -120, right: -120, width: 400, height: 400,
-        borderRadius: "50%",
-        background: "radial-gradient(circle, rgba(200,170,90,0.07) 0%, transparent 70%)",
-        pointerEvents: "none", zIndex: 0,
-      }} />
+    <>
+      {/* ── Global styles for this page ────────────────────────────── */}
+      <style>{`
+        .ld-login-input {
+          width: 100%;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.13);
+          padding: 15px 16px;
+          border-radius: 12px;
+          font-family: 'Switzer','Inter',sans-serif;
+          font-size: 16px;
+          color: #fff;
+          outline: none;
+          box-sizing: border-box;
+          transition: border-color 0.2s, background 0.2s;
+          -webkit-appearance: none;
+        }
+        .ld-login-input::placeholder { color: rgba(255,255,255,0.25); }
+        .ld-login-input:focus {
+          border-color: rgba(200,170,90,0.55);
+          background: rgba(255,255,255,0.09);
+        }
+        .ld-sign-btn {
+          width: 100%;
+          padding: 17px;
+          border: none;
+          border-radius: 12px;
+          font-family: 'Switzer','Inter',sans-serif;
+          font-size: 15px;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: opacity 0.2s, transform 0.15s;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .ld-sign-btn:active { transform: scale(0.98); opacity: 0.85; }
+      `}</style>
 
-      {/* Card */}
+      {/* ── Page shell ─────────────────────────────────────────────── */}
       <div style={{
-        position: "relative", zIndex: 1,
-        width: "100%", maxWidth: 400,
-        background: "linear-gradient(160deg, rgba(20,20,20,0.98) 0%, rgba(10,10,10,0.98) 100%)",
-        border: "1px solid rgba(200,170,90,0.22)",
-        borderRadius: 20,
-        padding: "36px 28px 40px",
-        boxShadow: "0 8px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(200,170,90,0.06)",
+        position: "relative",
+        minHeight: "100dvh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "'Switzer','Inter',sans-serif",
+        padding: "env(safe-area-inset-top, 20px) 20px env(safe-area-inset-bottom, 20px)",
+        boxSizing: "border-box",
       }}>
-        {/* Logo + wordmark */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 32 }}>
-          <LogoIcon />
-          <div>
-            <p style={{
-              fontFamily: "'Cormorant Garamond','Georgia',serif",
-              fontSize: 22, fontWeight: 400, color: "#fff", margin: 0, lineHeight: 1,
-            }}>Lead Depot</p>
-            <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.6)", margin: "4px 0 0", fontWeight: 600 }}>
-              Brothers Group · Momentum Realty
-            </p>
-          </div>
-        </div>
 
-        {/* Headline */}
-        <h1 style={{
-          fontFamily: "'Cormorant Garamond','Georgia',serif",
-          fontSize: 28, fontWeight: 300, color: "#fff",
-          margin: "0 0 6px", lineHeight: 1.2,
-        }}>Welcome back.</h1>
-        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "0 0 28px" }}>
-          Sign in to your agent portal
-        </p>
+        {/* Background photo */}
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 0,
+          backgroundImage: "url(/login-bg.jpg)",
+          backgroundSize: "cover",
+          backgroundPosition: "center 25%",
+        }} />
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div>
-            <label style={{ fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, display: "block", marginBottom: 7 }}>
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              style={inputStyle}
-              onFocus={e => { e.target.style.borderColor = "rgba(200,170,90,0.45)"; e.target.style.background = "rgba(255,255,255,0.07)"; }}
-              onBlur={e => { e.target.style.borderColor = "rgba(255,255,255,0.12)"; e.target.style.background = "rgba(255,255,255,0.05)"; }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, display: "block", marginBottom: 7 }}>
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              autoComplete="current-password"
-              style={inputStyle}
-              onFocus={e => { e.target.style.borderColor = "rgba(200,170,90,0.45)"; e.target.style.background = "rgba(255,255,255,0.07)"; }}
-              onBlur={e => { e.target.style.borderColor = "rgba(255,255,255,0.12)"; e.target.style.background = "rgba(255,255,255,0.05)"; }}
-            />
-          </div>
+        {/* Rich gradient overlay — darker at bottom so card pops */}
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1,
+          background: "linear-gradient(180deg, rgba(4,4,4,0.55) 0%, rgba(4,4,4,0.70) 50%, rgba(4,4,4,0.88) 100%)",
+        }} />
 
-          {error && (
-            <p style={{
-              fontSize: 13, color: "#f87171",
-              background: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.25)",
-              borderRadius: 8, padding: "10px 14px", margin: 0,
-            }}>{error}</p>
-          )}
+        {/* Soft gold vignette top-right */}
+        <div style={{
+          position: "fixed", top: -200, right: -200, width: 600, height: 600,
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(200,170,90,0.10) 0%, transparent 65%)",
+          pointerEvents: "none", zIndex: 2,
+        }} />
 
-          <button type="submit" disabled={loading} style={{
-            marginTop: 6,
-            width: "100%", padding: "15px",
-            background: loading
-              ? "rgba(200,170,90,0.35)"
-              : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-            border: "none", borderRadius: 10,
-            color: "#080808", fontSize: 15, fontWeight: 700,
-            letterSpacing: "0.06em", cursor: loading ? "not-allowed" : "pointer",
-            boxShadow: loading ? "none" : "0 4px 20px rgba(200,170,90,0.28)",
-            transition: "all 0.2s",
-          }}>
-            {loading ? "Signing in…" : "Sign In"}
-          </button>
-        </form>
+        {/* ── Card ───────────────────────────────────────────────── */}
+        <div style={{
+          position: "relative", zIndex: 3,
+          width: "100%", maxWidth: 420,
+        }}>
 
-        {/* Version */}
-        <p style={{ fontSize: 11, color: "rgba(255,255,255,0.18)", textAlign: "center", marginTop: 28 }}>
-          Lead Depot v11.16
-        </p>
-
-        {/* PWA Install Banner */}
-        {showInstallBanner && (
+          {/* Top wordmark — floats above card */}
           <div style={{
-            marginTop: 20,
-            padding: "14px 16px",
-            background: "linear-gradient(135deg, rgba(200,170,90,0.1) 0%, rgba(200,170,90,0.04) 100%)",
-            border: "1px solid rgba(200,170,90,0.28)",
-            borderRadius: 12,
+            display: "flex", flexDirection: "column", alignItems: "center",
+            marginBottom: 28, gap: 10,
           }}>
-            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginBottom: 10, lineHeight: 1.5 }}>
-              {isIOS
-                ? "Add to Home Screen: tap the Share button then \"Add to Home Screen\""
-                : "Install Lead Depot as an app for faster access"}
-            </p>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {!isIOS && (
-                <button onClick={handleInstall} style={{
-                  flex: 1, padding: "10px",
-                  background: "linear-gradient(135deg,#c8aa5a,#a8893a)",
-                  border: "none", borderRadius: 8,
-                  color: "#080808", fontSize: 12, fontWeight: 700, cursor: "pointer",
-                }}>
-                  Add to Home Screen
-                </button>
-              )}
-              <button onClick={() => setShowInstallBanner(false)} style={{
-                padding: "10px 14px",
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 8, color: "rgba(255,255,255,0.5)",
-                fontSize: 12, cursor: "pointer",
+            <LogoIcon />
+            <div style={{ textAlign: "center" }}>
+              <p style={{
+                fontFamily: "'Cormorant Garamond','Georgia',serif",
+                fontSize: 26, fontWeight: 400, color: "#fff",
+                margin: 0, lineHeight: 1, letterSpacing: "0.02em",
+              }}>Lead Depot</p>
+              <p style={{
+                fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase",
+                color: "rgba(200,170,90,0.65)", margin: "6px 0 0", fontWeight: 600,
               }}>
-                Dismiss
-              </button>
+                Brothers Group · Momentum Realty
+              </p>
             </div>
           </div>
-        )}
+
+          {/* Glass card body */}
+          <div style={{
+            background: "rgba(6,5,4,0.78)",
+            backdropFilter: "blur(32px)",
+            WebkitBackdropFilter: "blur(32px)",
+            border: "1px solid rgba(200,170,90,0.22)",
+            borderRadius: 24,
+            padding: "36px 28px 32px",
+            boxShadow: [
+              "0 32px 80px rgba(0,0,0,0.75)",
+              "0 0 0 1px rgba(200,170,90,0.07)",
+              "inset 0 1px 0 rgba(200,170,90,0.12)",
+              "inset 0 -1px 0 rgba(0,0,0,0.4)",
+            ].join(", "),
+          }}>
+
+            {/* Headline */}
+            <h1 style={{
+              fontFamily: "'Cormorant Garamond','Georgia',serif",
+              fontSize: 32, fontWeight: 300, color: "#fff",
+              margin: "0 0 4px", lineHeight: 1.15, letterSpacing: "0.01em",
+            }}>Welcome back.</h1>
+            <p style={{
+              fontSize: 13, color: "rgba(255,255,255,0.38)",
+              margin: "0 0 0", letterSpacing: "0.01em",
+            }}>
+              Sign in to your agent portal
+            </p>
+
+            <GoldRule />
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+              <div>
+                <label style={{
+                  fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase",
+                  color: "rgba(200,170,90,0.7)", fontWeight: 600,
+                  display: "block", marginBottom: 8,
+                }}>Email</label>
+                <input
+                  className="ld-login-input"
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  inputMode="email"
+                />
+              </div>
+
+              <div>
+                <label style={{
+                  fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase",
+                  color: "rgba(200,170,90,0.7)", fontWeight: 600,
+                  display: "block", marginBottom: 8,
+                }}>Password</label>
+                <input
+                  className="ld-login-input"
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                />
+              </div>
+
+              {error && (
+                <p style={{
+                  fontSize: 13, color: "#f87171",
+                  background: "rgba(239,68,68,0.08)",
+                  border: "1px solid rgba(239,68,68,0.22)",
+                  borderRadius: 10, padding: "11px 14px", margin: 0, lineHeight: 1.4,
+                }}>{error}</p>
+              )}
+
+              <button
+                className="ld-sign-btn"
+                type="submit"
+                disabled={loading}
+                style={{
+                  marginTop: 4,
+                  background: loading
+                    ? "rgba(200,170,90,0.3)"
+                    : "linear-gradient(135deg, #d4b56a 0%, #a8893a 100%)",
+                  color: loading ? "rgba(255,255,255,0.4)" : "#0a0700",
+                  boxShadow: loading ? "none" : "0 6px 28px rgba(200,170,90,0.30), inset 0 1px 0 rgba(255,255,255,0.18)",
+                  cursor: loading ? "not-allowed" : "pointer",
+                }}
+              >
+                {loading ? "Signing in…" : "Sign In"}
+              </button>
+            </form>
+
+            {/* Version */}
+            <p style={{
+              fontSize: 10, color: "rgba(255,255,255,0.15)", textAlign: "center",
+              marginTop: 24, marginBottom: 0, letterSpacing: "0.08em",
+            }}>
+              Lead Depot v11.16
+            </p>
+          </div>
+
+          {/* PWA Install Banner */}
+          {showInstallBanner && (
+            <div style={{
+              marginTop: 16,
+              padding: "16px 18px",
+              background: "rgba(6,5,4,0.78)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              border: "1px solid rgba(200,170,90,0.22)",
+              borderRadius: 16,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            }}>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginBottom: 12, lineHeight: 1.6, margin: "0 0 12px" }}>
+                {isIOS
+                  ? "📲 Add to Home Screen: tap Share then \"Add to Home Screen\""
+                  : "Install Lead Depot as an app for faster access"}
+              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                {!isIOS && (
+                  <button onClick={handleInstall} style={{
+                    flex: 1, padding: "11px",
+                    background: "linear-gradient(135deg,#d4b56a,#a8893a)",
+                    border: "none", borderRadius: 9,
+                    color: "#0a0700", fontSize: 12, fontWeight: 700,
+                    cursor: "pointer", letterSpacing: "0.05em",
+                  }}>
+                    Add to Home Screen
+                  </button>
+                )}
+                <button onClick={() => setShowInstallBanner(false)} style={{
+                  padding: "11px 16px",
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: 9, color: "rgba(255,255,255,0.45)",
+                  fontSize: 12, cursor: "pointer",
+                }}>
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

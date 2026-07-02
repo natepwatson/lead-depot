@@ -48,6 +48,10 @@ async function sendCrmReport(opts: {
     ? `<span style="color:#f87171;font-size:11px;margin-left:8px">⚠️ differs from original: ${opts.address}</span>`
     : `<span style="color:#6ee7b7;font-size:11px;margin-left:8px">✓ confirmed</span>`;
 
+  // ── Table cell styles — declared BEFORE any template literal that uses them ──
+  const tdL = "padding:9px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:160px;vertical-align:top";
+  const tdR = "padding:9px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
+
   // Next step row
   const nextStep = isAppt
     ? `Appointment on ${opts.apptDate || "—"} at ${opts.apptTime || "—"} — add to FUB calendar`
@@ -62,9 +66,6 @@ async function sendCrmReport(opts: {
     <tr><td style="${tdL}">Client Email</td><td style="${tdR}">${opts.apptEmail || opts.ownerEmail || "—"}</td></tr>
   ` : "";
 
-  const tdL = "padding:9px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:160px;vertical-align:top";
-  const tdR = "padding:9px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
-
   const html = `
 <!DOCTYPE html>
 <html>
@@ -76,6 +77,12 @@ async function sendCrmReport(opts: {
     <p style="margin:0 0 4px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#5a3e00;font-weight:700">CRM Report — Brothers Group at Momentum Realty</p>
     <h1 style="margin:0;font-size:22px;color:#080808;font-weight:700">BGRE NEW LEAD: ${label}</h1>
     <p style="margin:6px 0 0;font-size:13px;color:#3a2800">Logged by ${opts.agentName}</p>
+  </div>
+
+  <!-- Client Intention Banner -->
+  <div style="background:#1a1500;border-left:4px solid #c8aa5a;padding:18px 32px;border-bottom:1px solid #2a2520">
+    <p style="margin:0 0 4px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#c8aa5a;font-weight:700">Client Intention</p>
+    <p style="margin:0;font-size:26px;font-weight:700;color:#ffffff;letter-spacing:-.01em">${opts.intention || "Not specified"}</p>
   </div>
 
   <!-- Body -->
@@ -106,7 +113,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.24 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.25 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -1449,7 +1456,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}. It will appear in their queue immediately.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.24 — Brothers Group · Momentum Realty
+    Lead Depot v11.25 — Brothers Group · Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Admin notify failed:", err));
@@ -1758,7 +1765,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.24</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.25</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

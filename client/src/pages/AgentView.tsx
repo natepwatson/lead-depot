@@ -468,7 +468,7 @@ function LeadCard({ lead }: { lead: Lead }) {
   });
 
   const outcomeMutation = useMutation({
-    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string }) =>
+    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string }) =>
       apiRequest("POST", `/api/leads/${lead.id}/outcome`, { ...data, agentId: user?.id }).then(r => r.json()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });

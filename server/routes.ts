@@ -106,7 +106,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.19 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.20 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -168,38 +168,54 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ...updated, password: undefined });
   });
 
-  // Soft-delete: mark agent as trashed, redistribute their active leads via round-robin as if freshly uploaded
+  // Soft-delete: mark agent as inactive, redistribute leads with correct rules per status
   app.delete("/api/agents/:id", (req, res) => {
     const id = parseInt(req.params.id);
     const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false, receiveWebsiteLeads: false });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
 
-    const ACTIVE = ["assigned", "no_answer", "keep_in_touch", "callback_requested"];
     const allLeads = storage.getAllLeads();
-    let repooled = 0;
     let reassigned = 0;
+    let callbackHeld = 0;
+    let preserved = 0;
 
     for (const lead of allLeads) {
-      if (lead.assignedAgentId !== id || !ACTIVE.includes(lead.status)) continue;
-      repooled++;
+      if (lead.assignedAgentId !== id) continue;
 
-      // Try to immediately assign to the next agent in rotation (same as fresh upload)
+      if (lead.status === "keep_in_touch" || lead.status === "contacted_appointment") {
+        // Agent already won these — relationship established, appt set. Leave untouched.
+        preserved++;
+        continue;
+      }
+
+      if (lead.status === "callback_requested") {
+        // Hold in place — will be redistributed on the callback date by the daily job.
+        // Flag with a note so the receiving agent understands the context.
+        storage.createLeadActivity({
+          leadId: lead.id,
+          agentId: null,
+          outcome: "recycled",
+          notes: `Agent deactivated. Callback originally scheduled by ${updated.name}${lead.callbackDate ? ` for ${lead.callbackDate}` : ""}. Will be reassigned to an active agent on the callback date.`,
+          lpmamabSnapshot: null,
+          createdAt: new Date().toISOString(),
+        });
+        callbackHeld++;
+        continue;
+      }
+
+      // assigned / no_answer — redistribute immediately via round-robin
       const nextAgent = storage.getNextAgentInRotation(lead.leadType);
       if (nextAgent) {
-        storage.updateLead(lead.id, {
-          assignedAgentId: nextAgent.id,
-          status: "assigned",
-        });
+        storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
         storage.updateRoundRobinState(nextAgent.id);
         reassigned++;
       } else {
-        // No active agents available — park as unassigned so it auto-assigns when next agent activates
         storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
       }
     }
 
     broadcast({ type: "leads_updated" });
-    res.json({ ...updated, password: undefined, repooled, reassigned });
+    res.json({ ...updated, password: undefined, reassigned, callbackHeld, preserved });
   });
 
   // Reactivate a trashed agent
@@ -213,7 +229,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Admin: redistribute all currently unassigned leads via round-robin (fixes orphaned leads after deactivations)
   app.post("/api/admin/redistribute-unassigned", (req, res) => {
     const allLeads = storage.getAllLeads();
-    const unassigned = allLeads.filter(l => l.status === "unassigned" || (!l.assignedAgentId && l.status !== "contacted_not_interested" && l.status !== "contacted_appointment" && l.status !== "wrong_number"));
+    // Only redistribute truly unassigned leads that need a fresh call.
+    // KIT, Appt, Callback — leave alone. They have their own rules.
+    const SKIP = ["contacted_not_interested", "contacted_appointment", "keep_in_touch", "callback_requested", "wrong_number"];
+    const unassigned = allLeads.filter(l => !SKIP.includes(l.status) && (!l.assignedAgentId || l.status === "unassigned"));
     let reassigned = 0;
     let skipped = 0;
     for (const lead of unassigned) {
@@ -1514,7 +1533,7 @@ async function sendDailyDigest() {
     </table>
   </div>
   <div style="padding:16px 24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.19</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.20</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>`;
 
@@ -1529,6 +1548,59 @@ async function sendDailyDigest() {
 }
 
 // Fires at 5:45 PM EDT = 21:45 UTC every day
+// ─── CALLBACK REDISTRIBUTION ─────────────────────────────────────────────────
+// Runs daily: finds callbacks due today whose agent is inactive, reassigns to an
+// active agent with a clear handoff note so they have full context immediately.
+async function redistributeDueCallbacks() {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const allLeads = storage.getAllLeads();
+  const allAgents = storage.getAllAgents();
+  const agentMap: Record<number, any> = {};
+  allAgents.forEach((a: any) => { agentMap[a.id] = a; });
+
+  let redistributed = 0;
+
+  for (const lead of allLeads) {
+    if (lead.status !== "callback_requested") continue;
+    if (!lead.callbackDate) continue;
+    const cbDate = lead.callbackDate.slice(0, 10);
+    if (cbDate !== todayStr) continue;
+
+    // Is the assigned agent still active?
+    const assignedAgent = lead.assignedAgentId ? agentMap[lead.assignedAgentId] : null;
+    if (assignedAgent && assignedAgent.isActive && assignedAgent.leadFlowOn !== false) continue;
+
+    // Agent is inactive (or unassigned) — redistribute now
+    const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+    if (!nextAgent) continue;
+
+    const originalAgentName = assignedAgent?.name || "a deactivated agent";
+
+    storage.updateLead(lead.id, {
+      assignedAgentId: nextAgent.id,
+      status: "assigned",
+    });
+    storage.updateRoundRobinState(nextAgent.id);
+
+    // Write a handoff note into activity so the new agent sees full context
+    storage.createLeadActivity({
+      leadId: lead.id,
+      agentId: null,
+      outcome: "recycled",
+      notes: `📋 Callback Handoff — originally scheduled by ${originalAgentName} for ${lead.callbackDate}. Reassigned to you because that agent is no longer active. All prior notes and history are below. Pick up the conversation where they left off.`,
+      lpmamabSnapshot: null,
+      createdAt: new Date().toISOString(),
+    });
+
+    redistributed++;
+  }
+
+  if (redistributed > 0) {
+    broadcast({ type: "leads_updated" });
+    console.log(`[callbacks] Redistributed ${redistributed} due callback(s) from inactive agents`);
+  }
+}
+
 function scheduleDailyDigest() {
   function msUntilNext(): number {
     const now = new Date();
@@ -1542,6 +1614,7 @@ function scheduleDailyDigest() {
   console.log(`[digest] Scheduled in ${Math.round(delay / 60000)} min (5:45 PM EDT)`);
 
   setTimeout(function fire() {
+    redistributeDueCallbacks().catch(err => console.error("[callbacks] Error:", err));
     sendDailyDigest().catch(err => console.error("[digest] Error:", err));
     setTimeout(fire, 24 * 60 * 60 * 1000); // repeat every 24h
   }, delay);

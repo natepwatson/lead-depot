@@ -653,24 +653,6 @@ function LeadCard({ lead }: { lead: Lead }) {
 
       <GoldDivider />
 
-      {/* ── LPMAMAB ── */}
-      <div style={{ padding: "0 20px 18px" }}>
-        <SectionLabel>LPMAMAB Framework</SectionLabel>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-          {LPMAMAB_PHRASES.map(p => (
-            <div key={p.key} style={{
-              padding: "6px 12px", borderRadius: 6,
-              background: "rgba(200,170,90,0.07)",
-              border: "1px solid rgba(200,170,90,0.22)",
-            }}>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: p.color }}>{p.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <GoldDivider />
-
       {/* ── Script (inline) ── */}
       <div style={{ borderTop: "1px solid rgba(200,170,90,0.15)", padding: "18px 20px 0" }}>
         <SectionLabel>Call Script</SectionLabel>
@@ -698,6 +680,22 @@ function LeadCard({ lead }: { lead: Lead }) {
             borderRadius: 8,
           }}
         />
+      </div>
+
+      {/* ── LPMAMAB ── */}
+      <div style={{ padding: "0 20px 18px" }}>
+        <SectionLabel>LPMAMAB Framework</SectionLabel>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+          {LPMAMAB_PHRASES.map(p => (
+            <div key={p.key} style={{
+              padding: "6px 12px", borderRadius: 6,
+              background: "rgba(200,170,90,0.07)",
+              border: "1px solid rgba(200,170,90,0.22)",
+            }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: p.color }}>{p.label}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <GoldDivider />

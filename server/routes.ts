@@ -473,15 +473,15 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     // Wrong number: log the attempt then permanently delete the lead
     if (outcome === "wrong_number") {
-      storage.createLeadActivity({
-        leadId,
-        agentId: agentId || null,
-        outcome,
-        notes: notes || null,
-        lpmamabSnapshot: null,
-        createdAt: new Date().toISOString(),
-      });
+      // Insert activity directly via rawDb to avoid FK constraint issues on delete
+      rawDb.prepare(`
+        INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
+        VALUES (?, ?, ?, ?, NULL, ?)
+      `).run(leadId, agentId || null, outcome, notes || null, new Date().toISOString());
+      // Delete activities first to satisfy FK constraint, then delete lead
+      rawDb.prepare(`DELETE FROM lead_activity WHERE lead_id = ?`).run(leadId);
       storage.deleteLead(leadId);
+      broadcast({ type: "lead_deleted", leadId });
       return res.json({ deleted: true, leadId });
     }
 
@@ -1333,7 +1333,7 @@ async function sendDailyDigest() {
     </table>
   </div>
   <div style="padding:16px 24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.14</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.15</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>`;
 

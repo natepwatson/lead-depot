@@ -671,6 +671,20 @@ function LeadCard({ lead }: { lead: Lead }) {
 
       <GoldDivider />
 
+      {/* ── Script (inline) ── */}
+      <div style={{ borderTop: "1px solid rgba(200,170,90,0.15)", padding: "18px 20px 0" }}>
+        <SectionLabel>Call Script</SectionLabel>
+        <pre style={{
+          fontSize: 12, color: "rgba(255,255,255,0.7)", whiteSpace: "pre-wrap", lineHeight: 1.7,
+          fontFamily: "'Switzer','Inter',sans-serif",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(200,170,90,0.15)", borderRadius: 8, padding: "14px",
+          maxHeight: 220, overflowY: "auto", marginBottom: 18,
+        }}>
+          {script?.content || "No script saved for this lead type."}
+        </pre>
+      </div>
+
       {/* ── Notes ── */}
       <div style={{ padding: "0 20px 18px" }}>
         <SectionLabel>Call Notes</SectionLabel>
@@ -718,36 +732,6 @@ function LeadCard({ lead }: { lead: Lead }) {
 
       {/* ── Recycle Lead ── */}
       <RecycleButton lead={lead} />
-
-      {/* ── Script panel ── */}
-      <div style={{ borderTop: "1px solid rgba(200,170,90,0.15)" }}>
-        <button onClick={() => setShowScript(s => !s)}
-          style={{
-            width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "14px 20px", background: "rgba(200,170,90,0.04)", border: "none", cursor: "pointer",
-          }}
-        >
-          <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(200,170,90,0.75)", fontWeight: 600 }}>
-            <ScrollText size={13} style={{ color: "#c8aa5a" }} /> Call Script
-          </span>
-          {showScript
-            ? <ChevronUp size={16} style={{ color: "rgba(200,170,90,0.5)" }} />
-            : <ChevronDown size={16} style={{ color: "rgba(200,170,90,0.5)" }} />}
-        </button>
-        {showScript && (
-          <div style={{ padding: "0 20px 24px" }}>
-            <pre style={{
-              fontSize: 13, color: "rgba(255,255,255,0.7)", whiteSpace: "pre-wrap", lineHeight: 1.7,
-              fontFamily: "'DM Mono',monospace",
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(200,170,90,0.15)", borderRadius: 8, padding: "16px",
-              maxHeight: 380, overflowY: "auto",
-            }}>
-              {script?.content || "No script saved for this lead type."}
-            </pre>
-          </div>
-        )}
-      </div>
 
       {/* Appt / Keep-in-Touch modal */}
       {pendingOutcome && (

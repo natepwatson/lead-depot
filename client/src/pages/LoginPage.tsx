@@ -187,7 +187,7 @@ export default function LoginPage() {
 
         {/* Version */}
         <p style={{ fontSize: 11, color: "rgba(255,255,255,0.18)", textAlign: "center", marginTop: 28 }}>
-          Lead Depot v11.14
+          Lead Depot v11.15
         </p>
 
         {/* PWA Install Banner */}

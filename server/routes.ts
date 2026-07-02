@@ -106,7 +106,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.21 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.22 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -1654,7 +1654,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.21</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.22</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -1744,3 +1744,72 @@ function scheduleDailyDigest() {
 }
 
 scheduleDailyDigest();
+
+// ─── REDISTRIBUTION: Unassigned / Redistributed Leads ────────────────────────
+// Runs at server startup and daily at 8am EDT to push any
+// unassigned or redistributed leads into delegation to active agents.
+async function redistributeUnassignedLeads() {
+  const SKIP = [
+    "contacted_not_interested",
+    "contacted_appointment",
+    "keep_in_touch",
+    "callback_requested",
+    "wrong_number",
+  ];
+  const allLeads = storage.getAllLeads();
+  const eligible = allLeads.filter(
+    (l) => !SKIP.includes(l.status) && (!l.assignedAgentId || l.status === "unassigned")
+  );
+  if (eligible.length === 0) {
+    console.log("[redistribution] No unassigned leads to redistribute.");
+    return;
+  }
+  let reassigned = 0;
+  let skipped = 0;
+  for (const lead of eligible) {
+    const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+    if (nextAgent) {
+      storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
+      storage.updateRoundRobinState(nextAgent.id);
+      reassigned++;
+    } else {
+      skipped++;
+    }
+  }
+  if (reassigned > 0) {
+    broadcast({ type: "leads_updated" });
+  }
+  console.log(`[redistribution] Redistributed ${reassigned} lead(s), skipped ${skipped} (no active agents).`);
+}
+
+function scheduleRedistribution() {
+  // Fire once daily at 8am EDT = 12:00 UTC
+  function msUntil8amEDT(): number {
+    const now = new Date();
+    const next = new Date(now);
+    next.setUTCHours(12, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    return next.getTime() - now.getTime();
+  }
+
+  function scheduleNext() {
+    const delay = msUntil8amEDT();
+    console.log(`[redistribution] Next morning run in ${Math.round(delay / 60000)} min (8:00 AM EDT)`);
+    setTimeout(async () => {
+      await redistributeUnassignedLeads().catch((err) =>
+        console.error("[redistribution] Error:", err)
+      );
+      scheduleNext(); // schedule the next day's run
+    }, delay);
+  }
+
+  scheduleNext();
+}
+
+// Run immediately on startup to clear any leads that accumulated overnight / on redeploy
+redistributeUnassignedLeads().catch((err) =>
+  console.error("[redistribution] Startup error:", err)
+);
+
+// Schedule daily 8am EDT run
+scheduleRedistribution();

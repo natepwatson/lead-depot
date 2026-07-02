@@ -866,7 +866,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.23
+              v11.24
             </p>
           </div>
         </div>
@@ -1042,6 +1042,10 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             <div>
                               <div style={{ fontSize: 18, fontWeight: 300, color: "#fbcfe8" }}>{(stat as any).emailsSent ?? 0}</div>
                               <div className="text-xs text-muted-foreground">Emails</div>
+                            </div>
+                            <div className="text-center">
+                              <div style={{ fontSize: 18, fontWeight: 300, color: "#fde68a" }}>{(stat as any).networkLeads ?? 0}</div>
+                              <div className="text-xs text-muted-foreground">Referrals</div>
                             </div>
                             <div>
                               <div style={{ fontSize: 18, fontWeight: 300, color: "#67e8f9" }}>{stat.contactRate}%</div>
@@ -1292,6 +1296,23 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                     {extra.propertyType && <div className="text-xs text-muted-foreground">Type: {extra.propertyType}</div>}
                     {extra.estimatedValue && <div className="text-xs text-muted-foreground">Est. Value: <span style={{ color: "#c8aa5a" }}>{extra.estimatedValue}</span></div>}
                     {extra.timeframe && <div className="text-xs text-muted-foreground">Timeframe: {extra.timeframe}</div>}
+                    {extra.source === "network" && extra.submittedByName && (
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        padding: "6px 10px", borderRadius: 8, marginTop: 2,
+                        background: "rgba(200,170,90,0.1)", border: "1px solid rgba(200,170,90,0.25)",
+                      }}>
+                        <Users size={11} style={{ color: "#c8aa5a", flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, color: "#c8aa5a", fontWeight: 600 }}>
+                          Network Lead — referred by {extra.submittedByName}
+                        </span>
+                      </div>
+                    )}
+                    {extra.source === "network" && extra.networkNotes && (
+                      <div className="text-xs text-muted-foreground" style={{ paddingLeft: 2 }}>
+                        Referral notes: <span style={{ color: "rgba(255,255,255,0.6)" }}>{extra.networkNotes}</span>
+                      </div>
+                    )}
                     {lead.assignedAgentName && (
                       <div style={{ paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 12, color: "rgba(255,255,255,0.35)" }}>
                         Assigned to: <span className="text-foreground">{lead.assignedAgentName}</span>

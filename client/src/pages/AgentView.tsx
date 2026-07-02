@@ -641,6 +641,22 @@ function LeadCard({ lead }: { lead: Lead }) {
             {extra.propertyType && <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)" }}>Type: <span style={{ color: "rgba(255,255,255,0.75)" }}>{extra.propertyType}</span></p>}
             {extra.estimatedValue && <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)" }}>Est. Value: <span style={{ color: "#c8aa5a" }}>{extra.estimatedValue}</span></p>}
             {extra.timeframe && <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)" }}>Timeframe: <span style={{ color: "rgba(255,255,255,0.75)" }}>{extra.timeframe}</span></p>}
+            {extra.source === "network" && extra.submittedByName && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "6px 10px", borderRadius: 8, marginTop: 4,
+                background: "rgba(200,170,90,0.1)", border: "1px solid rgba(200,170,90,0.25)",
+              }}>
+                <span style={{ fontSize: 12, color: "#c8aa5a", fontWeight: 600 }}>
+                  🤝 Network Lead — referred by {extra.submittedByName}
+                </span>
+              </div>
+            )}
+            {extra.source === "network" && extra.networkNotes && (
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 2 }}>
+                Referral notes: <span style={{ color: "rgba(255,255,255,0.75)" }}>{extra.networkNotes}</span>
+              </p>
+            )}
           </div>
         )}
 
@@ -795,7 +811,7 @@ function LeaderboardTab() {
       });
       setNetName(""); setNetPhone(""); setNetEmail(""); setNetAddr(""); setNetNotes("");
       qc.invalidateQueries({ queryKey: ["/api/leads/my-count"] });
-      toast({ title: "Network lead submitted", description: "Admins have been notified." });
+      toast({ title: "Network lead submitted", description: "Assigned to you. Admins notified by email." });
     } catch {
       toast({ title: "Failed to submit lead", variant: "destructive" });
     } finally {

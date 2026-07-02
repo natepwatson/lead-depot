@@ -106,7 +106,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.23 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.24 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -676,6 +676,17 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // ── CRM Report — send immediately for KIT and APPT outcomes ───────────
     if (outcome === "keep_in_touch" || outcome === "contacted_appointment") {
       const agent = storage.getAgentById(agentId);
+      // Detect network lead and build rich source string for FUB handoff
+      let sourceLabel = lead.source || "—";
+      let networkReferrerNote = "";
+      try {
+        const extra = JSON.parse((lead as any).extraData || "{}");
+        if (extra.source === "network" && extra.submittedByName) {
+          sourceLabel = `Network Lead — referred by ${extra.submittedByName}`;
+          networkReferrerNote = extra.networkNotes ? `\n\nOriginal referral notes: ${extra.networkNotes}` : "";
+        }
+      } catch {}
+
       sendCrmReport({
         outcome,
         agentName:        agent?.name || "Unknown Agent",
@@ -686,9 +697,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         confirmedAddress: confirmedAddress || lead.address || "—",
         addressMatch:     !confirmedAddress || confirmedAddress === lead.address,
         stage:            stage || "—",
-        source:           lead.source || "—",
+        source:           sourceLabel,
         intention:        intention || "—",
-        notes:            notes || "—",
+        notes:            (notes || "—") + networkReferrerNote,
         apptDate:         apptDate || undefined,
         apptTime:         apptTime || undefined,
         apptEmail:        apptEmail || undefined,
@@ -833,6 +844,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         ? Math.round(((outcomes.contacted_appointment + outcomes.contacted_not_interested + outcomes.keep_in_touch) / totalAttempts) * 100)
         : 0;
 
+      // Network leads = leads this agent personally submitted (source = "network", uploadedBy = agent.id)
+      const networkLeads = allLeads.filter(l => {
+        if (l.uploadedBy !== agent.id) return false;
+        try { const x = JSON.parse(l.extraData || "{}"); return x.source === "network"; } catch { return false; }
+      }).length;
+
       return {
         agent: { id: agent.id, name: agent.name, email: agent.email },
         leadsReceived: agentLeads.length,
@@ -840,6 +857,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         appointmentsSet: outcomes.contacted_appointment,
         totalAttempts,
         emailsSent,
+        networkLeads,
         contactRate,
         outcomes,
       };
@@ -1401,6 +1419,42 @@ This template is for informational/outreach purposes only.`;
       batchId: `network_${Date.now()}`,
     }]);
     broadcast({ type: "lead_created", leadId: created.id, assignedAgentId: submitterAgentId });
+
+    // ── Notify admins immediately via email ──────────────────────────────────
+    if (resend) {
+      const agentName = submittedByName || "An agent";
+      const tdL = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px;vertical-align:top";
+      const tdR = "padding:8px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
+      resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+        subject: `🤝 Network Lead Submitted — ${ownerName} | ${address || "No address"}`,
+        html: `
+<!DOCTYPE html><html><body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+<div style="max-width:580px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid #2a2520">
+  <div style="background:linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%);padding:22px 28px">
+    <p style="margin:0 0 4px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#5a3e00;font-weight:700">Network Lead — Lead Depot</p>
+    <h1 style="margin:0;font-size:20px;color:#080808;font-weight:700">🤝 ${agentName} submitted a referral</h1>
+  </div>
+  <div style="padding:24px 28px">
+    <table style="width:100%;border-collapse:collapse">
+      <tr><td style="${tdL}">Client Name</td><td style="${tdR}">${ownerName}</td></tr>
+      <tr><td style="${tdL}">Phone</td><td style="${tdR}">${phone}</td></tr>
+      <tr><td style="${tdL}">Email</td><td style="${tdR}">${email || "—"}</td></tr>
+      <tr><td style="${tdL}">Address</td><td style="${tdR}">${address || "—"}</td></tr>
+      <tr><td style="${tdL}">Referred By</td><td style="${tdR}">${agentName}</td></tr>
+      <tr><td style="${tdL}">Notes</td><td style="${tdR}">${notes || "—"}</td></tr>
+      <tr><td style="${tdL}">Assigned To</td><td style="${tdR}">${agentName} (auto-assigned)</td></tr>
+    </table>
+    <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}. It will appear in their queue immediately.</p>
+  </div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
+    Lead Depot v11.24 — Brothers Group · Momentum Realty
+  </div>
+</div></body></html>`,
+      }).catch(err => console.error("[network lead] Admin notify failed:", err));
+    }
+
     res.json({ created: true, leadId: created.id });
   });
 
@@ -1704,7 +1758,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.23</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.24</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

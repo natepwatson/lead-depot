@@ -111,6 +111,19 @@ export default function LoginPage() {
           -webkit-tap-highlight-color: transparent;
         }
         .ld-sign-btn:active { transform: scale(0.98); opacity: 0.85; }
+
+        /* Fallback for browsers that don't support backdrop-filter (Firefox Android, older Safari) */
+        @supports not (backdrop-filter: blur(1px)) {
+          .ld-glass-card {
+            background: rgba(6,4,2,0.93) !important;
+            border: 1px solid rgba(200,170,90,0.55) !important;
+            box-shadow: 0 32px 80px rgba(0,0,0,0.85), 0 0 0 1px rgba(200,170,90,0.18), inset 0 1px 0 rgba(200,170,90,0.20) !important;
+          }
+          .ld-glass-pwabanner {
+            background: rgba(6,4,2,0.93) !important;
+            border: 1px solid rgba(200,170,90,0.45) !important;
+          }
+        }
       `}</style>
 
       {/* ── Page shell ─────────────────────────────────────────────── */}
@@ -176,17 +189,17 @@ export default function LoginPage() {
           </div>
 
           {/* Glass card body */}
-          <div style={{
+          <div className="ld-glass-card" style={{
             background: "rgba(6,5,4,0.78)",
             backdropFilter: "blur(32px)",
             WebkitBackdropFilter: "blur(32px)",
-            border: "1px solid rgba(200,170,90,0.22)",
+            border: "1px solid rgba(200,170,90,0.38)",
             borderRadius: 24,
             padding: "36px 28px 32px",
             boxShadow: [
               "0 32px 80px rgba(0,0,0,0.75)",
-              "0 0 0 1px rgba(200,170,90,0.07)",
-              "inset 0 1px 0 rgba(200,170,90,0.12)",
+              "0 0 0 1px rgba(200,170,90,0.10)",
+              "inset 0 1px 0 rgba(200,170,90,0.16)",
               "inset 0 -1px 0 rgba(0,0,0,0.4)",
             ].join(", "),
           }}>
@@ -274,19 +287,19 @@ export default function LoginPage() {
               fontSize: 10, color: "rgba(255,255,255,0.15)", textAlign: "center",
               marginTop: 24, marginBottom: 0, letterSpacing: "0.08em",
             }}>
-              Lead Depot v11.16
+              Lead Depot v11.17
             </p>
           </div>
 
           {/* PWA Install Banner */}
           {showInstallBanner && (
-            <div style={{
+            <div className="ld-glass-pwabanner" style={{
               marginTop: 16,
               padding: "16px 18px",
               background: "rgba(6,5,4,0.78)",
               backdropFilter: "blur(24px)",
               WebkitBackdropFilter: "blur(24px)",
-              border: "1px solid rgba(200,170,90,0.22)",
+              border: "1px solid rgba(200,170,90,0.38)",
               borderRadius: 16,
               boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
             }}>

@@ -15,10 +15,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  LogOut, Upload, Download, Users, BarChart3, List, Plus, Trash2,
+  LogOut, Upload, Download, Users, BarChart3, BarChart2, List, Plus, Trash2,
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneOff, PhoneMissed, Calendar, XCircle, CheckCircle2,
-  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck, Heart, Map as MapIcon
+  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck, Heart, Map as MapIcon,
+  Clock, FileText, ChevronDown, ChevronUp
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 
@@ -244,6 +245,308 @@ function AgentDrilldown({ agentId, agentName, onClose }: { agentId: number; agen
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+// ── ActivityHistory ────────────────────────────────────────────────────────────
+function ActivityHistory({ leadId }: { leadId: number }) {
+  const { data, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/leads", leadId, "activity"],
+    queryFn: async () => {
+      const res = await fetch(`/api/leads/${leadId}/activity`);
+      if (!res.ok) throw new Error("Failed to load activity");
+      return res.json();
+    },
+    refetchInterval: 15000,
+  });
+
+  const outcomeLabel: Record<string, string> = {
+    contacted_appointment: "Appt Set",
+    keep_in_touch: "Keep in Touch",
+    callback_requested: "Callback",
+    no_answer: "No Answer",
+    contacted_not_interested: "Not Interested",
+    wrong_number: "Wrong #",
+    recycled: "Recycled",
+    email_sent: "Email Sent",
+  };
+
+  const outcomeColor: Record<string, string> = {
+    contacted_appointment: "rgba(134,239,172,0.85)",
+    keep_in_touch: "rgba(200,170,90,0.85)",
+    callback_requested: "rgba(147,197,253,0.85)",
+    no_answer: "rgba(255,255,255,0.35)",
+    contacted_not_interested: "rgba(252,165,165,0.75)",
+    wrong_number: "rgba(252,165,165,0.5)",
+    recycled: "rgba(255,255,255,0.35)",
+    email_sent: "rgba(167,139,250,0.75)",
+  };
+
+  function fmt(iso: string) {
+    try {
+      return new Date(iso).toLocaleString("en-US", {
+        month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true,
+      });
+    } catch { return iso; }
+  }
+
+  return (
+    <div style={{ marginTop: 16, borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+        <Clock size={12} style={{ color: "rgba(200,170,90,0.7)" }} />
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", color: "rgba(255,255,255,0.45)", textTransform: "uppercase" }}>
+          Activity History
+        </span>
+      </div>
+
+      {isLoading && (
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.25)", padding: "8px 0" }}>Loading…</div>
+      )}
+
+      {!isLoading && (!data || data.length === 0) && (
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.2)", fontStyle: "italic", padding: "6px 0" }}>
+          No activity recorded yet.
+        </div>
+      )}
+
+      {!isLoading && data && data.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 280, overflowY: "auto" }}>
+          {data.map((act: any) => {
+            let snapshot: any = {};
+            try { snapshot = JSON.parse(act.lpmamabSnapshot || act.lpmamab_snapshot || "{}"); } catch {}
+            return (
+              <div key={act.id} style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.07)",
+                borderRadius: 8, padding: "10px 12px",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: act.notes ? 6 : 0 }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700,
+                    color: outcomeColor[act.outcome] || "rgba(255,255,255,0.55)",
+                    background: "rgba(255,255,255,0.05)",
+                    borderRadius: 4, padding: "2px 7px",
+                  }}>
+                    {outcomeLabel[act.outcome] || act.outcome}
+                  </span>
+                  <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>
+                    {act.agentName} · {fmt(act.createdAt || act.created_at)}
+                  </span>
+                </div>
+                {act.notes && (
+                  <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.65)", lineHeight: 1.5 }}>
+                    {act.notes}
+                  </p>
+                )}
+                {snapshot.apptDate && (
+                  <p style={{ margin: "4px 0 0", fontSize: 11, color: "rgba(134,239,172,0.7)" }}>
+                    Appt: {snapshot.apptDate} {snapshot.apptTime || ""}
+                    {snapshot.stage ? ` · ${snapshot.stage}` : ""}
+                    {snapshot.intention ? ` · ${snapshot.intention}` : ""}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── OutcomeReport ─────────────────────────────────────────────────────────────
+function OutcomeReport() {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/reports/outcomes"],
+    queryFn: async () => {
+      const res = await fetch("/api/reports/outcomes");
+      if (!res.ok) throw new Error("Failed to load report");
+      return res.json();
+    },
+  });
+
+  const outcomeColor: Record<string, string> = {
+    "Appointment Set": "rgba(134,239,172,0.85)",
+    "Keep in Touch": "rgba(200,170,90,0.85)",
+    "Callback": "rgba(147,197,253,0.85)",
+    "No Answer": "rgba(255,255,255,0.45)",
+    "Not Interested": "rgba(252,165,165,0.75)",
+    "Wrong Number": "rgba(252,165,165,0.5)",
+    "Recycled": "rgba(255,255,255,0.35)",
+    "Email Sent": "rgba(167,139,250,0.75)",
+  };
+
+  function fmt(iso: string) {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleString("en-US", {
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true,
+      });
+    } catch { return iso; }
+  }
+
+  return (
+    <div style={{ maxWidth: 700 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div>
+          <h2 style={{
+            fontFamily: "'Cormorant Garamond','Georgia',serif",
+            fontSize: "1.3rem", fontWeight: 300, color: "#fff", marginBottom: 2,
+          }}>Outcome Report</h2>
+          {data?.generatedAt && (
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", margin: 0 }}>
+              Generated {fmt(data.generatedAt)}
+            </p>
+          )}
+        </div>
+        <button
+          onClick={() => refetch()}
+          style={{
+            display: "flex", alignItems: "center", gap: 5,
+            fontSize: 11, padding: "7px 14px",
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 7, color: "rgba(255,255,255,0.5)", cursor: "pointer",
+          }}
+        >
+          <RefreshCw size={11} /> Refresh
+        </button>
+      </div>
+
+      {isLoading && (
+        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.3)", padding: "20px 0" }}>Loading report…</div>
+      )}
+
+      {!isLoading && data?.summary?.length === 0 && (
+        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.3)", fontStyle: "italic" }}>No activity recorded yet.</div>
+      )}
+
+      {!isLoading && data?.summary && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {data.summary.map((group: any) => {
+            const isOpen = expanded === group.outcome;
+            const accentColor = outcomeColor[group.outcome] || "rgba(255,255,255,0.4)";
+            return (
+              <div key={group.outcome} style={{
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 12, overflow: "hidden",
+              }}>
+                {/* Header row */}
+                <button
+                  onClick={() => setExpanded(isOpen ? null : group.outcome)}
+                  style={{
+                    width: "100%", display: "flex", alignItems: "center",
+                    justifyContent: "space-between", padding: "14px 16px",
+                    background: "rgba(255,255,255,0.03)",
+                    border: "none", cursor: "pointer", textAlign: "left",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{
+                      width: 9, height: 9, borderRadius: "50%",
+                      background: accentColor, display: "inline-block", flexShrink: 0,
+                    }} />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{group.outcome}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{
+                      fontSize: 13, fontWeight: 700, color: accentColor,
+                      background: "rgba(255,255,255,0.05)",
+                      borderRadius: 6, padding: "2px 10px",
+                    }}>{group.count}</span>
+                    {isOpen ? <ChevronUp size={14} style={{ color: "rgba(255,255,255,0.3)" }} /> : <ChevronDown size={14} style={{ color: "rgba(255,255,255,0.3)" }} />}
+                  </div>
+                </button>
+
+                {/* Expanded entries */}
+                {isOpen && (
+                  <div style={{ padding: "4px 0 8px" }}>
+                    {group.entries.map((entry: any) => (
+                      <div key={entry.activityId} style={{
+                        padding: "10px 16px",
+                        borderTop: "1px solid rgba(255,255,255,0.05)",
+                      }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.85)" }}>
+                              {entry.ownerName}
+                            </div>
+                            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>
+                              {entry.address}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                            <div style={{ fontSize: 11, color: "rgba(200,170,90,0.8)" }}>{entry.agent}</div>
+                            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginTop: 2 }}>{fmt(entry.date)}</div>
+                          </div>
+                        </div>
+
+                        {entry.notes && entry.notes !== "—" && (
+                          <div style={{
+                            marginTop: 8, fontSize: 12, color: "rgba(255,255,255,0.6)",
+                            background: "rgba(255,255,255,0.03)", borderRadius: 6,
+                            padding: "7px 10px", lineHeight: 1.5,
+                          }}>
+                            {entry.notes}
+                          </div>
+                        )}
+
+                        {(entry.apptDate || entry.callbackDate) && (
+                          <div style={{
+                            marginTop: 7, fontSize: 11, display: "flex", flexWrap: "wrap", gap: 8,
+                          }}>
+                            {entry.apptDate && (
+                              <span style={{
+                                background: "rgba(134,239,172,0.08)",
+                                border: "1px solid rgba(134,239,172,0.2)",
+                                borderRadius: 5, padding: "3px 8px",
+                                color: "rgba(134,239,172,0.8)",
+                              }}>
+                                Appt: {entry.apptDate} {entry.apptTime || ""}
+                              </span>
+                            )}
+                            {entry.stage && (
+                              <span style={{
+                                background: "rgba(147,197,253,0.08)",
+                                border: "1px solid rgba(147,197,253,0.2)",
+                                borderRadius: 5, padding: "3px 8px",
+                                color: "rgba(147,197,253,0.7)",
+                              }}>{entry.stage}</span>
+                            )}
+                            {entry.intention && (
+                              <span style={{
+                                background: "rgba(200,170,90,0.08)",
+                                border: "1px solid rgba(200,170,90,0.2)",
+                                borderRadius: 5, padding: "3px 8px",
+                                color: "rgba(200,170,90,0.7)",
+                              }}>{entry.intention}</span>
+                            )}
+                            {entry.callbackDate && !entry.apptDate && (
+                              <span style={{
+                                background: "rgba(147,197,253,0.08)",
+                                border: "1px solid rgba(147,197,253,0.2)",
+                                borderRadius: 5, padding: "3px 8px",
+                                color: "rgba(147,197,253,0.7)",
+                              }}>
+                                Callback: {entry.callbackDate}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -539,7 +842,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.15
+              v11.16
             </p>
           </div>
         </div>
@@ -582,7 +885,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               { value: "leaderboard", icon: Trophy,     label: "Leaderboard" },
               { value: "pipeline",    icon: Layers,      label: "Pipeline" },
               { value: "leads",       icon: List,        label: "All Leads" },
-              { value: "map",         icon: MapIcon,         label: "Map View" },
+              { value: "map",         icon: MapIcon,     label: "Map View" },
+              { value: "reports",     icon: BarChart2,   label: "Reports" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
@@ -996,6 +1300,9 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                     )}
                   </div>
 
+                  {/* Activity History */}
+                  <ActivityHistory leadId={lead.id} />
+
                   <p style={{ marginTop: 14, fontSize: 10, color: "rgba(255,255,255,0.18)", textAlign: "center", letterSpacing: "0.04em", fontStyle: "italic" }}>
                     Read-only view — outcome selection available to assigned agent only
                   </p>
@@ -1005,6 +1312,10 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           })()}
 
           {/* ── UPLOAD ──────────────────────────────────────────────────────── */}
+          <TabsContent value="reports" className="mt-5">
+            <OutcomeReport />
+          </TabsContent>
+
           <TabsContent value="upload" className="mt-5">
             <div className="max-w-lg space-y-6">
               <div>

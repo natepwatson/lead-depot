@@ -494,18 +494,87 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       ...lpmamabUpdate,
     });
 
-    // Log activity
+    // Log activity — merge appt/kit details into snapshot
+    const snapshotData = {
+      ...(lpmamab || {}),
+      ...(apptDate       ? { apptDate }       : {}),
+      ...(apptTime       ? { apptTime }        : {}),
+      ...(stage          ? { stage }           : {}),
+      ...(intention      ? { intention }       : {}),
+      ...(confirmedAddress ? { confirmedAddress } : {}),
+      ...(apptEmail      ? { apptEmail }       : {}),
+    };
     storage.createLeadActivity({
       leadId,
       agentId: agentId || null,
       outcome,
       notes: notes || null,
-      lpmamabSnapshot: lpmamab ? JSON.stringify(lpmamab) : null,
+      lpmamabSnapshot: Object.keys(snapshotData).length ? JSON.stringify(snapshotData) : null,
       createdAt: new Date().toISOString(),
     });
 
     // Per-event emails removed — all results delivered via 5:45 PM daily digest
     res.json(updatedLead);
+  });
+
+  // ─── OUTCOME REPORT ──────────────────────────────────────────────────────
+  app.get("/api/reports/outcomes", (req, res) => {
+    const allLeads = rawDb.prepare(`SELECT * FROM leads`).all();
+    const allAgents = storage.getAllAgents();
+    const agentMap: Record<number, string> = {};
+    allAgents.forEach((a: any) => { agentMap[a.id] = a.name; });
+
+    const allActivities = rawDb.prepare(`SELECT * FROM lead_activity ORDER BY created_at DESC`).all();
+
+    // Build lead map for quick lookup
+    const leadMap: Record<number, any> = {};
+    allLeads.forEach((l: any) => { leadMap[l.id] = l; });
+
+    const outcomeLabels: Record<string, string> = {
+      contacted_appointment: "Appointment Set",
+      keep_in_touch: "Keep in Touch",
+      callback_requested: "Callback",
+      no_answer: "No Answer",
+      contacted_not_interested: "Not Interested",
+      wrong_number: "Wrong Number",
+      recycled: "Recycled",
+      email_sent: "Email Sent",
+    };
+
+    // Group activities by outcome
+    const grouped: Record<string, any[]> = {};
+    allActivities.forEach((act: any) => {
+      const label = outcomeLabels[act.outcome] || act.outcome;
+      if (!grouped[label]) grouped[label] = [];
+      let snapshot: any = {};
+      try { snapshot = JSON.parse(act.lpmamab_snapshot || "{}"); } catch {}
+      const lead = leadMap[act.lead_id];
+      grouped[label].push({
+        activityId: act.id,
+        leadId: act.lead_id,
+        ownerName: lead?.owner_name || "—",
+        address: lead?.address || "—",
+        phone: lead?.phone || "—",
+        agent: agentMap[act.agent_id] || "—",
+        notes: act.notes || "—",
+        date: act.created_at,
+        apptDate: snapshot.apptDate || null,
+        apptTime: snapshot.apptTime || null,
+        stage: snapshot.stage || null,
+        intention: snapshot.intention || null,
+        confirmedAddress: snapshot.confirmedAddress || null,
+        apptEmail: snapshot.apptEmail || null,
+        callbackDate: lead?.callback_date || null,
+      });
+    });
+
+    const summary = Object.entries(grouped).map(([label, items]) => ({
+      outcome: label,
+      count: items.length,
+      entries: items,
+    })).sort((a, b) => b.count - a.count);
+
+    res.json({ generatedAt: new Date().toISOString(), summary });
   });
 
   // ─── ACTIVITY ─────────────────────────────────────────────────────────────
@@ -1333,7 +1402,7 @@ async function sendDailyDigest() {
     </table>
   </div>
   <div style="padding:16px 24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.15</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.16</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>`;
 

@@ -249,6 +249,34 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ total: unassigned.length, reassigned, skipped });
   });
 
+
+  // Redistribute ALL unseen/untouched leads (no activity logged yet) regardless of assignment.
+  // Use when adding a new agent — redistributes every lead no agent has interacted with yet
+  // so the new agent and all others get an even share immediately.
+  app.post("/api/admin/redistribute-unseen", (req, res) => {
+    // Find leads with no activity at all — these are untouched regardless of assigned status
+    const touchedIds = new Set<number>(
+      (rawDb.prepare("SELECT DISTINCT lead_id FROM lead_activity").all() as any[]).map((r: any) => r.lead_id)
+    );
+    const SKIP = ["contacted_not_interested", "contacted_appointment", "keep_in_touch", "callback_requested", "wrong_number"];
+    const allLeads = storage.getAllLeads();
+    const unseen = allLeads.filter(l => !SKIP.includes(l.status) && !touchedIds.has(l.id));
+    let reassigned = 0;
+    let skipped = 0;
+    for (const lead of unseen) {
+      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+      if (nextAgent) {
+        storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
+        storage.updateRoundRobinState(nextAgent.id);
+        reassigned++;
+      } else {
+        skipped++;
+      }
+    }
+    if (reassigned > 0) broadcast({ type: "leads_updated" });
+    res.json({ total: unseen.length, reassigned, skipped });
+  });
+
   // Toggle admin as lead receiver
   app.patch("/api/agents/:id/receive-leads", (req, res) => {
     const id = parseInt(req.params.id);

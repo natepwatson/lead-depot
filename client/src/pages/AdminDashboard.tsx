@@ -670,6 +670,15 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     onError: () => toast({ title: "Error", description: "Failed to redistribute leads.", variant: "destructive" }),
   });
 
+  const redistributeUnseenMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/redistribute-unseen").then(r => r.json()),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Unseen leads redistributed", description: `${data.reassigned} untouched lead${data.reassigned === 1 ? "" : "s"} re-assigned across active agents.` });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to redistribute unseen leads.", variant: "destructive" }),
+  });
+
   const clearQueueMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/leads/clear-queue", { clearedBy: user?.id }).then(r => r.json()),
     onSuccess: (data) => {
@@ -1355,6 +1364,29 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   disabled={redistributeMutation.isPending}
                 >
                   <RefreshCw size={11}/>{redistributeMutation.isPending ? "Redistributing…" : "Redistribute Now"}
+                </Button>
+              </div>
+
+              {/* Redistribute Unseen */}
+              <div style={{
+                background: "rgba(200,170,90,0.05)",
+                border: "1px solid rgba(200,170,90,0.18)",
+                borderRadius: 12, padding: 16,
+              }}>
+                <div className="flex items-center gap-2 mb-1">
+                  <Users size={13} style={{ color: "rgba(200,170,90,0.8)" }}/>
+                  <p className="text-sm font-semibold" style={{ color: "rgba(200,170,90,0.9)" }}>Redistribute Unseen Leads</p>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">Re-assigns every lead no agent has interacted with yet — including already-assigned ones. Use this when adding a new agent so they get an immediate share of untouched leads.</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  style={{ borderColor: "rgba(200,170,90,0.3)", color: "rgba(200,170,90,0.85)", fontSize: 12 }}
+                  className="gap-1.5 hover:bg-yellow-900/20"
+                  onClick={() => redistributeUnseenMutation.mutate()}
+                  disabled={redistributeUnseenMutation.isPending}
+                >
+                  <Users size={11}/>{redistributeUnseenMutation.isPending ? "Redistributing…" : "Redistribute Unseen"}
                 </Button>
               </div>
 

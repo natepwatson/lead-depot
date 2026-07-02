@@ -106,7 +106,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.22 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.23 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -168,9 +168,31 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ...updated, password: undefined });
   });
 
+
+  // ─── HELPER: count agents currently able to receive leads ──────────────────
+  function countLeadReceivers(excludeId?: number): number {
+    const allAgents = storage.getAllAgents ? storage.getAllAgents() : [];
+    return allAgents.filter((a: any) => {
+      if (a.id === excludeId) return false;
+      if (!a.isActive) return false;
+      // Non-admin agent: must have leadFlowOn
+      if (a.role === "agent") return a.leadFlowOn !== false;
+      // Admin: must have receiveLeads=true AND leadFlowOn
+      if (a.role === "admin") return a.receiveLeads && a.leadFlowOn !== false;
+      return false;
+    }).length;
+  }
+
   // Soft-delete: mark agent as inactive, redistribute leads with correct rules per status
   app.delete("/api/agents/:id", (req, res) => {
     const id = parseInt(req.params.id);
+    // Guard: must always have at least one lead receiver after deactivation
+    const receiversAfter = countLeadReceivers(id);
+    if (receiversAfter === 0) {
+      return res.status(409).json({
+        error: "Cannot deactivate — at least one agent must be able to receive leads at all times. Activate another agent first, or enable lead flow on an admin.",
+      });
+    }
     const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false, receiveWebsiteLeads: false });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
 
@@ -226,28 +248,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ...updated, password: undefined });
   });
 
-  // Admin: redistribute all currently unassigned leads via round-robin (fixes orphaned leads after deactivations)
-  app.post("/api/admin/redistribute-unassigned", (req, res) => {
-    const allLeads = storage.getAllLeads();
-    // Only redistribute truly unassigned leads that need a fresh call.
-    // KIT, Appt, Callback — leave alone. They have their own rules.
-    const SKIP = ["contacted_not_interested", "contacted_appointment", "keep_in_touch", "callback_requested", "wrong_number"];
-    const unassigned = allLeads.filter(l => !SKIP.includes(l.status) && (!l.assignedAgentId || l.status === "unassigned"));
-    let reassigned = 0;
-    let skipped = 0;
-    for (const lead of unassigned) {
-      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-      if (nextAgent) {
-        storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
-        storage.updateRoundRobinState(nextAgent.id);
-        reassigned++;
-      } else {
-        skipped++;
-      }
-    }
-    broadcast({ type: "leads_updated" });
-    res.json({ total: unassigned.length, reassigned, skipped });
-  });
 
 
   // Redistribute ALL unseen/untouched leads (no activity logged yet) regardless of assignment.
@@ -288,9 +288,31 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   // Toggle individual agent lead flow on/off
   // If turning flow OFF, also force website leads off
+  // Rule: at least one receiver must remain at all times.
+  // Admins are the final fallback — they can only turn off lead flow if a non-admin agent is active with flow on.
   app.patch("/api/agents/:id/lead-flow", (req, res) => {
     const id = parseInt(req.params.id);
     const { leadFlowOn } = req.body;
+    if (!leadFlowOn) {
+      // Would this leave zero receivers? Count excluding this agent with flow off.
+      const allAgents = storage.getAllAgents ? storage.getAllAgents() : [];
+      const target = allAgents.find((a: any) => a.id === id);
+      if (target) {
+        // Simulate turning flow off for this agent
+        const receiversAfter = allAgents.filter((a: any) => {
+          if (a.id === id) return false; // this agent will have flow off
+          if (!a.isActive) return false;
+          if (a.role === "agent") return a.leadFlowOn !== false;
+          if (a.role === "admin") return a.receiveLeads && a.leadFlowOn !== false;
+          return false;
+        }).length;
+        if (receiversAfter === 0) {
+          return res.status(409).json({
+            error: "Cannot turn off lead flow — at least one agent must be able to receive leads. If no non-admin agents are active, admins must remain as the fallback.",
+          });
+        }
+      }
+    }
     const patch: any = { leadFlowOn: !!leadFlowOn };
     if (!leadFlowOn) patch.receiveWebsiteLeads = false;
     const updated = storage.updateAgent(id, patch);
@@ -1682,7 +1704,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.22</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.23</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

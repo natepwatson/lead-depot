@@ -615,11 +615,19 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   });
 
   const deleteAgentMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("DELETE", `/api/agents/${id}`).then(r => r.json()),
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/agents/${id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to deactivate agent");
+      return data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/agents"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
       toast({ title: "Agent moved to Inactive" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Cannot deactivate agent", description: err.message, variant: "destructive" });
     },
   });
 
@@ -647,11 +655,18 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   });
 
   const toggleLeadFlowMutation = useMutation({
-    mutationFn: ({ id, leadFlowOn }: { id: number; leadFlowOn: boolean }) =>
-      apiRequest("PATCH", `/api/agents/${id}/lead-flow`, { leadFlowOn }).then(r => r.json()),
+    mutationFn: async ({ id, leadFlowOn }: { id: number; leadFlowOn: boolean }) => {
+      const res = await apiRequest("PATCH", `/api/agents/${id}/lead-flow`, { leadFlowOn });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update lead flow");
+      return data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/agents"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Cannot turn off lead flow", description: err.message, variant: "destructive" });
     },
   });
 
@@ -659,15 +674,6 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     mutationFn: ({ id, receiveWebsiteLeads }: { id: number; receiveWebsiteLeads: boolean }) =>
       apiRequest("PATCH", `/api/agents/${id}/website-leads`, { receiveWebsiteLeads }).then(r => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/agents"] }),
-  });
-
-  const redistributeMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/admin/redistribute-unassigned").then(r => r.json()),
-    onSuccess: (data: any) => {
-      qc.invalidateQueries();
-      toast({ title: "Leads redistributed", description: `${data.reassigned} lead${data.reassigned === 1 ? "" : "s"} assigned to active agents.` });
-    },
-    onError: () => toast({ title: "Error", description: "Failed to redistribute leads.", variant: "destructive" }),
   });
 
   const redistributeUnseenMutation = useMutation({
@@ -860,7 +866,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.22
+              v11.23
             </p>
           </div>
         </div>
@@ -1342,29 +1348,6 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   fontSize: "1.3rem", fontWeight: 300, color: "#fff", marginBottom: 4,
                 }}>Upload Lead CSV</h2>
                 <p className="text-sm text-muted-foreground">Leads auto-distribute to agents via round-robin the moment they're uploaded.</p>
-              </div>
-
-              {/* Redistribute Unassigned */}
-              <div style={{
-                background: "rgba(200,170,90,0.05)",
-                border: "1px solid rgba(200,170,90,0.18)",
-                borderRadius: 12, padding: 16,
-              }}>
-                <div className="flex items-center gap-2 mb-1">
-                  <RefreshCw size={13} style={{ color: "rgba(200,170,90,0.8)" }}/>
-                  <p className="text-sm font-semibold" style={{ color: "rgba(200,170,90,0.9)" }}>Redistribute Unassigned Leads</p>
-                </div>
-                <p className="text-xs text-muted-foreground mb-3">Instantly round-robins any unassigned leads to active agents — use this after deactivating agents to make sure no leads are left in the pool.</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  style={{ borderColor: "rgba(200,170,90,0.3)", color: "rgba(200,170,90,0.85)", fontSize: 12 }}
-                  className="gap-1.5 hover:bg-yellow-900/20"
-                  onClick={() => redistributeMutation.mutate()}
-                  disabled={redistributeMutation.isPending}
-                >
-                  <RefreshCw size={11}/>{redistributeMutation.isPending ? "Redistributing…" : "Redistribute Now"}
-                </Button>
               </div>
 
               {/* Redistribute Unseen */}

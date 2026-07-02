@@ -17,50 +17,105 @@ const SOURCE_LABELS: Record<string, string> = {
   land: "Land Lead",
 };
 
-async function sendApptEmail(opts: {
-  outcome: string;
+async function sendCrmReport(opts: {
+  outcome: string;       // "contacted_appointment" | "keep_in_touch"
   agentName: string;
   ownerName: string;
-  address: string;
-  confirmedAddress: string;
+  ownerPhone: string;
   ownerEmail: string;
-  apptDate: string;
-  apptTime: string;
+  address: string;           // original lead address
+  confirmedAddress: string;  // agent-confirmed address
+  addressMatch: boolean;     // true if confirmed == original
   stage: string;
-  intention: string;
   source: string;
-  notes?: string;
+  intention: string;
+  notes: string;
+  // Appt-only
+  apptDate?: string;
+  apptTime?: string;
+  apptEmail?: string;        // client email captured at appt modal
 }) {
   if (!resend) return;
   const isAppt = opts.outcome === "contacted_appointment";
+  const label  = isAppt ? "Appointment Set" : "Follow Up Boss Entry";
+  const emoji  = isAppt ? "🏠" : "📋";
   const subject = isAppt
-    ? `🏠 Appt Set — ${opts.ownerName} | ${opts.confirmedAddress}`
-    : `💛 Keep in Touch — ${opts.ownerName} | ${opts.confirmedAddress}`;
+    ? `BGRE NEW LEAD: Follow Up Boss Entry/Appt — ${opts.ownerName} | ${opts.confirmedAddress || opts.address}`
+    : `BGRE NEW LEAD: Follow Up Boss Entry — ${opts.ownerName} | ${opts.confirmedAddress || opts.address}`;
+
+  const displayAddress = opts.confirmedAddress || opts.address || "—";
+  const addressNote    = opts.confirmedAddress && opts.address && opts.confirmedAddress !== opts.address
+    ? `<span style="color:#f87171;font-size:11px;margin-left:8px">⚠️ differs from original: ${opts.address}</span>`
+    : `<span style="color:#6ee7b7;font-size:11px;margin-left:8px">✓ confirmed</span>`;
+
+  // Next step row
+  const nextStep = isAppt
+    ? `Appointment on ${opts.apptDate || "—"} at ${opts.apptTime || "—"} — add to FUB calendar`
+    : `Keep in Touch — add to nurture sequence in FUB`;
+
+  // Appt section (only shown for APPT)
+  const apptSection = isAppt ? `
+    <tr><td colspan="2" style="padding:16px 0 6px;font-size:11px;color:#c8aa5a;text-transform:uppercase;letter-spacing:.12em;border-top:1px solid #222;font-weight:700">Appointment Details</td></tr>
+    <tr><td style="${tdL}">Date</td><td style="${tdR}">${opts.apptDate || "—"}</td></tr>
+    <tr><td style="${tdL}">Time</td><td style="${tdR}">${opts.apptTime || "—"}</td></tr>
+    <tr><td style="${tdL}">With Agent</td><td style="${tdR}">${opts.agentName}</td></tr>
+    <tr><td style="${tdL}">Client Email</td><td style="${tdR}">${opts.apptEmail || opts.ownerEmail || "—"}</td></tr>
+  ` : "";
+
+  const tdL = "padding:9px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:160px;vertical-align:top";
+  const tdR = "padding:9px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
 
   const html = `
-<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0c0c0c;color:#f0f0f0;border-radius:12px;overflow:hidden">
-  <div style="background:linear-gradient(135deg,#c8aa5a,#a8893a);padding:24px 28px">
-    <h1 style="margin:0;font-size:20px;color:#080808">${isAppt ? "Appointment Set" : "Keep in Touch"}</h1>
-    <p style="margin:6px 0 0;font-size:13px;color:#333">Logged by ${opts.agentName}</p>
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+<div style="max-width:620px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid #2a2520">
+
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%);padding:26px 32px">
+    <p style="margin:0 0 4px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#5a3e00;font-weight:700">CRM Report — Brothers Group at Momentum Realty</p>
+    <h1 style="margin:0;font-size:22px;color:#080808;font-weight:700">BGRE NEW LEAD: ${label}</h1>
+    <p style="margin:6px 0 0;font-size:13px;color:#3a2800">Logged by ${opts.agentName}</p>
   </div>
-  <div style="padding:28px">
+
+  <!-- Body -->
+  <div style="padding:28px 32px">
+
+    <!-- Client Info -->
+    <p style="margin:0 0 12px;font-size:11px;color:#c8aa5a;text-transform:uppercase;letter-spacing:.12em;font-weight:700">Client Information</p>
     <table style="width:100%;border-collapse:collapse">
-      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px">Owner</td><td style="padding:8px 0;font-size:14px">${opts.ownerName}</td></tr>
-      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Email</td><td style="padding:8px 0;font-size:14px">${opts.ownerEmail || "—"}</td></tr>
-      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Property</td><td style="padding:8px 0;font-size:14px">${opts.confirmedAddress}</td></tr>
-      ${isAppt ? `<tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Date &amp; Time</td><td style="padding:8px 0;font-size:14px">${opts.apptDate} at ${opts.apptTime}</td></tr>` : ""}
-      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Stage</td><td style="padding:8px 0;font-size:14px">${opts.stage}</td></tr>
-      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Source</td><td style="padding:8px 0;font-size:14px">${opts.source}</td></tr>
-      <tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Intention</td><td style="padding:8px 0;font-size:14px">${opts.intention || "—"}</td></tr>
-      ${opts.notes ? `<tr><td style="padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em">Notes</td><td style="padding:8px 0;font-size:14px">${opts.notes}</td></tr>` : ""}
+      <tr><td style="${tdL}">Name</td><td style="${tdR}">${opts.ownerName}</td></tr>
+      <tr><td style="${tdL}">Phone</td><td style="${tdR}">${opts.ownerPhone || "—"}</td></tr>
+      <tr><td style="${tdL}">Email</td><td style="${tdR}">${opts.ownerEmail || "—"}</td></tr>
+      <tr><td style="${tdL}">Address</td><td style="${tdR}">${displayAddress}${addressNote}</td></tr>
+
+      <!-- Lead Details -->
+      <tr><td colspan="2" style="padding:16px 0 6px;font-size:11px;color:#c8aa5a;text-transform:uppercase;letter-spacing:.12em;border-top:1px solid #222;font-weight:700">Lead Details</td></tr>
+      <tr><td style="${tdL}">Stage</td><td style="${tdR}">${opts.stage || "—"}</td></tr>
+      <tr><td style="${tdL}">Source</td><td style="${tdR}">${opts.source || "—"}</td></tr>
+      <tr><td style="${tdL}">Client Intention</td><td style="${tdR}">${opts.intention || "—"}</td></tr>
+      <tr><td style="${tdL}">Notes</td><td style="${tdR}">${opts.notes || "—"}</td></tr>
+
+      ${apptSection}
+
+      <!-- Next Step -->
+      <tr><td colspan="2" style="padding:16px 0 6px;font-size:11px;color:#c8aa5a;text-transform:uppercase;letter-spacing:.12em;border-top:1px solid #222;font-weight:700">Next Step for FUB</td></tr>
+      <tr><td colspan="2" style="padding:9px 0;font-size:14px;color:#f0f0f0">${nextStep}</td></tr>
     </table>
   </div>
-  <div style="padding:16px 28px;background:#111;font-size:11px;color:#555">Lead Depot v11.4 — Brothers Group at Momentum Realty</div>
-</div>`;
+
+  <!-- Footer -->
+  <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
+    <span>Lead Depot v11.18 — Brothers Group · Momentum Realty</span>
+  </div>
+</div>
+</body>
+</html>`;
 
   await resend.emails.send({
-    from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-    to: ["alex@watsonbrothersgroup.com"],
+    from:    "Lead Depot <noreply@watsonbrothersgroup.com>",
+    to:      ["djacobs312@gmail.com"],
+    cc:      ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
     subject,
     html,
   });
@@ -513,7 +568,28 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       createdAt: new Date().toISOString(),
     });
 
-    // Per-event emails removed — all results delivered via 5:45 PM daily digest
+    // ── CRM Report — send immediately for KIT and APPT outcomes ───────────
+    if (outcome === "keep_in_touch" || outcome === "contacted_appointment") {
+      const agent = storage.getAgentById(agentId);
+      sendCrmReport({
+        outcome,
+        agentName:        agent?.name || "Unknown Agent",
+        ownerName:        lead.ownerName || "—",
+        ownerPhone:       lead.phone || "—",
+        ownerEmail:       apptEmail || lead.email || "—",
+        address:          lead.address || "—",
+        confirmedAddress: confirmedAddress || lead.address || "—",
+        addressMatch:     !confirmedAddress || confirmedAddress === lead.address,
+        stage:            stage || "—",
+        source:           lead.source || "—",
+        intention:        intention || "—",
+        notes:            notes || "—",
+        apptDate:         apptDate || undefined,
+        apptTime:         apptTime || undefined,
+        apptEmail:        apptEmail || undefined,
+      }).catch(err => console.error("CRM report email failed:", err));
+    }
+
     res.json(updatedLead);
   });
 
@@ -1402,7 +1478,7 @@ async function sendDailyDigest() {
     </table>
   </div>
   <div style="padding:16px 24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.17</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.18</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>`;
 

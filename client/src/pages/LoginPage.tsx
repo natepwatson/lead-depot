@@ -80,7 +80,7 @@ export default function LoginPage() {
   return (
     <div style={{
       display: "flex", alignItems: "center", justifyContent: "center",
-      minHeight: "100dvh",
+      minHeight: "100dvh", backgroundImage: "url(/login-bg.jpg)", backgroundSize: "cover", backgroundPosition: "center 30%", backgroundAttachment: "fixed",
       background: "radial-gradient(ellipse at 60% 0%, rgba(200,170,90,0.08) 0%, #080808 55%)",
       fontFamily: "'Switzer','Inter',sans-serif",
       padding: "24px 20px",

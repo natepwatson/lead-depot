@@ -106,7 +106,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.18 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.19 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -168,22 +168,38 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ...updated, password: undefined });
   });
 
-  // Soft-delete: mark agent as trashed, re-pool their active leads back to unassigned
+  // Soft-delete: mark agent as trashed, redistribute their active leads via round-robin as if freshly uploaded
   app.delete("/api/agents/:id", (req, res) => {
     const id = parseInt(req.params.id);
     const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false, receiveWebsiteLeads: false });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
-    // Re-pool: unassign all active leads belonging to this agent
+
     const ACTIVE = ["assigned", "no_answer", "keep_in_touch", "callback_requested"];
     const allLeads = storage.getAllLeads();
     let repooled = 0;
+    let reassigned = 0;
+
     for (const lead of allLeads) {
-      if (lead.assignedAgentId === id && ACTIVE.includes(lead.status)) {
+      if (lead.assignedAgentId !== id || !ACTIVE.includes(lead.status)) continue;
+      repooled++;
+
+      // Try to immediately assign to the next agent in rotation (same as fresh upload)
+      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+      if (nextAgent) {
+        storage.updateLead(lead.id, {
+          assignedAgentId: nextAgent.id,
+          status: "assigned",
+        });
+        storage.updateRoundRobinState(nextAgent.id);
+        reassigned++;
+      } else {
+        // No active agents available — park as unassigned so it auto-assigns when next agent activates
         storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
-        repooled++;
       }
     }
-    res.json({ ...updated, password: undefined, repooled });
+
+    broadcast({ type: "leads_updated" });
+    res.json({ ...updated, password: undefined, repooled, reassigned });
   });
 
   // Reactivate a trashed agent
@@ -192,6 +208,26 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const updated = storage.updateAgent(id, { isActive: true, leadFlowOn: true });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
     res.json({ ...updated, password: undefined });
+  });
+
+  // Admin: redistribute all currently unassigned leads via round-robin (fixes orphaned leads after deactivations)
+  app.post("/api/admin/redistribute-unassigned", (req, res) => {
+    const allLeads = storage.getAllLeads();
+    const unassigned = allLeads.filter(l => l.status === "unassigned" || (!l.assignedAgentId && l.status !== "contacted_not_interested" && l.status !== "contacted_appointment" && l.status !== "wrong_number"));
+    let reassigned = 0;
+    let skipped = 0;
+    for (const lead of unassigned) {
+      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+      if (nextAgent) {
+        storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
+        storage.updateRoundRobinState(nextAgent.id);
+        reassigned++;
+      } else {
+        skipped++;
+      }
+    }
+    broadcast({ type: "leads_updated" });
+    res.json({ total: unassigned.length, reassigned, skipped });
   });
 
   // Toggle admin as lead receiver
@@ -1478,7 +1514,7 @@ async function sendDailyDigest() {
     </table>
   </div>
   <div style="padding:16px 24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.18</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.19</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>`;
 

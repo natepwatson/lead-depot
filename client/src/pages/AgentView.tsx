@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "../contexts/AuthContext";
@@ -1542,6 +1542,14 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
   const queueCount = myQueueData?.count ?? 0;
   const hasLeads   = queueCount > 0;
 
+  // Scroll main back to top whenever a new lead loads
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (nextLead?.id) {
+      mainRef.current?.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [nextLead?.id]);
+
   return (
     <div className="ld-bg-wrap" style={{ minHeight: "100dvh", background: "#080808", display: "flex", flexDirection: "column" }}>
       {/* Luxury ambient glows */}
@@ -1625,7 +1633,7 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
       )}
 
       {/* ── Main ── */}
-      <main style={{ flex: 1, overflowY: "auto", padding: "16px 12px 90px" }}>
+      <main ref={mainRef} style={{ flex: 1, overflowY: "auto", padding: "16px 12px 90px" }}>
         {tab === "leaderboard" && <LeaderboardTab />}
 
         {tab === "leads" && (

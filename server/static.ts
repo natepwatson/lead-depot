@@ -18,6 +18,17 @@ export function serveStatic(app: Express) {
   // ── Gzip compression — level 1 is 10x faster than level 6, still ~70% smaller ──
   app.use(compression({ level: 1, threshold: 1024 }));
 
+  // ── Agent headshots → no-cache (user-uploaded, changes at any time) ───────
+  const headshotsPath = path.join(distPath, "headshots");
+  if (!fs.existsSync(headshotsPath)) fs.mkdirSync(headshotsPath, { recursive: true });
+  app.use("/headshots", express.static(headshotsPath, {
+    maxAge: 0,
+    etag: true,
+    setHeaders(res) {
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
+    },
+  }));
+
   // ── Hashed assets (JS/CSS bundles) → 1 year immutable cache ──────────────
   // Vite fingerprints filenames: index-AbCdEfGh.js — safe to cache forever
   app.use("/assets", express.static(path.join(distPath, "assets"), {

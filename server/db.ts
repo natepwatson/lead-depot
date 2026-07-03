@@ -99,3 +99,44 @@ rawDb.exec(`
     created_at TEXT NOT NULL DEFAULT ''
   )
 `);
+
+// ─── v11.41 — headshot injection for existing agents ─────────────────────────
+// Copies pre-processed headshot files (named by slug) to <id>.jpg and sets URL.
+// Runs once on boot; safe to repeat (skips agents that already have a file-based URL).
+import fs_db from "node:fs";
+import path_db from "node:path";
+
+const headshotMap: Record<string, string> = {
+  "Bronson Sarmento": "bronson-sarmento",
+  "Cory Deroin":      "cory-deroin",
+  "Vonda Jewell":     "vonda-jewell",
+  "Gabriel Duran":    "gabriel-duran",
+  "Denise Jacobs":    "denise-jacobs",
+  "Nate Watson":      "nate-watson",
+  "Alex Watson":      "alex-watson",
+};
+
+const publicDir = path_db.resolve(__dirname, "public");
+const headshotsDir = path_db.join(publicDir, "headshots");
+if (!fs_db.existsSync(headshotsDir)) fs_db.mkdirSync(headshotsDir, { recursive: true });
+
+const allAgents = rawDb.prepare("SELECT id, name, headshot_url FROM agents").all() as any[];
+for (const agent of allAgents) {
+  // Deactivate Usman Jan if no headshot
+  if (agent.name === "Usman Jan") {
+    rawDb.prepare("UPDATE agents SET is_active = 0 WHERE id = ? AND (headshot_url IS NULL OR headshot_url = '')").run(agent.id);
+    continue;
+  }
+  // Skip if already has a file-based headshot URL (not base64)
+  if (agent.headshot_url && agent.headshot_url.startsWith("/headshots/") && !agent.headshot_url.startsWith("data:")) continue;
+
+  const slug = headshotMap[agent.name];
+  if (!slug) continue;
+
+  const srcFile = path_db.join(headshotsDir, `${slug}.jpg`);
+  if (!fs_db.existsSync(srcFile)) continue;
+
+  const destFile = path_db.join(headshotsDir, `${agent.id}.jpg`);
+  fs_db.copyFileSync(srcFile, destFile);
+  rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${agent.id}.jpg`, agent.id);
+}

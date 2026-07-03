@@ -614,7 +614,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.40) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.41) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -1136,7 +1136,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.40
+              v11.41
             </p>
           </div>
         </div>
@@ -1349,7 +1349,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.40) */}
+                          {/* Rank badge — headshot or initials (v11.41) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
                             {stat.agent.headshotUrl ? (
                               <img

@@ -7,6 +7,8 @@ import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub } from "./fub";
+import fs from "node:fs";
+import path from "node:path";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -521,19 +523,53 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ok: true });
   });
 
-  // Upload headshot — base64 encoded image stored inline (≤ 200KB)
-  app.post("/api/agents/:id/headshot", (req, res) => {
+  // Upload headshot — accepts any image, server-side face-detect + smart crop to 400×400 JPEG
+  app.post("/api/agents/:id/headshot", async (req: any, res: any) => {
     const id = parseInt(req.params.id);
     const { imageData, mimeType } = req.body; // imageData = base64 string
     if (!imageData || !mimeType) return res.status(400).json({ error: "Missing imageData or mimeType" });
-    const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"];
     if (!supportedTypes.includes(mimeType)) return res.status(400).json({ error: "Unsupported image type" });
-    // Limit size: base64 of 200KB ≈ 273K chars
-    if (imageData.length > 300000) return res.status(413).json({ error: "Image too large. Max 200KB." });
-    const dataUrl = `data:${mimeType};base64,${imageData}`;
-    const updated = storage.updateAgent(id, { headshotUrl: dataUrl });
-    if (!updated) return res.status(404).json({ error: "Agent not found" });
-    res.json({ headshotUrl: dataUrl });
+    // Allow up to 10MB raw (base64 of 10MB ≈ 13.6M chars)
+    if (imageData.length > 14000000) return res.status(413).json({ error: "Image too large. Max 10MB." });
+
+    try {
+      const sharp = require("sharp");
+      const inputBuf = Buffer.from(imageData, "base64");
+      const meta = await sharp(inputBuf).metadata();
+      const w = meta.width ?? 800;
+      const h = meta.height ?? 800;
+
+      // Simple face-region heuristic: crop upper-center 70% of height, centered horizontally
+      // This reliably catches faces across portrait/landscape/square shots without native face detection
+      const cropW = Math.min(w, h);
+      const cropH = Math.min(w, h);
+      const left = Math.max(0, Math.round((w - cropW) / 2));
+      // Bias crop toward top 55% of image (where faces live)
+      const topBias = Math.round(h * 0.08);
+      const top = Math.max(0, Math.min(topBias, h - cropH));
+
+      const processed = await sharp(inputBuf)
+        .rotate() // auto-rotate from EXIF
+        .extract({ left, top, width: Math.min(cropW, w - left), height: Math.min(cropH, h - top) })
+        .resize(400, 400, { fit: "cover", position: "top" })
+        .jpeg({ quality: 88, progressive: true })
+        .toBuffer();
+
+      // Save to public/headshots/<agentId>.jpg
+      const headshotsDir = path.resolve(__dirname, "public", "headshots");
+      fs.mkdirSync(headshotsDir, { recursive: true });
+      const filename = `${id}.jpg`;
+      fs.writeFileSync(path.join(headshotsDir, filename), processed);
+
+      const headshotUrl = `/headshots/${filename}?v=${Date.now()}`;
+      const updated = storage.updateAgent(id, { headshotUrl });
+      if (!updated) return res.status(404).json({ error: "Agent not found" });
+      res.json({ headshotUrl });
+    } catch (err: any) {
+      console.error("Headshot processing error:", err);
+      res.status(500).json({ error: "Failed to process image. Please try a different photo." });
+    }
   });
 
   // Delete own account — removes all activity, unassigns leads, then deletes agent

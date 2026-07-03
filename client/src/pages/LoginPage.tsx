@@ -145,6 +145,7 @@ export default function LoginPage() {
         fontFamily: "'Switzer','Inter',sans-serif",
         padding: "env(safe-area-inset-top, 20px) 20px env(safe-area-inset-bottom, 20px)",
         boxSizing: "border-box",
+        overflowY: "auto",
       }}>
 
         {/* Background photo */}
@@ -331,7 +332,7 @@ export default function LoginPage() {
               fontSize: 10, color: "rgba(255,255,255,0.15)", textAlign: "center",
               marginTop: 16, marginBottom: 0, letterSpacing: "0.08em",
             }}>
-              Lead Depot v11.31
+              Lead Depot v11.32
             </p>
           </div>
 

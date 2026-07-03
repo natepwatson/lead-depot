@@ -33,6 +33,14 @@ rawDb.prepare(`
   )
 `).run();
 rawDb.prepare(`
+  CREATE TABLE IF NOT EXISTS geo_cache (
+    address_key TEXT PRIMARY KEY,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    cached_at TEXT NOT NULL
+  )
+`).run();
+rawDb.prepare(`
   CREATE TABLE IF NOT EXISTS scripts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lead_type TEXT UNIQUE NOT NULL,

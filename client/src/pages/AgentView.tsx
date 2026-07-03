@@ -461,6 +461,7 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
   const [pendingCallback, setPendingCallback] = useState(false);
   const [lpmOpen, setLpmOpen] = useState(false);
+  const [outcomeFlash, setOutcomeFlash] = useState<{ label: string; color: string } | null>(null);
   const [lpmData, setLpmData] = useState<Record<string, string>>({
     location: lead.lLocation ?? "",
     price: lead.lPricePaid ?? "",
@@ -479,14 +480,28 @@ function LeadCard({ lead }: { lead: Lead }) {
     staleTime: 60000,
   });
 
+  const OUTCOME_FLASH: Record<string, { label: string; color: string }> = {
+    keep_in_touch:            { label: "Keep in Touch — Logged", color: "rgb(249,168,212)" },
+    contacted_appointment:    { label: "Appointment Set!",         color: "rgb(134,239,172)" },
+    no_answer:                { label: "No Answer — Logged",      color: "rgb(253,224,71)" },
+    contacted_not_interested: { label: "Not Interested — Logged", color: "rgb(252,165,165)" },
+    wrong_number:             { label: "Wrong # — Logged",        color: "rgba(252,165,165,0.8)" },
+    callback_requested:       { label: "Callback Scheduled",      color: "#e8af34" },
+  };
+
   const outcomeMutation = useMutation({
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string }) =>
       apiRequest("POST", `/api/leads/${lead.id}/outcome`, { ...data, agentId: user?.id, lpmamab: lpmData }).then(r => r.json()),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
-      qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
-      qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
-      toast({ title: "Outcome recorded", description: "Next lead loaded." });
+    onSuccess: (_data, variables) => {
+      // Show success flash for 900ms, then load next lead
+      const flash = OUTCOME_FLASH[variables.outcome] ?? { label: "Outcome Logged", color: "#c8aa5a" };
+      setOutcomeFlash(flash);
+      setTimeout(() => {
+        setOutcomeFlash(null);
+        qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+        qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
+        qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
+      }, 900);
     },
     onError: () => toast({ title: "Error saving outcome", variant: "destructive" }),
   });
@@ -551,7 +566,38 @@ function LeadCard({ lead }: { lead: Lead }) {
       borderRadius: 16, overflow: "hidden",
       width: "100%",
       boxShadow: "0 0 40px rgba(200,170,90,0.06), 0 8px 32px rgba(0,0,0,0.6)",
+      position: "relative",
     }}>
+
+      {/* ── Outcome success flash overlay ── */}
+      {outcomeFlash && (
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 50,
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16,
+          background: "rgba(8,8,8,0.92)",
+          backdropFilter: "blur(6px)",
+          borderRadius: 16,
+          animation: "ldFlashIn 0.18s ease",
+        }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: "50%",
+            border: `2px solid ${outcomeFlash.color}`,
+            background: `${outcomeFlash.color}18`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: `0 0 32px ${outcomeFlash.color}40`,
+          }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={outcomeFlash.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <p style={{
+            fontSize: 15, fontWeight: 700, letterSpacing: "0.06em",
+            color: outcomeFlash.color, textAlign: "center",
+          }}>{outcomeFlash.label}</p>
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", letterSpacing: "0.1em", textTransform: "uppercase" }}>Loading next lead…</p>
+        </div>
+      )}
+      <style>{`@keyframes ldFlashIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
 
       {/* ── Type bar ── */}
       <div style={{

@@ -52,6 +52,9 @@ export const leads = sqliteTable("leads", {
   uploadedAt: text("uploaded_at").notNull().default(""),
   uploadedBy: integer("uploaded_by").references(() => agents.id),
   batchId: text("batch_id"), // groups leads from same CSV upload
+  // Multi-number dialing
+  phones: text("phones"),       // JSON array: ["9041234567", "9047654321", ...]
+  phoneStates: text("phone_states"), // JSON object: {"9041234567": "untried" | "no_answer_today" | "struck"}
 });
 
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true });

@@ -446,7 +446,7 @@ function LeadCard({ lead }: { lead: Lead }) {
   });
 
   const outcomeMutation = useMutation({
-    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string }) =>
+    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string }) =>
       apiRequest("POST", `/api/leads/${lead.id}/outcome`, { ...data, agentId: user?.id }).then(r => r.json()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
@@ -457,6 +457,19 @@ function LeadCard({ lead }: { lead: Lead }) {
     onError: () => toast({ title: "Error saving outcome", variant: "destructive" }),
   });
 
+  // Parse multi-number state from lead
+  const allPhones: string[] = React.useMemo(() => {
+    try { return lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []); } catch { return lead.phone ? [lead.phone] : []; }
+  }, [lead.phones, lead.phone]);
+  const phoneStates: Record<string, string> = React.useMemo(() => {
+    try { return lead.phoneStates ? JSON.parse(lead.phoneStates) : {}; } catch { return {}; }
+  }, [lead.phoneStates]);
+  // Active phone is whatever is currently on lead.phone (server keeps it current)
+  const activePhone = lead.phone || allPhones[0] || "";
+  const struckCount = Object.values(phoneStates).filter(s => s === "struck").length;
+  const triedTodayCount = Object.values(phoneStates).filter(s => s === "no_answer_today").length;
+  const remainingCount = allPhones.filter(p => phoneStates[p] !== "struck").length;
+
   const handleOutcome = (key: string) => {
     if (key === "contacted_appointment" || key === "keep_in_touch") {
       setPendingOutcome(key as "contacted_appointment" | "keep_in_touch");
@@ -466,7 +479,7 @@ function LeadCard({ lead }: { lead: Lead }) {
       setPendingCallback(true);
       return;
     }
-    outcomeMutation.mutate({ outcome: key, notes });
+    outcomeMutation.mutate({ outcome: key, notes, dialedPhone: activePhone });
   };
 
   const handleCallbackSubmit = (data: { callbackDate: string; callbackTime: string }) => {
@@ -547,19 +560,46 @@ function LeadCard({ lead }: { lead: Lead }) {
 
         {/* ── Contact row ── */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
-          {lead.phone && (
-            <a href={`tel:${lead.phone}`} style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              padding: "13px 22px",
-              background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-              borderRadius: 8, textDecoration: "none",
-              fontSize: 15, fontWeight: 700, letterSpacing: "0.03em",
-              color: "#080808", flex: "1 1 auto", justifyContent: "center", minHeight: 48,
-              boxShadow: "0 4px 16px rgba(200,170,90,0.3)",
-            }}>
-              <Phone size={15} /> {lead.phone}
-            </a>
-          )}
+          {/* Multi-number phone display */}
+          <div style={{ flex: "1 1 auto", display: "flex", flexDirection: "column", gap: 6 }}>
+            {activePhone && (
+              <a href={`tel:${activePhone}`} style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "13px 22px",
+                background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+                borderRadius: 8, textDecoration: "none",
+                fontSize: 15, fontWeight: 700, letterSpacing: "0.03em",
+                color: "#080808", justifyContent: "center", minHeight: 48,
+                boxShadow: "0 4px 16px rgba(200,170,90,0.3)",
+              }}>
+                <Phone size={15} /> {activePhone}
+              </a>
+            )}
+            {allPhones.length > 1 && (
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", paddingLeft: 2 }}>
+                {allPhones.map((p, i) => {
+                  const state = phoneStates[p] || "untried";
+                  const isActive = p === activePhone;
+                  const dotColor = state === "struck" ? "#6b7280" : state === "no_answer_today" ? "#f97316" : isActive ? "#c8aa5a" : "rgba(255,255,255,0.2)";
+                  const dotLabel = state === "struck" ? "✕" : state === "no_answer_today" ? "~" : `${i + 1}`;
+                  const title = state === "struck" ? `${p} — wrong # (struck)` : state === "no_answer_today" ? `${p} — tried today` : isActive ? `${p} — calling now` : `${p} — untried`;
+                  return (
+                    <span key={p} title={title} style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      width: 22, height: 22, borderRadius: "50%", fontSize: 10, fontWeight: 700,
+                      border: `1.5px solid ${dotColor}`, color: dotColor,
+                      background: isActive ? "rgba(200,170,90,0.15)" : "transparent", flexShrink: 0,
+                    }}>{dotLabel}</span>
+                  );
+                })}
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>
+                  {remainingCount}/{allPhones.length} viable
+                  {struckCount > 0 ? ` · ${struckCount} struck` : ""}
+                  {triedTodayCount > 0 ? ` · ${triedTodayCount} tried today` : ""}
+                </span>
+              </div>
+            )}
+          </div>
           {mailtoLink && (
             <a
               href={mailtoLink}

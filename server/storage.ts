@@ -20,6 +20,8 @@ sqlite.exec(`
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN receive_leads INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN lead_flow_on INTEGER NOT NULL DEFAULT 1`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN receive_website_leads INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN phones TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN phone_states TEXT`); } catch {}
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS agents (
@@ -34,6 +36,9 @@ sqlite.exec(`
     lead_flow_on INTEGER NOT NULL DEFAULT 1,
     receive_website_leads INTEGER NOT NULL DEFAULT 0
   );
+  -- phones: JSON array of phone number strings e.g. ["9041234567","9047654321"]
+  -- phoneStates: JSON object keyed by phone number e.g. {"9041234567":"untried","9047654321":"struck"}
+  --   values: "untried" | "no_answer_today" | "struck"
   CREATE TABLE IF NOT EXISTS leads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lead_type TEXT NOT NULL,
@@ -56,7 +61,9 @@ sqlite.exec(`
     l_buy TEXT,
     uploaded_at TEXT NOT NULL DEFAULT '',
     uploaded_by INTEGER REFERENCES agents(id),
-    batch_id TEXT
+    batch_id TEXT,
+    phones TEXT,
+    phone_states TEXT
   );
   CREATE TABLE IF NOT EXISTS lead_activity (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

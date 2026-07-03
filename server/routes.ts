@@ -115,7 +115,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.28 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.29 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -597,9 +597,20 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         const fullName  = row["Owner Name"] || row.ownerName || row.name || row.Name
           || (firstName || lastName ? `${firstName} ${lastName}`.trim() : "");
 
-        // Prefer primary phone; fall back to Landvoice contact 1
-        const primaryPhone = row["Primary Phone"] || row.phone || row.Phone || row["Phone Number"]
-          || row["LandvoiceContact1Phone"] || "";
+        // Collect all unique non-empty phone numbers from all sources
+        const rawPhones = [
+          row["Primary Phone"], row["Secondary Phone"],
+          row["phone"], row["Phone"], row["Phone Number"],
+          row["LandvoiceContact1Phone"], row["LandvoiceContact2Phone"],
+          row["LandvoiceContact3Phone"], row["LandvoiceContact4Phone"],
+        ]
+          .map((p: any) => String(p || "").replace(/\D/g, "").trim())
+          .filter((p: string) => p.length >= 7);
+        const uniquePhones = [...new Set(rawPhones)];
+        const primaryPhone = uniquePhones[0] || "";
+        // phoneStates: each number starts as 'untried'
+        const phoneStates: Record<string, string> = {};
+        uniquePhones.forEach((p: string) => { phoneStates[p] = "untried"; });
 
         // Address: prefer "Property Address" col, fall back to Address + City
         const propAddress = row["Property Address"] || row.address || row.Address || "";
@@ -632,6 +643,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           uploadedAt: now,
           uploadedBy: uploadedBy || null,
           batchId: batchId || null,
+          phones: JSON.stringify(uniquePhones),
+          phoneStates: JSON.stringify(phoneStates),
         };
       })
     );
@@ -676,26 +689,48 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     let newStatus = lead.status;
     let newAssignedId = lead.assignedAgentId;
     let newCallbackDate = lead.callbackDate;
+    let newPhoneStates = lead.phoneStates ? JSON.parse(lead.phoneStates) : {} as Record<string, string>;
+    let newPhones = lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []) as string[];
+
+    // Helper: get the next untried/viable number for today
+    const getNextViablePhone = (states: Record<string, string>, allPhones: string[]): string | null => {
+      return allPhones.find(p => states[p] === "untried") ?? null;
+    };
 
     const deadOutcomes = ["contacted_not_interested", "contacted_appointment"];
-    const recycleOutcomes = ["no_answer"];
 
     if (deadOutcomes.includes(outcome)) {
       newStatus = outcome;
-      // Keep assigned agent for record keeping, but lead is done
-    } else if (recycleOutcomes.includes(outcome)) {
-      newStatus = outcome;
-      // Round-robin reassign to next agent (respect lead type eligibility)
-      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-      if (nextAgent) {
-        newAssignedId = nextAgent.id;
-        storage.updateRoundRobinState(nextAgent.id);
+
+    } else if (outcome === "no_answer") {
+      // Mark the current phone as sleeping for today
+      const currentPhone = req.body.dialedPhone || lead.phone || "";
+      if (currentPhone && newPhoneStates[currentPhone] !== undefined) {
+        newPhoneStates[currentPhone] = "no_answer_today";
       }
+      // Check if there's another untried number to try today
+      const nextPhone = getNextViablePhone(newPhoneStates, newPhones);
+      if (nextPhone) {
+        // Still has untried numbers — stay with same agent, update active phone
+        newStatus = "no_answer";
+        // Shift nextPhone to front so agent sees it next
+        newPhones = [nextPhone, ...newPhones.filter(p => p !== nextPhone)];
+        rawDb.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(nextPhone, leadId);
+      } else {
+        // All numbers tried today — recycle to pool for tomorrow
+        newStatus = "no_answer";
+        const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+        if (nextAgent) {
+          newAssignedId = nextAgent.id;
+          storage.updateRoundRobinState(nextAgent.id);
+        }
+      }
+
     } else if (outcome === "keep_in_touch") {
       newStatus = "keep_in_touch";
-      // Connected call — not ready now but trust us for future; stays with same agent
+
     } else if (outcome === "callback_requested") {
-      // Callback = immediate recycle — goes back to the pool just like no_answer
+      // Recycle = immediate round-robin
       newStatus = "no_answer";
       newCallbackDate = null;
       const nextAgent = storage.getNextAgentInRotation(lead.leadType);
@@ -716,26 +751,63 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       lBuy: lpmamab.buy || lead.lBuy,
     } : {};
 
-    // Wrong number: log the attempt then permanently delete the lead
+    // Wrong number: strike this number; delete lead only if it was the last one
     if (outcome === "wrong_number") {
-      // Insert activity directly via rawDb to avoid FK constraint issues on delete
+      const dialedPhone = req.body.dialedPhone || lead.phone || "";
+      const phones: string[] = lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []);
+      const phoneStates: Record<string, string> = lead.phoneStates ? JSON.parse(lead.phoneStates) : {};
+
+      // Permanently strike this number
+      if (dialedPhone) phoneStates[dialedPhone] = "struck";
+
+      // Find remaining viable numbers (not struck)
+      const remaining = phones.filter(p => phoneStates[p] !== "struck");
+
+      // Log the activity
       rawDb.prepare(`
         INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
         VALUES (?, ?, ?, ?, NULL, ?)
-      `).run(leadId, agentId || null, outcome, notes || null, new Date().toISOString());
-      // Delete activities first to satisfy FK constraint, then delete lead
-      rawDb.prepare(`DELETE FROM lead_activity WHERE lead_id = ?`).run(leadId);
-      storage.deleteLead(leadId);
-      broadcast({ type: "lead_deleted", leadId });
-      return res.json({ deleted: true, leadId });
+      `).run(leadId, agentId || null, outcome,
+        notes || (dialedPhone ? `Wrong number: ${dialedPhone} struck from list. ${remaining.length} number(s) remaining.` : null),
+        new Date().toISOString());
+
+      if (remaining.length === 0) {
+        // All numbers confirmed bad — delete the lead
+        rawDb.prepare(`DELETE FROM lead_activity WHERE lead_id = ?`).run(leadId);
+        storage.deleteLead(leadId);
+        broadcast({ type: "lead_deleted", leadId });
+        return res.json({ deleted: true, leadId, reason: "all_numbers_struck" });
+      }
+
+      // Still has viable numbers — advance to next untried, recycle in pool
+      const nextViable = remaining.find(p => phoneStates[p] === "untried") ?? remaining[0];
+      const reorderedPhones = [nextViable, ...phones.filter(p => p !== nextViable)];
+      rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, status = 'no_answer',
+        assigned_agent_id = (SELECT id FROM agents WHERE (role='admin' OR receive_leads=1) AND is_active=1 AND lead_flow_on=1 LIMIT 1)
+        WHERE id = ?`).run(
+        nextViable,
+        JSON.stringify(reorderedPhones),
+        JSON.stringify(phoneStates),
+        leadId
+      );
+      // Also round-robin assign
+      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+      if (nextAgent) {
+        storage.updateLead(leadId, { assignedAgentId: nextAgent.id });
+        storage.updateRoundRobinState(nextAgent.id);
+      }
+      broadcast({ type: "lead_updated", leadId });
+      return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length });
     }
 
-    // Update lead
+    // Update lead — persist phoneStates changes from no_answer handling
     const updatedLead = storage.updateLead(leadId, {
       status: newStatus,
       assignedAgentId: newAssignedId,
       callbackDate: newCallbackDate,
       attemptCount: lead.attemptCount + 1,
+      phones: JSON.stringify(newPhones),
+      phoneStates: JSON.stringify(newPhoneStates),
       ...lpmamabUpdate,
     });
 
@@ -1541,7 +1613,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.28 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v11.29 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -1850,7 +1922,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.28</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.29</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -1953,6 +2025,26 @@ async function redistributeUnassignedLeads() {
     "wrong_number",
   ];
   const allLeads = storage.getAllLeads();
+
+  // ── Reset no_answer_today → untried for all no_answer leads (daily fresh start) ──
+  const noAnswerLeads = allLeads.filter(l => l.status === "no_answer" && l.phoneStates);
+  for (const lead of noAnswerLeads) {
+    try {
+      const states: Record<string, string> = JSON.parse(lead.phoneStates!);
+      let changed = false;
+      for (const p of Object.keys(states)) {
+        if (states[p] === "no_answer_today") { states[p] = "untried"; changed = true; }
+      }
+      if (changed) {
+        // Also restore phone to first untried number
+        const phones: string[] = lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []);
+        const firstUntried = phones.find(p => states[p] === "untried");
+        rawDb.prepare("UPDATE leads SET phone_states = ?, phone = COALESCE(?, phone) WHERE id = ?")
+          .run(JSON.stringify(states), firstUntried ?? null, lead.id);
+      }
+    } catch {}
+  }
+
   const eligible = allLeads.filter(
     (l) => !SKIP.includes(l.status) && (!l.assignedAgentId || l.status === "unassigned")
   );
@@ -1975,7 +2067,7 @@ async function redistributeUnassignedLeads() {
   if (reassigned > 0) {
     broadcast({ type: "leads_updated" });
   }
-  console.log(`[redistribution] Redistributed ${reassigned} lead(s), skipped ${skipped} (no active agents).`);
+  console.log(`[redistribution] Reset no_answer_today flags. Redistributed ${reassigned} lead(s), skipped ${skipped}.`);
 }
 
 function scheduleRedistribution() {

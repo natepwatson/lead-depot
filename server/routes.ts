@@ -115,7 +115,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.29 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.30 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -1497,6 +1497,103 @@ This template is for informational/outreach purposes only.`;
     res.json({ recycled: true, reassignedTo: nextAgent?.name || null });
   });
 
+  // ─── DUAL LEADERBOARD (Today + Weekly) ─────────────────────────────────────
+  app.get("/api/admin/leaderboard", requireAdmin, (req, res) => {
+    const now = new Date();
+
+    // Today: midnight local (server) time
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayStartISO = todayStart.toISOString();
+
+    // Week: Monday 00:00 of current week
+    const weekStart = new Date(now);
+    const day = weekStart.getDay(); // 0=Sun,1=Mon...
+    const diff = day === 0 ? -6 : 1 - day; // shift to Monday
+    weekStart.setDate(weekStart.getDate() + diff);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekStartISO = weekStart.toISOString();
+
+    const allAgents = storage.getAllAgents().filter(a => a.isActive);
+    const allLeads = storage.getAllLeads();
+
+    // Collect all activities with createdAt
+    const allActivities: any[] = [];
+    for (const lead of allLeads) {
+      const acts = storage.getActivitiesForLead(lead.id);
+      for (const a of acts) {
+        allActivities.push({ ...a, leadId: lead.id });
+      }
+    }
+
+    const todayActs = allActivities.filter(a => a.createdAt >= todayStartISO);
+    const weekActs  = allActivities.filter(a => a.createdAt >= weekStartISO);
+
+    const buildStats = (agentActivities: any[], agent: any) => {
+      const dials       = agentActivities.filter(a => a.outcome !== "email_sent").length;
+      const appts       = agentActivities.filter(a => a.outcome === "contacted_appointment").length;
+      const kit         = agentActivities.filter(a => a.outcome === "keep_in_touch").length;
+      const emails      = agentActivities.filter(a => a.outcome === "email_sent").length;
+      const noAnswer    = agentActivities.filter(a => a.outcome === "no_answer").length;
+      const notInt      = agentActivities.filter(a => a.outcome === "contacted_not_interested").length;
+      const convRate    = dials > 0 ? Math.round(((appts + notInt + kit) / dials) * 100) : 0;
+      return { dials, appts, kit, emails, noAnswer, convRate };
+    };
+
+    // Network referrals this week (leads uploaded by agent with network source)
+    const weekReferralsMap: Record<number, number> = {};
+    for (const l of allLeads) {
+      if (!l.uploadedBy || !l.createdAt || l.createdAt < weekStartISO) continue;
+      try {
+        const x = JSON.parse((l as any).extraData || "{}");
+        if (x.source === "network") {
+          weekReferralsMap[l.uploadedBy] = (weekReferralsMap[l.uploadedBy] || 0) + 1;
+        }
+      } catch {}
+    }
+
+    // Today referrals
+    const todayReferralsMap: Record<number, number> = {};
+    for (const l of allLeads) {
+      if (!l.uploadedBy || !l.createdAt || l.createdAt < todayStartISO) continue;
+      try {
+        const x = JSON.parse((l as any).extraData || "{}");
+        if (x.source === "network") {
+          todayReferralsMap[l.uploadedBy] = (todayReferralsMap[l.uploadedBy] || 0) + 1;
+        }
+      } catch {}
+    }
+
+    // Last activity timestamp per agent (all time)
+    const lastActivityMap: Record<number, string | null> = {};
+    for (const a of allActivities) {
+      if (!a.agentId) continue;
+      if (!lastActivityMap[a.agentId] || a.createdAt > lastActivityMap[a.agentId]!) {
+        lastActivityMap[a.agentId] = a.createdAt;
+      }
+    }
+
+    const result = allAgents.map(agent => {
+      const todayAgentActs = todayActs.filter(a => a.agentId === agent.id);
+      const weekAgentActs  = weekActs.filter(a => a.agentId === agent.id);
+
+      const today  = { ...buildStats(todayAgentActs, agent), referrals: todayReferralsMap[agent.id] || 0 };
+      const weekly = { ...buildStats(weekAgentActs,  agent), referrals: weekReferralsMap[agent.id]  || 0 };
+
+      return {
+        agent: { id: agent.id, name: agent.name, email: agent.email },
+        lastActivityAt: lastActivityMap[agent.id] || null,
+        today,
+        weekly,
+      };
+    });
+
+    // Sort weekly by appts desc then dials desc
+    result.sort((a, b) => b.weekly.appts - a.weekly.appts || b.weekly.dials - a.weekly.dials);
+
+    res.json(result);
+  });
+
   // ─── LEADERBOARD RESET ────────────────────────────────────────────────────
   app.post("/api/admin/leaderboard-reset", (req, res) => {
     const now = new Date().toISOString();
@@ -1613,7 +1710,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.29 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v11.30 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -1922,7 +2019,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.29</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.30</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

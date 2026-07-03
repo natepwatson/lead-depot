@@ -595,6 +595,13 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     refetchInterval: 15000,
   });
 
+  const [lbTab, setLbTab] = useState<"today" | "weekly">("today");
+  const { data: dualLb = [], isLoading: dualLbLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/leaderboard"],
+    queryFn: () => apiRequest("GET", "/api/admin/leaderboard").then(r => r.json()),
+    refetchInterval: 60000,
+  });
+
   const { data: myQueueData } = useQuery<{ count: number }>({
     queryKey: [`/api/leads/my-count/${user?.id}`],
     queryFn: () => apiRequest("GET", `/api/leads/my-count/${user?.id}`).then(r => r.json()),
@@ -888,7 +895,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.29
+              v11.30
             </p>
           </div>
         </div>
@@ -958,6 +965,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
             </div>
 
             <div>
+              {/* Header */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <h2 style={{
                   fontFamily: "'Cormorant Garamond','Georgia',serif",
@@ -967,27 +975,35 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   <Trophy size={16} style={{ color: "rgba(200,170,90,0.7)" }} />
                   Agent Leaderboard
                 </h2>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost" size="sm"
-                    onClick={() => {
-                      if (confirm("Reset leaderboard? Stats will restart from now. All lead history is preserved.")) {
-                        leaderboardResetMutation.mutate();
-                      }
+                <Button variant="ghost" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["/api/admin/leaderboard"] })} className="gap-1 text-xs text-muted-foreground">
+                  <RefreshCw size={11}/>Refresh
+                </Button>
+              </div>
+
+              {/* Today / This Week switcher */}
+              <div style={{ display: "flex", gap: 0, marginBottom: 16, borderRadius: 10, overflow: "hidden", border: "1px solid rgba(200,170,90,0.2)", width: "fit-content" }}>
+                {(["today", "weekly"] as const).map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setLbTab(t)}
+                    style={{
+                      padding: "6px 18px",
+                      fontSize: 12, fontWeight: 500, letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      background: lbTab === t ? "rgba(200,170,90,0.15)" : "transparent",
+                      color: lbTab === t ? "#c8aa5a" : "rgba(255,255,255,0.4)",
+                      border: "none", cursor: "pointer",
+                      borderBottom: lbTab === t ? "2px solid #c8aa5a" : "2px solid transparent",
+                      transition: "all 0.15s",
                     }}
-                    disabled={leaderboardResetMutation.isPending}
-                    className="gap-1 text-xs text-red-400 hover:text-red-300"
                   >
-                    <RefreshCw size={11}/>Reset Stats
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] })} className="gap-1 text-xs text-muted-foreground">
-                    <RefreshCw size={11}/>Refresh
-                  </Button>
-                </div>
+                    {t === "today" ? "Today" : "This Week"}
+                  </button>
+                ))}
               </div>
 
               {/* Activity dot legend */}
-              <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "6px 4px 2px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "0 4px 10px", flexWrap: "wrap" }}>
                 {([
                   { color: "#22c55e", label: "Active \u22646h" },
                   { color: "#eab308", label: "Active \u226412h" },
@@ -1002,9 +1018,38 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                 ))}
               </div>
 
-              {agentStatsLoading ? (
-                <div className="space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
-              ) : agentStats.length === 0 ? (
+              {/* Column headers */}
+              <div style={{
+                display: "flex", alignItems: "center",
+                padding: "0 16px 6px",
+                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                marginBottom: 6,
+              }}>
+                <div style={{ flex: 1 }} />
+                <div style={{ display: "flex", gap: 20, textAlign: "center" }}>
+                  {lbTab === "today" ? (
+                    <>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Appts</div>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Appts</div>
+                      <div style={{ width: 52, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Conv%</div>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {dualLbLoading ? (
+                <div className="space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
+              ) : dualLb.length === 0 ? (
                 <div style={{
                   padding: "40px 20px", textAlign: "center",
                   border: "1px dashed rgba(200,170,90,0.15)",
@@ -1013,118 +1058,109 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                 }}>
                   No agents yet. Add agents in the Agents tab.
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {agentStats.map((stat: any, idx: number) => {
-                    const rank = idx + 1;
-                    const isTop = idx === 0;
-                    return (
-                      <div
-                        key={stat.agent.id}
-                        style={{
-                          background: isTop
-                            ? "linear-gradient(135deg, rgba(200,170,90,0.06) 0%, rgba(10,10,10,1) 60%)"
-                            : "linear-gradient(135deg, #0f0f0f 0%, #0a0a0a 100%)",
-                          border: `1px solid ${isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)"}`,
-                          borderRadius: 12, padding: 16, cursor: "pointer",
-                          transition: "border-color 0.2s",
-                        }}
-                        onClick={() => setDrilldownAgent({ id: stat.agent.id, name: stat.agent.name })}
-                        data-testid={`row-leaderboard-${stat.agent.id}`}
-                        onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(200,170,90,0.35)")}
-                        onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
-                        className="group"
-                      >
-                        <div className="flex items-center gap-4">
+              ) : (() => {
+                // Sort: today → dials desc; weekly → appts desc then dials desc
+                const sorted = [...dualLb].sort((a, b) =>
+                  lbTab === "today"
+                    ? (b.today.dials - a.today.dials) || (b.today.appts - a.today.appts)
+                    : (b.weekly.appts - a.weekly.appts) || (b.weekly.dials - a.weekly.dials)
+                );
+                return (
+                  <div className="space-y-2">
+                    {sorted.map((stat: any, idx: number) => {
+                      const isTop = idx === 0;
+                      const s = lbTab === "today" ? stat.today : stat.weekly;
+                      const dot = activityDot(stat.lastActivityAt ?? null);
+                      return (
+                        <div
+                          key={stat.agent.id}
+                          style={{
+                            background: isTop
+                              ? "linear-gradient(135deg, rgba(200,170,90,0.06) 0%, rgba(10,10,10,1) 60%)"
+                              : "linear-gradient(135deg, #0f0f0f 0%, #0a0a0a 100%)",
+                            border: `1px solid ${isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)"}`,
+                            borderRadius: 12, padding: "12px 16px",
+                            cursor: "pointer", transition: "border-color 0.2s",
+                            display: "flex", alignItems: "center", gap: 12,
+                          }}
+                          onClick={() => setDrilldownAgent({ id: stat.agent.id, name: stat.agent.name })}
+                          onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(200,170,90,0.35)")}
+                          onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
+                          className="group"
+                        >
+                          {/* Rank badge */}
                           <div style={{
-                            width: 36, height: 36, borderRadius: "50%",
+                            width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
                             display: "flex", alignItems: "center", justifyContent: "center",
                             border: `1px solid ${isTop ? "rgba(200,170,90,0.35)" : "rgba(255,255,255,0.1)"}`,
                             background: isTop ? "rgba(200,170,90,0.08)" : "rgba(255,255,255,0.04)",
-                            flexShrink: 0,
                           }}>
-                            <span style={{
-                              fontSize: 12, fontWeight: 600,
-                              color: isTop ? "#c8aa5a" : idx === 1 ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.4)",
-                            }}>
-                              #{rank}
+                            <span style={{ fontSize: 11, fontWeight: 600, color: isTop ? "#c8aa5a" : idx === 1 ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.4)" }}>
+                              #{idx + 1}
                             </span>
                           </div>
 
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              {(() => {
-                                const dot = activityDot((stat as any).lastActivityAt ?? null);
-                                return (
-                                  <span title={dot.label} style={{
-                                    width: 8, height: 8, borderRadius: "50%",
-                                    background: dot.color, flexShrink: 0, display: "inline-block",
-                                    boxShadow: `0 0 5px ${dot.color}88`,
-                                  }} />
-                                );
-                              })()}
-                              <p style={{
-                                fontSize: 14, fontWeight: 500, color: "#fff",
-                                fontFamily: "'Switzer','Inter',sans-serif",
-                              }}>
+                          {/* Name + dot */}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span title={dot.label} style={{
+                                width: 7, height: 7, borderRadius: "50%",
+                                background: dot.color, flexShrink: 0, display: "inline-block",
+                                boxShadow: `0 0 5px ${dot.color}88`,
+                              }} />
+                              <span style={{ fontSize: 13, fontWeight: 500, color: "#fff", fontFamily: "'Switzer','Inter',sans-serif" }}>
                                 {stat.agent.name}
-                              </p>
-                              <ChevronRight size={12} className="text-muted-foreground group-hover:text-gold transition-colors"/>
+                              </span>
+                              <ChevronRight size={11} className="text-muted-foreground group-hover:text-gold transition-colors" />
                             </div>
-                            <p className="text-xs text-muted-foreground">{stat.agent.email}</p>
                           </div>
 
-                          <div className="hidden sm:flex items-center gap-5 text-center">
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 300, color: "#86efac" }}>{stat.appointmentsSet}</div>
-                              <div className="text-xs text-muted-foreground">Appts</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 300, color: "#fff" }}>{stat.leadsReceived}</div>
-                              <div className="text-xs text-muted-foreground">Received</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 300, color: "rgba(255,255,255,0.7)" }}>{stat.totalAttempts}</div>
-                              <div className="text-xs text-muted-foreground">Dials</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 300, color: "#fbcfe8" }}>{(stat as any).emailsSent ?? 0}</div>
-                              <div className="text-xs text-muted-foreground">Emails</div>
-                            </div>
-                            <div className="text-center">
-                              <div style={{ fontSize: 18, fontWeight: 300, color: "#fde68a" }}>{(stat as any).networkLeads ?? 0}</div>
-                              <div className="text-xs text-muted-foreground">Referrals</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 300, color: "#67e8f9" }}>{stat.contactRate}%</div>
-                              <div className="text-xs text-muted-foreground">Contact</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 18, fontWeight: 300, color: "#93c5fd" }}>{stat.activeLeads}</div>
-                              <div className="text-xs text-muted-foreground">Active</div>
-                            </div>
+                          {/* Stats columns */}
+                          <div style={{ display: "flex", gap: 20, textAlign: "center", flexShrink: 0 }}>
+                            {lbTab === "today" ? (
+                              <>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#86efac" }}>{s.appts}</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#c4b5fd" }}>{s.kit}</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#86efac" }}>{s.appts}</div>
+                                </div>
+                                <div style={{ width: 52 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#67e8f9" }}>{s.convRate}%</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>
-
-                        {stat.totalAttempts > 0 && (
-                          <div className="mt-3 flex items-center gap-3 flex-wrap">
-                            {Object.entries(stat.outcomes).map(([key, val]: [string, any]) => {
-                              if (!val) return null;
-                              const Icon = OUTCOME_ICONS[key];
-                              return (
-                                <span key={key} className={`flex items-center gap-1 text-xs ${OUTCOME_COLORS[key] || "text-muted-foreground"}`}>
-                                  {Icon && <Icon size={11}/>}
-                                  {OUTCOME_LABELS[key]} <span className="font-bold">{val}</span>
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           </TabsContent>
 

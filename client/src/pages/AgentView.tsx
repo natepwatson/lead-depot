@@ -1518,10 +1518,26 @@ export default function AgentView({ onBackToAdmin }: { onBackToAdmin?: () => voi
                 <h2 style={{
                   fontFamily: "'Cormorant Garamond','Georgia',serif",
                   fontSize: "2rem", fontWeight: 300, color: "#fff", marginBottom: 12,
-                }}>Queue Complete</h2>
+                }}>{onBackToAdmin ? "No Leads Assigned" : "Queue Complete"}</h2>
                 <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", lineHeight: 1.65 }}>
-                  You've worked through all your assigned leads. Check back soon for new assignments.
+                  {onBackToAdmin
+                    ? "Your admin account has no leads assigned to it as an agent. Leads are distributed to your agent team."
+                    : "You've worked through all your assigned leads. Check back soon for new assignments."}
                 </p>
+                {onBackToAdmin && (
+                  <button onClick={onBackToAdmin} style={{
+                    marginTop: 24,
+                    padding: "10px 24px",
+                    background: "rgba(200,170,90,0.12)",
+                    border: "1px solid rgba(200,170,90,0.35)",
+                    borderRadius: 8,
+                    color: "#c8aa5a",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    letterSpacing: "0.06em",
+                    cursor: "pointer",
+                  }}>← Back to Admin Dashboard</button>
+                )}
               </div>
             ) : (
               <LeadCard lead={nextLead} />

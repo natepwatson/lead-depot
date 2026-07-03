@@ -701,7 +701,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const redistributeUnseenMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/admin/redistribute-unseen").then(r => r.json()),
     onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      qc.invalidateQueries({ queryKey: ["/api/leads"] });
       const skippedNote = data.skipped > 0 ? ` ${data.skipped} could not be assigned (no eligible agent for that lead type).` : "";
       if (data.reassigned === 0 && data.total === 0) {
         toast({ title: "No unseen leads", description: "All leads have already been contacted or are in a closed state." });
@@ -895,7 +895,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.32
+              v11.33
             </p>
           </div>
         </div>

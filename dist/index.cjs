@@ -213,7 +213,7 @@ params: ${n}`),this.query=e,this.params=n,this.cause=a,Error.captureStackTrace(t
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.32 \u2014 Brothers Group \xB7 Momentum Realty</span>
+    <span>Lead Depot v11.33 \u2014 Brothers Group \xB7 Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -533,7 +533,7 @@ This template is for informational/outreach purposes only.`),e.get("/api/scripts
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${_}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.32 \u2014 Brothers Group \xB7 Momentum Realty
+    Lead Depot v11.33 \u2014 Brothers Group \xB7 Momentum Realty
   </div>
 </div></body></html>`}).catch(W=>console.error("[network lead] Notify failed:",W))}m.json({created:!0,leadId:C.id})}),e.post("/api/referrals",(h,m)=>{let{name:g,phone:b,email:S,brokerage:k,notes:L,referredBy:O,referredByName:w}=h.body;if(!g||!b)return m.status(400).json({error:"Name and phone required"});let N=new Date().toISOString(),T=re.prepare("INSERT INTO referrals (name, phone, email, brokerage, notes, referred_by, referred_by_name, created_at) VALUES (?,?,?,?,?,?,?,?)").run(g,b,S||"",k||"",L||"",O||null,w||"",N);m.json({created:!0,id:T.lastInsertRowid})}),e.get("/api/referrals",(h,m)=>{let g=re.prepare("SELECT * FROM referrals ORDER BY created_at DESC").all();m.json(g)}),e.get("/api/export/leads",(h,m)=>{let g=R.getAllLeads(),b=R.getAllAgents(),S=Object.fromEntries(b.map(T=>[T.id,T.name])),k=["ID","Lead Type","First Name","Last Name","Email","Phone","Address","City","State","Zip","County","Property Type","Reason for Selling","Estimated Value","Timeframe","Status","Assigned Agent","Uploaded At","Lead Source ID"],L=T=>{if(T==null)return"";let q=String(T);return q.includes(",")||q.includes('"')||q.includes(`
 `)?'"'+q.replace(/"/g,'""')+'"':q},O=g.map(T=>{let q=(()=>{try{return JSON.parse(T.extraData||"{}")}catch{return{}}})();return[T.id,T.leadType||"",T.firstName||"",T.lastName||"",T.email||"",T.phone||"",q.address||T.address||"",q.city||T.city||"",q.state||T.state||"",q.zip||T.zip||"",q.county||T.county||"",q.propertyType||"",q.reasonForSelling||"",q.estimatedValue||"",q.timeframe||"",T.status||"",S[T.assignedAgentId??0]||"",T.uploadedAt||"",q.leadSourceId||T.leadSourceId||""].map(L).join(",")}),w=[k.join(","),...O].join(`
@@ -653,7 +653,7 @@ This template is for informational/outreach purposes only.`),e.get("/api/scripts
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.32</span><span>Brothers Group \xB7 Momentum Realty</span>
+    <span>Lead Depot v11.33</span><span>Brothers Group \xB7 Momentum Realty</span>
   </div>
 </div>
 </body>

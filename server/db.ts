@@ -101,8 +101,8 @@ rawDb.exec(`
 `);
 
 // ─── v11.41 — headshot injection for existing agents ─────────────────────────
-// Copies pre-processed headshot files (named by slug) to <id>.jpg and sets URL.
-// Runs once on boot; safe to repeat (skips agents that already have a file-based URL).
+// On every boot: copies slug-named headshots to <id>.jpg in dist/public/headshots/
+// and updates headshot_url in DB. Safe to repeat — only overwrites stale/missing.
 import fs_db from "node:fs";
 import path_db from "node:path";
 
@@ -116,27 +116,37 @@ const headshotMap: Record<string, string> = {
   "Alex Watson":      "alex-watson",
 };
 
-const publicDir = path_db.resolve(__dirname, "public");
-const headshotsDir = path_db.join(publicDir, "headshots");
+// Railway: dist/index.cjs lives at /app/dist/ so __dirname = /app/dist/
+// Headshots are served from dist/public/headshots/ which = /app/dist/public/headshots/
+const headshotsDir = path_db.resolve(__dirname, "public", "headshots");
 if (!fs_db.existsSync(headshotsDir)) fs_db.mkdirSync(headshotsDir, { recursive: true });
 
 const allAgents = rawDb.prepare("SELECT id, name, headshot_url FROM agents").all() as any[];
 for (const agent of allAgents) {
-  // Deactivate Usman Jan if no headshot
+  // Deactivate Usman Jan if no headshot on file
   if (agent.name === "Usman Jan") {
     rawDb.prepare("UPDATE agents SET is_active = 0 WHERE id = ? AND (headshot_url IS NULL OR headshot_url = '')").run(agent.id);
     continue;
   }
-  // Skip if already has a file-based headshot URL (not base64)
-  if (agent.headshot_url && agent.headshot_url.startsWith("/headshots/") && !agent.headshot_url.startsWith("data:")) continue;
 
   const slug = headshotMap[agent.name];
   if (!slug) continue;
 
+  // Source: slug-named file shipped in dist/public/headshots/
   const srcFile = path_db.join(headshotsDir, `${slug}.jpg`);
   if (!fs_db.existsSync(srcFile)) continue;
 
+  // Dest: id-named file (what the app serves)
   const destFile = path_db.join(headshotsDir, `${agent.id}.jpg`);
-  fs_db.copyFileSync(srcFile, destFile);
-  rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${agent.id}.jpg`, agent.id);
+
+  // Copy if dest missing OR agent still has base64/empty URL
+  const needsCopy = !fs_db.existsSync(destFile) ||
+    !agent.headshot_url ||
+    agent.headshot_url.startsWith("data:") ||
+    !agent.headshot_url.startsWith("/headshots/");
+
+  if (needsCopy) {
+    fs_db.copyFileSync(srcFile, destFile);
+    rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${agent.id}.jpg`, agent.id);
+  }
 }

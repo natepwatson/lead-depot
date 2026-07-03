@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import ActivityFeed from "../components/ld/ActivityFeed";
+import ProfilePage from "./ProfilePage";
 import ScriptEditor from "../components/ScriptEditor";
 import MapView from "./MapView";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -20,7 +21,7 @@ import {
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneOff, PhoneMissed, Calendar, XCircle, CheckCircle2,
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck, Heart, Map as MapIcon,
-  Clock, FileText, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield
+  Clock, FileText, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 
@@ -614,7 +615,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.41) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.42) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -1136,7 +1137,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.41
+              v11.42
             </p>
           </div>
         </div>
@@ -1202,6 +1203,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
+              { value: "profile",     icon: Settings,    label: "My Profile" },
             ].map(tab => (
               <TabsTrigger
                 key={tab.value}
@@ -1349,7 +1351,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.41) */}
+                          {/* Rank badge — headshot or initials (v11.42) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
                             {stat.agent.headshotUrl ? (
                               <img
@@ -2200,6 +2202,11 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           {/* ── MAP VIEW ────────────────────────────────────────────────────── */}
           <TabsContent value="map" className="mt-5">
             <MapView />
+          </TabsContent>
+
+          {/* ── MY PROFILE ─────────────────────────────────────────────────── */}
+          <TabsContent value="profile" className="mt-5">
+            <ProfilePage onBack={() => {}} />
           </TabsContent>
 
         </Tabs>

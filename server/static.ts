@@ -58,6 +58,19 @@ export function serveStatic(app: Express) {
     },
   }));
 
+  // ── Team photos for recruiting site ─────────────────────────────────────
+  const teamPath = path.resolve(__dirname, "..", "public", "team");
+  if (fs.existsSync(teamPath)) {
+    app.use("/team", express.static(teamPath, { maxAge: "7d", etag: true }));
+  }
+
+  // ── Recruiting landing page — join.watsonbrothersgroup.com ───────────────
+  // Served at /join.html and also as the root for the join subdomain
+  app.get("/join", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.sendFile(path.resolve(distPath, "join.html"));
+  });
+
   // ── SPA fallback ──────────────────────────────────────────────────────────
   app.use("/{*path}", (_req, res) => {
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");

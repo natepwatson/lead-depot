@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import ScriptEditor from "../components/ScriptEditor";
 import MapView from "./MapView";
@@ -113,6 +113,55 @@ const OUTCOME_LABELS: Record<string, string> = {
   callback_requested: "Callback",
   wrong_number: "Wrong #",
 };
+
+// ── Luxury Confirm Modal ─────────────────────────────────────────────────────
+interface LuxConfirmProps {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  confirmColor?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+function LuxConfirmModal({ open, title, message, confirmLabel = "Confirm", confirmColor = "#c8aa5a", onConfirm, onCancel }: LuxConfirmProps) {
+  if (!open) return null;
+  const isDanger = confirmColor === "#ef4444";
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      background: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: "0 20px",
+    }} onClick={onCancel}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "#0e0d0b",
+        border: `1px solid ${isDanger ? "rgba(239,68,68,0.35)" : "rgba(200,170,90,0.35)"}`,
+        borderRadius: 16, padding: "28px 24px", maxWidth: 380, width: "100%",
+        boxShadow: `0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px ${isDanger ? "rgba(239,68,68,0.08)" : "rgba(200,170,90,0.08)"}`,
+      }}>
+        <p style={{ fontSize: 16, fontWeight: 700, color: isDanger ? "#fca5a5" : "#c8aa5a", marginBottom: 10, letterSpacing: "0.02em" }}>{title}</p>
+        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 1.6, marginBottom: 24 }}>{message}</p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onCancel} style={{
+            flex: 1, padding: "11px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)",
+            background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.6)",
+            fontSize: 13, fontWeight: 600, cursor: "pointer", letterSpacing: "0.04em",
+          }}>Cancel</button>
+          <button onClick={onConfirm} style={{
+            flex: 1, padding: "11px", borderRadius: 8, border: "none",
+            background: isDanger
+              ? "linear-gradient(135deg,#ef4444 0%,#b91c1c 100%)"
+              : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+            color: isDanger ? "#fff" : "#080808",
+            fontSize: 13, fontWeight: 700, cursor: "pointer", letterSpacing: "0.06em",
+            boxShadow: isDanger ? "0 4px 16px rgba(239,68,68,0.3)" : "0 4px 16px rgba(200,170,90,0.3)",
+          }}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Agent Drilldown Modal ─────────────────────────────────────────────────────
 
@@ -596,6 +645,22 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   });
 
   const [lbTab, setLbTab] = useState<"today" | "weekly">("today");
+
+  // ── Confirmation dialog state ──────────────────────────────────────────────
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    confirmLabel: string;
+    confirmColor: string;
+    onConfirm: () => void;
+  }>({
+    open: false, title: "", message: "", confirmLabel: "Confirm", confirmColor: "#c8aa5a", onConfirm: () => {},
+  });
+  const closeConfirm = useCallback(() => setConfirmDialog(d => ({ ...d, open: false })), []);
+  const openConfirm = useCallback((opts: { title: string; message: string; confirmLabel?: string; confirmColor?: string; onConfirm: () => void }) => {
+    setConfirmDialog({ open: true, confirmLabel: "Confirm", confirmColor: "#c8aa5a", ...opts });
+  }, []);
   const { data: dualLb = [], isLoading: dualLbLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/leaderboard"],
     queryFn: () => apiRequest("GET", "/api/admin/leaderboard").then(r => r.json()),
@@ -901,8 +966,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
             <p style={{ fontSize: 10, color: "rgba(200,170,90,0.6)", letterSpacing: "0.06em" }}>
               {user?.name} — Admin
             </p>
-            <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.37
+            <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
+              v11.38
             </p>
           </div>
         </div>
@@ -1478,11 +1543,12 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   size="sm"
                   style={{ borderColor: "rgba(200,170,90,0.3)", color: "rgba(200,170,90,0.85)", fontSize: 12 }}
                   className="gap-1.5 hover:bg-yellow-900/20"
-                  onClick={() => {
-                    if (confirm("Redistribute Unseen Leads?\n\nThis will re-assign every lead no agent has interacted with yet — including already-assigned leads that haven't been touched. All agents get a fresh even share.\n\nThis cannot be undone. Continue?")) {
-                      redistributeUnseenMutation.mutate();
-                    }
-                  }}
+                  onClick={() => openConfirm({
+                    title: "Redistribute Unseen Leads?",
+                    message: "This will re-assign every lead no agent has interacted with yet — including already-assigned leads that haven't been touched. All agents get a fresh even share. This cannot be undone.",
+                    confirmLabel: "Redistribute",
+                    onConfirm: () => { closeConfirm(); redistributeUnseenMutation.mutate(); },
+                  })}
                   disabled={redistributeUnseenMutation.isPending}
                 >
                   <Users size={11}/>{redistributeUnseenMutation.isPending ? "Redistributing…" : "Redistribute Unseen"}
@@ -1504,11 +1570,13 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   variant="outline"
                   size="sm"
                   className="border-red-900/40 text-red-400 hover:bg-red-900/20 hover:text-red-300 text-xs gap-1.5"
-                  onClick={() => {
-                    if (confirm("Clear the active queue? All in-progress leads will be marked Retired. Their history and master records are kept — only the active queue is cleared.")) {
-                      clearQueueMutation.mutate();
-                    }
-                  }}
+                  onClick={() => openConfirm({
+                    title: "Clear Active Queue?",
+                    message: "All in-progress leads will be marked Retired. Master records and full history are preserved — no data is deleted. Only the active queue is cleared.",
+                    confirmLabel: "Clear Queue",
+                    confirmColor: "#ef4444",
+                    onConfirm: () => { closeConfirm(); clearQueueMutation.mutate(); },
+                  })}
                   disabled={clearQueueMutation.isPending}
                   data-testid="button-clear-queue"
                 >
@@ -1815,7 +1883,13 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                onClick={() => deleteAgentMutation.mutate(agent.id)}
+                                onClick={() => openConfirm({
+                                  title: `Deactivate ${agent.name}?`,
+                                  message: `${agent.name} will be moved to Inactive Agents. All leads in their queue will be returned to the pool for redistribution. This cannot be undone without manually reactivating them.`,
+                                  confirmLabel: "Deactivate",
+                                  confirmColor: "#ef4444",
+                                  onConfirm: () => { closeConfirm(); deleteAgentMutation.mutate(agent.id); },
+                                })}
                                 title="Move to Inactive Agents"
                                 data-testid={`button-delete-agent-${agent.id}`}
                               >
@@ -1915,6 +1989,17 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           onClose={() => setDrilldownAgent(null)}
         />
       )}
+
+      {/* Luxury confirm modal */}
+      <LuxConfirmModal
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmLabel={confirmDialog.confirmLabel}
+        confirmColor={confirmDialog.confirmColor}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={closeConfirm}
+      />
     </div>
   );
 }

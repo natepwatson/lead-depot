@@ -116,7 +116,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.37 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.38 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -148,6 +148,74 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return res.status(403).json({ error: "Your account has been deactivated. Contact an admin." });
     }
     res.json({ agent: { id: agent.id, name: agent.name, email: agent.email, role: agent.role } });
+  });
+
+  // ─── FORGOT PASSWORD ─────────────────────────────────────────────────────
+  app.post("/api/forgot-password", async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email required" });
+    const agent = storage.getAgentByEmail(email.toLowerCase().trim());
+    // Always respond 200 to prevent email enumeration
+    res.json({ success: true });
+    if (!agent || !agent.isActive) return;
+
+    const token = randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1hr
+    rawDb.prepare("UPDATE agents SET setup_token = ?, setup_expires = ? WHERE id = ?")
+      .run(token, expires, agent.id);
+
+    const appBase = process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : process.env.APP_URL ?? "https://depot.watsonbrothersgroup.com";
+    const resetLink = `${appBase}/#/reset-password/${token}`;
+
+    if (resend) {
+      await resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to: agent.email,
+        subject: "Reset your Lead Depot password",
+        html: `
+          <div style="font-family:'Georgia',serif;background:#09090b;color:#e5e5e5;padding:40px 24px;max-width:600px;margin:0 auto;border-radius:12px;">
+            <div style="text-align:center;margin-bottom:28px;">
+              <svg width="44" height="44" viewBox="0 0 36 36" fill="none" style="margin-bottom:10px;">
+                <rect x="2" y="18" width="32" height="15" rx="1" stroke="#c8aa5a" stroke-width="1.6"/>
+                <path d="M2 18 L18 5 L34 18" stroke="#c8aa5a" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
+                <rect x="13" y="24" width="10" height="9" rx="0.5" stroke="#c8aa5a" stroke-width="1.4"/>
+              </svg>
+              <p style="color:#c8aa5a;letter-spacing:0.18em;font-size:11px;text-transform:uppercase;margin:0;">Lead Depot</p>
+            </div>
+            <h1 style="color:#fff;font-weight:300;font-size:24px;margin:0 0 10px;">Password Reset</h1>
+            <p style="color:rgba(255,255,255,0.55);font-size:14px;line-height:1.7;margin:0 0 28px;">We received a request to reset the password for your Lead Depot account. Click below to set a new password. This link expires in 1 hour.</p>
+            <div style="text-align:center;margin-bottom:28px;">
+              <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
+            </div>
+            <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you didn't request a password reset, you can safely ignore this email. Your password will not change.<br/><br/>Lead Depot · Brothers Group at Momentum Realty</p>
+          </div>
+        `,
+      });
+    }
+  });
+
+  // GET /api/reset-password/:token — validate reset token
+  app.get("/api/reset-password/:token", (req, res) => {
+    const { token } = req.params;
+    const agent = rawDb.prepare("SELECT id, name, email, setup_expires FROM agents WHERE setup_token = ?").get(token);
+    if (!agent) return res.status(404).json({ error: "Invalid or expired reset link" });
+    if (new Date(agent.setup_expires) < new Date()) return res.status(410).json({ error: "This reset link has expired. Request a new one." });
+    res.json({ id: agent.id, name: agent.name, email: agent.email });
+  });
+
+  // POST /api/reset-password/:token — set new password
+  app.post("/api/reset-password/:token", (req, res) => {
+    const { token } = req.params;
+    const { password } = req.body;
+    if (!password || password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+    const agent = rawDb.prepare("SELECT id, setup_expires FROM agents WHERE setup_token = ?").get(token);
+    if (!agent) return res.status(404).json({ error: "Invalid or expired reset link" });
+    if (new Date(agent.setup_expires) < new Date()) return res.status(410).json({ error: "Link expired" });
+    rawDb.prepare("UPDATE agents SET password = ?, setup_token = NULL, setup_expires = NULL WHERE id = ?")
+      .run(password, agent.id);
+    res.json({ success: true });
   });
 
   // Session validation — called on app load to verify stored user is still active
@@ -1983,7 +2051,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.37 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v11.38 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -2292,7 +2360,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.37</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.38</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

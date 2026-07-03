@@ -48,6 +48,7 @@ export default function MapView() {
   const mapDiv  = useRef<HTMLDivElement>(null);
   const mapRef  = useRef<any>(null);
   const layerRef = useRef<any>(null);
+  const hasFitRef = useRef(false);
   const [leads, setLeads]   = useState<MapLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [lfReady, setLfReady] = useState(false);
@@ -99,6 +100,14 @@ export default function MapView() {
         .bindPopup(popup, { className: "bgre-popup", maxWidth: 270, offset: [0, -6] })
         .addTo(layerRef.current);
     });
+    // Auto-zoom to pin cluster on initial load only
+    if (!hasFitRef.current && list.length > 0) {
+      hasFitRef.current = true;
+      try {
+        const group = (window as any).L.featureGroup(list.map((l: MapLead) => L.marker([l.lat, l.lng])));
+        mapRef.current.fitBounds(group.getBounds(), { padding: [50, 50], maxZoom: 13 });
+      } catch (_) { /* ignore if bounds fail */ }
+    }
   }, [leads, filter]);
 
   const counts = leads.reduce<Record<string, number>>((a, l) => { a[l.status] = (a[l.status] ?? 0) + 1; return a; }, {});

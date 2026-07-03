@@ -8,6 +8,7 @@ import LoginPage from "./pages/LoginPage";
 import AdminDashboard from "./pages/AdminDashboard";
 import AgentView from "./pages/AgentView";
 import AccountSetupPage from "./pages/AccountSetupPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import NotFound from "./pages/not-found";
 import { useState } from "react";
 
@@ -32,6 +33,8 @@ export default function App() {
           <Switch>
             {/* Account setup — no auth required, token-gated */}
             <Route path="/setup/:token" component={AccountSetupPage} />
+            {/* Password reset — no auth required, token-gated */}
+            <Route path="/reset-password/:token" component={ResetPasswordPage} />
             <Route path="/" component={AppRoutes} />
             <Route component={NotFound} />
           </Switch>

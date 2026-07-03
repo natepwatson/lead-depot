@@ -288,32 +288,33 @@ export default function TutorialModal({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
-      {/* Slide dots */}
-      <div style={{ display: "flex", gap: 4, justifyContent: "center", padding: "12px 20px 0" }}>
-        {SLIDES.map((_, i) => (
-          <div
-            key={i}
-            onClick={() => setSlide(i)}
-            style={{
-              width: i === slide ? 20 : 6, height: 6, borderRadius: 99,
-              background: i === slide ? GOLD : "rgba(200,170,90,0.2)",
-              cursor: "pointer", transition: "all 0.25s",
-            }}
-          />
-        ))}
-      </div>
-
       {/* Body */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 16px" }}>
         {current.body}
       </div>
 
-      {/* Navigation */}
+      {/* Navigation + dots (merged row to prevent overlap) */}
       <div style={{
-        display: "flex", gap: 10, padding: "12px 20px",
+        flexShrink: 0,
         borderTop: "1px solid rgba(200,170,90,0.1)",
-        paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+        padding: "10px 20px",
+        paddingBottom: "max(10px, env(safe-area-inset-bottom))",
       }}>
+        {/* Slide dots */}
+        <div style={{ display: "flex", gap: 4, justifyContent: "center", marginBottom: 10 }}>
+          {SLIDES.map((_, i) => (
+            <div
+              key={i}
+              onClick={() => setSlide(i)}
+              style={{
+                width: i === slide ? 20 : 6, height: 6, borderRadius: 99,
+                background: i === slide ? GOLD : "rgba(200,170,90,0.2)",
+                cursor: "pointer", transition: "all 0.25s",
+              }}
+            />
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
         {slide > 0 && (
           <button
             onClick={() => setSlide(s => s - 1)}
@@ -342,6 +343,7 @@ export default function TutorialModal({ onClose }: { onClose: () => void }) {
         >
           {isLast ? "Got it — Let's go" : <>Next <ChevronRight size={15} /></>}
         </button>
+        </div>
       </div>
     </div>
   );

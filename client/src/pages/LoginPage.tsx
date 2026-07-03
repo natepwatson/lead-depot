@@ -1,6 +1,78 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { apiRequest } from "@/lib/queryClient";
 import coachingTips from "../data/coaching-tips.json";
+
+// ─── Forgot Password inline component ───────────────────────────────────────────
+function ForgotPasswordLink() {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setSending(true);
+    try {
+      await apiRequest("POST", "/api/forgot-password", { email: email.trim() });
+      setSent(true);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (!open) return (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      style={{
+        background: "none", border: "none", cursor: "pointer",
+        fontSize: 12, color: "rgba(200,170,90,0.45)",
+        letterSpacing: "0.04em", textAlign: "center",
+        width: "100%", marginTop: 8, padding: "4px 0",
+      }}
+    >
+      Forgot password?
+    </button>
+  );
+
+  return (
+    <div style={{
+      marginTop: 12, padding: "16px",
+      background: "rgba(200,170,90,0.05)",
+      border: "1px solid rgba(200,170,90,0.18)",
+      borderRadius: 10,
+    }}>
+      {sent ? (
+        <p style={{ fontSize: 13, color: "rgb(134,239,172)", textAlign: "center", lineHeight: 1.6, margin: 0 }}>
+          If that email is in our system, a reset link is on its way. Check your inbox.
+        </p>
+      ) : (
+        <form onSubmit={send} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: 0 }}>Enter your email and we\'ll send a reset link.</p>
+          <input
+            type="email" value={email} onChange={e => setEmail(e.target.value)}
+            placeholder="your@email.com"
+            style={{
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(200,170,90,0.2)",
+              padding: "10px 12px", borderRadius: 8,
+              color: "#fff", fontSize: 13, outline: "none",
+              fontFamily: "'Switzer','Inter',sans-serif",
+            }}
+          />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={() => setOpen(false)} style={{ flex: 1, padding: "10px", background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "rgba(255,255,255,0.35)", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+            <button type="submit" disabled={sending || !email.trim()} style={{ flex: 2, padding: "10px", background: "linear-gradient(135deg,#c8aa5a,#a8893a)", border: "none", borderRadius: 8, color: "#080808", fontSize: 12, fontWeight: 700, cursor: sending ? "not-allowed" : "pointer", opacity: sending || !email.trim() ? 0.5 : 1 }}>
+              {sending ? "Sending…" : "Send Reset Link"}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
 
 // ─── Logo SVG ─────────────────────────────────────────────────────────────────
 function LogoIcon() {
@@ -289,6 +361,7 @@ export default function LoginPage() {
               >
                 {loading ? "Signing in…" : "Sign In"}
               </button>
+              <ForgotPasswordLink />
             </form>
 
             {/* Coaching Tip */}
@@ -332,7 +405,7 @@ export default function LoginPage() {
               fontSize: 10, color: "rgba(255,255,255,0.15)", textAlign: "center",
               marginTop: 16, marginBottom: 0, letterSpacing: "0.08em",
             }}>
-              Lead Depot v11.37
+              Lead Depot v11.38
             </p>
           </div>
 

@@ -28,16 +28,16 @@ function LogoIcon({ size = 28 }: { size?: number }) {
   );
 }
 
-// ─── LPMAMAB phrases ──────────────────────────────────────────────────────────
-const LPMAMAB_PHRASES = [
-  { key: "location",    label: "L — Location",    color: "#c8aa5a" },
-  { key: "price",       label: "P — Price",       color: "#e2d5b0" },
-  { key: "motivation",  label: "M — Motivation",  color: "#7ec8e3" },
-  { key: "agent",       label: "A — Agent",       color: "#a8d5a2" },
-  { key: "mortgage",    label: "M — Mortgage",    color: "#e2d5b0" },
-  { key: "appointment", label: "A — Appointment", color: "#c8aa5a" },
-  { key: "buyer",       label: "B — Buyer",       color: "#a8d5a2" },
-];
+// ─── LPMAMAB fields config ────────────────────────────────────────────────────
+const LPMAMAB_FIELDS = [
+  { key: "location",    label: "L — Location",    color: "#c8aa5a", hint: "Where do they want to go? Area preferences?",           leadField: "lLocation" },
+  { key: "price",       label: "P — Price",       color: "#e2d5b0", hint: "What are they thinking price-wise? Ballpark only.",      leadField: "lPricePaid" },
+  { key: "motivation",  label: "M — Motivation",  color: "#7ec8e3", hint: "Why are they selling? Divorce, downsizing, job move?",   leadField: "lMotivation" },
+  { key: "agent",       label: "A — Agent",       color: "#a8d5a2", hint: "Are they working with an agent already?",                leadField: "lAgentHistory" },
+  { key: "mortgage",    label: "M — Mortgage",    color: "#e2d5b0", hint: "Do they have a loan? Paid off? Roughly what's owed?",   leadField: "lMortgage" },
+  { key: "appointment", label: "A — Appointment", color: "#c8aa5a", hint: "Are they open to a meeting? Any dates that work?",       leadField: "lAppointment" },
+  { key: "buyer",       label: "B — Buyer",       color: "#a8d5a2", hint: "Are they also buying after? What are they looking for?", leadField: "lBuy" },
+] as const;
 
 // ─── Outcome configs ───────────────────────────────────────────────────────────
 const OUTCOMES = [
@@ -60,11 +60,12 @@ function GoldDivider() {
 }
 
 // ─── Section label ────────────────────────────────────────────────────────────
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <p style={{
       fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase",
       color: "rgba(200,170,90,0.6)", marginBottom: 10, fontWeight: 600,
+      ...style,
     }}>
       {children}
     </p>
@@ -437,6 +438,16 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [hoveredOutcome, setHoveredOutcome] = useState<string | null>(null);
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
   const [pendingCallback, setPendingCallback] = useState(false);
+  const [lpmOpen, setLpmOpen] = useState(false);
+  const [lpmData, setLpmData] = useState<Record<string, string>>({
+    location: lead.lLocation ?? "",
+    price: lead.lPricePaid ?? "",
+    motivation: lead.lMotivation ?? "",
+    agent: lead.lAgentHistory ?? "",
+    mortgage: lead.lMortgage ?? "",
+    appointment: lead.lAppointment ?? "",
+    buyer: lead.lBuy ?? "",
+  });
 
   const extra = (() => { try { return JSON.parse(lead.extraData || "{}"); } catch { return {}; } })();
 
@@ -448,7 +459,7 @@ function LeadCard({ lead }: { lead: Lead }) {
 
   const outcomeMutation = useMutation({
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string }) =>
-      apiRequest("POST", `/api/leads/${lead.id}/outcome`, { ...data, agentId: user?.id }).then(r => r.json()),
+      apiRequest("POST", `/api/leads/${lead.id}/outcome`, { ...data, agentId: user?.id, lpmamab: lpmData }).then(r => r.json()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
       qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
@@ -719,18 +730,50 @@ function LeadCard({ lead }: { lead: Lead }) {
 
       {/* ── LPMAMAB ── */}
       <div style={{ padding: "0 20px 18px" }}>
-        <SectionLabel>LPMAMAB Framework</SectionLabel>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-          {LPMAMAB_PHRASES.map(p => (
-            <div key={p.key} style={{
-              padding: "6px 12px", borderRadius: 6,
-              background: "rgba(200,170,90,0.07)",
-              border: "1px solid rgba(200,170,90,0.22)",
-            }}>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: p.color }}>{p.label}</span>
-            </div>
-          ))}
-        </div>
+        <button
+          onClick={() => setLpmOpen(o => !o)}
+          style={{
+            width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+            background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: lpmOpen ? 14 : 0,
+          }}
+        >
+          <SectionLabel style={{ margin: 0 }}>LPMAMAB Notes</SectionLabel>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {Object.values(lpmData).some(v => v.trim()) && (
+              <span style={{ fontSize: 9, letterSpacing: "0.12em", color: "#c8aa5a", background: "rgba(200,170,90,0.12)", padding: "2px 7px", borderRadius: 99 }}>
+                FILLED
+              </span>
+            )}
+            <ChevronDown size={14} style={{ color: "rgba(200,170,90,0.5)", transform: lpmOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+          </div>
+        </button>
+        {lpmOpen && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {LPMAMAB_FIELDS.map(f => (
+              <div key={f.key}>
+                <label style={{ display: "block", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: f.color, fontWeight: 700, marginBottom: 5, opacity: 0.8 }}>{f.label}</label>
+                <input
+                  value={lpmData[f.key] ?? ""}
+                  onChange={e => setLpmData(d => ({ ...d, [f.key]: e.target.value }))}
+                  placeholder={f.hint}
+                  style={{
+                    width: "100%",
+                    background: "rgba(255,255,255,0.04)",
+                    border: `1px solid ${lpmData[f.key]?.trim() ? f.color + "55" : "rgba(255,255,255,0.1)"}`,
+                    padding: "9px 12px", borderRadius: 7,
+                    color: "#fff", fontSize: 13,
+                    fontFamily: "'Switzer','Inter',sans-serif",
+                    outline: "none", boxSizing: "border-box" as const,
+                    transition: "border-color 0.15s",
+                  }}
+                />
+              </div>
+            ))}
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", lineHeight: 1.5, margin: "4px 0 0" }}>
+              These are conversational notes — rough ballparks, not confirmed numbers. Real details get locked in at the appointment.
+            </p>
+          </div>
+        )}
       </div>
 
       <GoldDivider />
@@ -953,9 +996,14 @@ function LeaderboardTab() {
           }}>
             <Users size={14} style={{ color: "#c8aa5a" }} />
           </div>
-          <p style={{ fontSize: 13, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700 }}>
-            Submit a Network Lead
-          </p>
+          <div>
+            <p style={{ fontSize: 13, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700 }}>
+              Submit a Client Lead
+            </p>
+            <p style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(200,170,90,0.45)", fontWeight: 500, marginTop: 2 }}>
+              Real Estate Seller / Buyer — Not Agent Recruitment
+            </p>
+          </div>
         </div>
         <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 18, lineHeight: 1.55 }}>
           Know someone thinking about selling? Drop their info here and we'll assist all the way to closing!

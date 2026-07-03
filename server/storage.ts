@@ -22,6 +22,11 @@ sqlite.exec(`
   PRAGMA journal_mode=WAL;
 `);
 
+// ─── MIGRATION RULE ─────────────────────────────────────────────────────────
+// ANY new column added to schema.ts or the CREATE TABLE below MUST also have
+// an ALTER TABLE migration here AND in server/db.ts before it can be queried.
+// Skipping this = SqliteError: no such column on the live Railway DB (crash).
+// ─────────────────────────────────────────────────────────────────────────────
 // Migrations — add new columns to existing tables (safe to run repeatedly)
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN receive_leads INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN lead_flow_on INTEGER NOT NULL DEFAULT 1`); } catch {}

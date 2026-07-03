@@ -42,7 +42,18 @@ try { sqlite.exec(`ALTER TABLE agents ADD COLUMN headshot_url TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN setup_token TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN setup_expires TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN onboarded INTEGER DEFAULT 0`); } catch {}
-// LPMAMAB columns on leads (v11.38) — must exist before Drizzle queries leads table
+// leads — core columns that may be missing on older DBs
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN owner_name TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN email TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN motivation TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN extra_data TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN assigned_agent_id INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN callback_date TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN uploaded_at TEXT NOT NULL DEFAULT ''`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN uploaded_by INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN batch_id TEXT`); } catch {}
+// LPMAMAB columns on leads (v11.38)
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_location TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_price_paid TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_motivation TEXT`); } catch {}
@@ -50,6 +61,8 @@ try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_agent_history TEXT`); } catch 
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_mortgage TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_appointment TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_buy TEXT`); } catch {}
+// lead_activity — lpmamab_snapshot column (v11.38)
+try { sqlite.exec(`ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT`); } catch {}
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS agents (

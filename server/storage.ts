@@ -8,7 +8,13 @@ import {
   type LeadActivity, type InsertLeadActivity,
 } from "@shared/schema";
 
-const sqlite = new Database("data.db");
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
+const DB_DIR = process.env.NODE_ENV === "production" ? "/app/data" : ".";
+const DB_PATH = join(DB_DIR, "data.db");
+try { mkdirSync(DB_DIR, { recursive: true }); } catch {}
+const sqlite = new Database(DB_PATH);
 const db = drizzle(sqlite);
 
 // Initialize tables

@@ -3,11 +3,19 @@
 // Opening a new Database() on every request was causing 9-second freezes.
 
 import { createRequire } from "node:module";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
 const BetterSQLite3 = require("better-sqlite3");
 
-export const rawDb: any = new BetterSQLite3("data.db");
+// Use /app/data/data.db in production (persistent volume mount point)
+// Fall back to local data.db in development
+const DB_DIR = process.env.NODE_ENV === "production" ? "/app/data" : ".";
+const DB_PATH = join(DB_DIR, "data.db");
+try { mkdirSync(DB_DIR, { recursive: true }); } catch {}
+
+export const rawDb: any = new BetterSQLite3(DB_PATH);
 
 // Ensure settings table exists (used by leaderboard reset and referrals)
 rawDb.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`).run();

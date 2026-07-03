@@ -115,7 +115,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.35 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.36 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -143,6 +143,18 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (!agent || agent.password !== password) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
+    if (!agent.isActive) {
+      return res.status(403).json({ error: "Your account has been deactivated. Contact an admin." });
+    }
+    res.json({ agent: { id: agent.id, name: agent.name, email: agent.email, role: agent.role } });
+  });
+
+  // Session validation — called on app load to verify stored user is still active
+  app.get("/api/me/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    const agent = storage.getAgentById(id);
+    if (!agent) return res.status(404).json({ error: "Not found" });
+    if (!agent.isActive) return res.status(403).json({ error: "Account deactivated" });
     res.json({ agent: { id: agent.id, name: agent.name, email: agent.email, role: agent.role } });
   });
 
@@ -220,16 +232,23 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
 
       if (lead.status === "callback_requested") {
-        // Hold in place — will be redistributed on the callback date by the daily job.
-        // Flag with a note so the receiving agent understands the context.
+        // Per user rule: callbacks immediately recycle on agent deactivation (no date/time hold)
+        const nextCbAgent = storage.getNextAgentInRotation(lead.leadType);
         storage.createLeadActivity({
           leadId: lead.id,
           agentId: null,
           outcome: "recycled",
-          notes: `Agent deactivated. Lead was in callback state, assigned by ${updated.name}. Returned to pool for redistribution.`,
+          notes: `Agent deactivated. Callback lead immediately recycled and reassigned from ${updated.name}.`,
           lpmamabSnapshot: null,
           createdAt: new Date().toISOString(),
         });
+        if (nextCbAgent) {
+          storage.updateLead(lead.id, { assignedAgentId: nextCbAgent.id, status: "assigned" });
+          storage.updateRoundRobinState(nextCbAgent.id);
+          reassigned++;
+        } else {
+          storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
+        }
         callbackHeld++;
         continue;
       }
@@ -406,6 +425,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const allA = storage.getAllAgents();
     const agentCount = allA.filter((a: any) => a.isActive && a.leadFlowOn !== false && (a.role === "agent" || (a.role === "admin" && a.receiveLeads))).length;
 
+    // Always start unassigned — assignment happens after creation to avoid assigned+null state
     const [created] = storage.createLeadsFromBatch([{
       leadType: "website_lead",
       address: fullAddress,
@@ -414,7 +434,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       email: email || "",
       motivation,
       extraData,
-      status: agentCount > 0 ? "assigned" : "unassigned",
+      status: "unassigned",
       assignedAgentId: null,
       attemptCount: 0,
       uploadedAt: now,
@@ -428,6 +448,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         storage.updateLead(created.id, { assignedAgentId: nextAgent.id, status: "assigned" });
         storage.updateRoundRobinState(nextAgent.id);
       }
+      // If no website_lead-eligible agent found, lead stays unassigned (correct)
     }
 
     res.json({ created: true, leadId: created.id, ownerName, address: fullAddress });
@@ -792,19 +813,20 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // Still has viable numbers — advance to next untried, recycle in pool
       const nextViable = remaining.find(p => phoneStates[p] === "untried") ?? remaining[0];
       const reorderedPhones = [nextViable, ...phones.filter(p => p !== nextViable)];
-      rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, status = 'no_answer',
-        assigned_agent_id = (SELECT id FROM agents WHERE (role='admin' OR receive_leads=1) AND is_active=1 AND lead_flow_on=1 LIMIT 1)
-        WHERE id = ?`).run(
+      // Update phone fields only — agent assignment handled exclusively by round-robin below
+      rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, status = 'no_answer' WHERE id = ?`).run(
         nextViable,
         JSON.stringify(reorderedPhones),
         JSON.stringify(phoneStates),
         leadId
       );
-      // Also round-robin assign
+      // Round-robin assign to next eligible agent
       const nextAgent = storage.getNextAgentInRotation(lead.leadType);
       if (nextAgent) {
         storage.updateLead(leadId, { assignedAgentId: nextAgent.id });
         storage.updateRoundRobinState(nextAgent.id);
+      } else {
+        storage.updateLead(leadId, { assignedAgentId: null, status: "unassigned" });
       }
       broadcast({ type: "lead_updated", leadId });
       return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length });
@@ -1720,7 +1742,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.35 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v11.36 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -2029,7 +2051,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.35</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.36</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

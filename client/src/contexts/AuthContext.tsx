@@ -38,6 +38,22 @@ function saveUser(u: AuthUser | null) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(loadUser);
 
+  // On mount, validate that the stored user is still active on the server.
+  // If the agent was deactivated, clear local storage and force re-login.
+  useEffect(() => {
+    const stored = loadUser();
+    if (!stored) return;
+    fetch(`/api/me/${stored.id}`)
+      .then(r => {
+        if (r.status === 403 || r.status === 404) {
+          // Account deactivated or deleted — sign out
+          saveUser(null);
+          setUser(null);
+        }
+      })
+      .catch(() => { /* network error — keep session, will fail naturally */ });
+  }, []);
+
   const login = async (email: string, password: string) => {
     try {
       const res = await fetch("/api/login", {

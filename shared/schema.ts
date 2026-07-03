@@ -90,3 +90,14 @@ export const roundRobinState = sqliteTable("round_robin_state", {
 });
 
 export type RoundRobinState = typeof roundRobinState.$inferSelect;
+
+// Agent points table — cumulative gamification scoring
+export const agentPoints = sqliteTable("agent_points", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentId: integer("agent_id").notNull().references(() => agents.id),
+  points: integer("points").notNull().default(0),
+  reason: text("reason").notNull(), // "appointment" | "kit" | "dial" | "wrong_number" | "referral"
+  leadId: integer("lead_id"),       // optional reference
+  createdAt: text("created_at").notNull().default(""),
+});
+export type AgentPoints = typeof agentPoints.$inferSelect;

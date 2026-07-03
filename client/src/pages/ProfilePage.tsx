@@ -80,6 +80,10 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
 
   // Upload state
   const [uploading, setUploading]   = useState(false);
+  // Admin extras state
+  const [receiveLeads, setReceiveLeads] = useState(false);
+  const [leadFlowOn, setLeadFlowOn]     = useState(true);
+  const [togglingLead, setTogglingLead] = useState(false);
 
   // Fetch full profile on mount
   useState(() => {
@@ -393,6 +397,87 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
             <Lock size={13} /> {pwSaving ? "Changing…" : "Change Password"}
           </button>
         </div>
+
+        {/* ── Admin Settings ── */}
+        {profile.role === "admin" && (
+          <div style={sectionCard}>
+            <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(200,170,90,0.6)", marginBottom: 16, fontWeight: 600 }}>
+              Admin Settings
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Receive leads toggle */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div>
+                  <p style={{ fontSize: 13, color: "#fff", fontWeight: 500, margin: 0 }}>Receive Leads</p>
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "3px 0 0" }}>
+                    Include me in the round-robin lead distribution
+                  </p>
+                </div>
+                <button
+                  disabled={togglingLead}
+                  onClick={async () => {
+                    setTogglingLead(true);
+                    try {
+                      const res = await fetch(`/api/agents/${user?.id}/receive-leads`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ receiveLeads: !receiveLeads }),
+                      });
+                      if (res.ok) { setReceiveLeads(r => !r); toast({ title: !receiveLeads ? "Now receiving leads" : "No longer receiving leads" }); }
+                    } finally { setTogglingLead(false); }
+                  }}
+                  style={{
+                    width: 46, height: 26, borderRadius: 13, border: "none", cursor: "pointer",
+                    background: receiveLeads ? "linear-gradient(135deg,#c8aa5a,#a8893a)" : "rgba(255,255,255,0.1)",
+                    position: "relative", transition: "background 0.2s", flexShrink: 0,
+                  }}
+                >
+                  <span style={{
+                    position: "absolute", top: 3, left: receiveLeads ? 23 : 3,
+                    width: 20, height: 20, borderRadius: "50%",
+                    background: "#fff", transition: "left 0.2s",
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+                  }} />
+                </button>
+              </div>
+              {/* Lead flow toggle */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div>
+                  <p style={{ fontSize: 13, color: "#fff", fontWeight: 500, margin: 0 }}>Lead Flow On</p>
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "3px 0 0" }}>
+                    Pause my position in the round-robin without deactivating
+                  </p>
+                </div>
+                <button
+                  disabled={togglingLead}
+                  onClick={async () => {
+                    setTogglingLead(true);
+                    try {
+                      const res = await fetch(`/api/agents/${user?.id}/lead-flow`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ leadFlowOn: !leadFlowOn }),
+                      });
+                      if (res.ok) { setLeadFlowOn(r => !r); toast({ title: !leadFlowOn ? "Lead flow enabled" : "Lead flow paused" }); }
+                    } finally { setTogglingLead(false); }
+                  }}
+                  style={{
+                    width: 46, height: 26, borderRadius: 13, border: "none", cursor: "pointer",
+                    background: leadFlowOn ? "linear-gradient(135deg,#c8aa5a,#a8893a)" : "rgba(255,255,255,0.1)",
+                    position: "relative", transition: "background 0.2s", flexShrink: 0,
+                  }}
+                >
+                  <span style={{
+                    position: "absolute", top: 3, left: leadFlowOn ? 23 : 3,
+                    width: 20, height: 20, borderRadius: "50%",
+                    background: "#fff", transition: "left 0.2s",
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+                  }} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Delete account ── */}
         <div style={{

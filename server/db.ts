@@ -87,3 +87,15 @@ if (!leadCols.includes("batch_id"))         rawDb.prepare("ALTER TABLE leads ADD
 // ─── lead_activity — lpmamab_snapshot column (v11.38) ────────────────────────
 const actCols = rawDb.prepare("PRAGMA table_info(lead_activity)").all().map((c: any) => c.name);
 if (!actCols.includes("lpmamab_snapshot"))  rawDb.prepare("ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT").run();
+
+// ─── v11.39 — agent_points table (gamification) ──────────────────────────────
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS agent_points (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    points INTEGER NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL,
+    lead_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT ''
+  )
+`);

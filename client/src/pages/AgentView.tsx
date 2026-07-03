@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import TutorialModal from "../components/TutorialModal";
+import ConfettiCelebration from "../components/ld/ConfettiCelebration";
 import type { Lead } from "@shared/schema";
 
 // ─── Logo ─────────────────────────────────────────────────────────────────────
@@ -462,6 +463,7 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [pendingCallback, setPendingCallback] = useState(false);
   const [lpmOpen, setLpmOpen] = useState(false);
   const [outcomeFlash, setOutcomeFlash] = useState<{ label: string; color: string } | null>(null);
+  const [showConfetti, setShowConfetti] = useState(false);
   const [lpmData, setLpmData] = useState<Record<string, string>>({
     location: lead.lLocation ?? "",
     price: lead.lPricePaid ?? "",
@@ -496,6 +498,10 @@ function LeadCard({ lead }: { lead: Lead }) {
       // Show success flash for 900ms, then load next lead
       const flash = OUTCOME_FLASH[variables.outcome] ?? { label: "Outcome Logged", color: "#c8aa5a" };
       setOutcomeFlash(flash);
+      // Confetti for appointments!
+      if (variables.outcome === "contacted_appointment") {
+        setShowConfetti(true);
+      }
       setTimeout(() => {
         setOutcomeFlash(null);
         qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
@@ -568,6 +574,9 @@ function LeadCard({ lead }: { lead: Lead }) {
       boxShadow: "0 0 40px rgba(200,170,90,0.06), 0 8px 32px rgba(0,0,0,0.6)",
       position: "relative",
     }}>
+
+      {/* ── Confetti celebration (appointment) ── */}
+      {showConfetti && <ConfettiCelebration onDone={() => setShowConfetti(false)} />}
 
       {/* ── Outcome success flash overlay ── */}
       {outcomeFlash && (

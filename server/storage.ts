@@ -63,6 +63,17 @@ try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_appointment TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_buy TEXT`); } catch {}
 // lead_activity — lpmamab_snapshot column (v11.38)
 try { sqlite.exec(`ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT`); } catch {}
+// v11.39 — agent_points table (gamification)
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS agent_points (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    points INTEGER NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL,
+    lead_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT ''
+  )
+`);
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS agents (

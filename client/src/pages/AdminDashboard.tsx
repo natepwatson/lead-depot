@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
+import ActivityFeed from "../components/ld/ActivityFeed";
 import ScriptEditor from "../components/ScriptEditor";
 import MapView from "./MapView";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +20,7 @@ import {
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneOff, PhoneMissed, Calendar, XCircle, CheckCircle2,
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck, Heart, Map as MapIcon,
-  Clock, FileText, ChevronDown, ChevronUp
+  Clock, FileText, ChevronDown, ChevronUp, Activity, Star
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 
@@ -619,6 +620,20 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+  // Activity Feed
+  const [feedOpen, setFeedOpen] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  useEffect(() => {
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      wsRef.current = ws;
+      ws.onclose = () => { setTimeout(connect, 3000); };
+      ws.onerror = () => ws.close();
+    };
+    connect();
+    return () => { wsRef.current?.close(); };
+  }, []);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadType, setUploadType] = useState<"expired" | "distressed" | "website_lead" | "fsbo" | "land">("expired");
@@ -967,11 +982,27 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.38
+              v11.39
             </p>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Activity Feed toggle */}
+          <button
+            onClick={() => setFeedOpen(o => !o)}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 34, height: 34, borderRadius: 8,
+              background: feedOpen ? "rgba(200,170,90,0.15)" : "rgba(255,255,255,0.05)",
+              border: feedOpen ? "1px solid rgba(200,170,90,0.4)" : "1px solid rgba(255,255,255,0.1)",
+              cursor: "pointer", position: "relative",
+              animation: "feedPulseBtn 3s ease infinite",
+            }}
+            title="Live Activity Feed"
+          >
+            <Activity size={15} style={{ color: feedOpen ? "#c8aa5a" : "rgba(255,255,255,0.5)" }} />
+          </button>
+          <style>{`@keyframes feedPulseBtn { 0%,100%{box-shadow:0 0 0 0 rgba(200,170,90,0.3)} 50%{box-shadow:0 0 0 4px rgba(200,170,90,0)} }`}</style>
           {agents.filter(a => a.role === "admin" && a.id === user?.id && a.receiveLeads).length > 0 && (
             <Button
               size="sm"
@@ -1098,7 +1129,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                 marginBottom: 6,
               }}>
                 <div style={{ flex: 1 }} />
-                <div style={{ display: "flex", gap: 20, textAlign: "center" }}>
+                <div style={{ display: "flex", gap: 20, textAlign: "center", alignItems: "center" }}>
                   {lbTab === "today" ? (
                     <>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
@@ -1106,6 +1137,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
+                      <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.07em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                     </>
                   ) : (
                     <>
@@ -1114,6 +1146,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                       <div style={{ width: 52, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Conv%</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
+                      <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.07em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                     </>
                   )}
                 </div>
@@ -1160,16 +1193,43 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge */}
-                          <div style={{
-                            width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            border: `1px solid ${isTop ? "rgba(200,170,90,0.35)" : "rgba(255,255,255,0.1)"}`,
-                            background: isTop ? "rgba(200,170,90,0.08)" : "rgba(255,255,255,0.04)",
-                          }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: isTop ? "#c8aa5a" : idx === 1 ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.4)" }}>
-                              #{idx + 1}
-                            </span>
+                          {/* Rank badge — headshot or initials (v11.39) */}
+                          <div style={{ position: "relative", flexShrink: 0 }}>
+                            {stat.agent.headshotUrl ? (
+                              <img
+                                src={stat.agent.headshotUrl}
+                                alt={stat.agent.name}
+                                style={{
+                                  width: 36, height: 36, borderRadius: "50%", objectFit: "cover",
+                                  border: `2px solid ${isTop ? "rgba(200,170,90,0.6)" : "rgba(255,255,255,0.15)"}`,
+                                  boxShadow: isTop ? "0 0 10px rgba(200,170,90,0.3)" : "none",
+                                }}
+                              />
+                            ) : (
+                              <div style={{
+                                width: 36, height: 36, borderRadius: "50%",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                border: `2px solid ${isTop ? "rgba(200,170,90,0.4)" : "rgba(255,255,255,0.1)"}`,
+                                background: isTop ? "rgba(200,170,90,0.1)" : "rgba(255,255,255,0.04)",
+                                fontSize: 12, fontWeight: 700,
+                                color: isTop ? "#c8aa5a" : "rgba(255,255,255,0.4)",
+                                fontFamily: "'Cormorant Garamond','Georgia',serif",
+                              }}>
+                                {stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)}
+                              </div>
+                            )}
+                            {/* Rank number badge */}
+                            <div style={{
+                              position: "absolute", bottom: -2, right: -2,
+                              width: 16, height: 16, borderRadius: "50%",
+                              background: isTop ? "#c8aa5a" : "rgba(30,30,30,1)",
+                              border: "1.5px solid #080808",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 8, fontWeight: 800,
+                              color: isTop ? "#080808" : "rgba(255,255,255,0.5)",
+                            }}>
+                              {idx + 1}
+                            </div>
                           </div>
 
                           {/* Name + dot */}
@@ -1206,6 +1266,13 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
                                 </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{
+                                    fontSize: 15, fontWeight: 700, color: "#c8aa5a",
+                                    background: "rgba(200,170,90,0.1)", borderRadius: 6,
+                                    padding: "2px 6px", display: "inline-block",
+                                  }}>{stat.points || 0}</div>
+                                </div>
                               </>
                             ) : (
                               <>
@@ -1223,6 +1290,13 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                 </div>
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{
+                                    fontSize: 15, fontWeight: 700, color: "#c8aa5a",
+                                    background: "rgba(200,170,90,0.1)", borderRadius: 6,
+                                    padding: "2px 6px", display: "inline-block",
+                                  }}>{stat.points || 0}</div>
                                 </div>
                               </>
                             )}
@@ -1994,6 +2068,9 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
         onConfirm={confirmDialog.onConfirm}
         onCancel={closeConfirm}
       />
+
+      {/* Live Activity Feed drawer */}
+      <ActivityFeed open={feedOpen} onClose={() => setFeedOpen(false)} wsRef={wsRef} />
     </div>
   );
 }

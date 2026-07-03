@@ -9,6 +9,25 @@ import { randomBytes } from "node:crypto";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
+// ─── POINTS HELPER (v11.39) ───────────────────────────────────────────────────
+// Scoring: Appointment=10, KIT=3, WrongNumber=+2 (list cleanup reward), Referral=5, any other dial=1
+function awardPoints(agentId: number | null | undefined, outcome: string, leadId?: number) {
+  if (!agentId) return;
+  const pts: Record<string, number> = {
+    contacted_appointment: 10,
+    keep_in_touch: 3,
+    wrong_number: 2,
+    network_referral: 5,
+    // all other outcomes = 1 dial point
+  };
+  const points = pts[outcome] ?? 1;
+  const reason = outcome;
+  rawDb.prepare(
+    `INSERT INTO agent_points (agent_id, points, reason, lead_id, created_at) VALUES (?, ?, ?, ?, ?)`
+  ).run(agentId, points, reason, leadId ?? null, new Date().toISOString());
+}
+
+
 // Source label map
 const SOURCE_LABELS: Record<string, string> = {
   expired: "Expired Listing",
@@ -116,7 +135,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.38 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.39 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -451,6 +470,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
 
     broadcast({ type: "leads_updated" });
+    broadcast({ type: "activity_event", event: { type: "agent_deactivated", agentId: id, agentName: updated.name, ts: new Date().toISOString() } });
     res.json({ ...updated, password: undefined, reassigned, callbackHeld, preserved });
   });
 
@@ -1000,6 +1020,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
     }
 
+    broadcast({ type: "activity_event", event: { type: "csv_uploaded", agentId: uploadedBy || null, agentName: "Admin", count: created.length, leadType, ts: new Date().toISOString() } });
     res.json({ created: created.length, disqualified, batchId });
   });
 
@@ -1137,6 +1158,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       } else {
         storage.updateLead(leadId, { assignedAgentId: null, status: "unassigned" });
       }
+      awardPoints(agentId, "wrong_number", leadId);
+      broadcast({ type: "activity_event", event: { type: "wrong_number", agentId, leadId, agentName: storage.getAgentById(agentId)?.name || "Agent", address: lead.address } });
       broadcast({ type: "lead_updated", leadId });
       return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length });
     }
@@ -1203,6 +1226,23 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         apptEmail:        apptEmail || undefined,
       }).catch(err => console.error("CRM report email failed:", err));
     }
+
+    // Award points for this outcome (v11.39)
+    awardPoints(agentId, outcome, leadId);
+    // Broadcast activity event for live feed (v11.39)
+    const actingAgent = storage.getAgentById(agentId);
+    broadcast({
+      type: "activity_event",
+      event: {
+        type: outcome,
+        agentId,
+        agentName: actingAgent?.name || "Agent",
+        agentHeadshot: actingAgent?.headshotUrl || null,
+        leadId,
+        address: updatedLead?.address || lead.address,
+        ts: new Date().toISOString(),
+      }
+    });
 
     res.json(updatedLead);
   });
@@ -1411,6 +1451,32 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ agent: { id: agent.id, name: agent.name, email: agent.email }, leads: allLeads, activities });
   });
 
+
+
+  // ─── LIVE ACTIVITY FEED HISTORY (v11.39) ────────────────────────────────
+  // Returns the last N agent_points rows enriched with agent info for history display
+  app.get("/api/admin/activity-feed", (req, res) => {
+    const limit = parseInt(String(req.query.limit || "80"));
+    const rows = rawDb.prepare(`
+      SELECT ap.*, a.name as agent_name, a.headshot_url as agent_headshot
+      FROM agent_points ap
+      LEFT JOIN agents a ON a.id = ap.agent_id
+      ORDER BY ap.created_at DESC
+      LIMIT ?
+    `).all(limit) as any[];
+    res.json(rows.reverse()); // oldest first for the feed
+  });
+
+  // ─── AGENT POINTS TOTAL ───────────────────────────────────────────────────
+  app.get("/api/agents/:id/points", (req, res) => {
+    const agentId = parseInt(req.params.id);
+    const resetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
+    const resetAt: string | null = resetRow?.value || null;
+    const row = rawDb.prepare(
+      `SELECT SUM(points) as total FROM agent_points WHERE agent_id = ? ${resetAt ? "AND created_at >= ?" : ""}`
+    ).get(...([agentId, ...(resetAt ? [resetAt] : [])])) as any;
+    res.json({ points: row?.total || 0 });
+  });
 
   // ─── SCRIPTS (DB-backed, editable) ────────────────────────────────────────
   // Initialize default scripts on first run
@@ -1922,12 +1988,22 @@ This template is for informational/outreach purposes only.`;
       const weekly = { ...buildStats(weekAgentActs,  agent), referrals: weekReferralsMap[agent.id]  || 0 };
 
       return {
-        agent: { id: agent.id, name: agent.name, email: agent.email },
+        agent: { id: agent.id, name: agent.name, email: agent.email, headshotUrl: (agent as any).headshotUrl || null },
         lastActivityAt: lastActivityMap[agent.id] || null,
         today,
         weekly,
       };
     });
+
+    // ─── Compute points per agent from agent_points table (v11.39) ───────────
+    const resetRow2 = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
+    const resetAt2: string | null = resetRow2?.value || null;
+    const allPtsRows = rawDb.prepare(`SELECT agent_id, SUM(points) as total FROM agent_points ${resetAt2 ? "WHERE created_at >= ?" : ""} GROUP BY agent_id`).all(...(resetAt2 ? [resetAt2] : [])) as any[];
+    const ptsMap: Record<number, number> = {};
+    for (const r of allPtsRows) ptsMap[r.agent_id] = r.total || 0;
+    for (const r of result) {
+      (r as any).points = ptsMap[(r.agent as any).id] || 0;
+    }
 
     // Sort weekly by appts desc then dials desc
     result.sort((a, b) => b.weekly.appts - a.weekly.appts || b.weekly.dials - a.weekly.dials);
@@ -2020,6 +2096,10 @@ This template is for informational/outreach purposes only.`;
       batchId: `network_${Date.now()}`,
     }]);
     broadcast({ type: "lead_created", leadId: created.id, assignedAgentId: submitterAgentId });
+    // Activity feed + referral points (v11.39)
+    const _refAgent = submitterAgentId ? storage.getAgentById(submitterAgentId) : null;
+    broadcast({ type: "activity_event", event: { type: "network_lead_submitted", agentId: submitterAgentId, agentName: _refAgent?.name || submittedByName || "Agent", agentHeadshot: (_refAgent as any)?.headshotUrl || null, address: created.address, ts: new Date().toISOString() } });
+    awardPoints(submitterAgentId, "network_referral", created.id);
 
     // ── Notify admins + CRM manager on network lead submission ────────────────
     if (resend) {
@@ -2051,7 +2131,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.38 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v11.39 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -2360,7 +2440,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.38</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.39</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

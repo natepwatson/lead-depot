@@ -11,8 +11,10 @@ import {
   CheckCircle2, AlertTriangle, MapPin, Mail, LogOut,
   TrendingUp, ChevronLeft, ScrollText, ChevronDown,
   ChevronUp, Trophy, Users, Send, UserPlus, Heart,
-  RefreshCw, Briefcase, Clock, PhoneCall, Star,
+  RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
 } from "lucide-react";
+import ProfilePage from "./ProfilePage";
+import TutorialModal from "../components/TutorialModal";
 import type { Lead } from "@shared/schema";
 
 // ─── Logo ─────────────────────────────────────────────────────────────────────
@@ -1389,18 +1391,20 @@ const inputStyle: React.CSSProperties = {
 };
 
 // ─── Nav tabs ─────────────────────────────────────────────────────────────────
-type Tab = "leads" | "leaderboard" | "refer" | "my-leads";
+type Tab = "leads" | "leaderboard" | "refer" | "my-leads" | "profile";
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "leaderboard", label: "Dashboard", icon: Trophy },
   { id: "leads",       label: "Dial",      icon: Phone },
   { id: "my-leads",    label: "My Leads",  icon: Briefcase },
   { id: "refer",       label: "Refer",     icon: UserPlus },
+  { id: "profile",     label: "Profile",   icon: UserCircle2 },
 ];
 
 // ─── Main AgentView ───────────────────────────────────────────────────────────
-export default function AgentView({ onBackToAdmin }: { onBackToAdmin?: () => void } = {}) {
+export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin?: () => void; initialTab?: Tab } = {}) {
   const { user, logout } = useAuth();
-  const [tab, setTab] = useState<Tab>("leaderboard");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "leaderboard");
+  const [showTutorial, setShowTutorial] = useState(false);
   useRealtimeUpdates();
 
   const { data: nextLead, isLoading: leadLoading } = useQuery<Lead | null>({
@@ -1460,15 +1464,28 @@ export default function AgentView({ onBackToAdmin }: { onBackToAdmin?: () => voi
             <p style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em", marginTop: 2 }}>{user?.name}</p>
           </div>
         </div>
-        <button onClick={logout} style={{
-          display: "flex", alignItems: "center", gap: 5,
-          fontSize: 11, color: "rgba(255,255,255,0.4)",
-          background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
-          borderRadius: 6, padding: "6px 10px",
-          cursor: "pointer",
-        }}>
-          <LogOut size={13} /> Sign out
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={() => setShowTutorial(true)}
+            title="How to use Lead Depot"
+            style={{
+              width: 32, height: 32, borderRadius: "50%",
+              background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", color: "rgba(200,170,90,0.6)",
+              fontSize: 13, fontWeight: 700,
+            }}
+          >?</button>
+          <button onClick={logout} style={{
+            display: "flex", alignItems: "center", gap: 5,
+            fontSize: 11, color: "rgba(255,255,255,0.4)",
+            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 6, padding: "6px 10px",
+            cursor: "pointer",
+          }}>
+            <LogOut size={13} /> Sign out
+          </button>
+        </div>
       </header>
 
       {/* ── Leads notification banner ── */}
@@ -1546,6 +1563,7 @@ export default function AgentView({ onBackToAdmin }: { onBackToAdmin?: () => voi
 
         {tab === "my-leads" && <MyLeadsTab />}
         {tab === "refer" && <ReferralTab />}
+        {tab === "profile" && <ProfilePage onBack={() => setTab("leaderboard")} />}
       </main>
 
       {/* ── Bottom nav ── */}
@@ -1597,6 +1615,9 @@ export default function AgentView({ onBackToAdmin }: { onBackToAdmin?: () => voi
         input::placeholder, textarea::placeholder { color: rgba(255,255,255,0.25); }
         input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6) sepia(1) saturate(2) hue-rotate(5deg); }
       `}</style>
+
+      {/* Tutorial modal */}
+      {showTutorial && <TutorialModal onClose={() => setShowTutorial(false)} />}
     </div>
   );
 }

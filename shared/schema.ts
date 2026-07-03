@@ -14,6 +14,11 @@ export const agents = sqliteTable("agents", {
   receiveLeads: integer("receive_leads", { mode: "boolean" }).notNull().default(false),
   leadFlowOn: integer("lead_flow_on", { mode: "boolean" }).notNull().default(true),
   receiveWebsiteLeads: integer("receive_website_leads", { mode: "boolean" }).notNull().default(false),
+  // Agent profile fields
+  phone: text("phone"),
+  brokerage: text("brokerage"),
+  homeAddress: text("home_address"),
+  headshotUrl: text("headshot_url"),
 });
 
 export const insertAgentSchema = createInsertSchema(agents).omit({ id: true });

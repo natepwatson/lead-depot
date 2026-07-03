@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import AdminDashboard from "./pages/AdminDashboard";
 import AgentView from "./pages/AgentView";
+import AccountSetupPage from "./pages/AccountSetupPage";
 import NotFound from "./pages/not-found";
 import { useState } from "react";
 
@@ -16,7 +17,8 @@ function AppRoutes() {
 
   if (!user) return <LoginPage />;
   if (user.role === "admin" && adminViewingLeads) {
-    return <AgentView onBackToAdmin={() => setAdminViewingLeads(false)} />;
+    // Pass initialTab="leads" so admin lands directly on Dial, not Leaderboard
+    return <AgentView onBackToAdmin={() => setAdminViewingLeads(false)} initialTab="leads" />;
   }
   if (user.role === "admin") return <AdminDashboard onWorkMyLeads={() => setAdminViewingLeads(true)} />;
   return <AgentView />;
@@ -28,6 +30,8 @@ export default function App() {
       <AuthProvider>
         <Router hook={useHashLocation}>
           <Switch>
+            {/* Account setup — no auth required, token-gated */}
+            <Route path="/setup/:token" component={AccountSetupPage} />
             <Route path="/" component={AppRoutes} />
             <Route component={NotFound} />
           </Switch>

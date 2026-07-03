@@ -575,7 +575,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [uploadType, setUploadType] = useState<"expired" | "distressed" | "website_lead" | "fsbo" | "land">("expired");
   const [websiteLeadForm, setWebsiteLeadForm] = useState({ firstName: "", lastName: "", email: "", phone: "", address: "", city: "", state: "FL", zip: "", county: "", propertyType: "", reasonForSelling: "", estimatedValue: "", timeframe: "" });
   const [submittingWebsiteLead, setSubmittingWebsiteLead] = useState(false);
-  const [newAgent, setNewAgent] = useState({ name: "", email: "", password: "" });
+  const [newAgent, setNewAgent] = useState({ name: "", email: "" });
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -621,15 +621,19 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   });
 
   const createAgentMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("POST", "/api/agents", data).then(r => r.json()),
+    mutationFn: (data: any) => apiRequest("POST", "/api/agents/invite", data).then(async r => {
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || "Failed to invite agent");
+      return body;
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/agents"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
       setAgentDialogOpen(false);
-      setNewAgent({ name: "", email: "", password: "" });
-      toast({ title: "Agent added" });
+      setNewAgent({ name: "", email: "" });
+      toast({ title: "Invitation sent", description: "The agent will receive an email to complete their account setup." });
     },
-    onError: () => toast({ title: "Email already exists", variant: "destructive" }),
+    onError: (e: any) => toast({ title: e.message || "Email already exists", variant: "destructive" }),
   });
 
   const deleteAgentMutation = useMutation({
@@ -898,7 +902,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.36
+              v11.37
             </p>
           </div>
         </div>
@@ -1720,17 +1724,16 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             </DialogTitle>
                           </DialogHeader>
                           <div className="space-y-3 mt-2">
+                            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", lineHeight: 1.6, margin: "0 0 8px" }}>
+                              Enter the agent's name and email. They'll receive a secure invitation link to set their own password and complete their profile.
+                            </p>
                             <div className="space-y-1">
                               <Label className="text-xs text-foreground/60">Full Name</Label>
                               <Input value={newAgent.name} onChange={e => setNewAgent(p => ({...p, name: e.target.value}))} className="bg-secondary border-border" placeholder="Jane Smith" data-testid="input-agent-name"/>
                             </div>
                             <div className="space-y-1">
-                              <Label className="text-xs text-foreground/60">Email</Label>
-                              <Input type="email" value={newAgent.email} onChange={e => setNewAgent(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="jane@bgre.com" data-testid="input-agent-email"/>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs text-foreground/60">Password</Label>
-                              <Input type="text" value={newAgent.password} onChange={e => setNewAgent(p => ({...p, password: e.target.value}))} className="bg-secondary border-border" placeholder="Set their initial password" data-testid="input-agent-password"/>
+                              <Label className="text-xs text-foreground/60">Email Address</Label>
+                              <Input type="email" value={newAgent.email} onChange={e => setNewAgent(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="jane@momentum.com" data-testid="input-agent-email"/>
                             </div>
                             <button
                               style={{
@@ -1739,13 +1742,13 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                 border: "none", borderRadius: 6,
                                 fontSize: 12, fontWeight: 600, letterSpacing: "0.08em",
                                 color: "#080808", cursor: "pointer",
-                                opacity: (createAgentMutation.isPending || !newAgent.name || !newAgent.email || !newAgent.password) ? 0.5 : 1,
+                                opacity: (createAgentMutation.isPending || !newAgent.name || !newAgent.email) ? 0.5 : 1,
                               }}
-                              onClick={() => createAgentMutation.mutate({ ...newAgent, role: "agent" })}
-                              disabled={createAgentMutation.isPending || !newAgent.name || !newAgent.email || !newAgent.password}
+                              onClick={() => createAgentMutation.mutate({ name: newAgent.name, email: newAgent.email })}
+                              disabled={createAgentMutation.isPending || !newAgent.name || !newAgent.email}
                               data-testid="button-save-agent"
                             >
-                              {createAgentMutation.isPending ? "Adding…" : "Add Agent"}
+                              {createAgentMutation.isPending ? "Sending invite…" : "Send Invitation"}
                             </button>
                           </div>
                         </DialogContent>

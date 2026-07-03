@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
+import { randomBytes } from "node:crypto";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -115,7 +116,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.36 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.37 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -155,7 +156,16 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const agent = storage.getAgentById(id);
     if (!agent) return res.status(404).json({ error: "Not found" });
     if (!agent.isActive) return res.status(403).json({ error: "Account deactivated" });
-    res.json({ agent: { id: agent.id, name: agent.name, email: agent.email, role: agent.role } });
+    res.json({ agent: {
+      id: agent.id,
+      name: agent.name,
+      email: agent.email,
+      role: agent.role,
+      phone: (agent as any).phone ?? "",
+      brokerage: (agent as any).brokerage ?? "",
+      homeAddress: (agent as any).home_address ?? "",
+      headshotUrl: (agent as any).headshot_url ?? "",
+    }});
   });
 
   // ─── AGENTS ───────────────────────────────────────────────────────────────
@@ -187,6 +197,114 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const updated = storage.updateAgent(id, req.body);
     if (!updated) return res.status(404).json({ error: "Agent not found" });
     res.json({ ...updated, password: undefined });
+  });
+
+  // ─── AGENT INVITATION ─────────────────────────────────────────────────────
+  // POST /api/agents/invite — admin sends invite with just name + email
+  app.post("/api/agents/invite", async (req, res) => {
+    const { name, email } = req.body;
+    if (!name || !email) return res.status(400).json({ error: "Name and email required" });
+    const cleanEmail = email.toLowerCase().trim();
+
+    // Check duplicate
+    const existing = rawDb.prepare("SELECT id FROM agents WHERE email = ?").get(cleanEmail);
+    if (existing) return res.status(409).json({ error: "An agent with this email already exists" });
+
+    // Create account with random temp password (they'll set their own)
+    const tempPass = randomBytes(12).toString("hex");
+    const token = randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(); // 72h
+
+    let agent: any;
+    try {
+      agent = storage.createAgent({
+        name,
+        email: cleanEmail,
+        password: tempPass,
+        role: "agent",
+        roundRobinOrder: 0,
+        isActive: true,
+      });
+    } catch (e: any) {
+      return res.status(409).json({ error: "Email already exists" });
+    }
+
+    // Store token + mark not yet onboarded
+    rawDb.prepare("UPDATE agents SET setup_token = ?, setup_expires = ?, onboarded = 0 WHERE id = ?")
+      .run(token, expires, agent.id);
+
+    // Determine app base URL
+    const appBase = process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : process.env.APP_URL ?? "https://depot.watsonbrothersgroup.com";
+    const setupLink = `${appBase}/#/setup/${token}`;
+
+    // Send invitation email
+    if (resend) {
+      await resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to: cleanEmail,
+        subject: "You're invited to Lead Depot — Complete your account setup",
+        html: `
+          <div style="font-family:'Georgia',serif;background:#09090b;color:#e5e5e5;padding:40px 24px;max-width:600px;margin:0 auto;border-radius:12px;">
+            <div style="text-align:center;margin-bottom:32px;">
+              <svg width="44" height="44" viewBox="0 0 36 36" fill="none" style="margin-bottom:12px;">
+                <rect x="2" y="18" width="32" height="15" rx="1" stroke="#c8aa5a" stroke-width="1.6"/>
+                <path d="M2 18 L18 5 L34 18" stroke="#c8aa5a" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
+                <rect x="13" y="24" width="10" height="9" rx="0.5" stroke="#c8aa5a" stroke-width="1.4"/>
+              </svg>
+              <p style="color:#c8aa5a;letter-spacing:0.18em;font-size:11px;text-transform:uppercase;margin:0;">Brothers Group · Momentum Realty</p>
+            </div>
+            <h1 style="color:#fff;font-weight:300;font-size:28px;margin:0 0 8px;">Welcome, ${name}.</h1>
+            <p style="color:rgba(255,255,255,0.6);font-size:15px;line-height:1.7;margin:0 0 32px;">You've been invited to <strong style="color:#c8aa5a;">Lead Depot</strong> — the lead management platform for Brothers Group at Momentum Realty. Click below to set up your account with a secure password and complete your agent profile.</p>
+            <div style="text-align:center;margin-bottom:32px;">
+              <a href="${setupLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Complete My Account Setup</a>
+            </div>
+            <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.15);padding-top:20px;">This invitation link expires in 72 hours. If you did not expect this invitation, you can safely ignore this email.<br/><br/>Lead Depot · Brothers Group at Momentum Realty · Fernandina Beach, FL</p>
+          </div>
+        `,
+      });
+    }
+
+    res.json({ success: true, agentId: agent.id });
+  });
+
+  // GET /api/agents/setup/:token — validate token and return agent name/email
+  app.get("/api/agents/setup/:token", (req, res) => {
+    const { token } = req.params;
+    const agent = rawDb.prepare("SELECT id, name, email, setup_expires, onboarded FROM agents WHERE setup_token = ?").get(token);
+    if (!agent) return res.status(404).json({ error: "Invalid or expired setup link" });
+    if (agent.onboarded) return res.status(410).json({ error: "This setup link has already been used" });
+    if (new Date(agent.setup_expires) < new Date()) return res.status(410).json({ error: "Setup link has expired. Ask your admin to resend the invite." });
+    res.json({ id: agent.id, name: agent.name, email: agent.email });
+  });
+
+  // POST /api/agents/setup/:token — complete onboarding
+  app.post("/api/agents/setup/:token", async (req, res) => {
+    const { token } = req.params;
+    const { password, phone, brokerage, homeAddress, headshotUrl } = req.body;
+    if (!password || password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+
+    const agent = rawDb.prepare("SELECT id, name, email, setup_expires, onboarded FROM agents WHERE setup_token = ?").get(token);
+    if (!agent) return res.status(404).json({ error: "Invalid or expired setup link" });
+    if (agent.onboarded) return res.status(410).json({ error: "Already set up" });
+    if (new Date(agent.setup_expires) < new Date()) return res.status(410).json({ error: "Link expired" });
+
+    // Update agent — set real password + profile + mark onboarded, clear token
+    rawDb.prepare(`
+      UPDATE agents SET
+        password = ?,
+        phone = ?,
+        brokerage = ?,
+        home_address = ?,
+        headshot_url = ?,
+        onboarded = 1,
+        setup_token = NULL,
+        setup_expires = NULL
+      WHERE id = ?
+    `).run(password, phone ?? "", brokerage ?? "", homeAddress ?? "", headshotUrl ?? "", agent.id);
+
+    res.json({ success: true, name: agent.name, email: agent.email });
   });
 
 
@@ -274,6 +392,90 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const updated = storage.updateAgent(id, { isActive: true, leadFlowOn: true });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
     res.json({ ...updated, password: undefined });
+  });
+
+  // ─── AGENT PROFILE SELF-SERVICE ──────────────────────────────────────────────
+
+  // Update own profile (name, email, phone, brokerage, homeAddress, headshotUrl)
+  app.patch("/api/agents/:id/profile", (req, res) => {
+    const id = parseInt(req.params.id);
+    const agent = storage.getAgentById(id);
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+    const { name, email, phone, brokerage, homeAddress, headshotUrl } = req.body;
+    // Validate email uniqueness if changed
+    if (email && email.toLowerCase().trim() !== agent.email) {
+      const existing = storage.getAgentByEmail(email.toLowerCase().trim());
+      if (existing) return res.status(409).json({ error: "Email already in use" });
+    }
+    const updates: any = {};
+    if (name        !== undefined) updates.name        = name.trim();
+    if (email       !== undefined) updates.email       = email.toLowerCase().trim();
+    if (phone       !== undefined) updates.phone       = phone.trim();
+    if (brokerage   !== undefined) updates.brokerage   = brokerage.trim();
+    if (homeAddress !== undefined) updates.homeAddress = homeAddress.trim();
+    if (headshotUrl !== undefined) updates.headshotUrl = headshotUrl.trim();
+    const updated = storage.updateAgent(id, updates);
+    if (!updated) return res.status(500).json({ error: "Update failed" });
+    res.json({ ...updated, password: undefined });
+  });
+
+  // Change own password
+  app.patch("/api/agents/:id/password", (req, res) => {
+    const id = parseInt(req.params.id);
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: "Missing fields" });
+    if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+    const agent = storage.getAgentById(id);
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+    if (agent.password !== currentPassword) return res.status(401).json({ error: "Current password is incorrect" });
+    const updated = storage.updateAgent(id, { password: newPassword });
+    res.json({ ok: true });
+  });
+
+  // Upload headshot — base64 encoded image stored inline (≤ 200KB)
+  app.post("/api/agents/:id/headshot", (req, res) => {
+    const id = parseInt(req.params.id);
+    const { imageData, mimeType } = req.body; // imageData = base64 string
+    if (!imageData || !mimeType) return res.status(400).json({ error: "Missing imageData or mimeType" });
+    const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (!supportedTypes.includes(mimeType)) return res.status(400).json({ error: "Unsupported image type" });
+    // Limit size: base64 of 200KB ≈ 273K chars
+    if (imageData.length > 300000) return res.status(413).json({ error: "Image too large. Max 200KB." });
+    const dataUrl = `data:${mimeType};base64,${imageData}`;
+    const updated = storage.updateAgent(id, { headshotUrl: dataUrl });
+    if (!updated) return res.status(404).json({ error: "Agent not found" });
+    res.json({ headshotUrl: dataUrl });
+  });
+
+  // Delete own account — removes all activity, unassigns leads, then deletes agent
+  app.delete("/api/agents/:id/self", (req, res) => {
+    const id = parseInt(req.params.id);
+    const { password } = req.body;
+    const agent = storage.getAgentById(id);
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+    if (agent.password !== password) return res.status(401).json({ error: "Password incorrect" });
+    // Must have at least one receiver remaining
+    const receiversAfter = countLeadReceivers(id);
+    if (receiversAfter === 0) {
+      return res.status(409).json({ error: "Cannot delete — you are the last active lead receiver. Transfer your leads first or activate another agent." });
+    }
+    // Unassign and recycle all active leads
+    const allLeads = storage.getAllLeads();
+    for (const lead of allLeads) {
+      if (lead.assignedAgentId !== id) continue;
+      if (lead.status === "keep_in_touch" || lead.status === "contacted_appointment") continue;
+      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+      if (nextAgent) {
+        storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
+        storage.updateRoundRobinState(nextAgent.id);
+      } else {
+        storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
+      }
+    }
+    // Soft-delete: mark inactive so activity history is preserved
+    storage.updateAgent(id, { isActive: false, leadFlowOn: false, receiveWebsiteLeads: false });
+    broadcast({ type: "leads_updated" });
+    res.json({ deleted: true });
   });
 
 
@@ -473,38 +675,67 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     rawDb.prepare("INSERT OR REPLACE INTO geo_cache (address_key, lat, lng, cached_at) VALUES (?, ?, ?, ?)").run(key, lat, lng, new Date().toISOString());
   }
 
-  // Census Bureau bulk geocoder — up to 1000 addresses per call, no key, fast
-  async function censusGeocodeAddresses(items: { id: number; addr: string }[]): Promise<Map<number, { lat: number; lng: number }>> {
+  // Census Bureau bulk geocoder — up to 1000 addresses per call, no key needed
+  // CSV format required by Census: Unique ID, Street Address, City, State, ZIP
+  async function censusGeocodeAddresses(items: { id: number; addr: string; street: string; city: string; state: string; zip: string }[]): Promise<Map<number, { lat: number; lng: number }>> {
     const results = new Map<number, { lat: number; lng: number }>();
     if (items.length === 0) return results;
 
-    // Build CSV for Census batch API
-    const csv = items.map(i => `${i.id},"${i.addr.replace(/"/g, "'")}",,,`).join("\n");
+    // Census requires separate columns: ID,Street,City,State,ZIP
+    const esc = (s: string) => s.replace(/"/g, "'").replace(/,/g, " ");
+    const csv = items.map(i =>
+      `${i.id},"${esc(i.street)}","${esc(i.city)}","${esc(i.state || "FL")}","${esc(i.zip)}"`
+    ).join("\n");
+
     const form = new FormData();
     form.append("benchmark", "Public_AR_Current");
-    form.append("vintage", "Current_Current");
-    form.append("format", "json");
     const blob = new Blob([csv], { type: "text/csv" });
     form.append("addressFile", blob, "addresses.csv");
 
     try {
       const resp = await fetch("https://geocoding.geo.census.gov/geocoder/locations/addressbatch", { method: "POST", body: form, signal: AbortSignal.timeout(30000) });
       const text = await resp.text();
-      // Parse CSV response: id,inputAddr,matchStatus,matchType,outputAddr,coords,tigerLineId,side
+      // Response CSV: id,inputAddr,matchStatus,matchType,outputAddr,"lng,lat",tigerLineId,side
       for (const line of text.split("\n")) {
-        const cols = line.split(",");
+        if (!line.trim()) continue;
+        // Handle quoted fields properly
+        const cols = line.match(/(?:"[^"]*"|[^,])+/g)?.map(c => c.replace(/^"|"$/g, "").trim()) ?? [];
         if (cols.length < 6) continue;
         const id = parseInt(cols[0]);
         const matched = cols[2]?.trim().toLowerCase();
-        const coords = cols[5]?.replace(/"/g, "").trim();
-        if (isNaN(id) || matched !== "match" || !coords) continue;
-        const [lngStr, latStr] = coords.split(",");
-        const lat = parseFloat(latStr); const lng = parseFloat(lngStr);
-        if (!isNaN(lat) && !isNaN(lng)) results.set(id, { lat, lng });
+        if (isNaN(id) || matched !== "match") continue;
+        // Census returns coords as "lng,lat" in column 5
+        const coordStr = cols[5]?.trim();
+        if (!coordStr) continue;
+        const parts = coordStr.split(",");
+        if (parts.length < 2) continue;
+        const lng = parseFloat(parts[0]); const lat = parseFloat(parts[1]);
+        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) results.set(id, { lat, lng });
       }
     } catch (e) {
       console.error("[geocode] Census batch failed:", e);
     }
+
+    // Nominatim fallback for any that Census couldn't match
+    const unmatched = items.filter(i => !results.has(i.id));
+    for (const item of unmatched) {
+      if (!item.street) continue;
+      try {
+        const q = encodeURIComponent([item.street, item.city, item.state || "FL", "USA"].filter(Boolean).join(", "));
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=us`, {
+          headers: { "User-Agent": "LeadDepot/1.0 (lead-depot@watsonbrothersgroup.com)" },
+          signal: AbortSignal.timeout(8000),
+        });
+        const data = await r.json() as any[];
+        if (data.length > 0) {
+          const lat = parseFloat(data[0].lat); const lng = parseFloat(data[0].lon);
+          if (!isNaN(lat) && !isNaN(lng)) results.set(item.id, { lat, lng });
+        }
+        // Respect Nominatim rate limit (1 req/sec)
+        await new Promise(res => setTimeout(res, 1100));
+      } catch {}
+    }
+
     return results;
   }
 
@@ -541,13 +772,17 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     });
 
     // Check cache for each lead, collect uncached ones
-    const uncached: { id: number; addr: string }[] = [];
+    const uncached: { id: number; addr: string; street: string; city: string; state: string; zip: string }[] = [];
     const coordMap = new Map<number, { lat: number; lng: number }>();
     for (const l of mapLeads) {
       const key = geoKey(l.fullAddr);
       const cached = getCached(key);
       if (cached) { coordMap.set(l.id, cached); }
-      else if (l.address) { uncached.push({ id: l.id, addr: l.fullAddr }); }
+      else if (l.address) {
+        // street = first part of address before any comma
+        const street = l.address.split(",")[0].trim();
+        uncached.push({ id: l.id, addr: l.fullAddr, street, city: l.city, state: l.state, zip: l.zip });
+      }
     }
 
     // Geocode uncached addresses in batches of 1000 (Census limit)
@@ -570,6 +805,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       .filter((l: any) => l.lat !== undefined);
 
     res.json(result);
+  });
+
+  // Flush geo_cache so all pins are re-geocoded with the corrected format
+  app.delete("/api/admin/geo-cache", (_req, res) => {
+    rawDb.prepare("DELETE FROM geo_cache").run();
+    res.json({ cleared: true });
   });
 
   app.get("/api/leads/stats", (req, res) => {
@@ -1742,7 +1983,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.36 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v11.37 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -2051,7 +2292,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.36</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.37</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

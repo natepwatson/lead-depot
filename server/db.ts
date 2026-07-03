@@ -48,3 +48,16 @@ rawDb.prepare(`
     updated_at TEXT NOT NULL
   )
 `).run();
+
+// ─── Agent profile columns migration (v11.37) ─────────────────────────────────
+// ALTER TABLE is safe to run repeatedly — SQLite ignores "duplicate column" errors
+const agentCols = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
+if (!agentCols.includes("phone"))        rawDb.prepare("ALTER TABLE agents ADD COLUMN phone TEXT").run();
+if (!agentCols.includes("brokerage"))    rawDb.prepare("ALTER TABLE agents ADD COLUMN brokerage TEXT").run();
+if (!agentCols.includes("home_address")) rawDb.prepare("ALTER TABLE agents ADD COLUMN home_address TEXT").run();
+if (!agentCols.includes("headshot_url")) rawDb.prepare("ALTER TABLE agents ADD COLUMN headshot_url TEXT").run();
+
+// ─── Agent onboarding token columns (v11.37) ──────────────────────────────────
+if (!agentCols.includes("setup_token"))    rawDb.prepare("ALTER TABLE agents ADD COLUMN setup_token TEXT").run();
+if (!agentCols.includes("setup_expires"))  rawDb.prepare("ALTER TABLE agents ADD COLUMN setup_expires TEXT").run();
+if (!agentCols.includes("onboarded"))      rawDb.prepare("ALTER TABLE agents ADD COLUMN onboarded INTEGER DEFAULT 0").run();

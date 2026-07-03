@@ -510,8 +510,13 @@ export async function fubCreateAgentRecruit(data: AgentRecruitPayload): Promise<
 
   const personId = result.data?.person?.id ?? null;
 
-  // Post structured intake note
   if (personId) {
+    // Force stage to "Agent Recruit Lead" (ID 31) via PATCH — the stage field
+    // in POST /events person object is not always respected by FUB.
+    await fubRequest("PUT", `/people/${personId}`, { stageId: 31 });
+    console.log(`[FUB] Agent recruit stage set → Agent Recruit Lead (person ${personId})`);
+
+    // Post structured intake note
     await fubRequest("POST", "/notes", {
       personId,
       body: noteLines.join("\n"),

@@ -1,0 +1,153 @@
+{
+  "version": "1.0",
+  "description": "Lead Depot agent coaching tips. Add, edit, or reorder freely. Each tip needs: id, category, type, text, and optional author.",
+  "categories": {
+    "focus":    { "label": "Focus",     "color": "#67e8f9" },
+    "mindset":  { "label": "Mindset",   "color": "#86efac" },
+    "strategy": { "label": "Strategy",  "color": "#c8aa5a" },
+    "team":     { "label": "Team",      "color": "#c4b5fd" },
+    "selfcare": { "label": "Self-Care", "color": "#fbcfe8" }
+  },
+  "tips": [
+    {
+      "id": 1,
+      "category": "focus",
+      "type": "tip",
+      "text": "Time-block your calls. 45 minutes on, 15 off. You'll dial more and burn out less.",
+      "author": null
+    },
+    {
+      "id": 2,
+      "category": "focus",
+      "type": "tip",
+      "text": "Before you dial, silence everything else. One tab, one lead, one conversation at a time.",
+      "author": null
+    },
+    {
+      "id": 3,
+      "category": "focus",
+      "type": "tip",
+      "text": "Set a dial goal before you open Lead Depot. 20 dials. 30 dials. Whatever it is — commit to it first.",
+      "author": null
+    },
+    {
+      "id": 4,
+      "category": "focus",
+      "type": "quote",
+      "text": "The secret of getting ahead is getting started.",
+      "author": "Mark Twain"
+    },
+    {
+      "id": 5,
+      "category": "mindset",
+      "type": "tip",
+      "text": "Every no is one call closer to the yes. The math is always working in your favor.",
+      "author": null
+    },
+    {
+      "id": 6,
+      "category": "mindset",
+      "type": "tip",
+      "text": "You are not interrupting their day — you are offering a solution to a problem they haven't solved yet.",
+      "author": null
+    },
+    {
+      "id": 7,
+      "category": "mindset",
+      "type": "quote",
+      "text": "Success is the sum of small efforts repeated day in and day out.",
+      "author": "Robert Collier"
+    },
+    {
+      "id": 8,
+      "category": "mindset",
+      "type": "tip",
+      "text": "A tough morning session doesn't define your day. Reset between blocks. Shake it off and dial again.",
+      "author": null
+    },
+    {
+      "id": 9,
+      "category": "strategy",
+      "type": "tip",
+      "text": "If they hesitate, ask: 'What would need to be true for this to make sense for you?' Then listen.",
+      "author": null
+    },
+    {
+      "id": 10,
+      "category": "strategy",
+      "type": "tip",
+      "text": "Use LPMAMAB as a checklist, not a script. The goal is a real conversation, not a perfect read-through.",
+      "author": null
+    },
+    {
+      "id": 11,
+      "category": "strategy",
+      "type": "tip",
+      "text": "Lead with curiosity, not urgency. Ask about their timeline before you pitch yours.",
+      "author": null
+    },
+    {
+      "id": 12,
+      "category": "strategy",
+      "type": "tip",
+      "text": "The best appointment-setters talk less and listen more. Ask a question, then go quiet.",
+      "author": null
+    },
+    {
+      "id": 13,
+      "category": "strategy",
+      "type": "tip",
+      "text": "When you reach voicemail, leave a confident 15-second message. Your name, one sentence of value, your number — twice.",
+      "author": null
+    },
+    {
+      "id": 14,
+      "category": "team",
+      "type": "tip",
+      "text": "Need a roleplay? Text the group — someone's always down to practice. Ten minutes of roleplay beats a hundred cold calls.",
+      "author": null
+    },
+    {
+      "id": 15,
+      "category": "team",
+      "type": "tip",
+      "text": "Group call hours are there for a reason. There's energy in dialing together that you can't manufacture alone.",
+      "author": null
+    },
+    {
+      "id": 16,
+      "category": "team",
+      "type": "tip",
+      "text": "If you're stuck on an objection, bring it to training. Chances are everyone else is hearing it too.",
+      "author": null
+    },
+    {
+      "id": 17,
+      "category": "team",
+      "type": "quote",
+      "text": "Alone we can do so little; together we can do so much.",
+      "author": "Helen Keller"
+    },
+    {
+      "id": 18,
+      "category": "selfcare",
+      "type": "tip",
+      "text": "You can't pour from an empty cup. Hydrate, move your body, and dial.",
+      "author": null
+    },
+    {
+      "id": 19,
+      "category": "selfcare",
+      "type": "tip",
+      "text": "Take your breaks. A rested agent converts better than a burned-out one every single time.",
+      "author": null
+    },
+    {
+      "id": 20,
+      "category": "selfcare",
+      "type": "tip",
+      "text": "Celebrate the small wins. A KIT is a win. A real conversation is a win. Track them — they add up.",
+      "author": null
+    }
+  ]
+}

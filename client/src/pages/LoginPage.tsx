@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import coachingTips from "../data/coaching-tips.json";
 
 // ─── Logo SVG ─────────────────────────────────────────────────────────────────
 function LogoIcon() {
@@ -31,6 +32,13 @@ export default function LoginPage() {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState("");
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+
+  // Pick one random tip per login session
+  const tip = useMemo(() => {
+    const tips = coachingTips.tips;
+    return tips[Math.floor(Math.random() * tips.length)];
+  }, []);
+  const tipCategory = tip ? coachingTips.categories[tip.category as keyof typeof coachingTips.categories] : null;
   const [isIOS, setIsIOS]       = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
 
@@ -282,12 +290,48 @@ export default function LoginPage() {
               </button>
             </form>
 
+            {/* Coaching Tip */}
+            {tip && tipCategory && (
+              <div style={{
+                marginTop: 20,
+                padding: "14px 16px",
+                background: "rgba(255,255,255,0.03)",
+                border: `1px solid ${tipCategory.color}22`,
+                borderLeft: `3px solid ${tipCategory.color}`,
+                borderRadius: 10,
+              }}>
+                <div style={{
+                  fontSize: 9, fontWeight: 600, letterSpacing: "0.1em",
+                  textTransform: "uppercase", color: tipCategory.color,
+                  marginBottom: 6, opacity: 0.85,
+                }}>
+                  {tipCategory.label}
+                </div>
+                <p style={{
+                  fontSize: 12, color: "rgba(255,255,255,0.55)",
+                  lineHeight: 1.6, margin: 0,
+                  fontFamily: tip.type === "quote" ? "'Cormorant Garamond','Georgia',serif" : "'Switzer','Inter',sans-serif",
+                  fontStyle: tip.type === "quote" ? "italic" : "normal",
+                }}>
+                  {tip.type === "quote" ? `"${tip.text}"` : tip.text}
+                </p>
+                {tip.author && (
+                  <p style={{
+                    fontSize: 10, color: "rgba(255,255,255,0.25)",
+                    margin: "6px 0 0", letterSpacing: "0.05em",
+                  }}>
+                    — {tip.author}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Version */}
             <p style={{
               fontSize: 10, color: "rgba(255,255,255,0.15)", textAlign: "center",
-              marginTop: 24, marginBottom: 0, letterSpacing: "0.08em",
+              marginTop: 16, marginBottom: 0, letterSpacing: "0.08em",
             }}>
-              Lead Depot v11.30
+              Lead Depot v11.31
             </p>
           </div>
 

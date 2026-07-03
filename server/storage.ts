@@ -37,6 +37,14 @@ try { sqlite.exec(`ALTER TABLE agents ADD COLUMN headshot_url TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN setup_token TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN setup_expires TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN onboarded INTEGER DEFAULT 0`); } catch {}
+// LPMAMAB columns on leads (v11.38) — must exist before Drizzle queries leads table
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_location TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_price_paid TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_motivation TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_agent_history TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_mortgage TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_appointment TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_buy TEXT`); } catch {}
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS agents (

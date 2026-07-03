@@ -115,7 +115,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.33 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.34 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -263,27 +263,37 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Use when adding a new agent — redistributes every lead no agent has interacted with yet
   // so the new agent and all others get an even share immediately.
   app.post("/api/admin/redistribute-unseen", (req, res) => {
-    // Find leads with no activity at all — these are untouched regardless of assigned status
-    const touchedIds = new Set<number>(
-      (rawDb.prepare("SELECT DISTINCT lead_id FROM lead_activity").all() as any[]).map((r: any) => r.lead_id)
-    );
-    const SKIP = ["contacted_not_interested", "contacted_appointment", "keep_in_touch", "callback_requested", "wrong_number"];
-    const allLeads = storage.getAllLeads();
-    const unseen = allLeads.filter(l => !SKIP.includes(l.status) && !touchedIds.has(l.id));
-    let reassigned = 0;
-    let skipped = 0;
-    for (const lead of unseen) {
-      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-      if (nextAgent) {
-        storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
-        storage.updateRoundRobinState(nextAgent.id);
-        reassigned++;
-      } else {
-        skipped++;
+    try {
+      // Find leads with no activity at all — these are untouched regardless of assigned status
+      const touchedIds = new Set<number>(
+        (rawDb.prepare("SELECT DISTINCT lead_id FROM lead_activity").all() as any[]).map((r: any) => r.lead_id)
+      );
+      const SKIP = ["contacted_not_interested", "contacted_appointment", "keep_in_touch", "callback_requested", "wrong_number"];
+      const allLeads = storage.getAllLeads();
+      const unseen = allLeads.filter(l => !SKIP.includes(l.status) && !touchedIds.has(l.id));
+      let reassigned = 0;
+      let skipped = 0;
+      for (const lead of unseen) {
+        try {
+          const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+          if (nextAgent) {
+            storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
+            storage.updateRoundRobinState(nextAgent.id);
+            reassigned++;
+          } else {
+            skipped++;
+          }
+        } catch (leadErr) {
+          console.error(`[redistribute-unseen] Failed on lead ${lead.id}:`, leadErr);
+          skipped++;
+        }
       }
+      if (reassigned > 0) broadcast({ type: "leads_updated" });
+      res.json({ total: unseen.length, reassigned, skipped });
+    } catch (err) {
+      console.error("[redistribute-unseen] Fatal error:", err);
+      res.status(500).json({ error: "Failed to redistribute leads. Check server logs." });
     }
-    if (reassigned > 0) broadcast({ type: "leads_updated" });
-    res.json({ total: unseen.length, reassigned, skipped });
   });
 
   // Toggle admin as lead receiver
@@ -1710,7 +1720,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.33 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v11.34 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -2019,7 +2029,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.33</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.34</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

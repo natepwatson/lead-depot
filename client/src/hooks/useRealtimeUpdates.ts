@@ -25,6 +25,7 @@ export function useRealtimeUpdates() {
         try {
           const event = JSON.parse(e.data);
           switch (event.type) {
+            case "leads_updated":  // bulk broadcast (redistribute, morning run, etc.)
             case "lead_updated":
             case "lead_created":
               // Invalidate all lead-related queries so every view refreshes

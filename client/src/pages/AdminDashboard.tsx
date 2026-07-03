@@ -702,6 +702,9 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     mutationFn: () => apiRequest("POST", "/api/admin/redistribute-unseen").then(r => r.json()),
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["/api/leads"] });
+      qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+      qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("/api/leads/my-count") });
+      qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
       const skippedNote = data.skipped > 0 ? ` ${data.skipped} could not be assigned (no eligible agent for that lead type).` : "";
       if (data.reassigned === 0 && data.total === 0) {
         toast({ title: "No unseen leads", description: "All leads have already been contacted or are in a closed state." });
@@ -895,7 +898,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.33
+              v11.34
             </p>
           </div>
         </div>
@@ -1471,7 +1474,11 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   size="sm"
                   style={{ borderColor: "rgba(200,170,90,0.3)", color: "rgba(200,170,90,0.85)", fontSize: 12 }}
                   className="gap-1.5 hover:bg-yellow-900/20"
-                  onClick={() => redistributeUnseenMutation.mutate()}
+                  onClick={() => {
+                    if (confirm("Redistribute Unseen Leads?\n\nThis will re-assign every lead no agent has interacted with yet — including already-assigned leads that haven't been touched. All agents get a fresh even share.\n\nThis cannot be undone. Continue?")) {
+                      redistributeUnseenMutation.mutate();
+                    }
+                  }}
                   disabled={redistributeUnseenMutation.isPending}
                 >
                   <Users size={11}/>{redistributeUnseenMutation.isPending ? "Redistributing…" : "Redistribute Unseen"}

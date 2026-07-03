@@ -43,8 +43,8 @@ const LPMAMAB_FIELDS = [
 const OUTCOMES = [
   { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.12)",  border: "rgba(236,72,153,0.4)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.22)" },
   { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.12)",   border: "rgba(34,197,94,0.4)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.22)" },
-  { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
   { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },
+  { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
   { key: "wrong_number",            label: "Wrong #",       icon: AlertTriangle, bg: "rgba(239,68,68,0.08)",   border: "rgba(239,68,68,0.25)",   text: "rgba(252,165,165,0.8)", hoverBg: "rgba(239,68,68,0.15)" },
 ] as const;
 
@@ -313,7 +313,7 @@ function CallbackModal({
 }
 
 // ─── Recycle Button ──────────────────────────────────────────────────────────
-function RecycleButton({ lead }: { lead: Lead }) {
+function RecycleButton({ lead, inGrid = false }: { lead: Lead; inGrid?: boolean }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -350,22 +350,44 @@ function RecycleButton({ lead }: { lead: Lead }) {
     resize: "none" as const,
   };
 
+  // In-grid mode: render just the button cell (no outer padding wrapper)
+  const triggerBtn = (
+    <button
+      onClick={() => setConfirming(true)}
+      style={{
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+        padding: "14px 8px", width: "100%", height: "100%", minHeight: 70,
+        background: "rgba(239,68,68,0.06)",
+        border: "1px solid rgba(239,68,68,0.25)",
+        borderRadius: 10, cursor: "pointer",
+        transition: "all 0.18s ease",
+      }}
+      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(239,68,68,0.14)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(252,165,165,0.6)"; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(239,68,68,0.06)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(239,68,68,0.25)"; }}
+    >
+      <RefreshCw size={18} style={{ color: "rgba(252,165,165,0.8)" }} />
+      <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(252,165,165,0.8)", letterSpacing: "0.03em", textAlign: "center", lineHeight: 1.3 }}>Recycle</span>
+    </button>
+  );
+
   return (
     <>
-      <div style={{ padding: "0 20px 16px" }}>
-        <button
-          onClick={() => setConfirming(true)}
-          style={{
-            width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            padding: "13px", borderRadius: 10, border: "1px solid rgba(239,68,68,0.3)",
-            background: "rgba(239,68,68,0.06)", cursor: "pointer",
-            fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
-            color: "rgba(252,165,165,0.85)", transition: "all 0.18s",
-          }}
-        >
-          <RefreshCw size={14} /> Recycle Lead
-        </button>
-      </div>
+      {inGrid ? triggerBtn : (
+        <div style={{ padding: "0 20px 16px" }}>
+          <button
+            onClick={() => setConfirming(true)}
+            style={{
+              width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              padding: "13px", borderRadius: 10, border: "1px solid rgba(239,68,68,0.3)",
+              background: "rgba(239,68,68,0.06)", cursor: "pointer",
+              fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
+              color: "rgba(252,165,165,0.85)", transition: "all 0.18s",
+            }}
+          >
+            <RefreshCw size={14} /> Recycle Lead
+          </button>
+        </div>
+      )}
 
       {/* Recycle confirm sheet */}
       {confirming && (
@@ -778,7 +800,7 @@ function LeadCard({ lead }: { lead: Lead }) {
 
       <GoldDivider />
 
-      {/* ── Outcome buttons ── */}
+      {/* ── Outcome buttons + Recycle (symmetrical 3×2 grid) ── */}
       <div style={{ padding: "0 20px 24px" }}>
         <SectionLabel>Log Outcome</SectionLabel>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
@@ -803,11 +825,10 @@ function LeadCard({ lead }: { lead: Lead }) {
               </button>
             );
           })}
+          {/* Recycle — 6th cell, completing the 3×2 grid */}
+          <RecycleButton lead={lead} inGrid />
         </div>
       </div>
-
-      {/* ── Recycle Lead ── */}
-      <RecycleButton lead={lead} />
 
       {/* Appt / Keep-in-Touch modal */}
       {pendingOutcome && (

@@ -19,7 +19,9 @@ export function serveStatic(app: Express) {
   app.use(compression({ level: 1, threshold: 1024 }));
 
   // ── Agent headshots → no-cache (user-uploaded, changes at any time) ───────
-  const headshotsPath = path.join(distPath, "headshots");
+  // In production: serve from persistent Railway volume so headshots survive deploys
+  const isProduction = process.env.NODE_ENV === "production";
+  const headshotsPath = isProduction ? "/app/data/headshots" : path.join(distPath, "headshots");
   if (!fs.existsSync(headshotsPath)) fs.mkdirSync(headshotsPath, { recursive: true });
   app.use("/headshots", express.static(headshotsPath, {
     maxAge: 0,

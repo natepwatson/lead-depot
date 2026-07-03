@@ -82,7 +82,6 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
   const [uploading, setUploading]   = useState(false);
   // Admin extras state
   const [receiveLeads, setReceiveLeads] = useState(false);
-  const [leadFlowOn, setLeadFlowOn]     = useState(true);
   const [togglingLead, setTogglingLead] = useState(false);
 
   // Fetch full profile on mount
@@ -141,9 +140,6 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
   const handleHeadshot = async (file: File) => {
     if (!file.type.startsWith("image/")) {
       toast({ title: "Please select an image file", variant: "destructive" }); return;
-    }
-    if (file.size > 200 * 1024) {
-      toast({ title: "Image must be under 200KB", variant: "destructive" }); return;
     }
     setUploading(true);
     try {
@@ -405,7 +401,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
               Admin Settings
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {/* Receive leads toggle */}
+              {/* Single Receive Leads toggle */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                 <div>
                   <p style={{ fontSize: 13, color: "#fff", fontWeight: 500, margin: 0 }}>Receive Leads</p>
@@ -434,41 +430,6 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
                 >
                   <span style={{
                     position: "absolute", top: 3, left: receiveLeads ? 23 : 3,
-                    width: 20, height: 20, borderRadius: "50%",
-                    background: "#fff", transition: "left 0.2s",
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
-                  }} />
-                </button>
-              </div>
-              {/* Lead flow toggle */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                <div>
-                  <p style={{ fontSize: 13, color: "#fff", fontWeight: 500, margin: 0 }}>Lead Flow On</p>
-                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "3px 0 0" }}>
-                    Pause my position in the round-robin without deactivating
-                  </p>
-                </div>
-                <button
-                  disabled={togglingLead}
-                  onClick={async () => {
-                    setTogglingLead(true);
-                    try {
-                      const res = await fetch(`/api/agents/${user?.id}/lead-flow`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ leadFlowOn: !leadFlowOn }),
-                      });
-                      if (res.ok) { setLeadFlowOn(r => !r); toast({ title: !leadFlowOn ? "Lead flow enabled" : "Lead flow paused" }); }
-                    } finally { setTogglingLead(false); }
-                  }}
-                  style={{
-                    width: 46, height: 26, borderRadius: 13, border: "none", cursor: "pointer",
-                    background: leadFlowOn ? "linear-gradient(135deg,#c8aa5a,#a8893a)" : "rgba(255,255,255,0.1)",
-                    position: "relative", transition: "background 0.2s", flexShrink: 0,
-                  }}
-                >
-                  <span style={{
-                    position: "absolute", top: 3, left: leadFlowOn ? 23 : 3,
                     width: 20, height: 20, borderRadius: "50%",
                     background: "#fff", transition: "left 0.2s",
                     boxShadow: "0 1px 4px rgba(0,0,0,0.4)",

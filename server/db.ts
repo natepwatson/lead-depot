@@ -113,10 +113,14 @@ const headshotMap: Record<string, string> = {
   "Alex Watson":      "alex-watson",
 };
 
-// Railway: dist/index.cjs lives at /app/dist/ so __dirname = /app/dist/
-// Headshots are served from dist/public/headshots/ which = /app/dist/public/headshots/
-const headshotsDir = join(__dirname, "public", "headshots");
+// In production: save to Railway persistent volume (/app/data/headshots/)
+// In dev: save alongside the build in dist/public/headshots/
+const isProduction = process.env.NODE_ENV === "production";
+const headshotsDir = isProduction ? "/app/data/headshots" : join(__dirname, "public", "headshots");
 mkdirSync(headshotsDir, { recursive: true });
+
+// Source: slug-named files committed to dist/public/headshots/ in git
+const headshotSourceDir = join(__dirname, "public", "headshots");
 
 const allAgents = rawDb.prepare("SELECT id, name, headshot_url FROM agents").all() as any[];
 for (const agent of allAgents) {
@@ -129,8 +133,15 @@ for (const agent of allAgents) {
   const slug = headshotMap[agent.name];
   if (!slug) continue;
 
-  // Source: slug-named file shipped in dist/public/headshots/
-  // Point DB at slug-named file directly (no copy needed — served by express static)
+  // Copy slug file into persistent headshots dir on every boot
+  try {
+    const fs2 = require("node:fs");
+    const srcFile = join(headshotSourceDir, `${slug}.jpg`);
+    const destFile = join(headshotsDir, `${slug}.jpg`);
+    if (fs2.existsSync(srcFile)) fs2.copyFileSync(srcFile, destFile);
+  } catch (_) { /* non-fatal */ }
+
+  // Update DB to point at the slug-named URL
   const needsUpdate = !agent.headshot_url ||
     agent.headshot_url.startsWith("data:") ||
     !agent.headshot_url.startsWith("/headshots/");

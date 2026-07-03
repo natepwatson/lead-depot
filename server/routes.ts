@@ -556,8 +556,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         .jpeg({ quality: 88, progressive: true })
         .toBuffer();
 
-      // Save to public/headshots/<agentId>.jpg
-      const headshotsDir = path.resolve(__dirname, "public", "headshots");
+      // Save to persistent volume in production (/app/data/headshots/) or dist/public/headshots/ in dev
+      const isProduction = process.env.NODE_ENV === "production";
+      const headshotsDir = isProduction
+        ? "/app/data/headshots"
+        : path.resolve(__dirname, "public", "headshots");
       fs.mkdirSync(headshotsDir, { recursive: true });
       const filename = `${id}.jpg`;
       fs.writeFileSync(path.join(headshotsDir, filename), processed);
@@ -2349,7 +2352,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.44",
+      version: "v11.45",
       services: results,
     });
   });
@@ -2358,6 +2361,7 @@ This template is for informational/outreach purposes only.`;
   app.get("/api/ping", (_req, res) => res.json({ pong: true, ts: Date.now() }));
 
   // One-time headshot injection trigger — forces DB update for all known agents
+  // Also copies slug-named files into the persistent headshots directory
   app.post("/api/admin/inject-headshots", (req: any, res: any) => {
     const headshotMap: Record<string, string> = {
       "Bronson Sarmento": "bronson-sarmento",
@@ -2368,6 +2372,11 @@ This template is for informational/outreach purposes only.`;
       "Nate Watson":      "nate-watson",
       "Alex Watson":      "alex-watson",
     };
+    const isProduction = process.env.NODE_ENV === "production";
+    const headshotsDir = isProduction ? "/app/data/headshots" : path.resolve(__dirname, "public", "headshots");
+    fs.mkdirSync(headshotsDir, { recursive: true });
+    // Source slug files live in dist/public/headshots/ (committed to git)
+    const sourceDir = path.resolve(__dirname, "public", "headshots");
     const allAgents = rawDb.prepare("SELECT id, name FROM agents").all() as any[];
     const updated: string[] = [];
     for (const agent of allAgents) {
@@ -2377,7 +2386,12 @@ This template is for informational/outreach purposes only.`;
       }
       const slug = headshotMap[agent.name];
       if (!slug) continue;
-      // Point DB directly at the slug-named file (no copy needed — files served by express static)
+      // Copy file into persistent dir if not already there
+      const srcFile = path.join(sourceDir, `${slug}.jpg`);
+      const destFile = path.join(headshotsDir, `${slug}.jpg`);
+      try {
+        if (fs.existsSync(srcFile)) fs.copyFileSync(srcFile, destFile);
+      } catch (e) { /* non-fatal */ }
       rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${slug}.jpg`, agent.id);
       updated.push(`${agent.name} → /headshots/${slug}.jpg`);
     }

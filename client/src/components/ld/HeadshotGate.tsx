@@ -26,9 +26,6 @@ export default function HeadshotGate({ userId, userName, onComplete }: HeadshotG
     if (!file.type.startsWith("image/")) {
       toast({ title: "Please select an image file", variant: "destructive" }); return;
     }
-    if (file.size > 500 * 1024) {
-      toast({ title: "Image must be under 500KB", variant: "destructive" }); return;
-    }
     const reader = new FileReader();
     reader.onload = (e) => {
       setPreview(e.target?.result as string);
@@ -182,7 +179,7 @@ export default function HeadshotGate({ userId, userName, onComplete }: HeadshotG
               <Camera size={11} /> {preview ? "Choose Different Photo" : "Choose Photo"}
             </button>
             <p style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginBottom: 20 }}>
-              Max 500KB · JPEG or PNG · will appear on leaderboard
+              Any size · JPEG or PNG · will appear on leaderboard
             </p>
 
             <button

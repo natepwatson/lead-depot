@@ -20,7 +20,7 @@ import {
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneOff, PhoneMissed, Calendar, XCircle, CheckCircle2,
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck, Heart, Map as MapIcon,
-  Clock, FileText, ChevronDown, ChevronUp, Activity, Star
+  Clock, FileText, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 
@@ -614,6 +614,160 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
+// ─── CONNECTIVITY HEALTH WIDGET (v11.40) ────────────────────────────────────────
+type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
+type HealthData = {
+  status: "healthy" | "degraded" | "critical";
+  version: string;
+  services: {
+    database: HealthService;
+    resend: HealthService;
+    follow_up_boss: HealthService;
+    app_url: HealthService;
+    websocket: HealthService;
+    [key: string]: HealthService;
+  };
+};
+
+const SERVICE_LABELS: Record<string, string> = {
+  database:       "Database",
+  resend:         "Email (Resend)",
+  follow_up_boss: "Follow Up Boss",
+  app_url:        "App URL",
+  websocket:      "WebSocket",
+};
+
+function HealthWidget() {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading, refetch } = useQuery<HealthData>({
+    queryKey: ["/api/health"],
+    queryFn: () => fetch("/api/health").then(r => r.json()),
+    refetchInterval: 60_000, // poll every 60 seconds
+    staleTime: 50_000,
+  });
+
+  const status = data?.status ?? (isLoading ? "loading" : "unknown");
+  const allOk = status === "healthy";
+  const degraded = status === "degraded";
+  const critical = status === "critical";
+
+  const dotColor = allOk ? "#22c55e" : degraded ? "#f59e0b" : critical ? "#ef4444" : "#6b7280";
+  const dotLabel = allOk ? "All systems healthy" : degraded ? "Some services degraded" : critical ? "Critical failure" : "Checking...";
+
+  return (
+    <div style={{ position: "relative" }}>
+      {/* Trigger button — small dot in header */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        title={dotLabel}
+        style={{
+          display: "flex", alignItems: "center", gap: 5,
+          background: open ? "rgba(255,255,255,0.07)" : "none",
+          border: open ? "1px solid rgba(255,255,255,0.1)" : "1px solid transparent",
+          borderRadius: 8, padding: "5px 8px", cursor: "pointer",
+        }}
+      >
+        <Shield size={13} style={{ color: dotColor }} />
+        <span style={{
+          width: 7, height: 7, borderRadius: "50%",
+          background: dotColor,
+          boxShadow: allOk ? `0 0 6px ${dotColor}` : critical ? `0 0 8px ${dotColor}` : "none",
+          animation: (degraded || critical) ? "healthPulse 1.5s ease infinite" : "none",
+          display: "inline-block",
+        }} />
+        <style>{`@keyframes healthPulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
+      </button>
+
+      {/* Dropdown panel */}
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 8px)", right: 0,
+          width: 280, zIndex: 200,
+          background: "#0f0e0c",
+          border: "1px solid rgba(200,170,90,0.2)",
+          borderRadius: 12,
+          boxShadow: "0 16px 48px rgba(0,0,0,0.7)",
+          overflow: "hidden",
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            background: "rgba(200,170,90,0.06)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <Shield size={13} style={{ color: "#c8aa5a" }} />
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#c8aa5a" }}>
+                System Health
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{data?.version}</span>
+              <button
+                onClick={() => refetch()}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)", padding: 0, display: "flex" }}
+                title="Refresh"
+              >
+                <RefreshCw size={11} />
+              </button>
+            </div>
+          </div>
+
+          {/* Service rows */}
+          <div style={{ padding: "8px 0" }}>
+            {data ? Object.entries(data.services).map(([key, svc]) => (
+              <div key={key} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "7px 16px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{
+                    width: 6, height: 6, borderRadius: "50%",
+                    background: svc.ok ? "#22c55e" : "#ef4444",
+                    boxShadow: svc.ok ? "0 0 5px #22c55e" : "0 0 5px #ef4444",
+                    flexShrink: 0,
+                  }} />
+                  <span style={{ fontSize: 12, color: svc.ok ? "rgba(255,255,255,0.75)" : "#f87171" }}>
+                    {SERVICE_LABELS[key] ?? key}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {svc.latencyMs !== undefined && (
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>{svc.latencyMs}ms</span>
+                  )}
+                  {svc.ok
+                    ? <Wifi size={11} style={{ color: "#22c55e" }} />
+                    : <WifiOff size={11} style={{ color: "#ef4444" }} />}
+                </div>
+              </div>
+            )) : (
+              <div style={{ padding: "12px 16px", fontSize: 12, color: "rgba(255,255,255,0.3)" }}>Checking services...</div>
+            )}
+          </div>
+
+          {/* Footer */}
+          {data && !allOk && (
+            <div style={{
+              padding: "10px 16px",
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+              background: critical ? "rgba(239,68,68,0.08)" : "rgba(245,158,11,0.08)",
+            }}>
+              <p style={{ fontSize: 11, color: critical ? "#f87171" : "#fbbf24", margin: 0 }}>
+                {critical ? "⚠️ Critical issue detected — check Railway logs" : "⚠️ One or more services degraded"}
+              </p>
+            </div>
+          )}
+          {data && allOk && (
+            <div style={{ padding: "8px 16px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <p style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", margin: 0 }}>All systems operational · Auto-refreshes every 60s</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () => void } = {}) {
   const { user, logout } = useAuth();
   useRealtimeUpdates();
@@ -987,6 +1141,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Connectivity Health Widget */}
+          <HealthWidget />
           {/* Activity Feed toggle */}
           <button
             onClick={() => setFeedOpen(o => !o)}

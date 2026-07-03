@@ -28,6 +28,15 @@ try { sqlite.exec(`ALTER TABLE agents ADD COLUMN lead_flow_on INTEGER NOT NULL D
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN receive_website_leads INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN phones TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN phone_states TEXT`); } catch {}
+// Profile columns (v11.37) — must run before Drizzle prepares any query against agents
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN phone TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN brokerage TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN home_address TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN headshot_url TEXT`); } catch {}
+// Onboarding token columns (v11.37)
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN setup_token TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN setup_expires TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN onboarded INTEGER DEFAULT 0`); } catch {}
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS agents (

@@ -2349,13 +2349,40 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.42",
+      version: "v11.43",
       services: results,
     });
   });
 
   // Simple ping for uptime checks
   app.get("/api/ping", (_req, res) => res.json({ pong: true, ts: Date.now() }));
+
+  // One-time headshot injection trigger — forces DB update for all known agents
+  app.post("/api/admin/inject-headshots", (req: any, res: any) => {
+    const headshotMap: Record<string, string> = {
+      "Bronson Sarmento": "bronson-sarmento",
+      "Cory Deroin":      "cory-deroin",
+      "Vonda Jewell":     "vonda-jewell",
+      "Gabriel Duran":    "gabriel-duran",
+      "Denise Jacobs":    "denise-jacobs",
+      "Nate Watson":      "nate-watson",
+      "Alex Watson":      "alex-watson",
+    };
+    const allAgents = rawDb.prepare("SELECT id, name FROM agents").all() as any[];
+    const updated: string[] = [];
+    for (const agent of allAgents) {
+      if (agent.name === "Usman Jan") {
+        rawDb.prepare("UPDATE agents SET is_active = 0 WHERE id = ? AND (headshot_url IS NULL OR headshot_url = '')").run(agent.id);
+        continue;
+      }
+      const slug = headshotMap[agent.name];
+      if (!slug) continue;
+      // Point DB directly at the slug-named file (no copy needed — files served by express static)
+      rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${slug}.jpg`, agent.id);
+      updated.push(`${agent.name} → /headshots/${slug}.jpg`);
+    }
+    res.json({ ok: true, updated });
+  });
 
   return httpServer;
 }

@@ -73,6 +73,13 @@ sqlite.exec(`
     content TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT ''
   );
+  CREATE TABLE IF NOT EXISTS geo_cache (
+    address_key TEXT PRIMARY KEY,
+    lat         REAL,
+    lng         REAL,
+    cached_at   TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS round_robin_state (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     last_assigned_agent_id INTEGER REFERENCES agents(id),

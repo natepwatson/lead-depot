@@ -115,7 +115,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.27 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.28 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -430,21 +430,68 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
   // Map endpoint — returns lightweight lead data for geocoding
-  app.get("/api/leads/map", (req, res) => {
+  // ── Server-side geocoding helpers ────────────────────────────────────────
+  function geoKey(addr: string) { return addr.toLowerCase().trim(); }
+
+  function getCached(key: string): { lat: number; lng: number } | null {
+    const row = rawDb.prepare("SELECT lat, lng FROM geo_cache WHERE address_key = ?").get(key) as any;
+    return row ? { lat: row.lat, lng: row.lng } : null;
+  }
+
+  function putCache(key: string, lat: number, lng: number) {
+    rawDb.prepare("INSERT OR REPLACE INTO geo_cache (address_key, lat, lng, cached_at) VALUES (?, ?, ?, ?)").run(key, lat, lng, new Date().toISOString());
+  }
+
+  // Census Bureau bulk geocoder — up to 1000 addresses per call, no key, fast
+  async function censusGeocodeAddresses(items: { id: number; addr: string }[]): Promise<Map<number, { lat: number; lng: number }>> {
+    const results = new Map<number, { lat: number; lng: number }>();
+    if (items.length === 0) return results;
+
+    // Build CSV for Census batch API
+    const csv = items.map(i => `${i.id},"${i.addr.replace(/"/g, "'")}",,,`).join("\n");
+    const form = new FormData();
+    form.append("benchmark", "Public_AR_Current");
+    form.append("vintage", "Current_Current");
+    form.append("format", "json");
+    const blob = new Blob([csv], { type: "text/csv" });
+    form.append("addressFile", blob, "addresses.csv");
+
+    try {
+      const resp = await fetch("https://geocoding.geo.census.gov/geocoder/locations/addressbatch", { method: "POST", body: form, signal: AbortSignal.timeout(30000) });
+      const text = await resp.text();
+      // Parse CSV response: id,inputAddr,matchStatus,matchType,outputAddr,coords,tigerLineId,side
+      for (const line of text.split("\n")) {
+        const cols = line.split(",");
+        if (cols.length < 6) continue;
+        const id = parseInt(cols[0]);
+        const matched = cols[2]?.trim().toLowerCase();
+        const coords = cols[5]?.replace(/"/g, "").trim();
+        if (isNaN(id) || matched !== "match" || !coords) continue;
+        const [lngStr, latStr] = coords.split(",");
+        const lat = parseFloat(latStr); const lng = parseFloat(lngStr);
+        if (!isNaN(lat) && !isNaN(lng)) results.set(id, { lat, lng });
+      }
+    } catch (e) {
+      console.error("[geocode] Census batch failed:", e);
+    }
+    return results;
+  }
+
+  app.get("/api/leads/map", async (req, res) => {
     const all = storage.getAllLeads();
+
+    // Parse address components from each lead
     const mapLeads = all.map(l => {
       let city = ""; let state = "FL"; let zip = "";
       if (l.extraData) {
         try {
           const ex = JSON.parse(l.extraData);
-          // Support all CSV column variants (Landvoice, MotivatedSellers, manual)
           city  = ex.city  || ex.City  || ex.PropertyCity  || ex["Property City"]  || "";
           state = ex.state || ex.State || ex.PropertyState || ex["Property State"] || "FL";
           zip   = ex.zip   || ex.Zip   || ex.zipcode || ex.Zipcode || ex.PostalCode ||
                   ex["Postal Code"] || ex.PropertyZip || ex["Property Zip"] || "";
         } catch {}
       }
-      // Also try to parse city/state/zip out of the address string as last resort
       if (!city && l.address) {
         const parts = l.address.split(",").map((s: string) => s.trim());
         if (parts.length >= 3) {
@@ -458,16 +505,40 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           if (stateZip.length >= 2) zip   = stateZip[1];
         }
       }
-      return {
-        id: l.id,
-        address: l.address,
-        ownerName: l.ownerName,
-        status: l.status,
-        leadType: l.leadType,
-        city, state, zip,
-      };
+      const fullAddr = [l.address, city, state || "FL", zip].filter(Boolean).join(", ");
+      return { id: l.id, address: l.address, ownerName: l.ownerName, status: l.status, leadType: l.leadType, city, state, zip, fullAddr };
     });
-    res.json(mapLeads);
+
+    // Check cache for each lead, collect uncached ones
+    const uncached: { id: number; addr: string }[] = [];
+    const coordMap = new Map<number, { lat: number; lng: number }>();
+    for (const l of mapLeads) {
+      const key = geoKey(l.fullAddr);
+      const cached = getCached(key);
+      if (cached) { coordMap.set(l.id, cached); }
+      else if (l.address) { uncached.push({ id: l.id, addr: l.fullAddr }); }
+    }
+
+    // Geocode uncached addresses in batches of 1000 (Census limit)
+    if (uncached.length > 0) {
+      const BATCH = 1000;
+      for (let i = 0; i < uncached.length; i += BATCH) {
+        const batch = uncached.slice(i, i + BATCH);
+        const batchResults = await censusGeocodeAddresses(batch);
+        for (const [id, coords] of batchResults) {
+          coordMap.set(id, coords);
+          const lead = mapLeads.find(l => l.id === id);
+          if (lead) putCache(geoKey(lead.fullAddr), coords.lat, coords.lng);
+        }
+      }
+    }
+
+    // Build final response — only include leads with coords
+    const result = mapLeads
+      .map(l => ({ ...l, ...(coordMap.get(l.id) ?? {}) }))
+      .filter((l: any) => l.lat !== undefined);
+
+    res.json(result);
   });
 
   app.get("/api/leads/stats", (req, res) => {
@@ -1470,7 +1541,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.27 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v11.28 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -1779,7 +1850,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.27</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.28</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

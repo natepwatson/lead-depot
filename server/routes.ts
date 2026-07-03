@@ -1440,7 +1440,41 @@ This template is for informational/outreach purposes only.`;
     }]);
     broadcast({ type: "lead_created", leadId: created.id, assignedAgentId: submitterAgentId });
 
-    // Admin email for network leads removed per user request (v11.27)
+    // ── Notify admins + CRM manager on network lead submission ────────────────
+    if (resend) {
+      const agentName = submittedByName || "An agent";
+      const tdL = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px;vertical-align:top";
+      const tdR = "padding:8px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
+      resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to:   ["Denise@watsonbrothersgroup.com"],
+        cc:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+        subject: `\uD83E\uDD1D Network Lead Submitted \u2014 ${ownerName} | ${address || "No address"}`,
+        html: `
+<!DOCTYPE html><html><body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+<div style="max-width:580px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid #2a2520">
+  <div style="background:linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%);padding:22px 28px">
+    <p style="margin:0 0 4px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#5a3e00;font-weight:700">Network Lead \u2014 Lead Depot</p>
+    <h1 style="margin:0;font-size:20px;color:#080808;font-weight:700">\uD83E\uDD1D ${agentName} submitted a referral</h1>
+  </div>
+  <div style="padding:24px 28px">
+    <table style="width:100%;border-collapse:collapse">
+      <tr><td style="${tdL}">Client Name</td><td style="${tdR}">${ownerName}</td></tr>
+      <tr><td style="${tdL}">Phone</td><td style="${tdR}">${phone}</td></tr>
+      <tr><td style="${tdL}">Email</td><td style="${tdR}">${email || "\u2014"}</td></tr>
+      <tr><td style="${tdL}">Address</td><td style="${tdR}">${address || "\u2014"}</td></tr>
+      <tr><td style="${tdL}">Referred By</td><td style="${tdR}">${agentName}</td></tr>
+      <tr><td style="${tdL}">Notes</td><td style="${tdR}">${notes || "\u2014"}</td></tr>
+      <tr><td style="${tdL}">Assigned To</td><td style="${tdR}">${agentName} (auto-assigned)</td></tr>
+    </table>
+    <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
+  </div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
+    Lead Depot v11.27 \u2014 Brothers Group \u00b7 Momentum Realty
+  </div>
+</div></body></html>`,
+      }).catch(err => console.error("[network lead] Notify failed:", err));
+    }
 
     res.json({ created: true, leadId: created.id });
   });

@@ -5,12 +5,14 @@ interface AuthUser {
   name: string;
   email: string;
   role: "admin" | "agent";
+  headshotUrl?: string | null;
 }
 
 interface AuthContextType {
   user: AuthUser | null;
   login: (email: string, password: string) => Promise<{ error?: string }>;
   logout: () => void;
+  setHeadshot: (url: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -76,8 +78,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const setHeadshot = (url: string) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, headshotUrl: url };
+      saveUser(updated);
+      return updated;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, setHeadshot }}>
       {children}
     </AuthContext.Provider>
   );

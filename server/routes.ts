@@ -166,7 +166,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (!agent.isActive) {
       return res.status(403).json({ error: "Your account has been deactivated. Contact an admin." });
     }
-    res.json({ agent: { id: agent.id, name: agent.name, email: agent.email, role: agent.role } });
+    res.json({ agent: { id: agent.id, name: agent.name, email: agent.email, role: agent.role, headshotUrl: (agent as any).headshotUrl || (agent as any).headshot_url || null } });
   });
 
   // ─── FORGOT PASSWORD ─────────────────────────────────────────────────────

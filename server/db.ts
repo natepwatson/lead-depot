@@ -103,9 +103,6 @@ rawDb.exec(`
 // ─── v11.41 — headshot injection for existing agents ─────────────────────────
 // On every boot: copies slug-named headshots to <id>.jpg in dist/public/headshots/
 // and updates headshot_url in DB. Safe to repeat — only overwrites stale/missing.
-import fs_db from "node:fs";
-import path_db from "node:path";
-
 const headshotMap: Record<string, string> = {
   "Bronson Sarmento": "bronson-sarmento",
   "Cory Deroin":      "cory-deroin",
@@ -118,8 +115,8 @@ const headshotMap: Record<string, string> = {
 
 // Railway: dist/index.cjs lives at /app/dist/ so __dirname = /app/dist/
 // Headshots are served from dist/public/headshots/ which = /app/dist/public/headshots/
-const headshotsDir = path_db.resolve(__dirname, "public", "headshots");
-if (!fs_db.existsSync(headshotsDir)) fs_db.mkdirSync(headshotsDir, { recursive: true });
+const headshotsDir = join(__dirname, "public", "headshots");
+mkdirSync(headshotsDir, { recursive: true });
 
 const allAgents = rawDb.prepare("SELECT id, name, headshot_url FROM agents").all() as any[];
 for (const agent of allAgents) {
@@ -133,20 +130,12 @@ for (const agent of allAgents) {
   if (!slug) continue;
 
   // Source: slug-named file shipped in dist/public/headshots/
-  const srcFile = path_db.join(headshotsDir, `${slug}.jpg`);
-  if (!fs_db.existsSync(srcFile)) continue;
-
-  // Dest: id-named file (what the app serves)
-  const destFile = path_db.join(headshotsDir, `${agent.id}.jpg`);
-
-  // Copy if dest missing OR agent still has base64/empty URL
-  const needsCopy = !fs_db.existsSync(destFile) ||
-    !agent.headshot_url ||
+  // Point DB at slug-named file directly (no copy needed — served by express static)
+  const needsUpdate = !agent.headshot_url ||
     agent.headshot_url.startsWith("data:") ||
     !agent.headshot_url.startsWith("/headshots/");
 
-  if (needsCopy) {
-    fs_db.copyFileSync(srcFile, destFile);
-    rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${agent.id}.jpg`, agent.id);
+  if (needsUpdate) {
+    rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${slug}.jpg`, agent.id);
   }
 }

@@ -103,6 +103,50 @@ rawDb.exec(`
 // ─── v11.41 — headshot injection for existing agents ─────────────────────────
 // On every boot: copies slug-named headshots to <id>.jpg in dist/public/headshots/
 // and updates headshot_url in DB. Safe to repeat — only overwrites stale/missing.
+
+// ─── Agent Prospecting tables (v11.46) ──────────────────────────────────────
+const existingTables = (rawDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as any[]).map((r:any) => r.name);
+if (!existingTables.includes('agent_leads')) rawDb.exec(`CREATE TABLE IF NOT EXISTS agent_leads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  first_name TEXT NOT NULL DEFAULT '', last_name TEXT NOT NULL DEFAULT '',
+  email TEXT, phone TEXT,
+  license_status TEXT NOT NULL DEFAULT 'active',
+  license_number TEXT, license_state TEXT, years_experience TEXT,
+  current_brokerage TEXT, reason_for_leaving TEXT,
+  gci_range TEXT, transactions_last_12mo INTEGER,
+  territory TEXT, matched_territory TEXT,
+  referral_source TEXT, referred_by_name TEXT, applicant_notes TEXT,
+  status TEXT NOT NULL DEFAULT 'new',
+  assigned_admin_id INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0, callback_date TEXT,
+  r_license TEXT, r_production TEXT, r_motivation TEXT,
+  r_timeline TEXT, r_objections TEXT, r_territory TEXT, r_appointment TEXT,
+  fub_person_id INTEGER, fub_synced_at TEXT,
+  submitted_at TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'recruiting_page',
+  uploaded_at TEXT, uploaded_by INTEGER, batch_id TEXT
+)`);
+if (!existingTables.includes('agent_lead_activity')) rawDb.exec(`CREATE TABLE IF NOT EXISTS agent_lead_activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_lead_id INTEGER NOT NULL, caller_id INTEGER, outcome TEXT NOT NULL,
+  notes TEXT, latte_snapshot TEXT, points_awarded INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT ''
+)`);
+if (!existingTables.includes('territories')) rawDb.exec(`CREATE TABLE IF NOT EXISTS territories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, is_open INTEGER NOT NULL DEFAULT 1
+)`);
+if (!existingTables.includes('app_settings')) rawDb.exec(`CREATE TABLE IF NOT EXISTS app_settings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, value TEXT NOT NULL
+)`);
+
+// Seed territories
+const TERRITORIES = [
+  'North Jax & Nassau', 'Jacksonville West', 'Jacksonville East',
+  'Intracoastal/Beaches', 'Ponte Vedra/Nocatee/St. Aug', 'St. Johns County', 'Clay County'
+];
+for (const t of TERRITORIES) {
+  try { rawDb.prepare("INSERT OR IGNORE INTO territories (name) VALUES (?)").run(t); } catch {}
+}
+
 const headshotMap: Record<string, string> = {
   "Bronson Sarmento": "bronson-sarmento",
   "Cory Deroin":      "cory-deroin",

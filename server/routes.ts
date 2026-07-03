@@ -6,7 +6,7 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub } from "./fub";
+import { pushOutcomeToFub, fubCreateAgentRecruit } from "./fub";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -2352,7 +2352,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.45",
+      version: "v11.46",
       services: results,
     });
   });
@@ -2396,6 +2396,117 @@ This template is for informational/outreach purposes only.`;
       updated.push(`${agent.name} → /headshots/${slug}.jpg`);
     }
     res.json({ ok: true, updated });
+  });
+
+
+  // ─── PUBLIC: Agent recruiting form submission ────────────────────────────────
+  // Unauthenticated — served at /api/agent-leads/public from join.watsonbrothersgroup.com
+  // Honeypot field: if "website" field is populated, it's a bot — silently discard
+  app.post("/api/agent-leads/public", async (req: any, res: any) => {
+    // Honeypot check
+    if (req.body?.website) return res.json({ ok: true }); // silently accept bots
+
+    const {
+      firstName, lastName, email, phone,
+      licenseStatus, licenseNumber, licenseState, yearsExperience,
+      currentBrokerage, reasonForLeaving,
+      gciRange, transactionsLast12mo,
+      territory, referralSource, referredByName,
+      applicantNotes,
+    } = req.body || {};
+
+    if (!firstName || !lastName || !licenseStatus) {
+      return res.status(400).json({ error: "First name, last name, and license status are required." });
+    }
+
+    // Territory matching — map free text to one of the 7 official territories
+    const TERRITORY_MAP: Record<string, string> = {
+      "north jax": "North Jax & Nassau",
+      "nassau": "North Jax & Nassau",
+      "nassau county": "North Jax & Nassau",
+      "fernandina": "North Jax & Nassau",
+      "jacksonville west": "Jacksonville West",
+      "west jacksonville": "Jacksonville West",
+      "jacksonville east": "Jacksonville East",
+      "east jacksonville": "Jacksonville East",
+      "beaches": "Intracoastal/Beaches",
+      "intracoastal": "Intracoastal/Beaches",
+      "atlantic beach": "Intracoastal/Beaches",
+      "neptune beach": "Intracoastal/Beaches",
+      "jacksonville beach": "Intracoastal/Beaches",
+      "ponte vedra": "Ponte Vedra/Nocatee/St. Aug",
+      "nocatee": "Ponte Vedra/Nocatee/St. Aug",
+      "st augustine": "Ponte Vedra/Nocatee/St. Aug",
+      "st. augustine": "Ponte Vedra/Nocatee/St. Aug",
+      "st johns": "St. Johns County",
+      "st. johns": "St. Johns County",
+      "clay county": "Clay County",
+      "clay": "Clay County",
+      "orange park": "Clay County",
+      "fleming island": "Clay County",
+    };
+    let matchedTerritory: string | undefined;
+    if (territory) {
+      const lower = territory.toLowerCase();
+      for (const [key, val] of Object.entries(TERRITORY_MAP)) {
+        if (lower.includes(key)) { matchedTerritory = val; break; }
+      }
+    }
+
+    const now = new Date().toISOString();
+
+    // Insert into agent_leads
+    const stmt = rawDb.prepare(`
+      INSERT INTO agent_leads
+        (first_name, last_name, email, phone,
+         license_status, license_number, license_state, years_experience,
+         current_brokerage, reason_for_leaving,
+         gci_range, transactions_last_12mo,
+         territory, matched_territory,
+         referral_source, referred_by_name, applicant_notes,
+         status, source, submitted_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new','recruiting_page',?)
+    `);
+    const result = stmt.run(
+      (firstName || "").trim(), (lastName || "").trim(),
+      email || null, phone || null,
+      licenseStatus || "active", licenseNumber || null, licenseState || null, yearsExperience || null,
+      currentBrokerage || null, reasonForLeaving || null,
+      gciRange || null, transactionsLast12mo ? Number(transactionsLast12mo) : null,
+      territory || null, matchedTerritory || null,
+      referralSource || null, referredByName || null, applicantNotes || null,
+      now
+    );
+    const agentLeadId = result.lastInsertRowid;
+
+    // Push to FUB async (don't block the response)
+    fubCreateAgentRecruit({
+      firstName: (firstName || "").trim(),
+      lastName: (lastName || "").trim(),
+      email: email || undefined,
+      phone: phone || undefined,
+      licenseStatus,
+      licenseState: licenseState || undefined,
+      yearsExperience: yearsExperience || undefined,
+      currentBrokerage: currentBrokerage || undefined,
+      reasonForLeaving: reasonForLeaving || undefined,
+      gciRange: gciRange || undefined,
+      transactionsLast12mo: transactionsLast12mo ? Number(transactionsLast12mo) : undefined,
+      territory: territory || undefined,
+      matchedTerritory: matchedTerritory || undefined,
+      referralSource: referralSource || undefined,
+      referredByName: referredByName || undefined,
+      applicantNotes: applicantNotes || undefined,
+      submittedAt: new Date().toLocaleString("en-US", { timeZone: "America/New_York" }),
+    }).then(personId => {
+      if (personId) {
+        rawDb.prepare("UPDATE agent_leads SET fub_person_id = ?, fub_synced_at = ? WHERE id = ?")
+          .run(personId, new Date().toISOString(), agentLeadId);
+      }
+    }).catch(err => console.error("[FUB] Agent recruit push error:", err));
+
+    console.log(`[Agent Leads] New submission: ${firstName} ${lastName} (${email}) — id ${agentLeadId}`);
+    res.json({ ok: true, id: agentLeadId });
   });
 
   return httpServer;

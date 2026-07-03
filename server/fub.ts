@@ -414,3 +414,111 @@ export async function pushNewLeadToFub(opts: {
     console.log(`[FUB] New lead pushed — ${result.status === 201 ? "created" : "updated"}`);
   }
 }
+
+// ─── AGENT RECRUITING — PUSH ON FORM SUBMIT ──────────────────────────────────
+export interface AgentRecruitPayload {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  licenseStatus: string;
+  licenseState?: string;
+  yearsExperience?: string;
+  currentBrokerage?: string;
+  reasonForLeaving?: string;
+  gciRange?: string;
+  transactionsLast12mo?: number;
+  territory?: string;
+  matchedTerritory?: string;
+  referralSource?: string;
+  referredByName?: string;
+  applicantNotes?: string;
+  submittedAt?: string;
+}
+
+export async function fubCreateAgentRecruit(data: AgentRecruitPayload): Promise<number | null> {
+  if (!FUB_API_KEY) return null;
+
+  const tags = [
+    "Agent Recruit",
+    "ne-florida",
+    `License: ${data.licenseStatus.charAt(0).toUpperCase() + data.licenseStatus.slice(1)}`,
+  ];
+  if (data.matchedTerritory || data.territory) {
+    tags.push(`Territory: ${data.matchedTerritory || data.territory}`);
+  }
+  if (data.referralSource) tags.push(`Source: ${data.referralSource}`);
+
+  // Build structured intake note
+  const noteLines = [
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `Agent Recruiting Intake`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `Submitted: ${data.submittedAt || new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} EDT`,
+    `Source: Lead Depot Recruiting — join.watsonbrothersgroup.com`,
+    ``,
+    `── LICENSE & EXPERIENCE ─────`,
+    `License Status: ${data.licenseStatus}`,
+    data.licenseState    ? `License State:  ${data.licenseState}` : "",
+    data.yearsExperience ? `Years of Exp:   ${data.yearsExperience}` : "",
+    ``,
+    `── CURRENT SITUATION ────────`,
+    data.currentBrokerage  ? `Current Brokerage: ${data.currentBrokerage}` : "",
+    data.reasonForLeaving  ? `Reason for Move:   ${data.reasonForLeaving}` : "",
+    ``,
+    `── PRODUCTION ───────────────`,
+    data.gciRange              ? `GCI Range (12mo):  ${data.gciRange}` : "",
+    data.transactionsLast12mo  ? `Transactions (12mo): ${data.transactionsLast12mo}` : "",
+    ``,
+    `── TERRITORY ────────────────`,
+    data.matchedTerritory ? `Territory (matched): ${data.matchedTerritory}` : "",
+    data.territory && data.territory !== data.matchedTerritory ? `Territory (as entered): ${data.territory}` : "",
+    ``,
+    `── ATTRIBUTION ──────────────`,
+    data.referralSource  ? `Heard about us via: ${data.referralSource}` : "",
+    data.referredByName  ? `Referred by: ${data.referredByName}` : "",
+    ``,
+    data.applicantNotes  ? `── APPLICANT NOTES ──────────\n${data.applicantNotes}\n` : "",
+    `Source: Lead Depot Recruiting — Watson Brothers Group`,
+  ].filter(l => l !== "");
+
+  const eventPayload: any = {
+    source: "Lead Depot Recruiting",
+    system: FUB_SYSTEM,
+    type: "Agent Inquiry",
+    message: `New agent recruit inquiry via join.watsonbrothersgroup.com — ${data.firstName} ${data.lastName}`,
+    sourceUrl: "https://join.watsonbrothersgroup.com",
+    person: {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      stage: "Agent Recruit Lead",
+      tags,
+      assignedTo: "Alex Watson",
+    },
+  };
+
+  if (data.phone) eventPayload.person.phones = [{ value: data.phone }];
+  if (data.email) eventPayload.person.emails = [{ value: data.email }];
+
+  console.log(`[FUB] Pushing agent recruit: ${data.firstName} ${data.lastName}`);
+  const result = await fubRequest("POST", "/events", eventPayload);
+
+  if (!result.ok) {
+    console.error("[FUB] Failed to push agent recruit:", result.data);
+    return null;
+  }
+
+  const personId = result.data?.person?.id ?? null;
+
+  // Post structured intake note
+  if (personId) {
+    await fubRequest("POST", "/notes", {
+      personId,
+      body: noteLines.join("\n"),
+      isHtml: false,
+    });
+    console.log(`[FUB] Agent recruit note posted — person ${personId}`);
+  }
+
+  return personId;
+}

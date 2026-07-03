@@ -101,3 +101,94 @@ export const agentPoints = sqliteTable("agent_points", {
   createdAt: text("created_at").notNull().default(""),
 });
 export type AgentPoints = typeof agentPoints.$inferSelect;
+
+// ─── AGENT PROSPECTING TABLES ─────────────────────────────────────────────────
+
+// Agent leads — outside agents being recruited (NOT app users)
+export const agentLeads = sqliteTable("agent_leads", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  // Identity
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  // License & experience
+  licenseStatus: text("license_status").notNull().default("active"), // "active" | "inactive" | "pending"
+  licenseNumber: text("license_number"),
+  licenseState: text("license_state"),
+  yearsExperience: text("years_experience"), // "<1" | "1-2" | "3-5" | "6-10" | "10+"
+  // Current situation
+  currentBrokerage: text("current_brokerage"),
+  reasonForLeaving: text("reason_for_leaving"),
+  // Production
+  gciRange: text("gci_range"), // "$0-25k" | "$25k-75k" | "$75k-150k" | "$150k-300k" | "$300k+" | "new_agent"
+  transactionsLast12mo: integer("transactions_last_12mo"),
+  // Territory
+  territory: text("territory"),
+  matchedTerritory: text("matched_territory"),
+  // Attribution
+  referralSource: text("referral_source"), // "referral" | "social" | "google" | "job_board" | "event" | "other"
+  referredByName: text("referred_by_name"),
+  // Notes from intake form
+  applicantNotes: text("applicant_notes"),
+  // Pipeline status & assignment
+  status: text("status").notNull().default("new"), // new | contacted | appointment | joined | not_interested
+  assignedAdminId: integer("assigned_admin_id").references(() => agents.id),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  callbackDate: text("callback_date"),
+  // L.A.T.T.E. fields (populated during call)
+  rLicense: text("r_license"),
+  rProduction: text("r_production"),
+  rMotivation: text("r_motivation"),
+  rTimeline: text("r_timeline"),
+  rObjections: text("r_objections"),
+  rTerritory: text("r_territory"),
+  rAppointment: text("r_appointment"),
+  // FUB sync
+  fubPersonId: integer("fub_person_id"),
+  fubSyncedAt: text("fub_synced_at"),
+  // Metadata
+  submittedAt: text("submitted_at").notNull().default(""),
+  source: text("source").notNull().default("recruiting_page"), // "recruiting_page" | "csv_upload" | "manual"
+  uploadedAt: text("uploaded_at"),
+  uploadedBy: integer("uploaded_by").references(() => agents.id),
+  batchId: text("batch_id"),
+});
+
+export const insertAgentLeadSchema = createInsertSchema(agentLeads).omit({ id: true });
+export type InsertAgentLead = z.infer<typeof insertAgentLeadSchema>;
+export type AgentLead = typeof agentLeads.$inferSelect;
+
+// Agent lead activity log
+export const agentLeadActivity = sqliteTable("agent_lead_activity", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentLeadId: integer("agent_lead_id").notNull().references(() => agentLeads.id),
+  callerId: integer("caller_id").references(() => agents.id),
+  outcome: text("outcome").notNull(), // dial_no_answer | keep_in_touch | hot_prospect | joined_team | not_interested
+  notes: text("notes"),
+  latteSnapshot: text("latte_snapshot"), // JSON: rLicense/rProduction/rMotivation/rTimeline/rObjections/rTerritory
+  pointsAwarded: integer("points_awarded").notNull().default(0),
+  createdAt: text("created_at").notNull().default(""),
+});
+
+export const insertAgentLeadActivitySchema = createInsertSchema(agentLeadActivity).omit({ id: true });
+export type InsertAgentLeadActivity = z.infer<typeof insertAgentLeadActivitySchema>;
+export type AgentLeadActivity = typeof agentLeadActivity.$inferSelect;
+
+// Territories reference table
+export const territories = sqliteTable("territories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  isOpen: integer("is_open", { mode: "boolean" }).notNull().default(true),
+});
+
+export type Territory = typeof territories.$inferSelect;
+
+// App-wide settings (key/value)
+export const appSettings = sqliteTable("app_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
+});
+
+export type AppSetting = typeof appSettings.$inferSelect;

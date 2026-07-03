@@ -11,6 +11,7 @@ import AccountSetupPage from "./pages/AccountSetupPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import HeadshotGate from "./components/ld/HeadshotGate";
 import NotFound from "./pages/not-found";
+import JoinPage from "./pages/JoinPage";
 import { useState } from "react";
 
 function AppRoutes() {
@@ -45,6 +46,8 @@ export default function App() {
       <AuthProvider>
         <Router hook={useHashLocation}>
           <Switch>
+            {/* Public recruiting form — no auth required */}
+            <Route path="/join" component={JoinPage} />
             {/* Account setup — no auth required, token-gated */}
             <Route path="/setup/:token" component={AccountSetupPage} />
             {/* Password reset — no auth required, token-gated */}

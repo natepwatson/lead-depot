@@ -115,7 +115,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.34 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.35 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -1720,7 +1720,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.34 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v11.35 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -2029,7 +2029,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.34</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.35</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

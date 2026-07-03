@@ -7,7 +7,7 @@ import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Phone, PhoneMissed, Calendar, XCircle,
+  Phone, PhoneMissed, XCircle,
   CheckCircle2, AlertTriangle, MapPin, Mail, LogOut,
   TrendingUp, ChevronLeft, ScrollText, ChevronDown,
   ChevronUp, Trophy, Users, Send, UserPlus, Heart,
@@ -40,7 +40,6 @@ const LPMAMAB_PHRASES = [
 // ─── Outcome configs ───────────────────────────────────────────────────────────
 const OUTCOMES = [
   { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.12)",  border: "rgba(236,72,153,0.4)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.22)" },
-  { key: "callback_requested",      label: "Recycle",       icon: Calendar,      bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
   { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.12)",   border: "rgba(34,197,94,0.4)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.22)" },
   { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
   { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },

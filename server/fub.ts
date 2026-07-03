@@ -86,11 +86,23 @@ function outcomeToFubStage(outcome: string): string {
   }
 }
 
+// ─── INTENTION → FUB TAG MAP ─────────────────────────────────────────────────
+// Intention keys come from the ApptModal INTENTIONS array in AgentView.tsx
+// These become searchable tags in FUB for smart lists + action plan triggers
+const INTENTION_TAG_MAP: Record<string, string[]> = {
+  sell_now:     ["seller", "sell-now"],
+  future_sell:  ["seller", "future-seller", "pocket-listing"],
+  buy_now:      ["buyer", "buy-now"],
+  future_buy:   ["buyer", "future-buyer"],
+  rental_now:   ["landlord", "rental-now"],
+  rental_later: ["landlord", "rental-later"],
+};
+
 // ─── TAG BUILDER ─────────────────────────────────────────────────────────────
-function buildTags(leadType: string, outcome: string, source?: string): string[] {
+function buildTags(leadType: string, outcome: string, source?: string, intention?: string): string[] {
   const tags: string[] = [];
 
-  // Lead type
+  // Lead type → FUB source-style tag
   const typeMap: Record<string, string> = {
     expired:      "expired-listing",
     distressed:   "distressed",
@@ -104,11 +116,37 @@ function buildTags(leadType: string, outcome: string, source?: string): string[]
   if (outcome === "contacted_appointment") tags.push("appointment-set");
   if (outcome === "keep_in_touch")        tags.push("kit");
 
-  // Source
+  // Source override
   if (source?.toLowerCase().includes("network")) tags.push("network-referral");
 
-  // Geography (NE Florida focus)
+  // Geography
   tags.push("ne-florida");
+
+  // Intention tags — parse the joined string (e.g. "Sell Now + Buy Now" or "Future Sell")
+  // The frontend joins intention keys as label strings like "Sell Now", "Future Sell"
+  // Map back to tag arrays via label → key lookup
+  if (intention) {
+    const labelToKey: Record<string, string> = {
+      "Sell Now":     "sell_now",
+      "Future Sell":  "future_sell",
+      "Buy Now":      "buy_now",
+      "Future Buy":   "future_buy",
+      "Rental Now":   "rental_now",
+      "Rental Later": "rental_later",
+    };
+    // Intentions are joined with " + " in the frontend
+    const parts = intention.split(" + ").map(s => s.trim());
+    for (const part of parts) {
+      const key = labelToKey[part];
+      if (key && INTENTION_TAG_MAP[key]) {
+        for (const t of INTENTION_TAG_MAP[key]) {
+          if (!tags.includes(t)) tags.push(t);
+        }
+      }
+    }
+    // Multi-transaction flag
+    if (parts.length > 1) tags.push("multi-transaction");
+  }
 
   return tags;
 }
@@ -244,7 +282,7 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
 
   const fubType = outcomeToFubType(outcome, lead.leadType);
   const fubStage = outcomeToFubStage(outcome);
-  const tags = buildTags(lead.leadType, outcome, lead.source);
+  const tags = buildTags(lead.leadType, outcome, lead.source, intention);
   const fubSource = getFubSource(lead.leadType, lead.source);
 
   // Parse name

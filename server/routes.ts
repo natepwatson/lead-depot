@@ -2249,6 +2249,78 @@ This template is for informational/outreach purposes only.`;
     res.send(csv);
   });
 
+  // ─── CONNECTIVITY HEALTH CHECK (v11.40) ────────────────────────────────────
+  // GET /api/health — checks all external service connections
+  // Returns 200 if all critical services are up, 207 if some are degraded
+  app.get("/api/health", async (req, res) => {
+    const results: Record<string, { ok: boolean; latencyMs?: number; detail?: string }> = {};
+
+    // 1. SQLite DB
+    try {
+      const start = Date.now();
+      rawDb.prepare("SELECT 1").get();
+      results.database = { ok: true, latencyMs: Date.now() - start };
+    } catch (e: any) {
+      results.database = { ok: false, detail: e.message };
+    }
+
+    // 2. Resend (email)
+    results.resend = {
+      ok: !!process.env.RESEND_API_KEY,
+      detail: process.env.RESEND_API_KEY ? "API key present" : "RESEND_API_KEY not set",
+    };
+
+    // 3. Follow Up Boss API
+    const fubKey = process.env.FUB_API_KEY;
+    if (fubKey) {
+      try {
+        const start = Date.now();
+        const fubRes = await fetch("https://api.followupboss.com/v1/users?limit=1", {
+          headers: { Authorization: "Basic " + Buffer.from(fubKey + ":").toString("base64") },
+          signal: AbortSignal.timeout(5000),
+        });
+        results.follow_up_boss = {
+          ok: fubRes.ok,
+          latencyMs: Date.now() - start,
+          detail: fubRes.ok ? "Connected" : `HTTP ${fubRes.status}`,
+        };
+      } catch (e: any) {
+        results.follow_up_boss = { ok: false, detail: e.message };
+      }
+    } else {
+      results.follow_up_boss = { ok: false, detail: "FUB_API_KEY not set" };
+    }
+
+    // 4. Railway deployment URL reachable
+    try {
+      const appUrl = process.env.APP_URL || "https://depot.watsonbrothersgroup.com";
+      const start = Date.now();
+      const r = await fetch(`${appUrl}/api/ping`, { signal: AbortSignal.timeout(4000) });
+      results.app_url = { ok: r.ok, latencyMs: Date.now() - start, detail: appUrl };
+    } catch (e: any) {
+      results.app_url = { ok: false, detail: e.message };
+    }
+
+    // 5. WebSocket server
+    results.websocket = {
+      ok: true,
+      detail: "WS server active (broadcast available)",
+    };
+
+    const allOk = Object.values(results).every(r => r.ok);
+    const criticalOk = results.database.ok && results.resend.ok;
+
+    res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
+      status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
+      timestamp: new Date().toISOString(),
+      version: "v11.40",
+      services: results,
+    });
+  });
+
+  // Simple ping for uptime checks
+  app.get("/api/ping", (_req, res) => res.json({ pong: true, ts: Date.now() }));
+
   return httpServer;
 }
 

@@ -1527,63 +1527,6 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                 <p className="text-sm text-muted-foreground">Leads auto-distribute to agents via round-robin the moment they're uploaded.</p>
               </div>
 
-              {/* Redistribute Unseen */}
-              <div style={{
-                background: "rgba(200,170,90,0.05)",
-                border: "1px solid rgba(200,170,90,0.18)",
-                borderRadius: 12, padding: 16,
-              }}>
-                <div className="flex items-center gap-2 mb-1">
-                  <Users size={13} style={{ color: "rgba(200,170,90,0.8)" }}/>
-                  <p className="text-sm font-semibold" style={{ color: "rgba(200,170,90,0.9)" }}>Redistribute Unseen Leads</p>
-                </div>
-                <p className="text-xs text-muted-foreground mb-3">Re-assigns every lead no agent has interacted with yet — including already-assigned ones. Use this when adding a new agent so they get an immediate share of untouched leads.</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  style={{ borderColor: "rgba(200,170,90,0.3)", color: "rgba(200,170,90,0.85)", fontSize: 12 }}
-                  className="gap-1.5 hover:bg-yellow-900/20"
-                  onClick={() => openConfirm({
-                    title: "Redistribute Unseen Leads?",
-                    message: "This will re-assign every lead no agent has interacted with yet — including already-assigned leads that haven't been touched. All agents get a fresh even share. This cannot be undone.",
-                    confirmLabel: "Redistribute",
-                    onConfirm: () => { closeConfirm(); redistributeUnseenMutation.mutate(); },
-                  })}
-                  disabled={redistributeUnseenMutation.isPending}
-                >
-                  <Users size={11}/>{redistributeUnseenMutation.isPending ? "Redistributing…" : "Redistribute Unseen"}
-                </Button>
-              </div>
-
-              {/* Clear Queue */}
-              <div style={{
-                background: "rgba(239,68,68,0.05)",
-                border: "1px solid rgba(239,68,68,0.15)",
-                borderRadius: 12, padding: 16,
-              }}>
-                <div className="flex items-center gap-2 mb-1">
-                  <Trash size={13} className="text-red-400"/>
-                  <p className="text-sm font-semibold text-red-300">Clear Active Queue</p>
-                </div>
-                <p className="text-xs text-muted-foreground mb-3">Retires all active leads from the queue so you can load a fresh batch. Master records and full history are preserved — no data is deleted.</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-red-900/40 text-red-400 hover:bg-red-900/20 hover:text-red-300 text-xs gap-1.5"
-                  onClick={() => openConfirm({
-                    title: "Clear Active Queue?",
-                    message: "All in-progress leads will be marked Retired. Master records and full history are preserved — no data is deleted. Only the active queue is cleared.",
-                    confirmLabel: "Clear Queue",
-                    confirmColor: "#ef4444",
-                    onConfirm: () => { closeConfirm(); clearQueueMutation.mutate(); },
-                  })}
-                  disabled={clearQueueMutation.isPending}
-                  data-testid="button-clear-queue"
-                >
-                  <Trash size={11}/>{clearQueueMutation.isPending ? "Clearing…" : "Clear Queue & Load New Batch"}
-                </Button>
-              </div>
-
               <div className="space-y-4">
                 <div className="space-y-1.5">
                   <Label className="text-sm text-foreground/80">Lead Type</Label>
@@ -1705,6 +1648,57 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
           {/* ── AGENTS ──────────────────────────────────────────────────────── */}
           <TabsContent value="agents" className="mt-5 space-y-5">
+
+            {/* Queue Management */}
+            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 16 }}>
+              <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.55)", fontWeight: 600, marginBottom: 14 }}>Queue Management</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {/* Redistribute Unseen */}
+                <div style={{ background: "rgba(200,170,90,0.04)", border: "1px solid rgba(200,170,90,0.15)", borderRadius: 10, padding: 14 }}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Users size={12} style={{ color: "rgba(200,170,90,0.8)" }}/>
+                    <p className="text-xs font-semibold" style={{ color: "rgba(200,170,90,0.9)" }}>Redistribute Unseen</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3" style={{ lineHeight: 1.5 }}>Re-assigns every untouched lead evenly across active agents.</p>
+                  <Button variant="outline" size="sm"
+                    style={{ borderColor: "rgba(200,170,90,0.3)", color: "rgba(200,170,90,0.85)", fontSize: 11, width: "100%" }}
+                    className="gap-1.5 hover:bg-yellow-900/20"
+                    onClick={() => openConfirm({
+                      title: "Redistribute Unseen Leads?",
+                      message: "This will re-assign every lead no agent has interacted with yet — including already-assigned leads that haven't been touched. All agents get a fresh even share. This cannot be undone.",
+                      confirmLabel: "Redistribute",
+                      onConfirm: () => { closeConfirm(); redistributeUnseenMutation.mutate(); },
+                    })}
+                    disabled={redistributeUnseenMutation.isPending}
+                  >
+                    <Users size={10}/>{redistributeUnseenMutation.isPending ? "Redistributing…" : "Redistribute"}
+                  </Button>
+                </div>
+                {/* Clear Queue */}
+                <div style={{ background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.12)", borderRadius: 10, padding: 14 }}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Trash size={12} className="text-red-400"/>
+                    <p className="text-xs font-semibold text-red-300">Clear Active Queue</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3" style={{ lineHeight: 1.5 }}>Retires all active leads. History is preserved — no data deleted.</p>
+                  <Button variant="outline" size="sm"
+                    className="border-red-900/40 text-red-400 hover:bg-red-900/20 hover:text-red-300 text-xs gap-1.5"
+                    style={{ width: "100%", fontSize: 11 }}
+                    onClick={() => openConfirm({
+                      title: "Clear Active Queue?",
+                      message: "All in-progress leads will be marked Retired. Master records and full history are preserved — no data is deleted. Only the active queue is cleared.",
+                      confirmLabel: "Clear Queue",
+                      confirmColor: "#ef4444",
+                      onConfirm: () => { closeConfirm(); clearQueueMutation.mutate(); },
+                    })}
+                    disabled={clearQueueMutation.isPending}
+                    data-testid="button-clear-queue"
+                  >
+                    <Trash size={10}/>{clearQueueMutation.isPending ? "Clearing…" : "Clear Queue"}
+                  </Button>
+                </div>
+              </div>
+            </div>
 
             {/* Admin as Agent */}
             <div style={{

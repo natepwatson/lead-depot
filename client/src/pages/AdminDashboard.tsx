@@ -982,7 +982,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.39
+              v11.40
             </p>
           </div>
         </div>
@@ -1193,7 +1193,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.39) */}
+                          {/* Rank badge — headshot or initials (v11.40) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
                             {stat.agent.headshotUrl ? (
                               <img

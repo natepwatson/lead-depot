@@ -553,6 +553,17 @@ function OutcomeReport() {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+/** Returns a color and label for the agent activity dot based on last activity timestamp */
+function activityDot(lastActivityAt: string | null): { color: string; label: string } {
+  if (!lastActivityAt) return { color: "#6b7280", label: "No activity recorded" };
+  const diffHours = (Date.now() - new Date(lastActivityAt).getTime()) / (1000 * 60 * 60);
+  if (diffHours <= 6)  return { color: "#22c55e", label: "Active within 6h" };
+  if (diffHours <= 12) return { color: "#eab308", label: "Active within 12h" };
+  if (diffHours <= 24) return { color: "#f97316", label: "Active within 24h" };
+  if (diffHours <= 48) return { color: "#ef4444", label: "Active within 48h" };
+  return { color: "#6b7280", label: "No activity in 48h+" };
+}
+
 export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () => void } = {}) {
   const { user, logout } = useAuth();
   useRealtimeUpdates();
@@ -877,7 +888,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 8, color: "rgba(255,255,255,0.12)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 2 }}>
-              v11.26
+              v11.27
             </p>
           </div>
         </div>
@@ -975,6 +986,22 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                 </div>
               </div>
 
+              {/* Activity dot legend */}
+              <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "6px 4px 2px", flexWrap: "wrap" }}>
+                {([
+                  { color: "#22c55e", label: "Active \u22646h" },
+                  { color: "#eab308", label: "Active \u226412h" },
+                  { color: "#f97316", label: "Active \u226424h" },
+                  { color: "#ef4444", label: "Active \u226448h" },
+                  { color: "#6b7280", label: "48h+" },
+                ] as const).map(({ color, label }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, display: "inline-block", boxShadow: `0 0 4px ${color}88` }} />
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", letterSpacing: "0.05em" }}>{label}</span>
+                  </div>
+                ))}
+              </div>
+
               {agentStatsLoading ? (
                 <div className="space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
               ) : agentStats.length === 0 ? (
@@ -1026,6 +1053,16 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
+                              {(() => {
+                                const dot = activityDot((stat as any).lastActivityAt ?? null);
+                                return (
+                                  <span title={dot.label} style={{
+                                    width: 8, height: 8, borderRadius: "50%",
+                                    background: dot.color, flexShrink: 0, display: "inline-block",
+                                    boxShadow: `0 0 5px ${dot.color}88`,
+                                  }} />
+                                );
+                              })()}
                               <p style={{
                                 fontSize: 14, fontWeight: 500, color: "#fff",
                                 fontFamily: "'Switzer','Inter',sans-serif",

@@ -64,6 +64,7 @@ async function sendCrmReport(opts: {
     <tr><td style="${tdL}">Time</td><td style="${tdR}">${opts.apptTime || "—"}</td></tr>
     <tr><td style="${tdL}">With Agent</td><td style="${tdR}">${opts.agentName}</td></tr>
     <tr><td style="${tdL}">Client Email</td><td style="${tdR}">${opts.apptEmail || opts.ownerEmail || "—"}</td></tr>
+    <tr><td style="${tdL}">Source</td><td style="${tdR}">${opts.source || "—"}</td></tr>
   ` : "";
 
   const html = `
@@ -83,6 +84,7 @@ async function sendCrmReport(opts: {
   <div style="background:#1a1500;border-left:4px solid #c8aa5a;padding:18px 32px;border-bottom:1px solid #2a2520">
     <p style="margin:0 0 4px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#c8aa5a;font-weight:700">Client Intention</p>
     <p style="margin:0;font-size:26px;font-weight:700;color:#ffffff;letter-spacing:-.01em">${opts.intention || "Not specified"}</p>
+    ${opts.intention && opts.intention.includes(" + ") ? `<p style="margin:8px 0 0;display:inline-block;background:#92400e;color:#fbbf24;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:4px 10px;border-radius:6px">⚡ Multi-Transaction Client</p>` : ""}
   </div>
 
   <!-- Body -->
@@ -113,7 +115,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.26 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.27 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -121,7 +123,7 @@ async function sendCrmReport(opts: {
 
   await resend.emails.send({
     from:    "Lead Depot <noreply@watsonbrothersgroup.com>",
-    to:      ["djacobs312@gmail.com"],
+    to:      ["Denise@watsonbrothersgroup.com"],
     cc:      ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
     subject,
     html,
@@ -224,7 +226,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           leadId: lead.id,
           agentId: null,
           outcome: "recycled",
-          notes: `Agent deactivated. Callback originally scheduled by ${updated.name}${lead.callbackDate ? ` for ${lead.callbackDate}` : ""}. Will be reassigned to an active agent on the callback date.`,
+          notes: `Agent deactivated. Lead was in callback state, assigned by ${updated.name}. Returned to pool for redistribution.`,
           lpmamabSnapshot: null,
           createdAt: new Date().toISOString(),
         });
@@ -622,9 +624,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       newStatus = "keep_in_touch";
       // Connected call — not ready now but trust us for future; stays with same agent
     } else if (outcome === "callback_requested") {
-      newStatus = "callback_requested";
-      newCallbackDate = callbackDate || null;
-      // Keep same agent for callback
+      // Callback = immediate recycle — goes back to the pool just like no_answer
+      newStatus = "no_answer";
+      newCallbackDate = null;
+      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
+      if (nextAgent) {
+        newAssignedId = nextAgent.id;
+        storage.updateRoundRobinState(nextAgent.id);
+      }
     }
 
     // Save LPMAMAB fields if provided
@@ -857,6 +864,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         try { const x = JSON.parse(l.extraData || "{}"); return x.source === "network"; } catch { return false; }
       }).length;
 
+      // Last activity timestamp for this agent (most recent activity entry)
+      const lastActivityAt = agentActs.length > 0
+        ? agentActs.reduce((latest: string, a: any) => a.createdAt > latest ? a.createdAt : latest, agentActs[0].createdAt)
+        : null;
+
       return {
         agent: { id: agent.id, name: agent.name, email: agent.email },
         leadsReceived: agentLeads.length,
@@ -867,6 +879,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         networkLeads,
         contactRate,
         outcomes,
+        lastActivityAt,
       };
     });
 
@@ -1427,40 +1440,7 @@ This template is for informational/outreach purposes only.`;
     }]);
     broadcast({ type: "lead_created", leadId: created.id, assignedAgentId: submitterAgentId });
 
-    // ── Notify admins immediately via email ──────────────────────────────────
-    if (resend) {
-      const agentName = submittedByName || "An agent";
-      const tdL = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px;vertical-align:top";
-      const tdR = "padding:8px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
-      resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-        to:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
-        subject: `🤝 Network Lead Submitted — ${ownerName} | ${address || "No address"}`,
-        html: `
-<!DOCTYPE html><html><body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
-<div style="max-width:580px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid #2a2520">
-  <div style="background:linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%);padding:22px 28px">
-    <p style="margin:0 0 4px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#5a3e00;font-weight:700">Network Lead — Lead Depot</p>
-    <h1 style="margin:0;font-size:20px;color:#080808;font-weight:700">🤝 ${agentName} submitted a referral</h1>
-  </div>
-  <div style="padding:24px 28px">
-    <table style="width:100%;border-collapse:collapse">
-      <tr><td style="${tdL}">Client Name</td><td style="${tdR}">${ownerName}</td></tr>
-      <tr><td style="${tdL}">Phone</td><td style="${tdR}">${phone}</td></tr>
-      <tr><td style="${tdL}">Email</td><td style="${tdR}">${email || "—"}</td></tr>
-      <tr><td style="${tdL}">Address</td><td style="${tdR}">${address || "—"}</td></tr>
-      <tr><td style="${tdL}">Referred By</td><td style="${tdR}">${agentName}</td></tr>
-      <tr><td style="${tdL}">Notes</td><td style="${tdR}">${notes || "—"}</td></tr>
-      <tr><td style="${tdL}">Assigned To</td><td style="${tdR}">${agentName} (auto-assigned)</td></tr>
-    </table>
-    <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}. It will appear in their queue immediately.</p>
-  </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.26 — Brothers Group · Momentum Realty
-  </div>
-</div></body></html>`,
-      }).catch(err => console.error("[network lead] Admin notify failed:", err));
-    }
+    // Admin email for network leads removed per user request (v11.27)
 
     res.json({ created: true, leadId: created.id });
   });
@@ -1765,7 +1745,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.26</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.27</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

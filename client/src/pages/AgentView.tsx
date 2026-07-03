@@ -40,7 +40,7 @@ const LPMAMAB_PHRASES = [
 // ─── Outcome configs ───────────────────────────────────────────────────────────
 const OUTCOMES = [
   { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.12)",  border: "rgba(236,72,153,0.4)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.22)" },
-  { key: "callback_requested",      label: "Callback",      icon: Calendar,      bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
+  { key: "callback_requested",      label: "Recycle",       icon: Calendar,      bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
   { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.12)",   border: "rgba(34,197,94,0.4)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.22)" },
   { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
   { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },
@@ -100,13 +100,17 @@ function ApptModal({
   const [apptDate, setApptDate] = React.useState("");
   const [apptTime, setApptTime] = React.useState("");
   const [stage, setStage] = React.useState<string>("Hot Prospect");
-  const [intention, setIntention] = React.useState<string>("");
+  const [intentions, setIntentions] = React.useState<string[]>([]);
+
+  const toggleIntention = (key: string) => {
+    setIntentions(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
 
   const confirmedAddress = addressConfirmed ? (lead.address || "") : altAddress;
   const canSubmit = apptEmail.trim() &&
     (addressConfirmed || altAddress.trim()) &&
     (!isAppt || (apptDate && apptTime)) &&
-    stage && intention;
+    stage && intentions.length > 0;
 
   const sourceLabel: Record<string, string> = {
     expired: "Expired Listing", distressed: "Distressed Property",
@@ -203,24 +207,32 @@ function ApptModal({
             </div>
           </div>
           <div>
-            <label style={labelStyle}>Client Intention</label>
+            <label style={labelStyle}>Client Intention <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, letterSpacing: 0, textTransform: "none" }}>(select all that apply)</span></label>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {INTENTIONS.map(i => (
-                <button
-                  key={i.key}
-                  type="button"
-                  onClick={() => setIntention(i.key)}
-                  style={{
-                    padding: "11px 8px", borderRadius: 9, border: "1px solid",
-                    fontSize: 12, fontWeight: 600, cursor: "pointer",
-                    transition: "all 0.15s", textAlign: "center",
-                    borderColor: intention === i.key ? "#93c5fd" : "rgba(255,255,255,0.12)",
-                    background: intention === i.key ? "rgba(147,197,253,0.15)" : "rgba(255,255,255,0.04)",
-                    color: intention === i.key ? "#93c5fd" : "rgba(255,255,255,0.45)",
-                  }}
-                >{i.label}</button>
-              ))}
+              {INTENTIONS.map(i => {
+                const selected = intentions.includes(i.key);
+                return (
+                  <button
+                    key={i.key}
+                    type="button"
+                    onClick={() => toggleIntention(i.key)}
+                    style={{
+                      padding: "11px 8px", borderRadius: 9, border: "1px solid",
+                      fontSize: 12, fontWeight: 600, cursor: "pointer",
+                      transition: "all 0.15s", textAlign: "center",
+                      borderColor: selected ? "#93c5fd" : "rgba(255,255,255,0.12)",
+                      background: selected ? "rgba(147,197,253,0.15)" : "rgba(255,255,255,0.04)",
+                      color: selected ? "#93c5fd" : "rgba(255,255,255,0.45)",
+                    }}
+                  >{i.label}</button>
+                );
+              })}
             </div>
+            {intentions.length > 1 && (
+              <p style={{ margin: "8px 0 0", fontSize: 11, color: "#fbbf24", letterSpacing: "0.04em" }}>
+                Multi-transaction client — {intentions.length} intentions selected
+              </p>
+            )}
           </div>
           <div>
             <label style={labelStyle}>Source</label>
@@ -230,7 +242,7 @@ function ApptModal({
           </div>
         </div>
         <button
-          onClick={() => onSubmit({ apptEmail, confirmedAddress, apptDate, apptTime, stage, intention })}
+          onClick={() => onSubmit({ apptEmail, confirmedAddress, apptDate, apptTime, stage, intention: intentions.map(k => INTENTIONS.find(i => i.key === k)?.label || k).join(" + ") })}
           disabled={!canSubmit || isPending}
           style={{
             marginTop: 28, width: "100%", padding: "16px", borderRadius: 12, border: "none",
@@ -256,24 +268,6 @@ function CallbackModal({
   onSubmit: (data: { callbackDate: string; callbackTime: string }) => void;
   isPending: boolean;
 }) {
-  const [callbackDate, setCallbackDate] = React.useState("");
-  const [callbackTime, setCallbackTime] = React.useState("");
-  const canSubmit = callbackDate.trim() !== "";
-
-  const inputStyle: React.CSSProperties = {
-    width: "100%", background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(200,170,90,0.3)",
-    padding: "12px 14px", borderRadius: 10,
-    fontFamily: "'Switzer','Inter',sans-serif", fontSize: 14,
-    color: "#fff", outline: "none", colorScheme: "dark",
-    boxSizing: "border-box" as const,
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase" as const,
-    color: "rgba(200,170,90,0.7)", marginBottom: 7, display: "block", fontWeight: 600,
-  };
-
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 100,
@@ -290,42 +284,26 @@ function CallbackModal({
         borderBottom: "none",
         borderRadius: "20px 20px 0 0",
         padding: "28px 22px 48px",
-        maxHeight: "70dvh",
-        overflowY: "auto",
       }}>
         <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 22px" }} />
-        <div style={{ marginBottom: 24 }}>
-          <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 26, fontWeight: 400, color: "#fff", margin: 0 }}>
-            Schedule Callback
-          </h2>
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>
-            Set a date and time to follow up
-          </p>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <label style={labelStyle}>Callback Date</label>
-              <input type="date" value={callbackDate} onChange={e => setCallbackDate(e.target.value)} style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Callback Time</label>
-              <input type="time" value={callbackTime} onChange={e => setCallbackTime(e.target.value)} style={inputStyle} />
-            </div>
-          </div>
-        </div>
+        <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 26, fontWeight: 400, color: "#fff", margin: "0 0 8px" }}>
+          Recycle Lead
+        </h2>
+        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginTop: 0, marginBottom: 28, lineHeight: 1.5 }}>
+          This lead will be immediately returned to the pool and assigned to the next agent in rotation — just like a fresh lead.
+        </p>
         <button
-          onClick={() => onSubmit({ callbackDate, callbackTime })}
-          disabled={!canSubmit || isPending}
+          onClick={() => onSubmit({ callbackDate: "", callbackTime: "" })}
+          disabled={isPending}
           style={{
-            marginTop: 28, width: "100%", padding: "16px", borderRadius: 12, border: "none",
-            background: canSubmit && !isPending ? "linear-gradient(135deg,#22d3ee,#0891b2)" : "rgba(255,255,255,0.08)",
-            color: canSubmit && !isPending ? "#080808" : "rgba(255,255,255,0.3)",
-            fontSize: 15, fontWeight: 700, cursor: canSubmit && !isPending ? "pointer" : "default",
+            width: "100%", padding: "16px", borderRadius: 12, border: "none",
+            background: !isPending ? "linear-gradient(135deg,#22d3ee,#0891b2)" : "rgba(255,255,255,0.08)",
+            color: !isPending ? "#080808" : "rgba(255,255,255,0.3)",
+            fontSize: 15, fontWeight: 700, cursor: !isPending ? "pointer" : "default",
             letterSpacing: "0.04em",
           }}
         >
-          {isPending ? "Saving…" : "Confirm Callback"}
+          {isPending ? "Recycling…" : "Recycle to Pool"}
         </button>
       </div>
     </div>

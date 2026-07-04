@@ -20,16 +20,24 @@ export function serveStatic(app: Express) {
 
   // ── Agent headshots → no-cache (user-uploaded, changes at any time) ───────
   // In production: serve from persistent Railway volume so headshots survive deploys
+  // Fallback: also serve from dist/public/headshots/ (committed slug files)
   const isProduction = process.env.NODE_ENV === "production";
   const headshotsPath = isProduction ? "/app/data/headshots" : path.join(distPath, "headshots");
+  const headshotsFallbackPath = path.join(distPath, "headshots");
   if (!fs.existsSync(headshotsPath)) fs.mkdirSync(headshotsPath, { recursive: true });
-  app.use("/headshots", express.static(headshotsPath, {
+  const headshotOpts = {
     maxAge: 0,
     etag: true,
-    setHeaders(res) {
+    setHeaders(res: any) {
       res.setHeader("Cache-Control", "no-cache, must-revalidate");
     },
-  }));
+  };
+  // Primary: volume (user-uploaded headshots survive deploys)
+  app.use("/headshots", express.static(headshotsPath, headshotOpts));
+  // Fallback: committed slug files in dist/public/headshots/
+  if (isProduction && headshotsFallbackPath !== headshotsPath) {
+    app.use("/headshots", express.static(headshotsFallbackPath, headshotOpts));
+  }
 
   // ── Hashed assets (JS/CSS bundles) → 1 year immutable cache ──────────────
   // Vite fingerprints filenames: index-AbCdEfGh.js — safe to cache forever

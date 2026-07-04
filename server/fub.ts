@@ -371,50 +371,6 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
   }
 }
 
-// ─── PUSH NEW LEAD (website/network leads) ───────────────────────────────────
-export async function pushNewLeadToFub(opts: {
-  ownerName?: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  leadType: string;
-  source?: string;
-  agentName?: string;
-  notes?: string;
-  tags?: string[];
-}): Promise<void> {
-  if (!FUB_API_KEY) return;
-
-  const nameParts = (opts.ownerName || "").trim().split(" ");
-  const firstName = nameParts[0] || "Unknown";
-  const lastName = nameParts.slice(1).join(" ") || "";
-
-  const fubSource = getFubSource(opts.leadType, opts.source);
-
-  const payload: any = {
-    source: fubSource,
-    system: FUB_SYSTEM,
-    type: "Registration",
-    message: opts.notes || `New ${fubSource} lead via Lead Depot`,
-    sourceUrl: "https://depot.watsonbrothersgroup.com",
-    person: {
-      firstName,
-      lastName,
-      tags: opts.tags || ["ne-florida", opts.leadType.replace("_", "-")],
-      background: `Lead Type: ${fubSource}\nProperty: ${opts.address || "—"}`,
-    },
-  };
-
-  if (opts.agentName) payload.person.assignedTo = opts.agentName;
-  if (opts.phone)     payload.person.phones = [{ value: opts.phone }];
-  if (opts.email)     payload.person.emails = [{ value: opts.email }];
-
-  const result = await fubRequest("POST", "/events", payload);
-  if (result.ok) {
-    console.log(`[FUB] New lead pushed — ${result.status === 201 ? "created" : "updated"}`);
-  }
-}
-
 // ─── AGENT RECRUITING — PUSH ON FORM SUBMIT ──────────────────────────────────
 export interface AgentRecruitPayload {
   firstName: string;

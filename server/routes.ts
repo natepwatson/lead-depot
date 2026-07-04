@@ -481,7 +481,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   app.patch("/api/agents/:id/reactivate", (req, res) => {
     const id = parseInt(req.params.id);
     // Only turn flow ON if agent has a headshot — no headshot = incomplete onboarding
-    const existing = storage.getAgent(id);
+    const existing = storage.getAgentById(id);
     const hasHeadshot = !!(existing as any)?.headshotUrl;
     const updated = storage.updateAgent(id, { isActive: true, leadFlowOn: hasHeadshot });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
@@ -936,12 +936,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       .filter((l: any) => l.lat !== undefined);
 
     res.json(result);
-  });
-
-  // Flush geo_cache so all pins are re-geocoded with the corrected format
-  app.delete("/api/admin/geo-cache", (_req, res) => {
-    rawDb.prepare("DELETE FROM geo_cache").run();
-    res.json({ cleared: true });
   });
 
   app.get("/api/leads/stats", (req, res) => {
@@ -2355,7 +2349,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.54",
+      version: "v11.55",
       services: results,
     });
   });
@@ -2363,43 +2357,6 @@ This template is for informational/outreach purposes only.`;
   // Simple ping for uptime checks
   app.get("/api/ping", (_req, res) => res.json({ pong: true, ts: Date.now() }));
 
-  // One-time headshot injection trigger — forces DB update for all known agents
-  // Also copies slug-named files into the persistent headshots directory
-  app.post("/api/admin/inject-headshots", (req: any, res: any) => {
-    const headshotMap: Record<string, string> = {
-      "Bronson Sarmento": "bronson-sarmento",
-      "Cory Deroin":      "cory-deroin",
-      "Vonda Jewell":     "vonda-jewell",
-      "Gabriel Duran":    "gabriel-duran",
-      "Denise Jacobs":    "denise-jacobs",
-      "Nate Watson":      "nate-watson",
-      "Alex Watson":      "alex-watson",
-    };
-    const isProduction = process.env.NODE_ENV === "production";
-    const headshotsDir = isProduction ? "/app/data/headshots" : path.resolve(__dirname, "public", "headshots");
-    fs.mkdirSync(headshotsDir, { recursive: true });
-    // Source slug files live in dist/public/headshots/ (committed to git)
-    const sourceDir = path.resolve(__dirname, "public", "headshots");
-    const allAgents = rawDb.prepare("SELECT id, name FROM agents").all() as any[];
-    const updated: string[] = [];
-    for (const agent of allAgents) {
-      if (agent.name === "Usman Jan") {
-        rawDb.prepare("UPDATE agents SET is_active = 0 WHERE id = ? AND (headshot_url IS NULL OR headshot_url = '')").run(agent.id);
-        continue;
-      }
-      const slug = headshotMap[agent.name];
-      if (!slug) continue;
-      // Copy file into persistent dir if not already there
-      const srcFile = path.join(sourceDir, `${slug}.jpg`);
-      const destFile = path.join(headshotsDir, `${slug}.jpg`);
-      try {
-        if (fs.existsSync(srcFile)) fs.copyFileSync(srcFile, destFile);
-      } catch (e) { /* non-fatal */ }
-      rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${slug}.jpg`, agent.id);
-      updated.push(`${agent.name} → /headshots/${slug}.jpg`);
-    }
-    res.json({ ok: true, updated });
-  });
 
 
   // ─── PUBLIC: Agent recruiting form submission ────────────────────────────────

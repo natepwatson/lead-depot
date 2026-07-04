@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit } from "./fub";
 import { runBatchLeadsPipeline } from "./batchleads";
 import { runFrecPipeline } from "./frec-pipeline";
-import { getTerritoryForZip } from "./territories";
+import { getTerritoryForZip, TERRITORIES as TERRITORY_META } from "./territories";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -149,7 +149,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v12.6 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v12.7 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -208,7 +208,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v12.6 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v12.7 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -257,7 +257,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v12.6 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v12.7 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -2504,7 +2504,7 @@ This template is for informational/outreach purposes only.`;
   // ═══════════════════════════════════════════════════════════════════════════
   app.get("/api/territories", (_req, res) => {
     // Pull display names from the source module so the UI can render them cleanly.
-    const { TERRITORIES: TER_META } = require("./territories") as { TERRITORIES: Record<string, { displayName: string }> };
+    const TER_META = TERRITORY_META as Record<string, { displayName: string }>;
     const rows = rawDb.prepare(`SELECT name, is_open FROM territories ORDER BY name`).all() as any[];
     // Map by display name (that's what's stored in territories.name via the seed).
     const withCounts = rows.map(t => {
@@ -2525,7 +2525,7 @@ This template is for informational/outreach purposes only.`;
 
     // 1. Delete leads in this territory (activity history preserved for leaderboard).
     // Match by both the stored territory key AND the display name for safety.
-    const { TERRITORIES: TER_META } = require("./territories") as { TERRITORIES: Record<string, { displayName: string }> };
+    const TER_META = TERRITORY_META as Record<string, { displayName: string }>;
     const key = Object.entries(TER_META).find(([, v]) => v.displayName === name)?.[0];
     const territoryValues = key ? [name, key] : [name];
     const placeholders = territoryValues.map(() => "?").join(",");

@@ -22,14 +22,14 @@ export const TERRITORIES: Record<string, {
   "north_jax_nassau": {
     displayName: "North Jax & Nassau",
     cities: ["Fernandina Beach", "Amelia Island", "Yulee", "Callahan", "Hilliard", "Bryceville", "Northside Jacksonville", "Oceanway", "Dinsmore", "Baldwin"],
-    zipcodes: ["32034", "32035", "32041", "32097", "32011", "32046", "32009", "32218", "32219", "32226", "32234", "32220"],
-    notes: "All Nassau County + northern Duval. 32220/32234 are boundary zips — see file header."
+    zipcodes: ["32034", "32035", "32041", "32097", "32011", "32046", "32009", "32218", "32219", "32226", "32234"],
+    notes: "All Nassau County + northern Duval. 32234 (Baldwin) is multi-county — assigned here as town sits in Duval."
   },
   "jacksonville_west": {
     displayName: "Jacksonville West",
-    cities: ["Argyle", "Oakleaf", "Cecil Field", "Herlong", "Normandy", "Westside", "Jacksonville Heights", "Ortega", "Confederate Point"],
-    zipcodes: ["32210", "32221", "32222", "32244", "32254", "32073"],
-    notes: "West Duval County. 32073 included at Oakleaf edge (Clay County boundary)."
+    cities: ["Argyle", "Oakleaf", "Cecil Field", "Herlong", "Normandy", "Westside", "Jacksonville Heights", "Ortega", "Confederate Point", "Whitehouse"],
+    zipcodes: ["32210", "32220", "32221", "32222", "32244", "32254", "32073"],
+    notes: "West Duval County including Whitehouse (32220). 32073 included at Oakleaf/Clay edge."
   },
   "jacksonville_east": {
     displayName: "Jacksonville East",

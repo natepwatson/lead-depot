@@ -505,19 +505,26 @@ export async function runBatchLeadsPipeline(rawDb: any): Promise<{
     return { fetched: 0, filtered: 0, priority: 0, standard: 0, reserve: 0, discarded: 0, byType: {} };
   }
 
-  // Build dedup sets from existing leads
-  const existingLeads = rawDb.prepare(`SELECT phone, address FROM leads`).all() as any[];
-  const existingPhones = new Set<string>(
-    existingLeads.map((l: any) => (l.phone || "").replace(/\D/g, "").slice(-10)).filter(Boolean)
-  );
+  // Build dedup sets from existing leads — check ALL phone numbers, not just primary
+  const existingLeads = rawDb.prepare(`SELECT phone, phones, address FROM leads`).all() as any[];
+  const existingPhones = new Set<string>();
+  for (const l of existingLeads) {
+    if (l.phone) existingPhones.add((l.phone).replace(/\D/g, "").slice(-10));
+    if (l.phones) {
+      try {
+        const arr: string[] = JSON.parse(l.phones);
+        for (const p of arr) existingPhones.add(p.replace(/\D/g, "").slice(-10));
+      } catch {}
+    }
+  }
   const existingAddresses = new Set<string>(
     existingLeads.map((l: any) => (l.address || "").toLowerCase().replace(/[^a-z0-9]/g, "")).filter(Boolean)
   );
 
-  // Wrong number in last 90 days
+  // Wrong number in last 90 days — use correct table name: lead_activity
   const wrongNumbers = rawDb.prepare(`
     SELECT DISTINCT l.phone FROM leads l
-    JOIN activities a ON a.lead_id = l.id
+    JOIN lead_activity a ON a.lead_id = l.id
     WHERE a.outcome = 'wrong_number'
       AND a.created_at > datetime('now', '-90 days')
   `).all() as any[];
@@ -525,10 +532,10 @@ export async function runBatchLeadsPipeline(rawDb: any): Promise<{
     wrongNumbers.map((r: any) => (r.phone || "").replace(/\D/g, "").slice(-10))
   );
 
-  // Not interested in last 180 days
+  // Not interested in last 180 days — use correct table name: lead_activity
   const notInterested = rawDb.prepare(`
     SELECT DISTINCT l.phone FROM leads l
-    JOIN activities a ON a.lead_id = l.id
+    JOIN lead_activity a ON a.lead_id = l.id
     WHERE a.outcome = 'contacted_not_interested'
       AND a.created_at > datetime('now', '-180 days')
   `).all() as any[];

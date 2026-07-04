@@ -171,6 +171,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   const CRON_EXEMPT_PATHS = [
     "/api/admin/stale-lead-audit",
     "/api/admin/batchleads-run",
+    "/api/admin/frec-run",
   ];
   app.use("/api/admin", (req: any, res: any, next: any) => {
     const fullPath = req.baseUrl + req.path;
@@ -1281,7 +1282,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         new Date().toISOString());
 
       if (remaining.length === 0) {
-        // All numbers confirmed bad — delete the lead
+        // All numbers confirmed bad — award points first, then delete lead + its history
+        awardPoints(agentId, "wrong_number", leadId);
         rawDb.prepare(`DELETE FROM lead_activity WHERE lead_id = ?`).run(leadId);
         storage.deleteLead(leadId);
         broadcast({ type: "lead_deleted", leadId });
@@ -2213,6 +2215,17 @@ This template is for informational/outreach purposes only.`;
     const todayReferralsMap: Record<number, number> = {};
     for (const r of todayRefRows) todayReferralsMap[r.uploaded_by] = r.cnt;
 
+    // All-time referrals (no date filter)
+    const allRefRows: any[] = rawDb.prepare(`
+      SELECT uploaded_by, COUNT(*) as cnt
+      FROM leads
+      WHERE uploaded_by IS NOT NULL
+        AND json_extract(extra_data, '$.source') = 'network'
+      GROUP BY uploaded_by
+    `).all();
+    const allReferralsMap: Record<number, number> = {};
+    for (const r of allRefRows) allReferralsMap[r.uploaded_by] = r.cnt;
+
     const buildStats = (agg: any, period: "today" | "week" | "all", agentId: number) => {
       if (!agg) return { dials: 0, appts: 0, kit: 0, emails: 0, noAnswer: 0, convRate: 0, referrals: 0 };
       const p = period === "today" ? "today" : period === "week" ? "week" : "all";
@@ -2224,7 +2237,9 @@ This template is for informational/outreach purposes only.`;
       const total    = agg[`${p}_total`]    || (p === "all" ? (agg.all_total || 0) : 0);
       const dials    = total - emails;
       const convRate = dials > 0 ? Math.round(((appts + notInt + kit) / dials) * 100) : 0;
-      const referrals = period === "today" ? (todayReferralsMap[agentId] || 0) : (weekReferralsMap[agentId] || 0);
+      const referrals = period === "today" ? (todayReferralsMap[agentId] || 0)
+        : period === "all" ? (allReferralsMap[agentId] || 0)
+        : (weekReferralsMap[agentId] || 0);
       return { dials, appts, kit, emails, noAnswer, convRate, referrals };
     };
 
@@ -2588,7 +2603,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.78",
+      version: "v11.79",
       services: results,
     });
   });

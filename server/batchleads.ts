@@ -1,5 +1,5 @@
 // ─── BATCHLEADS LEAD GEN PIPELINE ─────────────────────────────────────────────
-// Replaces Landvoice as the primary automated lead source.
+// Primary automated lead source. Pulls from saved lists in BatchLeads account.
 // Runs daily at 6:00 AM EDT (10:00 UTC) via scheduled cron.
 //
 // SETUP: Set BATCHLEADS_API_KEY environment variable in Railway

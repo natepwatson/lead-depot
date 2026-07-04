@@ -71,7 +71,7 @@ for (const [key, t] of Object.entries(TERRITORIES)) {
   }
 }
 
-// All NE Florida zips in one flat array (for Landvoice API query filtering)
+// All NE Florida zips in one flat array (for BatchLeads and FREC territory filtering)
 export const ALL_NE_FLORIDA_ZIPS = [...new Set(Object.values(TERRITORIES).flatMap(t => t.zipcodes))];
 
 export function getTerritoryForZip(zip: string): string | null {

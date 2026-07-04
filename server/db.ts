@@ -276,7 +276,7 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_uploaded_by
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_callback_date
   ON leads(callback_date)`).run();
 
-// leads: source — BatchLeads/Landvoice new-lead assignment window
+// leads: source — BatchLeads pipeline new-lead assignment window
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_source
   ON leads(source)`).run();
 

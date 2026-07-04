@@ -7,7 +7,6 @@ import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit } from "./fub";
-import { runLandvoicePipeline } from "./landvoice";
 import { runBatchLeadsPipeline } from "./batchleads";
 import { runFrecPipeline } from "./frec-pipeline";
 import { getTerritoryForZip } from "./territories";
@@ -172,7 +171,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   const CRON_EXEMPT_PATHS = [
     "/api/admin/stale-lead-audit",
     "/api/admin/batchleads-run",
-    "/api/admin/landvoice-run",
   ];
   app.use("/api/admin", (req: any, res: any, next: any) => {
     const fullPath = req.baseUrl + req.path;
@@ -189,7 +187,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
   // ─ Pipeline double-fire guard ──────────────────────────────────────────────
-  // Prevents BatchLeads/Landvoice from firing more than once per 5-minute
+  // Prevents pipeline triggers from firing more than once per 5-minute
   // window, protecting against runaway crons or rapid manual triggers.
   const pipelineLastRun: Record<string, number> = {};
   const PIPELINE_COOLDOWN_MS = 5 * 60 * 1000;
@@ -837,10 +835,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ created: true, leadId: created.id, ownerName, address: fullAddress });
   });
 
-  // ─── LEADS ────────────────────────────────────────────────────────────────
+  // ─── LEADS (legacy endpoint — returns up to 500 leads via indexed SQL) ──────
   app.get("/api/leads", (req, res) => {
-    const all = storage.getAllLeads();
-    res.json(all);
+    const rows = rawDb.prepare(
+      `SELECT * FROM leads ORDER BY uploaded_at DESC LIMIT 500`
+    ).all();
+    res.json(rows);
   });
 
   // ─── PAGINATED LEAD LIST (v11.57) — use for admin list view at scale ─────
@@ -1063,9 +1063,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     let disqualified = 0;
     const validRows = leadRows.filter((row: any) => {
       const name = row["Owner Name"] || row.ownerName || row.name || row.Name ||
-        row["First Name"] || row["LandvoiceOwnerFirstName"] || "";
+        row["First Name"] || "";
       const phone = row["Primary Phone"] || row.phone || row.Phone ||
-        row["Phone Number"] || row["LandvoiceContact1Phone"] || "";
+        row["Phone Number"] || "";
       const hasName = name.trim().length > 0;
       const hasPhone = phone.replace(/\D/g, "").length >= 7;
       if (!hasName || !hasPhone) { disqualified++; return false; }
@@ -1074,9 +1074,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     const created = storage.createLeadsFromBatch(
       validRows.map((row: any) => {
-        // Landvoice Expired format: First Name + Last Name columns
-        const firstName = row["First Name"] || row["LandvoiceOwnerFirstName"] || row["LandvoiceContact1FirstName"] || "";
-        const lastName  = row["Last Name"]  || row["LandvoiceOwnerLastName"]  || row["LandvoiceContact1LastName"]  || "";
+        const firstName = row["First Name"] || "";
+        const lastName  = row["Last Name"]  || "";
         const fullName  = row["Owner Name"] || row.ownerName || row.name || row.Name
           || (firstName || lastName ? `${firstName} ${lastName}`.trim() : "");
 
@@ -1084,8 +1083,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         const rawPhones = [
           row["Primary Phone"], row["Secondary Phone"],
           row["phone"], row["Phone"], row["Phone Number"],
-          row["LandvoiceContact1Phone"], row["LandvoiceContact2Phone"],
-          row["LandvoiceContact3Phone"], row["LandvoiceContact4Phone"],
+
         ]
           .map((p: any) => String(p || "").replace(/\D/g, "").trim())
           .filter((p: string) => p.length >= 7);
@@ -1104,7 +1102,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           ? (city ? `${propAddress}, ${city}, ${state} ${zip}`.trim() : propAddress)
           : "";
 
-        const email = row.email || row.Email || row["LandvoiceOwnerEmail"] || "";
+        const email = row.email || row.Email || "";
 
         // Price as motivation context
         const price = row.Price || row.price || row["Listing Price"] || "";
@@ -2438,7 +2436,7 @@ This template is for informational/outreach purposes only.`;
 
   // ─── CSV EXPORT ───────────────────────────────────────────────────────────
   app.get("/api/export/leads", (req, res) => {
-    const allLeads = storage.getAllLeads();
+    const allLeads = rawDb.prepare(`SELECT * FROM leads ORDER BY uploaded_at DESC`).all() as any[];
     const agents = storage.getAllAgents();
     const agentMap = Object.fromEntries(agents.map(a => [a.id, a.name]));
 
@@ -2575,7 +2573,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.71",
+      version: "v11.72",
       services: results,
     });
   });
@@ -2950,44 +2948,6 @@ This template is for informational/outreach purposes only.`;
     }
   });
 
-  // ─── LANDVOICE PIPELINE TRIGGER (legacy — keep for CSV fallback) ─────────────
-  app.post("/api/admin/landvoice-run",
-    (req: any, res: any, next: any) => pipelineGuard("landvoice", req, res, next),
-    async (req: any, res) => {
-    try {
-      console.log("[Landvoice] Manual/cron trigger received");
-      const stats = await runLandvoicePipeline(rawDb);
-
-      // After insert, trigger round-robin distribution for priority + standard leads
-      const newLeads = rawDb.prepare(
-        `SELECT * FROM leads WHERE status = 'unassigned' AND source = 'landvoice' AND created_at > datetime('now', '-1 hour')`
-      ).all() as any[];
-
-      let assigned = 0;
-      for (const lead of newLeads) {
-        try {
-          // Reuse existing round-robin logic via internal fetch
-          const nextAgent = storage.getNextAgentForRoundRobin();
-          if (nextAgent) {
-            storage.updateLead(lead.id, { status: "assigned", assignedAgentId: nextAgent.id });
-            assigned++;
-          }
-        } catch (e) {
-          // skip — will be redistributed by morning cron
-        }
-      }
-
-      res.json({
-        ok: true,
-        ...stats,
-        assigned,
-        message: `Pipeline complete. ${stats.priority + stats.standard} leads inserted, ${assigned} assigned via round-robin.`,
-      });
-    } catch (err: any) {
-      console.error("[Landvoice] Pipeline error:", err);
-      res.status(500).json({ error: err.message });
-    }
-  });
 
     // ── AGENT LEADS: MANUAL QUICK-ADD (admin) ──────────────────────────
   // ─── FREC AGENT SCRAPER PIPELINE TRIGGER ────────────────────────────────────

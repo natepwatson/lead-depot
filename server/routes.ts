@@ -1230,14 +1230,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       newStatus = "keep_in_touch";
 
     } else if (outcome === "callback_requested") {
-      // Recycle = immediate round-robin
-      newStatus = "no_answer";
-      newCallbackDate = null;
-      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-      if (nextAgent) {
-        newAssignedId = nextAgent.id;
-        storage.updateRoundRobinState(nextAgent.id);
-      }
+      // Schedule callback — keep with same agent, store the requested date/time.
+      // The nightly redistribution (8am EDT) fires due callbacks to the next
+      // available agent if this agent is inactive, or leaves it with them if active.
+      newStatus = "callback_requested";
+      // Use the date provided by the UI; fall back to keeping the existing date if none
+      newCallbackDate = callbackDate || lead.callbackDate || null;
     }
 
     // Save LPMAMAB fields if provided
@@ -2579,7 +2577,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.75",
+      version: "v11.76",
       services: results,
     });
   });
@@ -3353,9 +3351,25 @@ async function redistributeDueCallbacks() {
     const assignedAgent = lead.assignedAgentId
       ? { isActive: lead.agentIsActive, leadFlowOn: lead.agentLeadFlowOn, name: lead.agentName }
       : null;
-    if (assignedAgent && assignedAgent.isActive && assignedAgent.leadFlowOn !== false) continue;
 
-    // Agent is inactive (or unassigned) — redistribute now
+    if (assignedAgent && assignedAgent.isActive && assignedAgent.leadFlowOn !== false) {
+      // Agent is active — promote callback to 'no_answer' so it surfaces at top of their queue today.
+      // getNextLeadForAgent prioritizes callbacks with past/today dates already, but flipping to
+      // no_answer ensures it appears in the regular dial flow with no special-case logic needed.
+      storage.updateLead(lead.id, { status: "no_answer", callbackDate: null });
+      storage.createLeadActivity({
+        leadId: lead.id,
+        agentId: null,
+        outcome: "recycled",
+        notes: `📞 Callback due today (${lead.callbackDate}) — promoted to active dial queue for ${lead.agentName}.`,
+        lpmamabSnapshot: null,
+        createdAt: new Date().toISOString(),
+      });
+      redistributed++;
+      continue;
+    }
+
+    // Agent is inactive (or unassigned) — redistribute to next active agent
     const nextAgent = storage.getNextAgentInRotation(lead.leadType);
     if (!nextAgent) continue;
 
@@ -3364,6 +3378,7 @@ async function redistributeDueCallbacks() {
     storage.updateLead(lead.id, {
       assignedAgentId: nextAgent.id,
       status: "assigned",
+      callbackDate: null,
     });
     storage.updateRoundRobinState(nextAgent.id);
 

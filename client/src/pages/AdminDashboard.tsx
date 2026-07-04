@@ -850,6 +850,13 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [quickAddForm, setQuickAddForm] = useState({ firstName: "", lastName: "", phone: "", email: "", currentBrokerage: "", licenseStatus: "", territory: "", notes: "" });
   const [quickAddSubmitting, setQuickAddSubmitting] = useState(false);
   const [recruitingSubTab, setRecruitingSubTab] = useState<"quick" | "bulk">("quick");
+  const [frecRunning, setFrecRunning] = useState(false);
+  const [frecResult, setFrecResult] = useState<any>(null);
+  const frecStatsQuery = useQuery({
+    queryKey: ["/api/admin/frec-stats"],
+    queryFn: () => apiRequest("GET", "/api/admin/frec-stats").then(r => r.json()),
+    staleTime: 60_000,
+  });
   const [websiteLeadForm, setWebsiteLeadForm] = useState({ firstName: "", lastName: "", email: "", phone: "", address: "", city: "", state: "FL", zip: "", county: "", propertyType: "", reasonForSelling: "", estimatedValue: "", timeframe: "" });
   const [submittingWebsiteLead, setSubmittingWebsiteLead] = useState(false);
   const [newAgent, setNewAgent] = useState({ name: "", email: "" });
@@ -1304,7 +1311,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.70
+              v11.71
             </p>
           </div>
         </div>
@@ -2428,6 +2435,100 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   </div>
                 </div>
               )}
+
+              {/* ── FREC Scraper Tile ───────────────────────────────────────── */}
+              <div style={{
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 12, padding: 20, marginTop: 4,
+              }}>
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 4 }}>
+                      FREC Auto-Scraper
+                    </p>
+                    <p className="text-xs text-muted-foreground" style={{ lineHeight: 1.5 }}>
+                      Pulls active licensed agents from Florida DBPR across Nassau, Duval, St. Johns, and Clay counties. Runs automatically every Sunday at 2am.
+                    </p>
+                  </div>
+                  <div style={{ shrink: 0 }}>
+                    {frecStatsQuery.data && (
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 22, fontWeight: 300, color: "rgba(200,170,90,0.9)", lineHeight: 1 }}>
+                          {(frecStatsQuery.data.total || 0).toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginTop: 2 }}>
+                          FREC agents
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {frecResult && (
+                  <div style={{
+                    background: frecResult.error ? "rgba(161,44,123,0.08)" : "rgba(79,184,163,0.07)",
+                    border: `1px solid ${frecResult.error ? "rgba(161,44,123,0.25)" : "rgba(79,184,163,0.2)"}`,
+                    borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12,
+                  }}>
+                    {frecResult.error ? (
+                      <p style={{ color: "rgba(209,99,167,0.9)" }}>{frecResult.error}</p>
+                    ) : (
+                      <div className="space-y-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>
+                        <p>{frecResult.message}</p>
+                        {frecResult.inserted > 0 && (
+                          <p style={{ color: "rgba(79,184,163,0.8)", fontSize: 11 }}>
+                            +{frecResult.inserted} new · {frecResult.updated} refreshed · {frecResult.filtered} filtered
+                            {frecResult.runDurationMs ? ` · ${(frecResult.runDurationMs / 1000 / 60).toFixed(1)} min` : ""}
+                          </p>
+                        )}
+                        {frecResult.warning && (
+                          <p style={{ color: "rgba(200,170,90,0.8)", fontSize: 11 }}>⚠ {frecResult.warning}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {frecStatsQuery.data?.lastRun && (
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Last run: {new Date(frecStatsQuery.data.lastRun).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </p>
+                )}
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={frecRunning}
+                  style={{
+                    borderColor: "rgba(200,170,90,0.35)",
+                    color: "rgba(200,170,90,0.9)",
+                    fontSize: 11, fontWeight: 600,
+                    letterSpacing: "0.04em",
+                  }}
+                  className="gap-1.5 hover:bg-yellow-900/20"
+                  onClick={async () => {
+                    setFrecRunning(true);
+                    setFrecResult(null);
+                    try {
+                      const res = await apiRequest("POST", "/api/admin/frec-run", {});
+                      const data = await res.json();
+                      setFrecResult(data);
+                      frecStatsQuery.refetch();
+                    } catch (e: any) {
+                      setFrecResult({ error: e.message || "FREC run failed" });
+                    } finally {
+                      setFrecRunning(false);
+                    }
+                  }}
+                >
+                  {frecRunning ? (
+                    <><RefreshCw size={11} className="animate-spin" /> Scraping FREC… (may take 10–30 min)</>
+                  ) : (
+                    <><RefreshCw size={11} /> Run FREC Scrape Now</>
+                  )}
+                </Button>
+              </div>
             </div>
           </TabsContent>
 

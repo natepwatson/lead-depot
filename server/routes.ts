@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit } from "./fub";
 import { runLandvoicePipeline } from "./landvoice";
 import { runBatchLeadsPipeline } from "./batchleads";
+import { runFrecPipeline } from "./frec-pipeline";
 import { getTerritoryForZip } from "./territories";
 import fs from "node:fs";
 import path from "node:path";
@@ -2574,7 +2575,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.70",
+      version: "v11.71",
       services: results,
     });
   });
@@ -2989,6 +2990,60 @@ This template is for informational/outreach purposes only.`;
   });
 
     // ── AGENT LEADS: MANUAL QUICK-ADD (admin) ──────────────────────────
+  // ─── FREC AGENT SCRAPER PIPELINE TRIGGER ────────────────────────────────────
+  // Scrapes FREC licensee database for NE Florida agents and ingests new recruits.
+  // Runs weekly Sunday 2am EDT via scheduled cron. Also triggerable manually by admins.
+  app.post("/api/admin/frec-run",
+    (req: any, res: any, next: any) => pipelineGuard("frec", req, res, next),
+    async (req: any, res) => {
+    try {
+      console.log("[FREC] Manual/cron trigger received");
+      const result = await runFrecPipeline(rawDb);
+
+      // Sanity check: if FREC returned 0 records with no errors, structure may have changed
+      const zeroScrape = result.scraped === 0 && result.errors.length === 0;
+
+      res.json({
+        ok: true,
+        ...result,
+        warning: zeroScrape
+          ? "FREC returned 0 records — HTML structure may have changed. Check frec_html_snapshot.html on Railway volume."
+          : undefined,
+        message: result.inserted === 0
+          ? `FREC scrape complete. No new agents found (${result.updated} existing records refreshed, ${result.filtered} filtered).`
+          : `FREC scrape complete. ${result.inserted} new agents added to recruiting queue across ${Object.keys(result.byTerritory).length} territories.`,
+      });
+    } catch (err: any) {
+      console.error("[FREC] Pipeline error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET — FREC pipeline stats (for AdminDashboard tile)
+  app.get("/api/admin/frec-stats", (req: any, res) => {
+    try {
+      const total = (rawDb.prepare(`SELECT COUNT(*) as n FROM agent_leads WHERE source = 'frec_scrape'`).get() as any)?.n || 0;
+      const lastRun = (rawDb.prepare(`SELECT MAX(last_scraped_at) as ts FROM agent_leads WHERE source = 'frec_scrape'`).get() as any)?.ts || null;
+      const byTerritory = rawDb.prepare(`
+        SELECT matched_territory as territory, COUNT(*) as count
+        FROM agent_leads
+        WHERE source = 'frec_scrape'
+        GROUP BY matched_territory
+        ORDER BY count DESC
+      `).all() as any[];
+      const byStatus = rawDb.prepare(`
+        SELECT status, COUNT(*) as count
+        FROM agent_leads
+        WHERE source = 'frec_scrape'
+        GROUP BY status
+        ORDER BY count DESC
+      `).all() as any[];
+      res.json({ total, lastRun, byTerritory, byStatus });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/agent-leads/manual-add", (req: any, res) => {
     const { firstName, lastName, phone, email, currentBrokerage, licenseStatus, territory, notes } = req.body;
     if (!firstName || !lastName || !phone) {

@@ -215,6 +215,21 @@ rawDb.prepare(`
   )
 `).run();
 
+// ─── FREC Scraper columns (v11.71) ──────────────────────────────────────────
+// Added to agent_leads for FREC licensee integration
+const agentLeadCols = rawDb.prepare("PRAGMA table_info(agent_leads)").all().map((c: any) => c.name);
+if (!agentLeadCols.includes("frec_license_id"))    rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN frec_license_id TEXT").run();
+if (!agentLeadCols.includes("license_issue_date")) rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN license_issue_date TEXT").run();
+if (!agentLeadCols.includes("license_expire_date")) rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN license_expire_date TEXT").run();
+if (!agentLeadCols.includes("last_scraped_at"))    rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN last_scraped_at INTEGER").run();
+if (!agentLeadCols.includes("dedup_hash"))         rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN dedup_hash TEXT").run();
+// Unique index on dedup_hash — prevents within-run and cross-run duplicates
+rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_leads_dedup_hash ON agent_leads(dedup_hash) WHERE dedup_hash IS NOT NULL`).run();
+// Index for freshness queries (last_scraped_at)
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_last_scraped ON agent_leads(last_scraped_at)`).run();
+// Index for FREC license ID lookups
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_frec_license ON agent_leads(frec_license_id) WHERE frec_license_id IS NOT NULL`).run();
+
 // ─── SAFEGUARDS (v11.70) ──────────────────────────────────────────────────────
 
 // WAL mode — concurrent reads during writes, prevents DB lock contention

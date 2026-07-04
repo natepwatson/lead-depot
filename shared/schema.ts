@@ -158,9 +158,15 @@ export const agentLeads = sqliteTable("agent_leads", {
   // FUB sync
   fubPersonId: integer("fub_person_id"),
   fubSyncedAt: text("fub_synced_at"),
+  // FREC scraper fields (v11.71)
+  frecLicenseId: text("frec_license_id"),          // FREC's unique license ID (e.g. "SL3456789")
+  licenseIssueDate: text("license_issue_date"),     // ISO date — tenure signal
+  licenseExpireDate: text("license_expire_date"),   // ISO date — filter licenses expiring <90 days
+  lastScrapedAt: integer("last_scraped_at"),         // Unix ms — freshness tracking
+  dedupHash: text("dedup_hash"),                    // SHA-256(frecLicenseId:email:zip) — unique per record
   // Metadata
   submittedAt: text("submitted_at").notNull().default(""),
-  source: text("source").notNull().default("recruiting_page"), // "recruiting_page" | "csv_upload" | "manual"
+  source: text("source").notNull().default("recruiting_page"), // "recruiting_page" | "csv_upload" | "manual" | "frec_scrape" | "broker_roster"
   uploadedAt: text("uploaded_at"),
   uploadedBy: integer("uploaded_by").references(() => agents.id),
   batchId: text("batch_id"),

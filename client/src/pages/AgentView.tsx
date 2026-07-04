@@ -1530,6 +1530,41 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
   const [tab, setTab] = useState<Tab>(initialTab ?? "leaderboard");
   const [showTutorial, setShowTutorial] = useState(false);
   useRealtimeUpdates();
+  const qc = useQueryClient();
+
+  // ── Prospecting mode ─────────────────────────────────────────────
+  const { data: prospectingData } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/settings/agent-prospecting-mode"],
+    queryFn: () => apiRequest("GET", "/api/settings/agent-prospecting-mode").then(r => r.json()),
+    refetchInterval: 8000,
+  });
+  const prospectingMode = prospectingData?.enabled ?? false;
+
+  const { data: nextAgentLead, isLoading: agentLeadLoading } = useQuery<any | null>({
+    queryKey: ["/api/agent-leads/my-next"],
+    queryFn: () => apiRequest("GET", "/api/agent-leads/my-next").then(async r => {
+      if (r.status === 204) return null;
+      return r.json();
+    }),
+    enabled: prospectingMode,
+    refetchInterval: prospectingMode ? 30000 : false,
+  });
+
+  const { data: agentLeadCount } = useQuery<{ count: number }>({
+    queryKey: ["/api/agent-leads/count"],
+    queryFn: () => apiRequest("GET", "/api/agent-leads/count").then(r => r.json()),
+    enabled: prospectingMode,
+    refetchInterval: 15000,
+  });
+
+  const agentLeadMutation = useMutation({
+    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string }) =>
+      apiRequest("POST", `/api/agent-leads/${nextAgentLead?.id}/outcome`, { ...data, callerId: user?.id }).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/agent-leads/my-next"] });
+      qc.invalidateQueries({ queryKey: ["/api/agent-leads/count"] });
+    },
+  });
 
   const { data: nextLead, isLoading: leadLoading } = useQuery<Lead | null>({
     queryKey: ["/api/leads/my-next"],
@@ -1620,8 +1655,31 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
         </div>
       </header>
 
+      {/* Prospecting Mode Banner */}
+      {prospectingMode && (
+        <div style={{
+          background: "linear-gradient(135deg, rgba(79,184,163,0.08) 0%, rgba(8,8,8,1) 80%)",
+          borderBottom: "1px solid rgba(79,184,163,0.2)",
+          padding: "8px 18px",
+          display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <div style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: "#4fb8a3",
+            boxShadow: "0 0 8px rgba(79,184,163,0.8)",
+            animation: "pulse 2s ease infinite",
+          }} />
+          <span style={{ fontSize: 11, color: "#4fb8a3", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+            Agent Recruiting Mode
+          </span>
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginLeft: 4 }}>
+            {agentLeadCount?.count ?? 0} leads in queue
+          </span>
+        </div>
+      )}
+
       {/* ── Leads notification banner ── */}
-      {hasLeads && tab !== "leads" && (
+      {!prospectingMode && hasLeads && tab !== "leads" && (
         <button onClick={() => setTab("leads")} style={{
           width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
           padding: "13px 20px",
@@ -1647,48 +1705,185 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
 
         {tab === "leads" && (
           <div>
-            {leadLoading ? (
-              <div>
-                <Skeleton className="h-[480px] w-full rounded-2xl" style={{ background: "rgba(200,170,90,0.05)" }} />
-              </div>
-            ) : !nextLead ? (
-              <div style={{ textAlign: "center", paddingTop: 60 }}>
-                <div style={{
-                  width: 72, height: 72,
-                  border: "1px solid rgba(200,170,90,0.3)", borderRadius: "50%",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  margin: "0 auto 24px",
-                  background: "rgba(200,170,90,0.06)",
-                  boxShadow: "0 0 30px rgba(200,170,90,0.1)",
-                }}>
-                  <CheckCircle2 size={30} style={{ color: "#c8aa5a" }} />
-                </div>
-                <h2 style={{
-                  fontFamily: "'Cormorant Garamond','Georgia',serif",
-                  fontSize: "2rem", fontWeight: 300, color: "#fff", marginBottom: 12,
-                }}>{onBackToAdmin ? "No Leads Assigned" : "Queue Complete"}</h2>
-                <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", lineHeight: 1.65 }}>
-                  {onBackToAdmin
-                    ? "Your admin account has no leads assigned to it as an agent. Leads are distributed to your agent team."
-                    : "You've worked through all your assigned leads. Check back soon for new assignments."}
-                </p>
-                {onBackToAdmin && (
-                  <button onClick={onBackToAdmin} style={{
-                    marginTop: 24,
-                    padding: "10px 24px",
-                    background: "rgba(200,170,90,0.12)",
-                    border: "1px solid rgba(200,170,90,0.35)",
-                    borderRadius: 8,
-                    color: "#c8aa5a",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    letterSpacing: "0.06em",
-                    cursor: "pointer",
-                  }}>← Back to Admin Dashboard</button>
+            {prospectingMode ? (
+              // ── AGENT RECRUITING CALL CARD ──────────────────────────────────────────
+              <div style={{ padding: "0 0 24px" }}>
+                {agentLeadLoading ? (
+                  <Skeleton className="h-[480px] w-full rounded-2xl" style={{ background: "rgba(79,184,163,0.05)" }} />
+                ) : nextAgentLead ? (
+                  <div style={{
+                    background: "linear-gradient(135deg, rgba(79,184,163,0.04) 0%, #080808 60%)",
+                    border: "1px solid rgba(79,184,163,0.25)",
+                    borderRadius: 16, margin: "0 4px", padding: 20,
+                  }}>
+                    {/* Name & status */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                      <div>
+                        <p style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 22, fontWeight: 500, color: "#fff", lineHeight: 1.1 }}>
+                          {nextAgentLead.first_name} {nextAgentLead.last_name}
+                        </p>
+                        <p style={{ fontSize: 12, color: "rgba(79,184,163,0.8)", marginTop: 4, letterSpacing: "0.06em" }}>
+                          {nextAgentLead.license_status || "License unknown"} · {nextAgentLead.current_brokerage || "Brokerage unknown"}
+                        </p>
+                      </div>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
+                        color: "#4fb8a3", border: "1px solid rgba(79,184,163,0.3)",
+                        borderRadius: 10, padding: "3px 10px", background: "rgba(79,184,163,0.08)",
+                      }}>{nextAgentLead.status || "new"}</span>
+                    </div>
+
+                    {/* Contact info */}
+                    <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+                      {nextAgentLead.phone && (
+                        <a href={`tel:${nextAgentLead.phone}`} style={{
+                          display: "flex", alignItems: "center", gap: 6,
+                          background: "rgba(79,184,163,0.12)", border: "1px solid rgba(79,184,163,0.3)",
+                          borderRadius: 10, padding: "8px 16px", color: "#4fb8a3", fontSize: 14, fontWeight: 600,
+                          textDecoration: "none", flex: 1, justifyContent: "center",
+                        }}>
+                          📞 {nextAgentLead.phone}
+                        </a>
+                      )}
+                    </div>
+
+                    {/* L.A.T.T.E. Script */}
+                    <div style={{
+                      background: "rgba(0,0,0,0.4)", border: "1px solid rgba(79,184,163,0.12)",
+                      borderRadius: 12, padding: 16, marginBottom: 20,
+                    }}>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: "#4fb8a3", letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 12 }}>
+                        L.A.T.T.E. Script
+                      </p>
+                      {[
+                        { letter: "L", label: "License", prompt: "Confirm license status, state, and how long they've held it." },
+                        { letter: "A", label: "Activity", prompt: "How many transactions last 12 months? What's their GCI range?" },
+                        { letter: "T", label: "Trigger", prompt: "What made them fill out the form? Split, leads, culture, support?" },
+                        { letter: "T", label: "Timeline", prompt: "Right now or 'keep me in mind'? This determines Hot Prospect vs KIT." },
+                        { letter: "E", label: "Engage", prompt: "Invite them: '20 min with Alex — Zoom or in person — to walk through the split and territory map.'" },
+                      ].map(({ letter, label, prompt }) => (
+                        <div key={letter} style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "flex-start" }}>
+                          <span style={{
+                            width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            background: "rgba(79,184,163,0.15)", border: "1px solid rgba(79,184,163,0.35)",
+                            fontSize: 12, fontWeight: 800, color: "#4fb8a3",
+                            fontFamily: "'Cormorant Garamond','Georgia',serif",
+                          }}>{letter}</span>
+                          <div>
+                            <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>{label}</p>
+                            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", lineHeight: 1.5 }}>{prompt}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Lead notes / form info */}
+                    {(nextAgentLead.applicant_notes || nextAgentLead.reason_for_leaving) && (
+                      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: 14, marginBottom: 20, border: "1px solid rgba(255,255,255,0.06)" }}>
+                        <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Their Notes</p>
+                        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", lineHeight: 1.6 }}>{nextAgentLead.reason_for_leaving || nextAgentLead.applicant_notes}</p>
+                      </div>
+                    )}
+
+                    {/* Outcome buttons */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      {[
+                        { outcome: "dial_no_answer", label: "No Answer", color: "rgba(255,255,255,0.15)", textColor: "rgba(255,255,255,0.6)" },
+                        { outcome: "keep_in_touch", label: "Keep in Touch", color: "rgba(200,170,90,0.15)", textColor: "#c8aa5a" },
+                        { outcome: "hot_prospect", label: "🔥 Hot Prospect", color: "rgba(79,184,163,0.2)", textColor: "#4fb8a3" },
+                        { outcome: "not_interested", label: "Not Interested", color: "rgba(239,68,68,0.1)", textColor: "rgba(239,68,68,0.7)" },
+                      ].map(({ outcome, label, color, textColor }) => (
+                        <button
+                          key={outcome}
+                          onClick={() => agentLeadMutation.mutate({ outcome })}
+                          disabled={agentLeadMutation.isPending}
+                          style={{
+                            background: color, border: `1px solid ${textColor}40`,
+                            borderRadius: 12, padding: "12px 8px",
+                            fontSize: 13, fontWeight: 600, color: textColor,
+                            cursor: "pointer", transition: "all 0.2s",
+                            opacity: agentLeadMutation.isPending ? 0.5 : 1,
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => agentLeadMutation.mutate({ outcome: "joined_team" })}
+                      disabled={agentLeadMutation.isPending}
+                      style={{
+                        width: "100%", marginTop: 10,
+                        background: "linear-gradient(135deg, rgba(79,184,163,0.3), rgba(79,184,163,0.15))",
+                        border: "1px solid rgba(79,184,163,0.5)",
+                        borderRadius: 12, padding: "14px 8px",
+                        fontSize: 14, fontWeight: 700, color: "#4fb8a3",
+                        cursor: "pointer", letterSpacing: "0.06em",
+                      }}
+                    >
+                      ✓ Joined Team
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: "60px 20px" }}>
+                    <p style={{ fontSize: 32, marginBottom: 12 }}>🎯</p>
+                    <p style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 20, color: "rgba(255,255,255,0.7)", marginBottom: 8 }}>
+                      No agent leads in queue
+                    </p>
+                    <p style={{ fontSize: 13, color: "rgba(255,255,255,0.35)" }}>
+                      Submit the recruiting form at join.watsonbrothersgroup.com to add prospects
+                    </p>
+                  </div>
                 )}
               </div>
             ) : (
-              <LeadCard lead={nextLead} />
+              // ── EXISTING SELLER LEAD CARD ───────────────────────────────────────────
+              <>
+                {leadLoading ? (
+                  <div>
+                    <Skeleton className="h-[480px] w-full rounded-2xl" style={{ background: "rgba(200,170,90,0.05)" }} />
+                  </div>
+                ) : !nextLead ? (
+                  <div style={{ textAlign: "center", paddingTop: 60 }}>
+                    <div style={{
+                      width: 72, height: 72,
+                      border: "1px solid rgba(200,170,90,0.3)", borderRadius: "50%",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      margin: "0 auto 24px",
+                      background: "rgba(200,170,90,0.06)",
+                      boxShadow: "0 0 30px rgba(200,170,90,0.1)",
+                    }}>
+                      <CheckCircle2 size={30} style={{ color: "#c8aa5a" }} />
+                    </div>
+                    <h2 style={{
+                      fontFamily: "'Cormorant Garamond','Georgia',serif",
+                      fontSize: "2rem", fontWeight: 300, color: "#fff", marginBottom: 12,
+                    }}>{onBackToAdmin ? "No Leads Assigned" : "Queue Complete"}</h2>
+                    <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", lineHeight: 1.65 }}>
+                      {onBackToAdmin
+                        ? "Your admin account has no leads assigned to it as an agent. Leads are distributed to your agent team."
+                        : "You've worked through all your assigned leads. Check back soon for new assignments."}
+                    </p>
+                    {onBackToAdmin && (
+                      <button onClick={onBackToAdmin} style={{
+                        marginTop: 24,
+                        padding: "10px 24px",
+                        background: "rgba(200,170,90,0.12)",
+                        border: "1px solid rgba(200,170,90,0.35)",
+                        borderRadius: 8,
+                        color: "#c8aa5a",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        letterSpacing: "0.06em",
+                        cursor: "pointer",
+                      }}>← Back to Admin Dashboard</button>
+                    )}
+                  </div>
+                ) : (
+                  <LeadCard lead={nextLead} />
+                )}
+              </>
             )}
           </div>
         )}

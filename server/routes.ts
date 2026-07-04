@@ -2352,7 +2352,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.52",
+      version: "v11.53",
       services: results,
     });
   });
@@ -2515,6 +2515,72 @@ This template is for informational/outreach purposes only.`;
     const distPath = path.resolve(__dirname, "public");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.resolve(distPath, "join.html"));
+  });
+
+  // ── Agent Prospecting Mode setting ──────────────────────────────────────────────────────────
+  app.get("/api/settings/agent-prospecting-mode", (req, res) => {
+    const row = rawDb.prepare(`SELECT value FROM app_settings WHERE key = 'agent_prospecting_mode'`).get() as any;
+    res.json({ enabled: row?.value === 'true' });
+  });
+
+  app.post("/api/settings/agent-prospecting-mode", (req: any, res) => {
+    const { enabled } = req.body;
+    rawDb.prepare(`INSERT INTO app_settings (key, value) VALUES ('agent_prospecting_mode', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(enabled ? 'true' : 'false');
+    // Broadcast to all connected WebSocket clients
+    broadcast({ type: 'prospecting_mode_changed', enabled: !!enabled });
+    res.json({ ok: true, enabled: !!enabled });
+  });
+
+  // ── Agent recruiting lead queue ───────────────────────────────────────────────────────
+  app.get("/api/agent-leads/my-next", (req: any, res) => {
+    // Return next new agent lead (oldest first), or one with a due callback
+    const now = new Date().toISOString();
+    const lead = rawDb.prepare(`
+      SELECT * FROM agent_leads
+      WHERE status NOT IN ('joined', 'not_interested')
+      AND (status = 'new' OR (callback_date IS NOT NULL AND callback_date <= ?))
+      ORDER BY submitted_at ASC
+      LIMIT 1
+    `).get(now) as any;
+    if (!lead) return res.status(204).send();
+    res.json(lead);
+  });
+
+  app.get("/api/agent-leads/count", (req: any, res) => {
+    const row = rawDb.prepare(`SELECT COUNT(*) as count FROM agent_leads WHERE status NOT IN ('joined','not_interested')`).get() as any;
+    res.json({ count: row?.count ?? 0 });
+  });
+
+  app.post("/api/agent-leads/:id/outcome", async (req: any, res) => {
+    const { id } = req.params;
+    const { outcome, notes, callbackDate, callerId } = req.body;
+
+    // Points: dial=1, keep_in_touch=3, hot_prospect=15, joined_team=50, not_interested=1
+    const pts: Record<string, number> = { keep_in_touch: 3, hot_prospect: 15, joined_team: 50 };
+    const points = pts[outcome] ?? 1;
+
+    // Update status
+    const statusMap: Record<string, string> = {
+      dial_no_answer: 'contacted',
+      keep_in_touch: 'contacted',
+      hot_prospect: 'appointment',
+      joined_team: 'joined',
+      not_interested: 'not_interested',
+    };
+    const newStatus = statusMap[outcome] || 'contacted';
+
+    rawDb.prepare(`UPDATE agent_leads SET status = ?, attempt_count = attempt_count + 1, callback_date = ? WHERE id = ?`)
+      .run(newStatus, callbackDate || null, id);
+
+    rawDb.prepare(`INSERT INTO agent_lead_activity (agent_lead_id, caller_id, outcome, notes, points_awarded, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(id, callerId || null, outcome, notes || null, points, new Date().toISOString());
+
+    if (callerId) {
+      rawDb.prepare(`INSERT INTO agent_points (agent_id, points, reason, lead_id, created_at) VALUES (?, ?, ?, ?, ?)`)
+        .run(callerId, points, `agent_recruit_${outcome}`, id, new Date().toISOString());
+    }
+
+    res.json({ ok: true, points });
   });
 
   return httpServer;

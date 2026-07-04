@@ -615,7 +615,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.52) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.53) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -897,6 +897,19 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     },
   });
 
+  const { data: prospectingData, refetch: refetchProspecting } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/settings/agent-prospecting-mode"],
+    queryFn: () => apiRequest("GET", "/api/settings/agent-prospecting-mode").then(r => r.json()),
+    refetchInterval: 10000,
+  });
+  const prospectingMode = prospectingData?.enabled ?? false;
+
+  const toggleProspectingMutation = useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiRequest("POST", "/api/settings/agent-prospecting-mode", { enabled }).then(r => r.json()),
+    onSuccess: () => refetchProspecting(),
+  });
+
   const leaderboardResetMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/admin/leaderboard-reset", {}).then(r => r.json()),
     onSuccess: () => {
@@ -1137,7 +1150,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.52
+              v11.53
             </p>
           </div>
         </div>
@@ -1160,6 +1173,35 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
             <Activity size={15} style={{ color: feedOpen ? "#c8aa5a" : "rgba(255,255,255,0.5)" }} />
           </button>
           <style>{`@keyframes feedPulseBtn { 0%,100%{box-shadow:0 0 0 0 rgba(200,170,90,0.3)} 50%{box-shadow:0 0 0 4px rgba(200,170,90,0)} }`}</style>
+          {/* Prospecting Mode Toggle */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={() => toggleProspectingMutation.mutate(!prospectingMode)}
+              style={{
+                display: "flex", alignItems: "center", gap: 0,
+                background: "rgba(10,10,10,0.9)",
+                border: `1px solid ${prospectingMode ? "rgba(79,184,163,0.5)" : "rgba(200,170,90,0.3)"}`,
+                borderRadius: 20, padding: "3px 4px", cursor: "pointer",
+                transition: "all 0.3s", position: "relative", overflow: "hidden",
+              }}
+              title={prospectingMode ? "Switch to Seller Leads mode" : "Switch to Agent Prospecting mode"}
+            >
+              <span style={{
+                padding: "3px 10px", borderRadius: 14, fontSize: 10, fontWeight: 700,
+                letterSpacing: "0.08em", textTransform: "uppercase",
+                background: !prospectingMode ? "rgba(200,170,90,0.15)" : "transparent",
+                color: !prospectingMode ? "#c8aa5a" : "rgba(255,255,255,0.3)",
+                transition: "all 0.3s",
+              }}>Sellers</span>
+              <span style={{
+                padding: "3px 10px", borderRadius: 14, fontSize: 10, fontWeight: 700,
+                letterSpacing: "0.08em", textTransform: "uppercase",
+                background: prospectingMode ? "rgba(79,184,163,0.2)" : "transparent",
+                color: prospectingMode ? "#4fb8a3" : "rgba(255,255,255,0.3)",
+                transition: "all 0.3s",
+              }}>Recruiting</span>
+            </button>
+          </div>
           {agents.filter(a => a.role === "admin" && a.id === user?.id && a.receiveLeads).length > 0 && (
             <Button
               size="sm"
@@ -1351,7 +1393,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.52) */}
+                          {/* Rank badge — headshot or initials (v11.53) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
 {(() => {
                               const initials = stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -2077,15 +2119,25 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             }}
                             data-testid={`row-agent-${agent.id}`}
                           >
-                            <div style={{
-                              width: 28, height: 28, borderRadius: "50%",
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              border: `1px solid ${flowActive ? "rgba(200,170,90,0.25)" : "rgba(255,255,255,0.08)"}`,
-                              background: flowActive ? "rgba(200,170,90,0.06)" : "rgba(255,255,255,0.03)",
-                              flexShrink: 0,
-                            }}>
-                              <span style={{ fontSize: 11, fontWeight: 600, color: flowActive ? "#c8aa5a" : "rgba(255,255,255,0.3)" }}>{idx + 1}</span>
-                            </div>
+                            {(() => {
+                              const initials = agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+                              if (agent.headshotUrl) return (
+                                <img src={agent.headshotUrl} alt={agent.name}
+                                  style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover",
+                                    border: "2px solid rgba(200,170,90,0.4)", flexShrink: 0 }}
+                                  onError={(e) => { e.currentTarget.style.display='none'; }}
+                                />
+                              );
+                              return (
+                                <div style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  border: "1px solid rgba(200,170,90,0.25)", background: "rgba(200,170,90,0.06)",
+                                  fontSize: 11, fontWeight: 700, color: "#c8aa5a",
+                                  fontFamily: "'Cormorant Garamond','Georgia',serif" }}>
+                                  {initials}
+                                </div>
+                              );
+                            })()}
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground">{agent.name}</p>
                               <p className="text-xs text-muted-foreground">{agent.email}</p>
@@ -2168,15 +2220,25 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             }}
                             data-testid={`row-inactive-agent-${agent.id}`}
                           >
-                            <div style={{
-                              width: 28, height: 28, borderRadius: "50%",
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              border: "1px solid rgba(255,255,255,0.06)",
-                              background: "rgba(255,255,255,0.02)",
-                              flexShrink: 0,
-                            }}>
-                              <span className="text-xs text-muted-foreground">—</span>
-                            </div>
+                            {(() => {
+                              const initials = agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+                              if (agent.headshotUrl) return (
+                                <img src={agent.headshotUrl} alt={agent.name}
+                                  style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover",
+                                    border: "2px solid rgba(200,170,90,0.4)", flexShrink: 0 }}
+                                  onError={(e) => { e.currentTarget.style.display='none'; }}
+                                />
+                              );
+                              return (
+                                <div style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  border: "1px solid rgba(200,170,90,0.25)", background: "rgba(200,170,90,0.06)",
+                                  fontSize: 11, fontWeight: 700, color: "#c8aa5a",
+                                  fontFamily: "'Cormorant Garamond','Georgia',serif" }}>
+                                  {initials}
+                                </div>
+                              );
+                            })()}
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground/70">{agent.name}</p>
                               <p className="text-xs text-muted-foreground">{agent.email}</p>

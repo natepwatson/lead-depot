@@ -194,3 +194,11 @@ for (const agent of allAgents) {
     rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${slug}.jpg`, agent.id);
   }
 }
+
+// v11.53 — turn off lead flow for agents with no headshot (incomplete onboarding)
+rawDb.prepare(`
+  UPDATE agents SET lead_flow_on = 0
+  WHERE (headshot_url IS NULL OR headshot_url = '')
+  AND role = 'agent'
+  AND is_active = 1
+`).run();

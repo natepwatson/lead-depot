@@ -1,5 +1,5 @@
-// ─── FREC LICENSEE PIPELINE ───────────────────────────────────────────────────
-// v13.3 — Switched from HTML scraping (myfloridalicense.com/wl11.asp) to the
+// ─── DBPR LICENSEE PIPELINE ───────────────────────────────────────────────────
+// v13.4 — Renamed FREC → DBPR. v13.3 switched from HTML scraping to the
 // official DBPR weekly CSV extract (RE_rgn3.csv), which covers our NE Florida
 // footprint (Baker, Clay, Duval, Flagler, Nassau, St. Johns).
 //
@@ -20,7 +20,7 @@ const require = createRequire(typeof __filename !== "undefined" ? __filename : i
 const DBPR_CSV_URL = "https://www2.myfloridalicense.com/sto/file_download/extracts/RE_rgn3.csv";
 
 // Counties that cover our 7 NE Florida territories
-export const FREC_TARGET_COUNTIES = ["Nassau", "Duval", "St. Johns", "Clay"];
+export const DBPR_TARGET_COUNTIES = ["Nassau", "Duval", "St. Johns", "Clay"];
 
 // Rank codes we care about — only individuals, no corps/branch offices
 const TARGET_RANKS = new Set([
@@ -32,8 +32,8 @@ const TARGET_RANKS = new Set([
 // Safety cap in case DBPR ever publishes a corrupt/oversized file
 const MAX_PER_RUN = 25_000;
 
-export interface FrecRecord {
-  frecLicenseId: string;      // e.g. "SL3456789" — prefix from rank + license #
+export interface DbprRecord {
+  dbprLicenseId: string;      // e.g. "SL3456789" — prefix from rank + license #
   firstName: string;
   lastName: string;
   fullName: string;
@@ -131,10 +131,10 @@ function parseDbprCsvLine(line: string): string[] {
   return out;
 }
 
-function parseDbprCsv(csvText: string): FrecRecord[] {
+function parseDbprCsv(csvText: string): DbprRecord[] {
   const lines = csvText.split(/\r?\n/);
-  const records: FrecRecord[] = [];
-  const targetCounties = new Set(FREC_TARGET_COUNTIES);
+  const records: DbprRecord[] = [];
+  const targetCounties = new Set(DBPR_TARGET_COUNTIES);
 
   for (const line of lines) {
     if (!line.trim()) continue;
@@ -159,7 +159,7 @@ function parseDbprCsv(csvText: string): FrecRecord[] {
 
     const licenseNumber = (cols[13] || "").trim();
     const prefix = rankToLicensePrefix(rank);
-    const frecLicenseId = prefix && licenseNumber ? `${prefix}${licenseNumber}` : licenseNumber;
+    const dbprLicenseId = prefix && licenseNumber ? `${prefix}${licenseNumber}` : licenseNumber;
 
     const addr1 = (cols[5] || "").trim();
     const addr2 = (cols[6] || "").trim();
@@ -173,7 +173,7 @@ function parseDbprCsv(csvText: string): FrecRecord[] {
       + (zipCol ? ` ${zipCol}` : "");
 
     records.push({
-      frecLicenseId,
+      dbprLicenseId,
       firstName,
       lastName,
       fullName: `${firstName} ${lastName}`.trim(),
@@ -196,7 +196,7 @@ function parseDbprCsv(csvText: string): FrecRecord[] {
 // ─── DOWNLOAD ────────────────────────────────────────────────────────────────
 
 async function downloadDbprCsv(): Promise<string> {
-  console.log(`[FREC] Downloading DBPR CSV from ${DBPR_CSV_URL}`);
+  console.log(`[DBPR] Downloading DBPR CSV from ${DBPR_CSV_URL}`);
   const resp = await fetch(DBPR_CSV_URL, {
     method: "GET",
     headers: {
@@ -211,7 +211,7 @@ async function downloadDbprCsv(): Promise<string> {
     throw new Error(`DBPR CSV HTTP ${resp.status}`);
   }
   const text = await resp.text();
-  console.log(`[FREC] Downloaded ${text.length} bytes`);
+  console.log(`[DBPR] Downloaded ${text.length} bytes`);
   return text;
 }
 
@@ -231,10 +231,10 @@ async function getCsvCached(): Promise<string> {
   return _cachedCsv;
 }
 
-export async function scrapeFrecByCounty(
+export async function scrapeDbprByCounty(
   county: string,
   licenseType: string = "SL",
-): Promise<FrecRecord[]> {
+): Promise<DbprRecord[]> {
   const csv = await getCsvCached();
   const all = parseDbprCsv(csv);
   const prefix = licenseType === "BK" ? new Set(["BK", "BL"]) : new Set(["SL"]);
@@ -243,14 +243,14 @@ export async function scrapeFrecByCounty(
 
 // ─── FULL SCRAPE (all target counties × all target ranks) ────────────────────
 
-export async function scrapeAllFrec(): Promise<{
-  records: FrecRecord[];
+export async function scrapeAllDbpr(): Promise<{
+  records: DbprRecord[];
   countByCounty: Record<string, number>;
   errors: string[];
 }> {
   const countByCounty: Record<string, number> = {};
   const errors: string[] = [];
-  let records: FrecRecord[] = [];
+  let records: DbprRecord[] = [];
 
   try {
     const csv = await downloadDbprCsv();
@@ -264,15 +264,15 @@ export async function scrapeAllFrec(): Promise<{
     } catch { /* non-fatal */ }
 
     records = parseDbprCsv(csv);
-    for (const c of FREC_TARGET_COUNTIES) countByCounty[c] = 0;
+    for (const c of DBPR_TARGET_COUNTIES) countByCounty[c] = 0;
     for (const r of records) countByCounty[r.county] = (countByCounty[r.county] || 0) + 1;
 
     console.log(
-      `[FREC] Full DBPR extract complete. Total: ${records.length} records across ${FREC_TARGET_COUNTIES.length} counties.`,
+      `[DBPR] Full DBPR extract complete. Total: ${records.length} records across ${DBPR_TARGET_COUNTIES.length} counties.`,
     );
   } catch (err: any) {
     const msg = `DBPR CSV fetch/parse failed: ${err.message}`;
-    console.error(`[FREC] ${msg}`);
+    console.error(`[DBPR] ${msg}`);
     errors.push(msg);
   }
 

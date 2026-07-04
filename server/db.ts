@@ -215,14 +215,27 @@ rawDb.prepare(`
   )
 `).run();
 
-// ─── FREC Scraper columns (v11.71) ──────────────────────────────────────────
-// Added to agent_leads for FREC licensee integration
+// ─── DBPR Scraper columns (v11.71, renamed from FREC in v13.4) ──────────────
+// Added to agent_leads for DBPR licensee integration
 const agentLeadCols = rawDb.prepare("PRAGMA table_info(agent_leads)").all().map((c: any) => c.name);
-if (!agentLeadCols.includes("frec_license_id"))    rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN frec_license_id TEXT").run();
+if (!agentLeadCols.includes("dbpr_license_id"))    rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN dbpr_license_id TEXT").run();
 if (!agentLeadCols.includes("license_issue_date")) rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN license_issue_date TEXT").run();
 if (!agentLeadCols.includes("license_expire_date")) rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN license_expire_date TEXT").run();
 if (!agentLeadCols.includes("last_scraped_at"))    rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN last_scraped_at INTEGER").run();
 if (!agentLeadCols.includes("dedup_hash"))         rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN dedup_hash TEXT").run();
+
+// v13.4 — one-shot migration: copy legacy frec_license_id → dbpr_license_id and
+// rewrite source='frec_scrape' → 'dbpr_scrape'. Safe to re-run.
+const agentLeadColsPostAdd = rawDb.prepare("PRAGMA table_info(agent_leads)").all().map((c: any) => c.name);
+if (agentLeadColsPostAdd.includes("frec_license_id")) {
+  rawDb.prepare(`
+    UPDATE agent_leads
+       SET dbpr_license_id = frec_license_id
+     WHERE dbpr_license_id IS NULL
+       AND frec_license_id IS NOT NULL
+  `).run();
+}
+rawDb.prepare(`UPDATE agent_leads SET source = 'dbpr_scrape' WHERE source = 'frec_scrape'`).run();
 
 // ─── v11.80 — Recruiting module: canRecruit, reactivate_at ────────────────────
 const agentColsV80 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
@@ -231,12 +244,12 @@ const alColsV80 = rawDb.prepare("PRAGMA table_info(agent_leads)").all().map((c: 
 if (!alColsV80.includes("reactivate_at")) rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN reactivate_at TEXT").run();
 // Index for thaw queries
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_reactivate ON agent_leads(reactivate_at) WHERE reactivate_at IS NOT NULL`).run();
-// Auto-ice any FREC agent whose license was issued within the last 6 months (joined a brokerage recently)
+// Auto-ice any DBPR agent whose license was issued within the last 6 months (joined a brokerage recently)
 rawDb.prepare(`
   UPDATE agent_leads
   SET status = 'just_signed',
       reactivate_at = date(license_issue_date, '+6 months')
-  WHERE source = 'frec_scrape'
+  WHERE source = 'dbpr_scrape'
     AND license_issue_date IS NOT NULL
     AND date(license_issue_date) >= date('now', '-6 months')
     AND status = 'new'
@@ -293,8 +306,8 @@ rawDb.prepare("UPDATE agents SET role = 'agent' WHERE role = 'recruiter'").run()
 rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_leads_dedup_hash ON agent_leads(dedup_hash) WHERE dedup_hash IS NOT NULL`).run();
 // Index for freshness queries (last_scraped_at)
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_last_scraped ON agent_leads(last_scraped_at)`).run();
-// Index for FREC license ID lookups
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_frec_license ON agent_leads(frec_license_id) WHERE frec_license_id IS NOT NULL`).run();
+// Index for DBPR license ID lookups
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_dbpr_license ON agent_leads(dbpr_license_id) WHERE dbpr_license_id IS NOT NULL`).run();
 
 // ─── SAFEGUARDS (v11.70) ──────────────────────────────────────────────────────
 

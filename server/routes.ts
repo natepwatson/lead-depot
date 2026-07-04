@@ -8,7 +8,7 @@ import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit } from "./fub";
 import { runBatchLeadsPipeline } from "./batchleads";
-import { runFrecPipeline } from "./frec-pipeline";
+import { runDbprPipeline } from "./dbpr-pipeline";
 import { getTerritoryForZip, TERRITORIES as TERRITORY_META } from "./territories";
 import fs from "node:fs";
 import path from "node:path";
@@ -149,7 +149,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v13.3 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v13.4 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -208,7 +208,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -257,7 +257,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -281,7 +281,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   const CRON_EXEMPT_PATHS = [
     "/api/admin/stale-lead-audit",
     "/api/admin/batchleads-run",
-    "/api/admin/frec-run",
+    "/api/admin/dbpr-run",
+    "/api/admin/frec-run", // legacy alias — kept so existing crons still fire (v13.4)
     "/api/admin/missed-appointments",
   ];
   app.use("/api/admin", (req: any, res: any, next: any) => {
@@ -3002,7 +3003,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v13.3",
+      version: "v13.4",
       services: results,
     });
   });
@@ -3201,7 +3202,7 @@ This template is for informational/outreach purposes only.`;
       'just_signed',       // 1pt — recently joined another brokerage, frozen 6 months
       'joined_team',       // 50pt — they joined Watson Brothers
       'not_interested',    // 1pt — not interested (stays in DB, removed from queue)
-      'do_not_contact',    // 0pt — DNC, permanent exit, blocks FREC re-import
+      'do_not_contact',    // 0pt — DNC, permanent exit, blocks DBPR re-import
     ];
     if (!outcome || !VALID_RECRUIT_OUTCOMES.includes(outcome)) {
       return res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_RECRUIT_OUTCOMES.join(', ')}` });
@@ -3574,34 +3575,39 @@ This template is for informational/outreach purposes only.`;
 
 
     // ── AGENT LEADS: MANUAL QUICK-ADD (admin) ──────────────────────────
-  // ─── FREC AGENT SCRAPER PIPELINE TRIGGER ────────────────────────────────────
-  // Scrapes FREC licensee database for NE Florida agents and ingests new recruits.
+  // ─── DBPR AGENT SCRAPER PIPELINE TRIGGER ────────────────────────────────────
+  // Pulls the DBPR weekly RE_rgn3.csv extract, filters to NE Florida individual
+  // licensees (SL/BK/BL, Current+Active), and ingests new recruits.
   // Runs weekly Sunday 2am EDT via scheduled cron. Also triggerable manually by admins.
-  app.post("/api/admin/frec-run",
-    (req: any, res: any, next: any) => pipelineGuard("frec", req, res, next),
-    async (req: any, res) => {
-    try {
-      console.log("[FREC] Manual/cron trigger received");
-      const result = await runFrecPipeline(rawDb);
+  const dbprRunHandler: any[] = [
+    (req: any, res: any, next: any) => pipelineGuard("dbpr", req, res, next),
+    async (req: any, res: any) => {
+      try {
+        console.log("[DBPR] Manual/cron trigger received");
+        const result = await runDbprPipeline(rawDb);
 
-      // Sanity check: if FREC returned 0 records with no errors, structure may have changed
-      const zeroScrape = result.scraped === 0 && result.errors.length === 0;
+        // Sanity check: if DBPR returned 0 records with no errors, CSV format may have changed
+        const zeroScrape = result.scraped === 0 && result.errors.length === 0;
 
-      res.json({
-        ok: true,
-        ...result,
-        warning: zeroScrape
-          ? "FREC returned 0 records — HTML structure may have changed. Check frec_html_snapshot.html on Railway volume."
-          : undefined,
-        message: result.inserted === 0
-          ? `FREC scrape complete. No new agents found (${result.updated} existing records refreshed, ${result.filtered} filtered).`
-          : `FREC scrape complete. ${result.inserted} new agents added to recruiting queue across ${Object.keys(result.byTerritory).length} territories.`,
-      });
-    } catch (err: any) {
-      console.error("[FREC] Pipeline error:", err);
-      res.status(500).json({ error: err.message });
-    }
-  });
+        res.json({
+          ok: true,
+          ...result,
+          warning: zeroScrape
+            ? "DBPR returned 0 records — CSV format may have changed. Check dbpr_csv_snapshot.csv on Railway volume."
+            : undefined,
+          message: result.inserted === 0
+            ? `DBPR scrape complete. No new agents found (${result.updated} existing records refreshed, ${result.filtered} filtered).`
+            : `DBPR scrape complete. ${result.inserted} new agents added to recruiting queue across ${Object.keys(result.byTerritory).length} territories.`,
+        });
+      } catch (err: any) {
+        console.error("[DBPR] Pipeline error:", err);
+        res.status(500).json({ error: err.message });
+      }
+    },
+  ];
+  app.post("/api/admin/dbpr-run", ...dbprRunHandler);
+  // Legacy alias — kept so any existing external cron pointing at /frec-run still fires (v13.4)
+  app.post("/api/admin/frec-run", ...dbprRunHandler);
 
   // ─── RECRUITING PIPELINE (admin) ────────────────────────────────────────────
   // Full pipeline view of all agent_leads with activity history per lead.
@@ -3702,22 +3708,22 @@ This template is for informational/outreach purposes only.`;
     }
   });
 
-  // GET — FREC pipeline stats (for AdminDashboard tile)
-  app.get("/api/admin/frec-stats", (req: any, res) => {
+  // GET — DBPR pipeline stats (for AdminDashboard tile)
+  const dbprStatsHandler = (req: any, res: any) => {
     try {
-      const total = (rawDb.prepare(`SELECT COUNT(*) as n FROM agent_leads WHERE source = 'frec_scrape'`).get() as any)?.n || 0;
-      const lastRun = (rawDb.prepare(`SELECT MAX(last_scraped_at) as ts FROM agent_leads WHERE source = 'frec_scrape'`).get() as any)?.ts || null;
+      const total = (rawDb.prepare(`SELECT COUNT(*) as n FROM agent_leads WHERE source = 'dbpr_scrape'`).get() as any)?.n || 0;
+      const lastRun = (rawDb.prepare(`SELECT MAX(last_scraped_at) as ts FROM agent_leads WHERE source = 'dbpr_scrape'`).get() as any)?.ts || null;
       const byTerritory = rawDb.prepare(`
         SELECT matched_territory as territory, COUNT(*) as count
         FROM agent_leads
-        WHERE source = 'frec_scrape'
+        WHERE source = 'dbpr_scrape'
         GROUP BY matched_territory
         ORDER BY count DESC
       `).all() as any[];
       const byStatus = rawDb.prepare(`
         SELECT status, COUNT(*) as count
         FROM agent_leads
-        WHERE source = 'frec_scrape'
+        WHERE source = 'dbpr_scrape'
         GROUP BY status
         ORDER BY count DESC
       `).all() as any[];
@@ -3725,7 +3731,10 @@ This template is for informational/outreach purposes only.`;
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
-  });
+  };
+  app.get("/api/admin/dbpr-stats", dbprStatsHandler);
+  // Legacy alias for old client bundles hitting /frec-stats (v13.4)
+  app.get("/api/admin/frec-stats", dbprStatsHandler);
 
   // ─── REACTIVATE RETIRED LEADS (admin) ───────────────────────────────────────
   // v13.2 — Go-live helper: takes every lead currently in 'retired' status,
@@ -4284,7 +4293,7 @@ scheduleRedistribution();
 
 // ─── WEEKLY RECRUITING FUNNEL EMAIL ──────────────────────────────────────────
 // Sends every Sunday at 7am EDT (11:00 UTC)
-// Summarises: new FREC leads added, contacted, hot prospects, appointments, joined
+// Summarises: new DBPR leads added, contacted, hot prospects, appointments, joined
 async function sendWeeklyRecruitingFunnel() {
   if (!resend) return;
 
@@ -4294,7 +4303,7 @@ async function sendWeeklyRecruitingFunnel() {
 
   const stats = rawDb.prepare(`
     SELECT
-      COUNT(*) FILTER (WHERE source = 'frec_scrape' AND submitted_at >= ?) as new_frec,
+      COUNT(*) FILTER (WHERE source = 'dbpr_scrape' AND submitted_at >= ?) as new_dbpr,
       COUNT(*) FILTER (WHERE status IN ('contacted','hot_prospect','appointment','callback_requested') AND submitted_at >= ?) as engaged,
       COUNT(*) FILTER (WHERE status = 'hot_prospect') as hot,
       COUNT(*) FILTER (WHERE status = 'appointment') as appt,
@@ -4347,7 +4356,7 @@ async function sendWeeklyRecruitingFunnel() {
         <div style="padding:24px 28px">
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px">
             ${[
-              { label: "New FREC Leads", val: stats?.new_frec ?? 0, color: "#4fb8a3" },
+              { label: "New DBPR Leads", val: stats?.new_dbpr ?? 0, color: "#4fb8a3" },
               { label: "Hot Prospects", val: stats?.hot ?? 0, color: "#f97316" },
               { label: "Appointments", val: stats?.appt ?? 0, color: "#c8aa5a" },
             ].map(s => `

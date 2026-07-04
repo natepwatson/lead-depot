@@ -84,8 +84,8 @@ try { sqlite.exec(`ALTER TABLE agents ADD COLUMN territory1 TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN territory2 TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN territory_closed_notice INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE agent_points ADD COLUMN scope TEXT NOT NULL DEFAULT 'seller'`); } catch {}
-// FREC fields (v11.71 — in case table was created before these existed)
-try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN frec_license_id TEXT`); } catch {}
+// DBPR fields (v11.71, renamed from FREC in v13.4 — in case table was created before these existed)
+try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN dbpr_license_id TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN license_issue_date TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN license_expire_date TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN last_scraped_at INTEGER`); } catch {}

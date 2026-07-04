@@ -854,11 +854,11 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [recruitingDeleteConfirm, setRecruitingDeleteConfirm] = useState<number | null>(null);
   const [recruitingDncConfirm, setRecruitingDncConfirm] = useState<number | null>(null);
   const [recruitingLbPeriod, setRecruitingLbPeriod] = useState<"today" | "week" | "allTime">("week");
-  const [frecRunning, setFrecRunning] = useState(false);
-  const [frecResult, setFrecResult] = useState<any>(null);
-  const frecStatsQuery = useQuery({
-    queryKey: ["/api/admin/frec-stats"],
-    queryFn: () => apiRequest("GET", "/api/admin/frec-stats").then(r => r.json()),
+  const [dbprRunning, setDbprRunning] = useState(false);
+  const [dbprResult, setDbprResult] = useState<any>(null);
+  const dbprStatsQuery = useQuery({
+    queryKey: ["/api/admin/dbpr-stats"],
+    queryFn: () => apiRequest("GET", "/api/admin/dbpr-stats").then(r => r.json()),
     staleTime: 60_000,
   });
   const recruitingPipelineQuery = useQuery({
@@ -1015,7 +1015,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const runGetLeadsNow = async (which: "seller" | "recruiting") => {
     setBusyGetLeads(which);
     try {
-      const url = which === "seller" ? "/api/admin/batchleads-run" : "/api/admin/frec-run";
+      const url = which === "seller" ? "/api/admin/batchleads-run" : "/api/admin/dbpr-run";
       const r = await apiRequest("POST", url, {});
       const j = await r.json().catch(() => ({}));
       toast({ title: `${which === "seller" ? "Seller" : "Recruiting"} pipeline started`, description: j.message || "Running now." });
@@ -1419,7 +1419,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v13.3
+              v13.4
             </p>
           </div>
         </div>
@@ -2976,65 +2976,65 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   </div>
                   <input ref={agentLeadFileRef} type="file" accept=".csv" className="hidden" onChange={handleAgentLeadUpload} />
 
-                  {/* FREC Scraper Tile */}
+                  {/* DBPR Scraper Tile */}
                   <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 20, marginTop: 4 }}>
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
-                        <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 4 }}>FREC Auto-Scraper</p>
+                        <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 4 }}>DBPR Auto-Scraper</p>
                         <p className="text-xs text-muted-foreground" style={{ lineHeight: 1.5 }}>
-                          Pulls active licensed agents from Florida DBPR across Nassau, Duval, St. Johns, and Clay counties. Runs automatically every Sunday at 2am.
+                          Pulls active licensed agents from the Florida DBPR weekly extract across Nassau, Duval, St. Johns, and Clay counties. Runs automatically every Sunday at 2am.
                         </p>
                       </div>
-                      {frecStatsQuery.data && (
+                      {dbprStatsQuery.data && (
                         <div style={{ textAlign: "right", flexShrink: 0 }}>
-                          <div style={{ fontSize: 22, fontWeight: 300, color: "rgba(200,170,90,0.9)", lineHeight: 1 }}>{(frecStatsQuery.data.total || 0).toLocaleString()}</div>
-                          <div style={{ fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginTop: 2 }}>FREC agents</div>
+                          <div style={{ fontSize: 22, fontWeight: 300, color: "rgba(200,170,90,0.9)", lineHeight: 1 }}>{(dbprStatsQuery.data.total || 0).toLocaleString()}</div>
+                          <div style={{ fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginTop: 2 }}>DBPR agents</div>
                         </div>
                       )}
                     </div>
-                    {frecResult && (
+                    {dbprResult && (
                       <div style={{
-                        background: frecResult.error ? "rgba(161,44,123,0.08)" : "rgba(79,184,163,0.07)",
-                        border: `1px solid ${frecResult.error ? "rgba(161,44,123,0.25)" : "rgba(79,184,163,0.2)"}`,
+                        background: dbprResult.error ? "rgba(161,44,123,0.08)" : "rgba(79,184,163,0.07)",
+                        border: `1px solid ${dbprResult.error ? "rgba(161,44,123,0.25)" : "rgba(79,184,163,0.2)"}`,
                         borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12,
                       }}>
-                        {frecResult.error ? (
-                          <p style={{ color: "rgba(209,99,167,0.9)" }}>{frecResult.error}</p>
+                        {dbprResult.error ? (
+                          <p style={{ color: "rgba(209,99,167,0.9)" }}>{dbprResult.error}</p>
                         ) : (
                           <div className="space-y-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>
-                            <p>{frecResult.message}</p>
-                            {frecResult.inserted > 0 && (
+                            <p>{dbprResult.message}</p>
+                            {dbprResult.inserted > 0 && (
                               <p style={{ color: "rgba(79,184,163,0.8)", fontSize: 11 }}>
-                                +{frecResult.inserted} new · {frecResult.updated} refreshed · {frecResult.filtered} filtered
-                                {frecResult.runDurationMs ? ` · ${(frecResult.runDurationMs / 1000 / 60).toFixed(1)} min` : ""}
+                                +{dbprResult.inserted} new · {dbprResult.updated} refreshed · {dbprResult.filtered} filtered
+                                {dbprResult.runDurationMs ? ` · ${(dbprResult.runDurationMs / 1000 / 60).toFixed(1)} min` : ""}
                               </p>
                             )}
-                            {frecResult.warning && <p style={{ color: "rgba(200,170,90,0.8)", fontSize: 11 }}>⚠ {frecResult.warning}</p>}
+                            {dbprResult.warning && <p style={{ color: "rgba(200,170,90,0.8)", fontSize: 11 }}>⚠ {dbprResult.warning}</p>}
                           </div>
                         )}
                       </div>
                     )}
-                    {frecStatsQuery.data?.lastRun && (
+                    {dbprStatsQuery.data?.lastRun && (
                       <p className="text-xs text-muted-foreground mb-3">
-                        Last run: {new Date(frecStatsQuery.data.lastRun).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        Last run: {new Date(dbprStatsQuery.data.lastRun).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </p>
                     )}
-                    <Button size="sm" variant="outline" disabled={frecRunning}
+                    <Button size="sm" variant="outline" disabled={dbprRunning}
                       style={{ borderColor: "rgba(200,170,90,0.35)", color: "rgba(200,170,90,0.9)", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}
                       className="gap-1.5 hover:bg-yellow-900/20"
                       onClick={async () => {
-                        setFrecRunning(true); setFrecResult(null);
+                        setDbprRunning(true); setDbprResult(null);
                         try {
-                          const res = await apiRequest("POST", "/api/admin/frec-run", {});
+                          const res = await apiRequest("POST", "/api/admin/dbpr-run", {});
                           const data = await res.json();
-                          setFrecResult(data);
-                          frecStatsQuery.refetch();
+                          setDbprResult(data);
+                          dbprStatsQuery.refetch();
                         } catch (e: any) {
-                          setFrecResult({ error: e.message || "FREC run failed" });
-                        } finally { setFrecRunning(false); }
+                          setDbprResult({ error: e.message || "DBPR run failed" });
+                        } finally { setDbprRunning(false); }
                       }}
                     >
-                      {frecRunning ? <><RefreshCw size={11} className="animate-spin" /> Scraping FREC… (may take 10–30 min)</> : <><RefreshCw size={11} /> Run FREC Scrape Now</>}
+                      {dbprRunning ? <><RefreshCw size={11} className="animate-spin" /> Scraping DBPR… (may take 10–30 min)</> : <><RefreshCw size={11} /> Run DBPR Scrape Now</>}
                     </Button>
                   </div>
                 </div>

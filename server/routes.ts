@@ -162,6 +162,50 @@ const require = createRequire(typeof __filename !== "undefined" ? __filename : i
 export function registerRoutes(httpServer: ReturnType<typeof createServer>, app: Express) {
 
   // ─── AUTH ──────────────────────────────────────────────────────────────────
+  // ─── SAFEGUARDS: MIDDLEWARE (v11.70) ──────────────────────────────────────
+
+  // ─ Admin-only route guard ──────────────────────────────────────────────────
+  // All /api/admin/* routes require the requester to be an active admin.
+  // X-Agent-Id header is sent by the React client on every request.
+  // Cron trigger routes are exempt (they run server-side with no session).
+  const CRON_EXEMPT_PATHS = [
+    "/api/admin/stale-lead-audit",
+    "/api/admin/batchleads-run",
+    "/api/admin/landvoice-run",
+  ];
+  app.use("/api/admin", (req: any, res: any, next: any) => {
+    const fullPath = req.baseUrl + req.path;
+    if (CRON_EXEMPT_PATHS.some(p => fullPath.startsWith(p))) return next();
+    const agentId = parseInt(String(req.headers["x-agent-id"] || ""));
+    if (!agentId || isNaN(agentId)) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    const agent = storage.getAgentById(agentId);
+    if (!agent || !agent.isActive || agent.role !== "admin") {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+    next();
+  });
+
+  // ─ Pipeline double-fire guard ──────────────────────────────────────────────
+  // Prevents BatchLeads/Landvoice from firing more than once per 5-minute
+  // window, protecting against runaway crons or rapid manual triggers.
+  const pipelineLastRun: Record<string, number> = {};
+  const PIPELINE_COOLDOWN_MS = 5 * 60 * 1000;
+  function pipelineGuard(name: string, req: any, res: any, next: any) {
+    const now = Date.now();
+    const last = pipelineLastRun[name] || 0;
+    if (now - last < PIPELINE_COOLDOWN_MS) {
+      const waitSec = Math.ceil((PIPELINE_COOLDOWN_MS - (now - last)) / 1000);
+      return res.status(429).json({
+        error: `Pipeline '${name}' already ran recently. Wait ${waitSec}s.`,
+        cooldownRemaining: waitSec,
+      });
+    }
+    pipelineLastRun[name] = now;
+    next();
+  }
+
   app.post("/api/login", (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Missing credentials" });
@@ -287,7 +331,18 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   app.patch("/api/agents/:id", (req, res) => {
     const id = parseInt(req.params.id);
-    const updated = storage.updateAgent(id, req.body);
+    // Safeguard (v11.70): whitelist allowed fields — never let client overwrite
+    // role, password, id, or receiveLeads without going through dedicated routes
+    const ALLOWED_AGENT_PATCH_FIELDS = [
+      "name", "email", "phone", "brokerage", "homeAddress", "headshotUrl",
+      "isActive", "leadFlowOn", "territory", "onboarded",
+    ] as const;
+    const patch: Record<string, any> = {};
+    for (const key of ALLOWED_AGENT_PATCH_FIELDS) {
+      if (key in req.body) patch[key] = req.body[key];
+    }
+    if (Object.keys(patch).length === 0) return res.status(400).json({ error: "No valid fields to update" });
+    const updated = storage.updateAgent(id, patch);
     if (!updated) return res.status(404).json({ error: "Agent not found" });
     res.json({ ...updated, password: undefined });
   });
@@ -428,14 +483,15 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
 
-    const allLeads = storage.getAllLeads();
+    // SQL: only fetch this agent's leads — avoids loading all leads (v11.70)
+    const agentLeadsToProcess: any[] = rawDb.prepare(
+      `SELECT id, status, lead_type as leadType FROM leads WHERE assigned_agent_id = ?`
+    ).all(id);
     let reassigned = 0;
     let callbackHeld = 0;
     let preserved = 0;
 
-    for (const lead of allLeads) {
-      if (lead.assignedAgentId !== id) continue;
-
+    for (const lead of agentLeadsToProcess) {
       if (lead.status === "keep_in_touch" || lead.status === "contacted_appointment") {
         // Agent already won these — relationship established, appt set. Leave untouched.
         preserved++;
@@ -593,11 +649,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (receiversAfter === 0) {
       return res.status(409).json({ error: "Cannot delete — you are the last active lead receiver. Transfer your leads first or activate another agent." });
     }
-    // Unassign and recycle all active leads
-    const allLeads = storage.getAllLeads();
-    for (const lead of allLeads) {
-      if (lead.assignedAgentId !== id) continue;
-      if (lead.status === "keep_in_touch" || lead.status === "contacted_appointment") continue;
+    // SQL: only fetch this agent's redistributable leads (v11.70)
+    const leadsToRecycle: any[] = rawDb.prepare(
+      `SELECT id, lead_type as leadType FROM leads
+       WHERE assigned_agent_id = ?
+         AND status NOT IN ('keep_in_touch','contacted_appointment')`
+    ).all(id);
+    for (const lead of leadsToRecycle) {
       const nextAgent = storage.getNextAgentInRotation(lead.leadType);
       if (nextAgent) {
         storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
@@ -619,13 +677,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // so the new agent and all others get an even share immediately.
   app.post("/api/admin/redistribute-unseen", (req, res) => {
     try {
-      // Find leads with no activity at all — these are untouched regardless of assigned status
-      const touchedIds = new Set<number>(
-        (rawDb.prepare("SELECT DISTINCT lead_id FROM lead_activity").all() as any[]).map((r: any) => r.lead_id)
-      );
+      // SQL: LEFT JOIN to exclude leads with any activity — single query (v11.70)
       const SKIP = ["contacted_not_interested", "contacted_appointment", "keep_in_touch", "callback_requested", "wrong_number"];
-      const allLeads = storage.getAllLeads();
-      const unseen = allLeads.filter(l => !SKIP.includes(l.status) && !touchedIds.has(l.id));
+      const skipPlaceholders = SKIP.map(() => "?").join(",");
+      const unseen: any[] = rawDb.prepare(
+        `SELECT l.id, l.lead_type as leadType FROM leads l
+         WHERE l.status NOT IN (${skipPlaceholders})
+           AND NOT EXISTS (SELECT 1 FROM lead_activity la WHERE la.lead_id = l.id)`
+      ).all(...SKIP);
       let reassigned = 0;
       let skipped = 0;
       for (const lead of unseen) {
@@ -722,14 +781,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return res.status(400).json({ error: "Lead must have phone or email" });
     }
 
-    // Dedup: if we already have a lead with this source ID, skip
+    // Dedup: SQL json_extract check — avoids loading all leads (v11.70)
     if (leadSourceId) {
-      const existing = storage.getAllLeads().find(l => {
-        try {
-          const extra = JSON.parse(l.extraData || "{}");
-          return extra.leadSourceId === leadSourceId;
-        } catch { return false; }
-      });
+      const existing = rawDb.prepare(
+        `SELECT id FROM leads WHERE json_extract(extra_data, '$.leadSourceId') = ? LIMIT 1`
+      ).get(leadSourceId) as any;
       if (existing) {
         return res.json({ skipped: true, reason: "Duplicate lead source ID", leadId: existing.id });
       }
@@ -882,10 +938,15 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   }
 
   app.get("/api/leads/map", async (req, res) => {
-    const all = storage.getAllLeads();
+    // SQL: only fetch location columns needed for map — avoids full lead deserialization (v11.70)
+    const all: any[] = rawDb.prepare(
+      `SELECT id, address, owner_name as ownerName, status, lead_type as leadType,
+              city, state, zip, extra_data as extraData
+       FROM leads ORDER BY uploaded_at DESC`
+    ).all();
 
     // Parse address components from each lead
-    const mapLeads = all.map(l => {
+    const mapLeads = all.map((l: any) => {
       // Use dedicated columns first (BatchLeads leads), fall back to extraData, then address parsing
       let city = (l as any).city || ""; let state = (l as any).state || "FL"; let zip = (l as any).zip || "";
       if (!city && l.extraData) {
@@ -974,6 +1035,18 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const { leads: leadRows, leadType, uploadedBy, batchId } = req.body;
     if (!leadRows || !Array.isArray(leadRows) || !leadType) {
       return res.status(400).json({ error: "Invalid upload payload" });
+    }
+    // Safeguard (v11.70): cap batch size to prevent runaway memory usage
+    const MAX_UPLOAD_BATCH = 2000;
+    if (leadRows.length > MAX_UPLOAD_BATCH) {
+      return res.status(400).json({
+        error: `Batch too large: ${leadRows.length} rows. Max is ${MAX_UPLOAD_BATCH} per upload. Split into smaller files.`,
+      });
+    }
+    // Safeguard: validate leadType is a known value
+    const VALID_LEAD_TYPES = ["expired", "fsbo", "pre_foreclosure", "distressed", "vacant", "land", "website_lead", "network", "other"];
+    if (!VALID_LEAD_TYPES.includes(leadType)) {
+      return res.status(400).json({ error: `Unknown lead type: ${leadType}` });
     }
 
     const now = new Date().toISOString();
@@ -1086,7 +1159,20 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   app.patch("/api/leads/:id", (req, res) => {
     const id = parseInt(req.params.id);
-    const updated = storage.updateLead(id, req.body);
+    // Safeguard (v11.70): whitelist editable fields — prevent client from
+    // overwriting assignedAgentId, status, score, or source directly
+    const ALLOWED_LEAD_PATCH_FIELDS = [
+      "ownerName", "firstName", "lastName", "email", "phone", "phones",
+      "address", "city", "state", "zip", "county",
+      "leadType", "estimatedValue", "timeframe", "reasonForSelling",
+      "propertyType", "extraData", "notes", "callbackDate",
+    ] as const;
+    const patch: Record<string, any> = {};
+    for (const key of ALLOWED_LEAD_PATCH_FIELDS) {
+      if (key in req.body) patch[key] = req.body[key];
+    }
+    if (Object.keys(patch).length === 0) return res.status(400).json({ error: "No valid fields to update" });
+    const updated = storage.updateLead(id, patch);
     if (!updated) return res.status(404).json({ error: "Lead not found" });
     res.json(updated);
   });
@@ -1564,12 +1650,15 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const agent = storage.getAgentById(agentId);
     if (!agent) return res.status(404).json({ error: "Agent not found" });
 
-    const allLeads = storage.getAllLeads().filter(l => l.assignedAgentId === agentId);
-    const activities = allLeads.flatMap(l =>
+    // SQL-indexed filter — avoids loading all leads (v11.70)
+    const agentLeads: any[] = rawDb.prepare(
+      `SELECT * FROM leads WHERE assigned_agent_id = ? ORDER BY uploaded_at DESC`
+    ).all(agentId);
+    const activities = agentLeads.flatMap((l: any) =>
       storage.getActivitiesForLead(l.id).map(a => ({ ...a, leadAddress: l.address }))
     );
 
-    res.json({ agent: { id: agent.id, name: agent.name, email: agent.email }, leads: allLeads, activities });
+    res.json({ agent: { id: agent.id, name: agent.name, email: agent.email }, leads: agentLeads, activities });
   });
 
 
@@ -2038,7 +2127,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ recycled: true, reassignedTo: nextAgent?.name || null });
   });
 
-  // ─── DUAL LEADERBOARD (Today + Weekly) ─────────────────────────────────────
+  // ─── DUAL LEADERBOARD (Today + Weekly) — SQL aggregated (v11.70) ─────────
   app.get("/api/admin/leaderboard", (req, res) => {
     const now = new Date();
 
@@ -2049,99 +2138,102 @@ This template is for informational/outreach purposes only.`;
 
     // Week: Monday 00:00 of current week
     const weekStart = new Date(now);
-    const day = weekStart.getDay(); // 0=Sun,1=Mon...
-    const diff = day === 0 ? -6 : 1 - day; // shift to Monday
+    const day = weekStart.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
     weekStart.setDate(weekStart.getDate() + diff);
     weekStart.setHours(0, 0, 0, 0);
     const weekStartISO = weekStart.toISOString();
 
     const allAgents = storage.getAllAgents().filter(a => a.isActive);
-    const allLeads = storage.getAllLeads();
 
-    // Collect all activities with createdAt
-    const allActivities: any[] = [];
-    for (const lead of allLeads) {
-      const acts = storage.getActivitiesForLead(lead.id);
-      for (const a of acts) {
-        allActivities.push({ ...a, leadId: lead.id });
-      }
-    }
+    // ── SQL: aggregate activity counts per agent per outcome for today + week ──
+    const OUTCOMES = ["contacted_appointment","keep_in_touch","email_sent","no_answer","contacted_not_interested"];
+    const aggRows: any[] = rawDb.prepare(`
+      SELECT agent_id,
+        SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as today_total,
+        SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as week_total,
+        SUM(CASE WHEN outcome = 'contacted_appointment' AND created_at >= ? THEN 1 ELSE 0 END) as today_appts,
+        SUM(CASE WHEN outcome = 'contacted_appointment' AND created_at >= ? THEN 1 ELSE 0 END) as week_appts,
+        SUM(CASE WHEN outcome = 'keep_in_touch' AND created_at >= ? THEN 1 ELSE 0 END) as today_kit,
+        SUM(CASE WHEN outcome = 'keep_in_touch' AND created_at >= ? THEN 1 ELSE 0 END) as week_kit,
+        SUM(CASE WHEN outcome = 'email_sent' AND created_at >= ? THEN 1 ELSE 0 END) as today_emails,
+        SUM(CASE WHEN outcome = 'email_sent' AND created_at >= ? THEN 1 ELSE 0 END) as week_emails,
+        SUM(CASE WHEN outcome = 'no_answer' AND created_at >= ? THEN 1 ELSE 0 END) as today_no_answer,
+        SUM(CASE WHEN outcome = 'no_answer' AND created_at >= ? THEN 1 ELSE 0 END) as week_no_answer,
+        SUM(CASE WHEN outcome = 'contacted_not_interested' AND created_at >= ? THEN 1 ELSE 0 END) as today_not_int,
+        SUM(CASE WHEN outcome = 'contacted_not_interested' AND created_at >= ? THEN 1 ELSE 0 END) as week_not_int,
+        MAX(created_at) as last_activity_at
+      FROM lead_activity
+      WHERE agent_id IS NOT NULL
+      GROUP BY agent_id
+    `).all(
+      todayStartISO, weekStartISO,
+      todayStartISO, weekStartISO,
+      todayStartISO, weekStartISO,
+      todayStartISO, weekStartISO,
+      todayStartISO, weekStartISO,
+      todayStartISO, weekStartISO
+    );
+    const aggMap: Record<number, any> = {};
+    for (const r of aggRows) aggMap[r.agent_id] = r;
 
-    const todayActs = allActivities.filter(a => a.createdAt >= todayStartISO);
-    const weekActs  = allActivities.filter(a => a.createdAt >= weekStartISO);
+    // ── SQL: network referrals (leads with JSON source=network) per uploader ──
+    const weekRefRows: any[] = rawDb.prepare(`
+      SELECT uploaded_by, COUNT(*) as cnt
+      FROM leads
+      WHERE uploaded_by IS NOT NULL
+        AND json_extract(extra_data, '$.source') = 'network'
+        AND uploaded_at >= ?
+      GROUP BY uploaded_by
+    `).all(weekStartISO);
+    const weekReferralsMap: Record<number, number> = {};
+    for (const r of weekRefRows) weekReferralsMap[r.uploaded_by] = r.cnt;
 
-    const buildStats = (agentActivities: any[], agent: any) => {
-      const dials       = agentActivities.filter(a => a.outcome !== "email_sent").length;
-      const appts       = agentActivities.filter(a => a.outcome === "contacted_appointment").length;
-      const kit         = agentActivities.filter(a => a.outcome === "keep_in_touch").length;
-      const emails      = agentActivities.filter(a => a.outcome === "email_sent").length;
-      const noAnswer    = agentActivities.filter(a => a.outcome === "no_answer").length;
-      const notInt      = agentActivities.filter(a => a.outcome === "contacted_not_interested").length;
-      const convRate    = dials > 0 ? Math.round(((appts + notInt + kit) / dials) * 100) : 0;
-      return { dials, appts, kit, emails, noAnswer, convRate };
+    const todayRefRows: any[] = rawDb.prepare(`
+      SELECT uploaded_by, COUNT(*) as cnt
+      FROM leads
+      WHERE uploaded_by IS NOT NULL
+        AND json_extract(extra_data, '$.source') = 'network'
+        AND uploaded_at >= ?
+      GROUP BY uploaded_by
+    `).all(todayStartISO);
+    const todayReferralsMap: Record<number, number> = {};
+    for (const r of todayRefRows) todayReferralsMap[r.uploaded_by] = r.cnt;
+
+    const buildStats = (agg: any, period: "today" | "week", agentId: number) => {
+      if (!agg) return { dials: 0, appts: 0, kit: 0, emails: 0, noAnswer: 0, convRate: 0, referrals: 0 };
+      const p = period === "today" ? "today" : "week";
+      const appts    = agg[`${p}_appts`]    || 0;
+      const kit      = agg[`${p}_kit`]      || 0;
+      const emails   = agg[`${p}_emails`]   || 0;
+      const noAnswer = agg[`${p}_no_answer`] || 0;
+      const notInt   = agg[`${p}_not_int`]  || 0;
+      const total    = agg[`${p}_total`]    || 0;
+      const dials    = total - emails;
+      const convRate = dials > 0 ? Math.round(((appts + notInt + kit) / dials) * 100) : 0;
+      const referrals = period === "today" ? (todayReferralsMap[agentId] || 0) : (weekReferralsMap[agentId] || 0);
+      return { dials, appts, kit, emails, noAnswer, convRate, referrals };
     };
 
-    // Network referrals this week (leads uploaded by agent with network source)
-    const weekReferralsMap: Record<number, number> = {};
-    for (const l of allLeads) {
-      if (!l.uploadedBy) continue;
-      try {
-        const x = JSON.parse((l as any).extraData || "{}");
-        if (x.source === "network") {
-          weekReferralsMap[l.uploadedBy] = (weekReferralsMap[l.uploadedBy] || 0) + 1;
-        }
-      } catch {}
-    }
-
-    // Today referrals
-    const todayReferralsMap: Record<number, number> = {};
-    for (const l of allLeads) {
-      if (!l.uploadedBy) continue;
-      try {
-        const x = JSON.parse((l as any).extraData || "{}");
-        if (x.source === "network") {
-          todayReferralsMap[l.uploadedBy] = (todayReferralsMap[l.uploadedBy] || 0) + 1;
-        }
-      } catch {}
-    }
-
-    // Last activity timestamp per agent (all time)
-    const lastActivityMap: Record<number, string | null> = {};
-    for (const a of allActivities) {
-      if (!a.agentId) continue;
-      if (!lastActivityMap[a.agentId] || a.createdAt > lastActivityMap[a.agentId]!) {
-        lastActivityMap[a.agentId] = a.createdAt;
-      }
-    }
-
     const result = allAgents.map(agent => {
-      const todayAgentActs = todayActs.filter(a => a.agentId === agent.id);
-      const weekAgentActs  = weekActs.filter(a => a.agentId === agent.id);
-
-      const today  = { ...buildStats(todayAgentActs, agent), referrals: todayReferralsMap[agent.id] || 0 };
-      const weekly = { ...buildStats(weekAgentActs,  agent), referrals: weekReferralsMap[agent.id]  || 0 };
-
+      const agg = aggMap[agent.id] || null;
       return {
         agent: { id: agent.id, name: agent.name, email: agent.email, headshotUrl: (agent as any).headshotUrl || null },
-        lastActivityAt: lastActivityMap[agent.id] || null,
-        today,
-        weekly,
+        lastActivityAt: agg?.last_activity_at || null,
+        today:  buildStats(agg, "today",  agent.id),
+        weekly: buildStats(agg, "week",   agent.id),
       };
     });
 
-    // ─── Compute points per agent from agent_points table (v11.40) ───────────
+    // ─── Points from agent_points table ───────────────────────────────────────
     const resetRow2 = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
     const resetAt2: string | null = resetRow2?.value || null;
     const allPtsRows = rawDb.prepare(`SELECT agent_id, SUM(points) as total FROM agent_points ${resetAt2 ? "WHERE created_at >= ?" : ""} GROUP BY agent_id`).all(...(resetAt2 ? [resetAt2] : [])) as any[];
     const ptsMap: Record<number, number> = {};
     for (const r of allPtsRows) ptsMap[r.agent_id] = r.total || 0;
-    for (const r of result) {
-      (r as any).points = ptsMap[(r.agent as any).id] || 0;
-    }
+    for (const r of result) (r as any).points = ptsMap[(r.agent as any).id] || 0;
 
-    // Sort weekly by appts desc then dials desc
     result.sort((a, b) => b.weekly.appts - a.weekly.appts || b.weekly.dials - a.weekly.dials);
-
     res.json(result);
   });
 
@@ -2215,32 +2307,37 @@ This template is for informational/outreach purposes only.`;
         (a.role === "admin" && a.receiveLeads)
       )
     );
-    const allLeads = storage.getAllLeads();
-    const allActivities = (() => {
-      const acts: any[] = [];
-      for (const lead of allLeads) {
-        const la = storage.getActivitiesForLead(lead.id);
-        acts.push(...(resetAt ? la.filter((a: any) => a.createdAt > resetAt) : la));
-      }
-      return acts;
-    })();
+    // SQL aggregation — avoids loading all leads/activities (v11.70)
+    const agentStatsRows: any[] = rawDb.prepare(`
+      SELECT agent_id,
+        COUNT(*) as total_all,
+        SUM(CASE WHEN outcome = 'email_sent' THEN 1 ELSE 0 END) as emails_sent,
+        SUM(CASE WHEN outcome = 'contacted_appointment' THEN 1 ELSE 0 END) as appts,
+        SUM(CASE WHEN outcome = 'no_answer' THEN 1 ELSE 0 END) as no_answer,
+        SUM(CASE WHEN outcome = 'keep_in_touch' THEN 1 ELSE 0 END) as kit,
+        SUM(CASE WHEN outcome = 'contacted_not_interested' THEN 1 ELSE 0 END) as not_int
+      FROM lead_activity
+      WHERE agent_id IS NOT NULL
+        ${resetAt ? "AND created_at > ?" : ""}
+      GROUP BY agent_id
+    `).all(...(resetAt ? [resetAt] : []));
+    const agentStatsMap: Record<number, any> = {};
+    for (const r of agentStatsRows) agentStatsMap[r.agent_id] = r;
 
     const stats = allAgents.map(agent => {
-      const agentActs = allActivities.filter((a: any) => a.agentId === agent.id);
-      const appts = agentActs.filter((a: any) => a.outcome === "contacted_appointment").length;
-      const emailsSent = agentActs.filter((a: any) => a.outcome === "email_sent").length;
-      const total = agentActs.filter((a: any) => a.outcome !== "email_sent").length;
-      const contacted = agentActs.filter((a: any) => ["contacted_appointment","contacted_not_interested"].includes(a.outcome)).length;
+      const r = agentStatsMap[agent.id] || { total_all: 0, emails_sent: 0, appts: 0, no_answer: 0, kit: 0, not_int: 0 };
+      const total = (r.total_all || 0) - (r.emails_sent || 0);
+      const contacted = (r.appts || 0) + (r.not_int || 0);
       return {
         agent: { id: agent.id, name: agent.name, email: agent.email },
-        appointmentsSet: appts,
+        appointmentsSet: r.appts || 0,
         totalAttempts: total,
-        emailsSent,
+        emailsSent: r.emails_sent || 0,
         contactRate: total > 0 ? Math.round((contacted / total) * 100) : 0,
         outcomes: {
-          contacted_appointment: appts,
-          no_answer: agentActs.filter((a: any) => a.outcome === "no_answer").length,
-          keep_in_touch: agentActs.filter((a: any) => a.outcome === "keep_in_touch").length,
+          contacted_appointment: r.appts || 0,
+          no_answer: r.no_answer || 0,
+          keep_in_touch: r.kit || 0,
         },
       };
     });
@@ -2477,7 +2574,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.69",
+      version: "v11.70",
       services: results,
     });
   });
@@ -2814,7 +2911,9 @@ This template is for informational/outreach purposes only.`;
     // ─── BATCHLEADS PIPELINE TRIGGER ──────────────────────────────────────────────
   // Called by daily 6am cron. Also callable manually by admins.
   // Pulls leads saved to BatchLeads lists, scrubs, scores, and distributes.
-  app.post("/api/admin/batchleads-run", async (req: any, res) => {
+  app.post("/api/admin/batchleads-run",
+    (req: any, res: any, next: any) => pipelineGuard("batchleads", req, res, next),
+    async (req: any, res) => {
     try {
       console.log("[BatchLeads] Manual/cron trigger received");
       const stats = await runBatchLeadsPipeline(rawDb);
@@ -2851,7 +2950,9 @@ This template is for informational/outreach purposes only.`;
   });
 
   // ─── LANDVOICE PIPELINE TRIGGER (legacy — keep for CSV fallback) ─────────────
-  app.post("/api/admin/landvoice-run", async (req: any, res) => {
+  app.post("/api/admin/landvoice-run",
+    (req: any, res: any, next: any) => pipelineGuard("landvoice", req, res, next),
+    async (req: any, res) => {
     try {
       console.log("[Landvoice] Manual/cron trigger received");
       const stats = await runLandvoicePipeline(rawDb);
@@ -2944,6 +3045,20 @@ This template is for informational/outreach purposes only.`;
     insertMany(leads);
     console.log(`[Agent Leads] Bulk import: ${created} created, ${skipped} skipped`);
     res.json({ created, skipped });
+  });
+
+  // ─── GLOBAL ERROR HANDLER (v11.70) ──────────────────────────────────────
+  // Catches any unhandled error thrown inside a route handler. Without this,
+  // Express swallows async throws and the request hangs forever.
+  // Must be registered AFTER all routes (4-argument signature tells Express
+  // this is an error handler, not a regular middleware).
+  app.use((err: any, req: any, res: any, _next: any) => {
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal server error";
+    console.error(`[error] ${req.method} ${req.path} → ${status}: ${message}`, err.stack || "");
+    if (!res.headersSent) {
+      res.status(status).json({ error: message });
+    }
   });
 
   return httpServer;
@@ -3197,21 +3312,26 @@ async function sendDailyDigest() {
 // active agent with a clear handoff note so they have full context immediately.
 async function redistributeDueCallbacks() {
   const todayStr = new Date().toISOString().slice(0, 10);
-  const allLeads = storage.getAllLeads();
-  const allAgents = storage.getAllAgents();
-  const agentMap: Record<number, any> = {};
-  allAgents.forEach((a: any) => { agentMap[a.id] = a; });
+
+  // SQL: only fetch callback leads due today — avoids loading all leads (v11.70)
+  const callbackLeads: any[] = rawDb.prepare(`
+    SELECT l.id, l.lead_type as leadType, l.assigned_agent_id as assignedAgentId,
+           l.callback_date as callbackDate,
+           a.is_active as agentIsActive, a.lead_flow_on as agentLeadFlowOn, a.name as agentName
+    FROM leads l
+    LEFT JOIN agents a ON a.id = l.assigned_agent_id
+    WHERE l.status = 'callback_requested'
+      AND l.callback_date IS NOT NULL
+      AND substr(l.callback_date, 1, 10) = ?
+  `).all(todayStr);
 
   let redistributed = 0;
 
-  for (const lead of allLeads) {
-    if (lead.status !== "callback_requested") continue;
-    if (!lead.callbackDate) continue;
-    const cbDate = lead.callbackDate.slice(0, 10);
-    if (cbDate !== todayStr) continue;
-
+  for (const lead of callbackLeads) {
     // Is the assigned agent still active?
-    const assignedAgent = lead.assignedAgentId ? agentMap[lead.assignedAgentId] : null;
+    const assignedAgent = lead.assignedAgentId
+      ? { isActive: lead.agentIsActive, leadFlowOn: lead.agentLeadFlowOn, name: lead.agentName }
+      : null;
     if (assignedAgent && assignedAgent.isActive && assignedAgent.leadFlowOn !== false) continue;
 
     // Agent is inactive (or unassigned) — redistribute now
@@ -3277,10 +3397,12 @@ async function redistributeUnassignedLeads() {
     "callback_requested",
     "wrong_number",
   ];
-  const allLeads = storage.getAllLeads();
 
-  // ── Reset no_answer_today → untried for all no_answer leads (daily fresh start) ──
-  const noAnswerLeads = allLeads.filter(l => l.status === "no_answer" && l.phoneStates);
+  // ── SQL: only load no_answer leads with phone state data (v11.70) ──
+  const noAnswerLeads: any[] = rawDb.prepare(
+    `SELECT id, phone, phones, phone_states as phoneStates FROM leads
+     WHERE status = 'no_answer' AND phone_states IS NOT NULL`
+  ).all();
   for (const lead of noAnswerLeads) {
     try {
       const states: Record<string, string> = JSON.parse(lead.phoneStates!);
@@ -3298,9 +3420,13 @@ async function redistributeUnassignedLeads() {
     } catch {}
   }
 
-  const eligible = allLeads.filter(
-    (l) => !SKIP.includes(l.status) && (!l.assignedAgentId || l.status === "unassigned")
-  );
+  // SQL: only fetch unassigned/eligible leads — much faster at scale (v11.70)
+  const skipList = SKIP.map(() => "?").join(",");
+  const eligible: any[] = rawDb.prepare(
+    `SELECT id, lead_type as leadType FROM leads
+     WHERE status NOT IN (${skipList})
+       AND (assigned_agent_id IS NULL OR status = 'unassigned')`
+  ).all(...SKIP);
   if (eligible.length === 0) {
     console.log("[redistribution] No unassigned leads to redistribute.");
     return;

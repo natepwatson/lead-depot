@@ -9,14 +9,28 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// Safeguard (v11.70): inject X-Agent-Id on every API request so the
+// server can verify identity on admin routes without a full JWT layer.
+function getAgentIdHeader(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem("lead_depot_user");
+    if (!raw) return {};
+    const u = JSON.parse(raw);
+    if (u?.id) return { "X-Agent-Id": String(u.id) };
+  } catch {}
+  return {};
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const headers: Record<string, string> = { ...getAgentIdHeader() };
+  if (data) headers["Content-Type"] = "application/json";
   const res = await fetch(`${API_BASE}${url}`, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
   });
 
@@ -30,7 +44,9 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(`${API_BASE}${queryKey.join("/")}`);
+    const res = await fetch(`${API_BASE}${queryKey.join("/")}`, {
+      headers: getAgentIdHeader(),
+    });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

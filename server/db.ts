@@ -214,3 +214,62 @@ rawDb.prepare(`
     created_at TEXT NOT NULL
   )
 `).run();
+
+// ─── SAFEGUARDS (v11.70) ──────────────────────────────────────────────────────
+
+// WAL mode — concurrent reads during writes, prevents DB lock contention
+rawDb.pragma("journal_mode = WAL");
+
+// Enforce foreign key constraints at the SQLite level
+rawDb.pragma("foreign_keys = ON");
+
+// Larger page cache: 8MB — reduces disk I/O on full table scans that remain
+rawDb.pragma("cache_size = -8000");
+
+// Synchronous = NORMAL — safe with WAL, faster than FULL
+rawDb.pragma("synchronous = NORMAL");
+
+// ─── Indexes on hot columns (v11.70) ─────────────────────────────────────────
+// These prevent full table scans on the most frequent query patterns.
+// All are IF NOT EXISTS — safe to run on every boot.
+
+// lead_activity: agent_id + created_at — leaderboard GROUP BY, daily digest
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_lead_activity_agent_created
+  ON lead_activity(agent_id, created_at)`).run();
+
+// lead_activity: lead_id — getActivitiesForLead(), outcome log queries
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_lead_activity_lead_id
+  ON lead_activity(lead_id)`).run();
+
+// leads: assigned_agent_id — all per-agent lead fetches, deactivation handler
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_assigned_agent
+  ON leads(assigned_agent_id)`).run();
+
+// leads: status — pipeline counts, redistribution filters, stale audit
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_status
+  ON leads(status)`).run();
+
+// leads: uploaded_at — ordering, BatchLeads new-lead window query
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_uploaded_at
+  ON leads(uploaded_at)`).run();
+
+// leads: uploaded_by — network referral counts
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_uploaded_by
+  ON leads(uploaded_by)`).run();
+
+// leads: callback_date — daily callback redistribution query
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_callback_date
+  ON leads(callback_date)`).run();
+
+// leads: source — BatchLeads/Landvoice new-lead assignment window
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_source
+  ON leads(source)`).run();
+
+// agents: email — login lookup
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agents_email
+  ON agents(email)`).run();
+
+// geo_cache: address_key — geocode cache hits (already a PK but explicit helps explain)
+// (skipped — already a PRIMARY KEY, which is automatically indexed)
+
+console.log("[db] WAL mode active, foreign keys ON, indexes verified");

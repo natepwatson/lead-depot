@@ -223,6 +223,33 @@ if (!agentLeadCols.includes("license_issue_date")) rawDb.prepare("ALTER TABLE ag
 if (!agentLeadCols.includes("license_expire_date")) rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN license_expire_date TEXT").run();
 if (!agentLeadCols.includes("last_scraped_at"))    rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN last_scraped_at INTEGER").run();
 if (!agentLeadCols.includes("dedup_hash"))         rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN dedup_hash TEXT").run();
+
+// ─── v11.80 — Recruiting module: canRecruit, reactivate_at ────────────────────
+const agentColsV80 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
+if (!agentColsV80.includes("can_recruit")) rawDb.prepare("ALTER TABLE agents ADD COLUMN can_recruit INTEGER NOT NULL DEFAULT 0").run();
+const alColsV80 = rawDb.prepare("PRAGMA table_info(agent_leads)").all().map((c: any) => c.name);
+if (!alColsV80.includes("reactivate_at")) rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN reactivate_at TEXT").run();
+// Index for thaw queries
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_reactivate ON agent_leads(reactivate_at) WHERE reactivate_at IS NOT NULL`).run();
+// Auto-ice any FREC agent whose license was issued within the last 6 months (joined a brokerage recently)
+rawDb.prepare(`
+  UPDATE agent_leads
+  SET status = 'just_signed',
+      reactivate_at = date(license_issue_date, '+6 months')
+  WHERE source = 'frec_scrape'
+    AND license_issue_date IS NOT NULL
+    AND date(license_issue_date) >= date('now', '-6 months')
+    AND status = 'new'
+    AND reactivate_at IS NULL
+`).run();
+// Thaw any not_now / just_signed leads whose reactivate_at has passed
+rawDb.prepare(`
+  UPDATE agent_leads
+  SET status = 'new', reactivate_at = NULL, callback_date = NULL
+  WHERE status IN ('not_now', 'just_signed')
+    AND reactivate_at IS NOT NULL
+    AND date(reactivate_at) <= date('now')
+`).run();
 // Unique index on dedup_hash — prevents within-run and cross-run duplicates
 rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_leads_dedup_hash ON agent_leads(dedup_hash) WHERE dedup_hash IS NOT NULL`).run();
 // Index for freshness queries (last_scraped_at)

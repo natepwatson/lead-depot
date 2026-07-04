@@ -849,13 +849,29 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [agentLeadRowCount, setAgentLeadRowCount] = useState<number | null>(null);
   const [quickAddForm, setQuickAddForm] = useState({ firstName: "", lastName: "", phone: "", email: "", currentBrokerage: "", licenseStatus: "", territory: "", notes: "" });
   const [quickAddSubmitting, setQuickAddSubmitting] = useState(false);
-  const [recruitingSubTab, setRecruitingSubTab] = useState<"quick" | "bulk">("quick");
+  const [recruitingSubTab, setRecruitingSubTab] = useState<"pipeline" | "leaderboard" | "quick" | "bulk">("pipeline");
+  const [recruitingStatusFilter, setRecruitingStatusFilter] = useState<string>("all");
+  const [recruitingDeleteConfirm, setRecruitingDeleteConfirm] = useState<number | null>(null);
+  const [recruitingDncConfirm, setRecruitingDncConfirm] = useState<number | null>(null);
+  const [recruitingLbPeriod, setRecruitingLbPeriod] = useState<"today" | "week" | "allTime">("week");
   const [frecRunning, setFrecRunning] = useState(false);
   const [frecResult, setFrecResult] = useState<any>(null);
   const frecStatsQuery = useQuery({
     queryKey: ["/api/admin/frec-stats"],
     queryFn: () => apiRequest("GET", "/api/admin/frec-stats").then(r => r.json()),
     staleTime: 60_000,
+  });
+  const recruitingPipelineQuery = useQuery({
+    queryKey: ["/api/admin/recruiting/pipeline", recruitingStatusFilter],
+    queryFn: () => apiRequest("GET", `/api/admin/recruiting/pipeline?status=${recruitingStatusFilter}`).then(r => r.json()),
+    staleTime: 30_000,
+    enabled: recruitingSubTab === "pipeline",
+  });
+  const recruitingLeaderboardQuery = useQuery({
+    queryKey: ["/api/admin/recruiting/leaderboard"],
+    queryFn: () => apiRequest("GET", "/api/admin/recruiting/leaderboard").then(r => r.json()),
+    staleTime: 30_000,
+    enabled: recruitingSubTab === "leaderboard",
   });
   const [websiteLeadForm, setWebsiteLeadForm] = useState({ firstName: "", lastName: "", email: "", phone: "", address: "", city: "", state: "FL", zip: "", county: "", propertyType: "", reasonForSelling: "", estimatedValue: "", timeframe: "" });
   const [submittingWebsiteLead, setSubmittingWebsiteLead] = useState(false);
@@ -1311,7 +1327,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.79
+              v11.80
             </p>
           </div>
         </div>
@@ -2304,32 +2320,266 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           {/* ── AGENTS ──────────────────────────────────────────────────────── */}
           {/* ── RECRUITING ──────────────────────────────────────────────────── */}
           <TabsContent value="recruiting" className="mt-5">
-            <div className="max-w-lg space-y-5">
-              <div>
-                <h2 style={{
-                  fontFamily: "'Cormorant Garamond','Georgia',serif",
-                  fontSize: "1.3rem", fontWeight: 300, color: "#fff", marginBottom: 4,
-                }}>Agent Recruiting</h2>
-                <p className="text-sm text-muted-foreground">Add prospects to the recruiting queue for outreach in Prospecting Mode.</p>
-              </div>
-
+            <div style={{ maxWidth: 900 }}>
               {/* Sub-tab switcher */}
-              <div style={{ display: "flex", gap: 8 }}>
-                {([{ k: "quick", label: "Quick Add" }, { k: "bulk", label: "Bulk CSV Import" }] as const).map(({ k, label }) => (
+              <div style={{ display: "flex", gap: 6, marginBottom: 20, overflowX: "auto", paddingBottom: 2 }}>
+                {([
+                  { k: "pipeline",    label: "Pipeline" },
+                  { k: "leaderboard", label: "Leaderboard" },
+                  { k: "quick",       label: "Quick Add" },
+                  { k: "bulk",        label: "Bulk Import" },
+                ] as const).map(({ k, label }) => (
                   <button key={k} onClick={() => setRecruitingSubTab(k)} style={{
-                    padding: "9px 18px", borderRadius: 6, fontSize: 12, fontWeight: 500,
-                    letterSpacing: "0.05em", border: "1px solid",
+                    padding: "8px 16px", borderRadius: 6, fontSize: 11, fontWeight: 600,
+                    letterSpacing: "0.06em", textTransform: "uppercase", border: "1px solid", whiteSpace: "nowrap",
                     borderColor: recruitingSubTab === k ? "rgba(79,184,163,0.5)" : "rgba(255,255,255,0.1)",
                     background: recruitingSubTab === k ? "rgba(79,184,163,0.1)" : "rgba(255,255,255,0.03)",
-                    color: recruitingSubTab === k ? "#4fb8a3" : "rgba(255,255,255,0.5)",
+                    color: recruitingSubTab === k ? "#4fb8a3" : "rgba(255,255,255,0.4)",
                     cursor: "pointer", transition: "all 0.15s",
                   }}>{label}</button>
                 ))}
               </div>
 
-              {recruitingSubTab === "quick" ? (
-                /* ── QUICK ADD FORM ── */
-                <div className="space-y-4">
+              {/* ── PIPELINE TAB ── */}
+              {recruitingSubTab === "pipeline" && (() => {
+                const pData = recruitingPipelineQuery.data;
+                const leads = pData?.leads ?? [];
+                const counts = pData?.counts ?? [];
+                const totalActive = counts.filter((c: any) => !['joined','not_interested','do_not_contact'].includes(c.status)).reduce((s: number, c: any) => s + c.count, 0);
+                const statusColors: Record<string, string> = {
+                  new: "rgba(255,255,255,0.5)",
+                  contacted: "#4fb8a3",
+                  hot_prospect: "#f97316",
+                  appointment: "#c8aa5a",
+                  callback_requested: "#a78bfa",
+                  not_now: "rgba(255,255,255,0.3)",
+                  just_signed: "rgba(255,255,255,0.3)",
+                  joined: "#22c55e",
+                  not_interested: "rgba(239,68,68,0.6)",
+                  do_not_contact: "rgba(239,68,68,0.4)",
+                };
+                const statusLabels: Record<string, string> = {
+                  new: "New", contacted: "Contacted", hot_prospect: "🔥 Hot",
+                  appointment: "Appt", callback_requested: "Callback",
+                  not_now: "❄ Not Now", just_signed: "❄ Just Signed",
+                  joined: "✓ Joined", not_interested: "Not Interested", do_not_contact: "⛔ DNC",
+                };
+                const filterOptions = [
+                  { v: "all", label: "All Active" },
+                  { v: "new", label: "New" },
+                  { v: "contacted", label: "Contacted" },
+                  { v: "hot_prospect", label: "Hot" },
+                  { v: "appointment", label: "Appt" },
+                  { v: "callback_requested", label: "Callback" },
+                  { v: "not_now", label: "Not Now" },
+                  { v: "just_signed", label: "Just Signed" },
+                  { v: "joined", label: "Joined" },
+                  { v: "not_interested", label: "Not Interested" },
+                ];
+                return (
+                  <div>
+                    {/* Stats row */}
+                    <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+                      {counts.filter((c: any) => c.count > 0).map((c: any) => (
+                        <div key={c.status} style={{
+                          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+                          borderRadius: 8, padding: "8px 14px", textAlign: "center",
+                        }}>
+                          <div style={{ fontSize: 18, fontWeight: 300, color: statusColors[c.status] || "#fff" }}>{c.count}</div>
+                          <div style={{ fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginTop: 2 }}>
+                            {statusLabels[c.status] || c.status}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Filter bar */}
+                    <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 2 }}>
+                      {filterOptions.map(({ v, label }) => (
+                        <button key={v} onClick={() => setRecruitingStatusFilter(v)} style={{
+                          padding: "5px 12px", borderRadius: 20, fontSize: 10, fontWeight: 600,
+                          letterSpacing: "0.05em", border: "1px solid", whiteSpace: "nowrap",
+                          borderColor: recruitingStatusFilter === v ? "rgba(79,184,163,0.5)" : "rgba(255,255,255,0.08)",
+                          background: recruitingStatusFilter === v ? "rgba(79,184,163,0.1)" : "transparent",
+                          color: recruitingStatusFilter === v ? "#4fb8a3" : "rgba(255,255,255,0.35)",
+                          cursor: "pointer",
+                        }}>{label}</button>
+                      ))}
+                    </div>
+
+                    {/* Lead rows */}
+                    {recruitingPipelineQuery.isLoading ? (
+                      <div style={{ padding: "40px 0", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>Loading pipeline…</div>
+                    ) : leads.length === 0 ? (
+                      <div style={{ padding: "40px 0", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>No recruits in this category.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {leads.map((lead: any) => {
+                          const activity = lead.recent_activity || [];
+                          const statusColor = statusColors[lead.status] || "rgba(255,255,255,0.4)";
+                          const frozen = lead.status === "not_now" || lead.status === "just_signed";
+                          return (
+                            <div key={lead.id} style={{
+                              background: frozen ? "rgba(255,255,255,0.01)" : "rgba(255,255,255,0.02)",
+                              border: `1px solid ${frozen ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.08)"}`,
+                              borderRadius: 10, padding: "14px 16px",
+                              opacity: frozen ? 0.6 : 1,
+                            }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                    <span style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 16, fontWeight: 500, color: "#fff" }}>
+                                      {lead.first_name} {lead.last_name}
+                                    </span>
+                                    <span style={{
+                                      fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
+                                      color: statusColor, border: `1px solid ${statusColor}40`,
+                                      borderRadius: 10, padding: "2px 8px",
+                                    }}>{statusLabels[lead.status] || lead.status}</span>
+                                    {lead.attempt_count > 0 && (
+                                      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{lead.attempt_count} dials</span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 4 }}>
+                                    {[lead.current_brokerage, lead.territory || lead.matched_territory, lead.phone].filter(Boolean).join(" · ")}
+                                  </div>
+                                  {frozen && lead.reactivate_at && (
+                                    <div style={{ fontSize: 10, color: "rgba(200,170,90,0.6)", marginTop: 4 }}>
+                                      ❄ Re-enters queue {new Date(lead.reactivate_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                    </div>
+                                  )}
+                                  {activity.length > 0 && (
+                                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
+                                      {activity.slice(0, 2).map((a: any, i: number) => (
+                                        <div key={i} style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
+                                          <span style={{ color: "rgba(255,255,255,0.5)" }}>{a.callerName || "Unknown"}</span>
+                                          {" · "}{statusLabels[a.outcome] || a.outcome}
+                                          {a.notes ? <span style={{ color: "rgba(255,255,255,0.2)" }}> — {a.notes.slice(0, 60)}{a.notes.length > 60 ? "…" : ""}</span> : null}
+                                          <span style={{ color: "rgba(255,255,255,0.2)", marginLeft: 6 }}>
+                                            {new Date(a.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                {/* Actions */}
+                                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                  {lead.status !== "do_not_contact" && (
+                                    <button
+                                      onClick={() => {
+                                        if (recruitingDncConfirm === lead.id) {
+                                          apiRequest("POST", `/api/agent-leads/${lead.id}/outcome`, { outcome: "do_not_contact", callerId: user?.id })
+                                            .then(() => { setRecruitingDncConfirm(null); recruitingPipelineQuery.refetch(); });
+                                        } else { setRecruitingDncConfirm(lead.id); setRecruitingDeleteConfirm(null); }
+                                      }}
+                                      style={{
+                                        padding: "5px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600,
+                                        border: "1px solid rgba(239,68,68,0.25)",
+                                        background: recruitingDncConfirm === lead.id ? "rgba(239,68,68,0.2)" : "transparent",
+                                        color: recruitingDncConfirm === lead.id ? "#ef4444" : "rgba(239,68,68,0.5)",
+                                        cursor: "pointer",
+                                      }}
+                                    >{recruitingDncConfirm === lead.id ? "Confirm DNC" : "DNC"}</button>
+                                  )}
+                                  <button
+                                    onClick={() => {
+                                      if (recruitingDeleteConfirm === lead.id) {
+                                        apiRequest("DELETE", `/api/agent-leads/${lead.id}`)
+                                          .then(() => { setRecruitingDeleteConfirm(null); recruitingPipelineQuery.refetch(); });
+                                      } else { setRecruitingDeleteConfirm(lead.id); setRecruitingDncConfirm(null); }
+                                    }}
+                                    style={{
+                                      padding: "5px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600,
+                                      border: "1px solid rgba(239,68,68,0.15)",
+                                      background: recruitingDeleteConfirm === lead.id ? "rgba(239,68,68,0.15)" : "transparent",
+                                      color: recruitingDeleteConfirm === lead.id ? "#ef4444" : "rgba(239,68,68,0.3)",
+                                      cursor: "pointer",
+                                    }}
+                                  >{recruitingDeleteConfirm === lead.id ? "Confirm Delete" : "Delete"}</button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── LEADERBOARD TAB ── */}
+              {recruitingSubTab === "leaderboard" && (() => {
+                const rows: any[] = recruitingLeaderboardQuery.data ?? [];
+                const periods = [{ v: "today", label: "Today" }, { v: "week", label: "This Week" }, { v: "allTime", label: "All Time" }] as const;
+                return (
+                  <div>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+                      {periods.map(({ v, label }) => (
+                        <button key={v} onClick={() => setRecruitingLbPeriod(v)} style={{
+                          padding: "6px 14px", borderRadius: 6, fontSize: 11, fontWeight: 600,
+                          letterSpacing: "0.05em", border: "1px solid",
+                          borderColor: recruitingLbPeriod === v ? "rgba(79,184,163,0.5)" : "rgba(255,255,255,0.08)",
+                          background: recruitingLbPeriod === v ? "rgba(79,184,163,0.1)" : "transparent",
+                          color: recruitingLbPeriod === v ? "#4fb8a3" : "rgba(255,255,255,0.35)",
+                          cursor: "pointer",
+                        }}>{label}</button>
+                      ))}
+                    </div>
+                    {recruitingLeaderboardQuery.isLoading ? (
+                      <div style={{ padding: "40px 0", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>Loading leaderboard…</div>
+                    ) : rows.length === 0 ? (
+                      <div style={{ padding: "40px 0", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>No recruiting activity yet.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {/* Header */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 60px 60px 60px 60px", gap: 8, padding: "0 12px", marginBottom: 4 }}>
+                          {["Agent","Dials","KIT","Hot","Appt","Joined"].map(h => (
+                            <div key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", textAlign: h === "Agent" ? "left" : "center" }}>{h}</div>
+                          ))}
+                        </div>
+                        {rows.map((row: any, idx: number) => {
+                          const dials = recruitingLbPeriod === "today" ? row.today_dials : recruitingLbPeriod === "week" ? row.week_dials : row.total_dials;
+                          const kit   = recruitingLbPeriod === "today" ? row.today_kit   : recruitingLbPeriod === "week" ? row.week_kit   : row.kit;
+                          const hot   = recruitingLbPeriod === "today" ? row.today_hot   : recruitingLbPeriod === "week" ? row.week_hot   : row.hot_prospects;
+                          const appt  = 0; // future
+                          const joined = recruitingLbPeriod === "today" ? row.today_joined : recruitingLbPeriod === "week" ? row.week_joined : row.joined;
+                          return (
+                            <div key={row.caller_id} style={{
+                              display: "grid", gridTemplateColumns: "1fr 60px 60px 60px 60px 60px",
+                              gap: 8, alignItems: "center",
+                              background: idx === 0 ? "rgba(200,170,90,0.06)" : "rgba(255,255,255,0.02)",
+                              border: `1px solid ${idx === 0 ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.06)"}`,
+                              borderRadius: 10, padding: "12px 12px",
+                            }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: idx === 0 ? "rgba(200,170,90,0.8)" : "rgba(255,255,255,0.3)", width: 16 }}>#{idx + 1}</span>
+                                {row.headshot_url ? (
+                                  <img src={row.headshot_url} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} />
+                                ) : (
+                                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(79,184,163,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#4fb8a3", fontWeight: 700 }}>
+                                    {(row.agent_name || "?")[0]}
+                                  </div>
+                                )}
+                                <span style={{ fontSize: 13, color: "#fff", fontWeight: 500 }}>{row.agent_name || "Unknown"}</span>
+                              </div>
+                              {[dials, kit, hot, appt, joined].map((val, i) => (
+                                <div key={i} style={{ textAlign: "center", fontSize: 16, fontWeight: 300, color: i === 4 && val > 0 ? "#22c55e" : i === 2 && val > 0 ? "#f97316" : "rgba(255,255,255,0.7)" }}>
+                                  {val || 0}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── QUICK ADD TAB ── */}
+              {recruitingSubTab === "quick" && (
+                <div className="max-w-lg space-y-4">
                   <p className="text-sm text-muted-foreground">Fast entry for events, open houses, or cold outreach. Name and phone are required.</p>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
@@ -2373,24 +2623,20 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                     <Input value={quickAddForm.notes} onChange={e => setQuickAddForm(p => ({...p, notes: e.target.value}))}
                       className="bg-secondary border-border" placeholder="Met at open house on Coastal Hwy..." />
                   </div>
-                  <button
-                    onClick={handleSubmitQuickAdd}
-                    disabled={quickAddSubmitting}
-                    style={{
-                      width: "100%", padding: "14px",
-                      background: quickAddSubmitting ? "rgba(79,184,163,0.3)" : "linear-gradient(135deg, rgba(79,184,163,0.8), rgba(79,184,163,0.5))",
-                      border: "none", borderRadius: 6,
-                      fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
-                      color: quickAddSubmitting ? "rgba(255,255,255,0.4)" : "#080808",
-                      cursor: quickAddSubmitting ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {quickAddSubmitting ? "Adding..." : "Add to Recruiting Queue"}
-                  </button>
+                  <button onClick={handleSubmitQuickAdd} disabled={quickAddSubmitting} style={{
+                    width: "100%", padding: "14px",
+                    background: quickAddSubmitting ? "rgba(79,184,163,0.3)" : "linear-gradient(135deg, rgba(79,184,163,0.8), rgba(79,184,163,0.5))",
+                    border: "none", borderRadius: 6,
+                    fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
+                    color: quickAddSubmitting ? "rgba(255,255,255,0.4)" : "#080808",
+                    cursor: quickAddSubmitting ? "not-allowed" : "pointer",
+                  }}>{quickAddSubmitting ? "Adding..." : "Add to Recruiting Queue"}</button>
                 </div>
-              ) : (
-                /* ── BULK CSV IMPORT ── */
-                <div className="space-y-4">
+              )}
+
+              {/* ── BULK IMPORT TAB ── */}
+              {recruitingSubTab === "bulk" && (
+                <div className="max-w-lg space-y-4">
                   <p className="text-sm text-muted-foreground">Import a list of agent prospects via CSV. Supports up to 1,000 rows. Must include: First Name, Last Name, Phone.</p>
                   <div
                     style={{
@@ -2416,123 +2662,75 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                     </p>
                   </div>
                   <input ref={agentLeadFileRef} type="file" accept=".csv" className="hidden" onChange={handleAgentLeadUpload} />
-                  <div style={{
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    borderRadius: 10, padding: 16,
-                  }}>
-                    <p className="text-xs font-semibold text-foreground/50 uppercase tracking-wider mb-2">Recognized Column Names</p>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                      <span><span className="text-white/40">First Name</span> / firstName</span>
-                      <span><span className="text-white/40">Last Name</span> / lastName</span>
-                      <span><span className="text-white/40">Phone</span> / phone</span>
-                      <span><span className="text-white/40">Email</span> / email</span>
-                      <span><span className="text-white/40">Current Brokerage</span> / currentBrokerage</span>
-                      <span><span className="text-white/40">License Status</span> / licenseStatus</span>
-                      <span><span className="text-white/40">Territory</span> / territory</span>
-                      <span><span className="text-white/40">Notes</span> / notes</span>
+
+                  {/* FREC Scraper Tile */}
+                  <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 20, marginTop: 4 }}>
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div>
+                        <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 4 }}>FREC Auto-Scraper</p>
+                        <p className="text-xs text-muted-foreground" style={{ lineHeight: 1.5 }}>
+                          Pulls active licensed agents from Florida DBPR across Nassau, Duval, St. Johns, and Clay counties. Runs automatically every Sunday at 2am.
+                        </p>
+                      </div>
+                      {frecStatsQuery.data && (
+                        <div style={{ textAlign: "right", flexShrink: 0 }}>
+                          <div style={{ fontSize: 22, fontWeight: 300, color: "rgba(200,170,90,0.9)", lineHeight: 1 }}>{(frecStatsQuery.data.total || 0).toLocaleString()}</div>
+                          <div style={{ fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginTop: 2 }}>FREC agents</div>
+                        </div>
+                      )}
                     </div>
+                    {frecResult && (
+                      <div style={{
+                        background: frecResult.error ? "rgba(161,44,123,0.08)" : "rgba(79,184,163,0.07)",
+                        border: `1px solid ${frecResult.error ? "rgba(161,44,123,0.25)" : "rgba(79,184,163,0.2)"}`,
+                        borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12,
+                      }}>
+                        {frecResult.error ? (
+                          <p style={{ color: "rgba(209,99,167,0.9)" }}>{frecResult.error}</p>
+                        ) : (
+                          <div className="space-y-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>
+                            <p>{frecResult.message}</p>
+                            {frecResult.inserted > 0 && (
+                              <p style={{ color: "rgba(79,184,163,0.8)", fontSize: 11 }}>
+                                +{frecResult.inserted} new · {frecResult.updated} refreshed · {frecResult.filtered} filtered
+                                {frecResult.runDurationMs ? ` · ${(frecResult.runDurationMs / 1000 / 60).toFixed(1)} min` : ""}
+                              </p>
+                            )}
+                            {frecResult.warning && <p style={{ color: "rgba(200,170,90,0.8)", fontSize: 11 }}>⚠ {frecResult.warning}</p>}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {frecStatsQuery.data?.lastRun && (
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Last run: {new Date(frecStatsQuery.data.lastRun).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                    )}
+                    <Button size="sm" variant="outline" disabled={frecRunning}
+                      style={{ borderColor: "rgba(200,170,90,0.35)", color: "rgba(200,170,90,0.9)", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}
+                      className="gap-1.5 hover:bg-yellow-900/20"
+                      onClick={async () => {
+                        setFrecRunning(true); setFrecResult(null);
+                        try {
+                          const res = await apiRequest("POST", "/api/admin/frec-run", {});
+                          const data = await res.json();
+                          setFrecResult(data);
+                          frecStatsQuery.refetch();
+                        } catch (e: any) {
+                          setFrecResult({ error: e.message || "FREC run failed" });
+                        } finally { setFrecRunning(false); }
+                      }}
+                    >
+                      {frecRunning ? <><RefreshCw size={11} className="animate-spin" /> Scraping FREC… (may take 10–30 min)</> : <><RefreshCw size={11} /> Run FREC Scrape Now</>}
+                    </Button>
                   </div>
                 </div>
               )}
-
-              {/* ── FREC Scraper Tile ───────────────────────────────────────── */}
-              <div style={{
-                background: "rgba(255,255,255,0.02)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 12, padding: 20, marginTop: 4,
-              }}>
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div>
-                    <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 4 }}>
-                      FREC Auto-Scraper
-                    </p>
-                    <p className="text-xs text-muted-foreground" style={{ lineHeight: 1.5 }}>
-                      Pulls active licensed agents from Florida DBPR across Nassau, Duval, St. Johns, and Clay counties. Runs automatically every Sunday at 2am.
-                    </p>
-                  </div>
-                  <div style={{ shrink: 0 }}>
-                    {frecStatsQuery.data && (
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: 22, fontWeight: 300, color: "rgba(200,170,90,0.9)", lineHeight: 1 }}>
-                          {(frecStatsQuery.data.total || 0).toLocaleString()}
-                        </div>
-                        <div style={{ fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginTop: 2 }}>
-                          FREC agents
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {frecResult && (
-                  <div style={{
-                    background: frecResult.error ? "rgba(161,44,123,0.08)" : "rgba(79,184,163,0.07)",
-                    border: `1px solid ${frecResult.error ? "rgba(161,44,123,0.25)" : "rgba(79,184,163,0.2)"}`,
-                    borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12,
-                  }}>
-                    {frecResult.error ? (
-                      <p style={{ color: "rgba(209,99,167,0.9)" }}>{frecResult.error}</p>
-                    ) : (
-                      <div className="space-y-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>
-                        <p>{frecResult.message}</p>
-                        {frecResult.inserted > 0 && (
-                          <p style={{ color: "rgba(79,184,163,0.8)", fontSize: 11 }}>
-                            +{frecResult.inserted} new · {frecResult.updated} refreshed · {frecResult.filtered} filtered
-                            {frecResult.runDurationMs ? ` · ${(frecResult.runDurationMs / 1000 / 60).toFixed(1)} min` : ""}
-                          </p>
-                        )}
-                        {frecResult.warning && (
-                          <p style={{ color: "rgba(200,170,90,0.8)", fontSize: 11 }}>⚠ {frecResult.warning}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {frecStatsQuery.data?.lastRun && (
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Last run: {new Date(frecStatsQuery.data.lastRun).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </p>
-                )}
-
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={frecRunning}
-                  style={{
-                    borderColor: "rgba(200,170,90,0.35)",
-                    color: "rgba(200,170,90,0.9)",
-                    fontSize: 11, fontWeight: 600,
-                    letterSpacing: "0.04em",
-                  }}
-                  className="gap-1.5 hover:bg-yellow-900/20"
-                  onClick={async () => {
-                    setFrecRunning(true);
-                    setFrecResult(null);
-                    try {
-                      const res = await apiRequest("POST", "/api/admin/frec-run", {});
-                      const data = await res.json();
-                      setFrecResult(data);
-                      frecStatsQuery.refetch();
-                    } catch (e: any) {
-                      setFrecResult({ error: e.message || "FREC run failed" });
-                    } finally {
-                      setFrecRunning(false);
-                    }
-                  }}
-                >
-                  {frecRunning ? (
-                    <><RefreshCw size={11} className="animate-spin" /> Scraping FREC… (may take 10–30 min)</>
-                  ) : (
-                    <><RefreshCw size={11} /> Run FREC Scrape Now</>
-                  )}
-                </Button>
-              </div>
             </div>
           </TabsContent>
 
-                    <TabsContent value="agents" className="mt-5 space-y-5">
+                    <TabsContent value="agents"
+ className="mt-5 space-y-5">
 
             {/* Queue Management */}
             <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 16 }}>

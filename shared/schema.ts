@@ -14,6 +14,7 @@ export const agents = sqliteTable("agents", {
   receiveLeads: integer("receive_leads", { mode: "boolean" }).notNull().default(false),
   leadFlowOn: integer("lead_flow_on", { mode: "boolean" }).notNull().default(true),
   receiveWebsiteLeads: integer("receive_website_leads", { mode: "boolean" }).notNull().default(false),
+  canRecruit: integer("can_recruit", { mode: "boolean" }).notNull().default(false),
   // Agent profile fields
   phone: text("phone"),
   brokerage: text("brokerage"),
@@ -143,10 +144,13 @@ export const agentLeads = sqliteTable("agent_leads", {
   // Notes from intake form
   applicantNotes: text("applicant_notes"),
   // Pipeline status & assignment
-  status: text("status").notNull().default("new"), // new | contacted | appointment | joined | not_interested
+  // new | contacted | hot_prospect | appointment | callback_requested
+  // not_now | just_signed | joined | not_interested | do_not_contact
+  status: text("status").notNull().default("new"),
   assignedAdminId: integer("assigned_admin_id").references(() => agents.id),
   attemptCount: integer("attempt_count").notNull().default(0),
   callbackDate: text("callback_date"),
+  reactivateAt: text("reactivate_at"),           // ISO date — when not_now/just_signed agent re-enters queue
   // L.A.T.T.E. fields (populated during call)
   rLicense: text("r_license"),
   rProduction: text("r_production"),

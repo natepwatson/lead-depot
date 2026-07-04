@@ -2603,7 +2603,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.79",
+      version: "v11.80",
       services: results,
     });
   });
@@ -2747,13 +2747,34 @@ This template is for informational/outreach purposes only.`;
 
   // ── Agent recruiting lead queue ───────────────────────────────────────────────────────
   app.get("/api/agent-leads/my-next", (req: any, res) => {
-    // Return next new agent lead (oldest first), or one with a due callback
-    const now = new Date().toISOString();
+    // Round-robin pull: oldest-by-attempt-count first within each priority tier
+    // Excluded: joined, not_interested, do_not_contact, not_now, just_signed (frozen)
+    // Callbacks surface only when their date has arrived
+    const now = new Date().toISOString().slice(0, 10); // date only for callback comparison
+    // Thaw any not_now/just_signed whose reactivate_at has passed
+    rawDb.prepare(`
+      UPDATE agent_leads
+      SET status = 'new', reactivate_at = NULL, callback_date = NULL
+      WHERE status IN ('not_now', 'just_signed')
+        AND reactivate_at IS NOT NULL
+        AND date(reactivate_at) <= date('now')
+    `).run();
     const lead = rawDb.prepare(`
       SELECT * FROM agent_leads
-      WHERE status NOT IN ('joined', 'not_interested')
-      AND (status = 'new' OR (callback_date IS NOT NULL AND callback_date <= ?))
-      ORDER BY submitted_at ASC
+      WHERE status NOT IN ('joined', 'not_interested', 'do_not_contact', 'not_now', 'just_signed')
+        AND (
+          status IN ('new', 'contacted', 'hot_prospect', 'appointment')
+          OR (status = 'callback_requested' AND callback_date IS NOT NULL AND callback_date <= ?)
+        )
+      ORDER BY
+        CASE
+          WHEN status = 'appointment' THEN 0
+          WHEN status = 'hot_prospect' THEN 1
+          WHEN status = 'callback_requested' THEN 2
+          ELSE 3
+        END,
+        attempt_count ASC,
+        submitted_at ASC
       LIMIT 1
     `).get(now) as any;
     if (!lead) return res.status(204).send();
@@ -2761,7 +2782,8 @@ This template is for informational/outreach purposes only.`;
   });
 
   app.get("/api/agent-leads/count", (req: any, res) => {
-    const row = rawDb.prepare(`SELECT COUNT(*) as count FROM agent_leads WHERE status NOT IN ('joined','not_interested')`).get() as any;
+    // Active queue: excludes frozen (not_now, just_signed), permanent exits, and do_not_contact
+    const row = rawDb.prepare(`SELECT COUNT(*) as count FROM agent_leads WHERE status NOT IN ('joined','not_interested','do_not_contact','not_now','just_signed')`).get() as any;
     res.json({ count: row?.count ?? 0 });
   });
 
@@ -2769,32 +2791,88 @@ This template is for informational/outreach purposes only.`;
     const { id } = req.params;
     const { outcome, notes, callbackDate, callerId } = req.body;
 
-    // Points: dial=1, keep_in_touch=3, hot_prospect=15, joined_team=50, not_interested=1
-    const pts: Record<string, number> = { keep_in_touch: 3, hot_prospect: 15, joined_team: 50 };
+    // Full outcome whitelist including new statuses
+    const VALID_RECRUIT_OUTCOMES = [
+      'dial_no_answer',    // 1pt — no answer, stays in queue
+      'keep_in_touch',     // 3pt — connected, not ready, stays in rotation
+      'hot_prospect',      // 15pt — very interested, priority
+      'appointment',       // 15pt — meeting booked
+      'callback_requested',// 1pt — specific callback date
+      'not_now',           // 1pt — open but bad timing, frozen 90 days
+      'just_signed',       // 1pt — recently joined another brokerage, frozen 6 months
+      'joined_team',       // 50pt — they joined Watson Brothers
+      'not_interested',    // 1pt — not interested (stays in DB, removed from queue)
+      'do_not_contact',    // 0pt — DNC, permanent exit, blocks FREC re-import
+    ];
+    if (!outcome || !VALID_RECRUIT_OUTCOMES.includes(outcome)) {
+      return res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_RECRUIT_OUTCOMES.join(', ')}` });
+    }
+
+    const pts: Record<string, number> = {
+      keep_in_touch: 3, hot_prospect: 15, appointment: 15,
+      joined_team: 50, do_not_contact: 0,
+    };
     const points = pts[outcome] ?? 1;
 
-    // Update status
+    // Calculate reactivate_at for frozen statuses
+    const now = new Date();
+    let reactivateAt: string | null = null;
+    if (outcome === 'not_now') {
+      const d = new Date(now); d.setDate(d.getDate() + 90);
+      reactivateAt = d.toISOString().slice(0, 10);
+    } else if (outcome === 'just_signed') {
+      const d = new Date(now); d.setMonth(d.getMonth() + 6);
+      reactivateAt = d.toISOString().slice(0, 10);
+    }
+
     const statusMap: Record<string, string> = {
-      dial_no_answer: 'contacted',
-      keep_in_touch: 'contacted',
-      hot_prospect: 'appointment',
-      joined_team: 'joined',
-      not_interested: 'not_interested',
+      dial_no_answer:     'contacted',
+      keep_in_touch:      'contacted',
+      hot_prospect:       'hot_prospect',
+      appointment:        'appointment',
+      callback_requested: 'callback_requested',
+      not_now:            'not_now',
+      just_signed:        'just_signed',
+      joined_team:        'joined',
+      not_interested:     'not_interested',
+      do_not_contact:     'do_not_contact',
     };
     const newStatus = statusMap[outcome] || 'contacted';
+    const newCallbackDate = outcome === 'callback_requested' ? (callbackDate || null) : null;
 
-    rawDb.prepare(`UPDATE agent_leads SET status = ?, attempt_count = attempt_count + 1, callback_date = ? WHERE id = ?`)
-      .run(newStatus, callbackDate || null, id);
+    rawDb.prepare(`
+      UPDATE agent_leads
+      SET status = ?, attempt_count = attempt_count + 1,
+          callback_date = ?, reactivate_at = ?
+      WHERE id = ?
+    `).run(newStatus, newCallbackDate, reactivateAt, id);
 
     rawDb.prepare(`INSERT INTO agent_lead_activity (agent_lead_id, caller_id, outcome, notes, points_awarded, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
       .run(id, callerId || null, outcome, notes || null, points, new Date().toISOString());
 
-    if (callerId) {
+    if (callerId && points > 0) {
       rawDb.prepare(`INSERT INTO agent_points (agent_id, points, reason, lead_id, created_at) VALUES (?, ?, ?, ?, ?)`)
-        .run(callerId, points, `agent_recruit_${outcome}`, id, new Date().toISOString());
+        .run(callerId, points, `recruit_${outcome}`, id, new Date().toISOString());
     }
 
-    res.json({ ok: true, points });
+    res.json({ ok: true, points, status: newStatus, reactivateAt });
+  });
+
+  // ── Toggle canRecruit for an agent (admin only) ──────────────────────────────────
+  app.patch("/api/agents/:id/can-recruit", (req: any, res) => {
+    const agentId = parseInt(req.params.id);
+    const { canRecruit } = req.body;
+    if (typeof canRecruit !== 'boolean') return res.status(400).json({ error: 'canRecruit must be boolean' });
+    rawDb.prepare(`UPDATE agents SET can_recruit = ? WHERE id = ?`).run(canRecruit ? 1 : 0, agentId);
+    res.json({ ok: true });
+  });
+
+  // ── Delete or DNC an agent lead (admin only) ─────────────────────────────────
+  app.delete("/api/agent-leads/:id", (req: any, res) => {
+    const { id } = req.params;
+    rawDb.prepare(`DELETE FROM agent_lead_activity WHERE agent_lead_id = ?`).run(id);
+    rawDb.prepare(`DELETE FROM agent_leads WHERE id = ?`).run(id);
+    res.json({ ok: true });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -3005,6 +3083,105 @@ This template is for informational/outreach purposes only.`;
       });
     } catch (err: any) {
       console.error("[FREC] Pipeline error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── RECRUITING PIPELINE (admin) ────────────────────────────────────────────
+  // Full pipeline view of all agent_leads with activity history per lead.
+  app.get("/api/admin/recruiting/pipeline", (req: any, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const where = status && status !== "all"
+        ? `WHERE al.status = '${status.replace(/'/g, "''")}'  `
+        : `WHERE al.status NOT IN ('joined','not_interested','do_not_contact') `;
+      const rows: any[] = rawDb.prepare(`
+        SELECT al.*,
+          a.name as caller_name,
+          (SELECT COUNT(*) FROM agent_lead_activity ala WHERE ala.agent_lead_id = al.id) as attempt_count_actual,
+          (SELECT json_group_array(json_object(
+            'outcome', ala.outcome, 'notes', ala.notes,
+            'callerName', ca.name, 'createdAt', ala.created_at
+          )) FROM agent_lead_activity ala
+           LEFT JOIN agents ca ON ca.id = ala.caller_id
+           WHERE ala.agent_lead_id = al.id
+           ORDER BY ala.created_at DESC
+           LIMIT 5
+          ) as recent_activity
+        FROM agent_leads al
+        LEFT JOIN agents a ON a.id = al.assigned_admin_id
+        ${where}
+        ORDER BY
+          CASE al.status
+            WHEN 'appointment'        THEN 0
+            WHEN 'hot_prospect'       THEN 1
+            WHEN 'callback_requested' THEN 2
+            WHEN 'contacted'          THEN 3
+            WHEN 'new'                THEN 4
+            WHEN 'not_now'            THEN 5
+            WHEN 'just_signed'        THEN 6
+            ELSE 7
+          END,
+          al.attempt_count DESC,
+          al.submitted_at DESC
+        LIMIT 500
+      `).all();
+      const parsed = rows.map((r: any) => ({
+        ...r,
+        recent_activity: r.recent_activity ? (() => { try { return JSON.parse(r.recent_activity); } catch { return []; } })() : [],
+      }));
+      // All status counts including frozen
+      const counts: any[] = rawDb.prepare(`
+        SELECT status, COUNT(*) as count FROM agent_leads GROUP BY status ORDER BY count DESC
+      `).all();
+      res.json({ leads: parsed, counts });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── RECRUITING LEADERBOARD (admin) ──────────────────────────────────────────
+  app.get("/api/admin/recruiting/leaderboard", (req: any, res) => {
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayISO = todayStart.toISOString();
+      const weekStart = new Date(todayStart);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      const weekISO = weekStart.toISOString();
+
+      const agentRows: any[] = rawDb.prepare(`
+        SELECT
+          ala.caller_id,
+          a.name as agent_name,
+          a.headshot_url as headshot_url,
+          COUNT(*) as total_dials,
+          SUM(CASE WHEN ala.outcome = 'keep_in_touch'  THEN 1 ELSE 0 END) as kit,
+          SUM(CASE WHEN ala.outcome = 'hot_prospect'   THEN 1 ELSE 0 END) as hot_prospects,
+          SUM(CASE WHEN ala.outcome = 'joined_team'    THEN 1 ELSE 0 END) as joined,
+          SUM(CASE WHEN ala.outcome = 'not_interested' THEN 1 ELSE 0 END) as not_interested,
+          SUM(CASE WHEN ala.outcome = 'dial_no_answer' THEN 1 ELSE 0 END) as no_answer,
+          SUM(CASE WHEN ala.created_at >= ? THEN 1 ELSE 0 END) as today_dials,
+          SUM(CASE WHEN ala.outcome = 'keep_in_touch'  AND ala.created_at >= ? THEN 1 ELSE 0 END) as today_kit,
+          SUM(CASE WHEN ala.outcome = 'hot_prospect'   AND ala.created_at >= ? THEN 1 ELSE 0 END) as today_hot,
+          SUM(CASE WHEN ala.outcome = 'joined_team'    AND ala.created_at >= ? THEN 1 ELSE 0 END) as today_joined,
+          SUM(CASE WHEN ala.created_at >= ? THEN 1 ELSE 0 END) as week_dials,
+          SUM(CASE WHEN ala.outcome = 'keep_in_touch'  AND ala.created_at >= ? THEN 1 ELSE 0 END) as week_kit,
+          SUM(CASE WHEN ala.outcome = 'hot_prospect'   AND ala.created_at >= ? THEN 1 ELSE 0 END) as week_hot,
+          SUM(CASE WHEN ala.outcome = 'joined_team'    AND ala.created_at >= ? THEN 1 ELSE 0 END) as week_joined,
+          SUM(ala.points_awarded) as total_points,
+          MAX(ala.created_at) as last_activity_at
+        FROM agent_lead_activity ala
+        LEFT JOIN agents a ON a.id = ala.caller_id
+        WHERE ala.caller_id IS NOT NULL
+        GROUP BY ala.caller_id
+        ORDER BY joined DESC, hot_prospects DESC, total_dials DESC
+      `).all(
+        todayISO, todayISO, todayISO, todayISO,
+        weekISO,  weekISO,  weekISO,  weekISO
+      );
+      res.json(agentRows);
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });

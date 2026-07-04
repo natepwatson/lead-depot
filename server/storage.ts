@@ -71,6 +71,16 @@ try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_buy TEXT`); } catch {}
 // lead_activity — lpmamab_snapshot column (v11.38)
 try { sqlite.exec(`ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT`); } catch {}
 
+// v11.80 — Recruiting module: canRecruit flag, new statuses, reactivate_at
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN can_recruit INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN reactivate_at TEXT`); } catch {}
+// FREC fields (v11.71 — in case table was created before these existed)
+try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN frec_license_id TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN license_issue_date TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN license_expire_date TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN last_scraped_at INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN dedup_hash TEXT`); } catch {}
+
 // ─── Agent Prospecting tables (v11.46) ──────────────────────────────────────
 try { sqlite.exec(`CREATE TABLE IF NOT EXISTS agent_leads (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

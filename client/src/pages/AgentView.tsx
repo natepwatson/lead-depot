@@ -1586,14 +1586,29 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
     refetchInterval: 15000,
   });
 
+  const [recruitCallNotes, setRecruitCallNotes] = React.useState("");
+  const [recruitCallbackDate, setRecruitCallbackDate] = React.useState("");
+  const [recruitPendingOutcome, setRecruitPendingOutcome] = React.useState<string | null>(null);
+
   const agentLeadMutation = useMutation({
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string }) =>
       apiRequest("POST", `/api/agent-leads/${nextAgentLead?.id}/outcome`, { ...data, callerId: user?.id }).then(r => r.json()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/agent-leads/my-next"] });
       qc.invalidateQueries({ queryKey: ["/api/agent-leads/count"] });
+      setRecruitCallNotes("");
+      setRecruitCallbackDate("");
+      setRecruitPendingOutcome(null);
     },
   });
+
+  const submitRecruitOutcome = (outcome: string) => {
+    if (outcome === "callback_requested" && !recruitCallbackDate) {
+      setRecruitPendingOutcome("callback_requested");
+      return;
+    }
+    agentLeadMutation.mutate({ outcome, notes: recruitCallNotes || undefined, callbackDate: recruitCallbackDate || undefined });
+  };
 
   const { data: nextLead, isLoading: leadLoading } = useQuery<Lead | null>({
     queryKey: ["/api/leads/my-next"],
@@ -1746,7 +1761,7 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
                     borderRadius: 16, margin: "0 4px", padding: 20,
                   }}>
                     {/* Name & status */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                       <div>
                         <p style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 22, fontWeight: 500, color: "#fff", lineHeight: 1.1 }}>
                           {nextAgentLead.first_name} {nextAgentLead.last_name}
@@ -1754,22 +1769,30 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
                         <p style={{ fontSize: 12, color: "rgba(79,184,163,0.8)", marginTop: 4, letterSpacing: "0.06em" }}>
                           {nextAgentLead.license_status || "License unknown"} · {nextAgentLead.current_brokerage || "Brokerage unknown"}
                         </p>
+                        {nextAgentLead.territory && (
+                          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>📍 {nextAgentLead.territory}</p>
+                        )}
                       </div>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
-                        color: "#4fb8a3", border: "1px solid rgba(79,184,163,0.3)",
-                        borderRadius: 10, padding: "3px 10px", background: "rgba(79,184,163,0.08)",
-                      }}>{nextAgentLead.status || "new"}</span>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
+                          color: "#4fb8a3", border: "1px solid rgba(79,184,163,0.3)",
+                          borderRadius: 10, padding: "3px 10px", background: "rgba(79,184,163,0.08)",
+                        }}>{nextAgentLead.status || "new"}</span>
+                        {nextAgentLead.attempt_count > 0 && (
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{nextAgentLead.attempt_count} previous dials</span>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Contact info */}
-                    <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+                    {/* Phone */}
+                    <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
                       {nextAgentLead.phone && (
                         <a href={`tel:${nextAgentLead.phone}`} style={{
                           display: "flex", alignItems: "center", gap: 6,
                           background: "rgba(79,184,163,0.12)", border: "1px solid rgba(79,184,163,0.3)",
-                          borderRadius: 10, padding: "8px 16px", color: "#4fb8a3", fontSize: 14, fontWeight: 600,
-                          textDecoration: "none", flex: 1, justifyContent: "center",
+                          borderRadius: 10, padding: "10px 16px", color: "#4fb8a3", fontSize: 15, fontWeight: 700,
+                          textDecoration: "none", flex: 1, justifyContent: "center", letterSpacing: "0.04em",
                         }}>
                           📞 {nextAgentLead.phone}
                         </a>
@@ -1779,7 +1802,7 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
                     {/* L.A.T.T.E. Script */}
                     <div style={{
                       background: "rgba(0,0,0,0.4)", border: "1px solid rgba(79,184,163,0.12)",
-                      borderRadius: 12, padding: 16, marginBottom: 20,
+                      borderRadius: 12, padding: 16, marginBottom: 16,
                     }}>
                       <p style={{ fontSize: 10, fontWeight: 700, color: "#4fb8a3", letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 12 }}>
                         L.A.T.T.E. Script
@@ -1791,7 +1814,7 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
                         { letter: "T", label: "Timeline", prompt: "Right now or 'keep me in mind'? This determines Hot Prospect vs KIT." },
                         { letter: "E", label: "Engage", prompt: "Invite them: '20 min with Alex — Zoom or in person — to walk through the split and territory map.'" },
                       ].map(({ letter, label, prompt }) => (
-                        <div key={letter} style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "flex-start" }}>
+                        <div key={label} style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "flex-start" }}>
                           <span style={{
                             width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
                             display: "flex", alignItems: "center", justifyContent: "center",
@@ -1807,52 +1830,110 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
                       ))}
                     </div>
 
-                    {/* Lead notes / form info */}
+                    {/* Their notes */}
                     {(nextAgentLead.applicant_notes || nextAgentLead.reason_for_leaving) && (
-                      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: 14, marginBottom: 20, border: "1px solid rgba(255,255,255,0.06)" }}>
+                      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: 14, marginBottom: 16, border: "1px solid rgba(255,255,255,0.06)" }}>
                         <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Their Notes</p>
                         <p style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", lineHeight: 1.6 }}>{nextAgentLead.reason_for_leaving || nextAgentLead.applicant_notes}</p>
                       </div>
                     )}
 
-                    {/* Outcome buttons */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      {[
-                        { outcome: "dial_no_answer", label: "No Answer", color: "rgba(255,255,255,0.15)", textColor: "rgba(255,255,255,0.6)" },
-                        { outcome: "keep_in_touch", label: "Keep in Touch", color: "rgba(200,170,90,0.15)", textColor: "#c8aa5a" },
-                        { outcome: "hot_prospect", label: "🔥 Hot Prospect", color: "rgba(79,184,163,0.2)", textColor: "#4fb8a3" },
-                        { outcome: "not_interested", label: "Not Interested", color: "rgba(239,68,68,0.1)", textColor: "rgba(239,68,68,0.7)" },
-                      ].map(({ outcome, label, color, textColor }) => (
+                    {/* Call Notes */}
+                    <div style={{ marginBottom: 16 }}>
+                      <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Call Notes</p>
+                      <textarea
+                        value={recruitCallNotes}
+                        onChange={e => setRecruitCallNotes(e.target.value)}
+                        placeholder="What did they say? License situation, timeline, objections..."
+                        rows={3}
+                        style={{
+                          width: "100%", background: "rgba(255,255,255,0.04)",
+                          border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10,
+                          padding: "10px 12px", color: "#fff", fontSize: 13, lineHeight: 1.6,
+                          resize: "vertical", outline: "none", boxSizing: "border-box",
+                        }}
+                      />
+                    </div>
+
+                    {/* Callback date — shown when pending outcome is callback */}
+                    {recruitPendingOutcome === "callback_requested" && (
+                      <div style={{ marginBottom: 16, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.3)", borderRadius: 10, padding: 14 }}>
+                        <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(167,139,250,0.9)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Set Callback Date</p>
+                        <input
+                          type="date"
+                          value={recruitCallbackDate}
+                          onChange={e => setRecruitCallbackDate(e.target.value)}
+                          min={new Date().toISOString().slice(0, 10)}
+                          style={{
+                            width: "100%", background: "rgba(255,255,255,0.06)",
+                            border: "1px solid rgba(167,139,250,0.4)", borderRadius: 8,
+                            padding: "10px 12px", color: "#fff", fontSize: 14,
+                            outline: "none", boxSizing: "border-box",
+                          }}
+                        />
+                        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                          <button
+                            onClick={() => submitRecruitOutcome("callback_requested")}
+                            disabled={!recruitCallbackDate || agentLeadMutation.isPending}
+                            style={{
+                              flex: 1, padding: "10px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                              background: recruitCallbackDate ? "rgba(167,139,250,0.3)" : "rgba(255,255,255,0.05)",
+                              border: "1px solid rgba(167,139,250,0.4)", color: "#a78bfa",
+                              cursor: recruitCallbackDate ? "pointer" : "not-allowed",
+                            }}
+                          >Confirm Callback</button>
+                          <button
+                            onClick={() => setRecruitPendingOutcome(null)}
+                            style={{ padding: "10px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600, background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)", cursor: "pointer" }}
+                          >Cancel</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Outcome buttons — 3x3 grid + Joined full width */}
+                    {recruitPendingOutcome !== "callback_requested" && (
+                      <>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                          {[
+                            { outcome: "dial_no_answer",    label: "No Answer",    color: "rgba(255,255,255,0.12)", text: "rgba(255,255,255,0.55)" },
+                            { outcome: "keep_in_touch",     label: "Keep in Touch", color: "rgba(200,170,90,0.12)", text: "#c8aa5a" },
+                            { outcome: "hot_prospect",      label: "🔥 Hot",        color: "rgba(249,115,22,0.15)", text: "#f97316" },
+                            { outcome: "appointment",       label: "📅 Appt",       color: "rgba(79,184,163,0.2)",  text: "#4fb8a3" },
+                            { outcome: "callback_requested",label: "📞 Callback",   color: "rgba(167,139,250,0.15)", text: "#a78bfa" },
+                            { outcome: "not_now",           label: "❄ Not Now",    color: "rgba(255,255,255,0.06)", text: "rgba(255,255,255,0.4)" },
+                            { outcome: "just_signed",       label: "📝 Just Signed",color: "rgba(255,255,255,0.06)", text: "rgba(255,255,255,0.4)" },
+                            { outcome: "not_interested",    label: "Not Interest.", color: "rgba(239,68,68,0.08)",  text: "rgba(239,68,68,0.6)" },
+                            { outcome: "do_not_contact",    label: "⛔ DNC",        color: "rgba(239,68,68,0.06)",  text: "rgba(239,68,68,0.4)" },
+                          ].map(({ outcome, label, color, text }) => (
+                            <button
+                              key={outcome}
+                              onClick={() => submitRecruitOutcome(outcome)}
+                              disabled={agentLeadMutation.isPending}
+                              style={{
+                                background: color, border: `1px solid ${text}30`,
+                                borderRadius: 10, padding: "11px 6px",
+                                fontSize: 11, fontWeight: 600, color: text,
+                                cursor: "pointer", transition: "all 0.2s", lineHeight: 1.3,
+                                opacity: agentLeadMutation.isPending ? 0.5 : 1,
+                              }}
+                            >{label}</button>
+                          ))}
+                        </div>
                         <button
-                          key={outcome}
-                          onClick={() => agentLeadMutation.mutate({ outcome })}
+                          onClick={() => submitRecruitOutcome("joined_team")}
                           disabled={agentLeadMutation.isPending}
                           style={{
-                            background: color, border: `1px solid ${textColor}40`,
-                            borderRadius: 12, padding: "12px 8px",
-                            fontSize: 13, fontWeight: 600, color: textColor,
-                            cursor: "pointer", transition: "all 0.2s",
+                            width: "100%",
+                            background: "linear-gradient(135deg, rgba(34,197,94,0.3), rgba(34,197,94,0.15))",
+                            border: "1px solid rgba(34,197,94,0.5)",
+                            borderRadius: 12, padding: "14px 8px",
+                            fontSize: 14, fontWeight: 700, color: "#22c55e",
+                            cursor: "pointer", letterSpacing: "0.06em",
                             opacity: agentLeadMutation.isPending ? 0.5 : 1,
                           }}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={() => agentLeadMutation.mutate({ outcome: "joined_team" })}
-                      disabled={agentLeadMutation.isPending}
-                      style={{
-                        width: "100%", marginTop: 10,
-                        background: "linear-gradient(135deg, rgba(79,184,163,0.3), rgba(79,184,163,0.15))",
-                        border: "1px solid rgba(79,184,163,0.5)",
-                        borderRadius: 12, padding: "14px 8px",
-                        fontSize: 14, fontWeight: 700, color: "#4fb8a3",
-                        cursor: "pointer", letterSpacing: "0.06em",
-                      }}
-                    >
-                      ✓ Joined Team
-                    </button>
+                        >✓ Joined Watson Brothers</button>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div style={{ textAlign: "center", padding: "60px 20px" }}>

@@ -983,7 +983,9 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     refetchInterval: 60000,
   });
   const allTerritories = Array.isArray(territoriesData) ? territoriesData : [];
-  const openTerritoryNames = allTerritories.filter(t => t.isOpen).map(t => t.name);
+  // v13.0 — Use .key here (matches TERRITORY_OPTIONS.value like "clay_county").
+  // Prior v12.5 used .name which never matched, so every option showed as (closed).
+  const openTerritoryNames = allTerritories.filter(t => t.isOpen).map(t => t.key);
 
   // v12.5 — Get Leads Now / Hard Reset helpers
   const [hardResetOpen, setHardResetOpen] = useState<null | "seller" | "recruiting">(null);
@@ -1396,7 +1398,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v12.9
+              v13.0
             </p>
           </div>
         </div>

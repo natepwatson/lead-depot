@@ -37,6 +37,8 @@ function AppRoutes() {
     return <AgentView onBackToAdmin={() => setAdminViewingLeads(false)} initialTab="leads" />;
   }
   if (user.role === "admin") return <AdminDashboard onWorkMyLeads={() => setAdminViewingLeads(true)} />;
+  // Recruiter role: recruiting tab only, no seller leads
+  if (user.role === "recruiter") return <AgentView initialTab="recruiting" recruiterOnly />;
   return <AgentView />;
 }
 

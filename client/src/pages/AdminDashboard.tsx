@@ -875,7 +875,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   });
   const [websiteLeadForm, setWebsiteLeadForm] = useState({ firstName: "", lastName: "", email: "", phone: "", address: "", city: "", state: "FL", zip: "", county: "", propertyType: "", reasonForSelling: "", estimatedValue: "", timeframe: "" });
   const [submittingWebsiteLead, setSubmittingWebsiteLead] = useState(false);
-  const [newAgent, setNewAgent] = useState({ name: "", email: "" });
+  const [newAgent, setNewAgent] = useState({ name: "", email: "", role: "agent" });
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -984,7 +984,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
       qc.invalidateQueries({ queryKey: ["/api/agents"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
       setAgentDialogOpen(false);
-      setNewAgent({ name: "", email: "" });
+      setNewAgent({ name: "", email: "", role: "agent" });
       toast({ title: "Invitation sent", description: "The agent will receive an email to complete their account setup." });
     },
     onError: (e: any) => toast({ title: e.message || "Email already exists", variant: "destructive" }),
@@ -1202,8 +1202,21 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     }
   };
 
+
+  // Agent inactivity safety net
+  const { data: inactivityData } = useQuery<{ flagged: any[]; count: number }>({
+    queryKey: ["/api/admin/agent-inactivity"],
+    queryFn: () => apiRequest("GET", "/api/admin/agent-inactivity?weeks=2").then(r => r.json()),
+    refetchInterval: 5 * 60 * 1000, // refresh every 5min
+  });
+  const inactivityFlagged = inactivityData?.flagged ?? [];
+
   const handleExportCSV = () => {
     window.open("/api/export/leads", "_blank");
+  };
+
+  const handleExportActivity = () => {
+    window.open("/api/export/activity", "_blank");
   };
 
   const handleSubmitWebsiteLead = async () => {
@@ -1327,7 +1340,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.83
+              v12.0
             </p>
           </div>
         </div>
@@ -2808,6 +2821,16 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           Agents
                         </h2>
                         <p className="text-xs text-muted-foreground mt-0.5">Round-robin: top → bottom. Flow off = Inactive (removed from rotation &amp; leaderboard).</p>
+                        {/* Activity Export button */}
+                        <button
+                          onClick={handleExportActivity}
+                          style={{
+                            marginTop: 6, fontSize: 10, letterSpacing: "0.1em",
+                            textTransform: "uppercase", color: "rgba(200,170,90,0.7)",
+                            background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.2)",
+                            borderRadius: 6, padding: "3px 10px", cursor: "pointer",
+                          }}
+                        >⬇ Export Activity CSV</button>
                       </div>
                       <Dialog open={agentDialogOpen} onOpenChange={setAgentDialogOpen}>
                         <DialogTrigger asChild>
@@ -2845,6 +2868,22 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             <div className="space-y-1">
                               <Label className="text-xs text-foreground/60">Email Address</Label>
                               <Input type="email" value={newAgent.email} onChange={e => setNewAgent(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="jane@momentum.com" data-testid="input-agent-email"/>
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Role</Label>
+                                <select
+                                  value={newAgent.role}
+                                  onChange={e => setNewAgent(p => ({...p, role: e.target.value}))}
+                                  style={{
+                                    width: "100%", padding: "8px 10px", marginTop: 4,
+                                    background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                                    borderRadius: 6, color: "#e5e5e5", fontSize: 13, cursor: "pointer",
+                                  }}
+                                >
+                                  <option value="agent" style={{ background: "#111" }}>Agent — works seller leads</option>
+                                  <option value="recruiter" style={{ background: "#111" }}>Recruiter — recruiting calls only</option>
+                                  <option value="admin" style={{ background: "#111" }}>Admin — full access</option>
+                                </select>
+                              </div>
                             </div>
                             <button
                               style={{
@@ -2855,7 +2894,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                 color: "#080808", cursor: "pointer",
                                 opacity: (createAgentMutation.isPending || !newAgent.name || !newAgent.email) ? 0.5 : 1,
                               }}
-                              onClick={() => createAgentMutation.mutate({ name: newAgent.name, email: newAgent.email })}
+                              onClick={() => createAgentMutation.mutate({ name: newAgent.name, email: newAgent.email, role: newAgent.role })}
                               disabled={createAgentMutation.isPending || !newAgent.name || !newAgent.email}
                               data-testid="button-save-agent"
                             >
@@ -2866,6 +2905,24 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                       </Dialog>
                     </div>
 
+                    {/* Inactivity safety net banner */}
+                    {inactivityFlagged.length > 0 && (
+                      <div style={{
+                        background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.3)",
+                        borderRadius: 10, padding: "12px 16px", marginBottom: 8,
+                      }}>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: "#eab308", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>
+                          ⚠ Agent Inactivity Alert
+                        </p>
+                        {inactivityFlagged.map((f: any) => (
+                          <div key={f.id} style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", paddingBottom: 4 }}>
+                            <span style={{ color: "#eab308", fontWeight: 600 }}>{f.name}</span>
+                            {" — "}{f.consecutiveWeeksMissed} week(s) below {f.minDialsPerWeek} dials/wk goal
+                            <span style={{ color: "rgba(255,255,255,0.35)", marginLeft: 8 }}>({f.thisWeekDials} dials this week so far)</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="space-y-2">
                       {sortedActive.map((agent, idx) => {
                         // For admins use receiveLeads, for agents use leadFlowOn

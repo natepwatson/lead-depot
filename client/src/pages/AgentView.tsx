@@ -1554,7 +1554,7 @@ const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
 ];
 
 // ─── Main AgentView ───────────────────────────────────────────────────────────
-export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin?: () => void; initialTab?: Tab } = {}) {
+export default function AgentView({ onBackToAdmin, initialTab, recruiterOnly }: { onBackToAdmin?: () => void; initialTab?: Tab; recruiterOnly?: boolean } = {}) {
   const { user, logout } = useAuth();
   const [tab, setTab] = useState<Tab>(initialTab ?? "leaderboard");
   const [showTutorial, setShowTutorial] = useState(false);
@@ -1567,7 +1567,7 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
     queryFn: () => apiRequest("GET", "/api/settings/agent-prospecting-mode").then(r => r.json()),
     refetchInterval: 8000,
   });
-  const prospectingMode = prospectingData?.enabled ?? false;
+  const prospectingMode = (prospectingData?.enabled ?? false) || !!recruiterOnly;
 
   const { data: nextAgentLead, isLoading: agentLeadLoading } = useQuery<any | null>({
     queryKey: ["/api/agent-leads/my-next"],

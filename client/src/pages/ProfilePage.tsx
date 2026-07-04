@@ -302,7 +302,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
             <Camera size={11} /> {uploading ? "Uploading…" : "Change Photo"}
           </button>
           <p style={{ marginTop: 6, fontSize: 11, color: "rgba(255,255,255,0.3)" }}>
-            {profile.role === "admin" ? "Admin" : "Agent"} · {profile.email}
+            {profile.role === "admin" ? "Admin" : profile.role === "recruiter" ? "Recruiter" : "Agent"} · {profile.email}
           </p>
         </div>
 

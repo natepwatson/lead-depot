@@ -4,7 +4,7 @@ interface AuthUser {
   id: number;
   name: string;
   email: string;
-  role: "admin" | "agent";
+  role: "admin" | "agent" | "recruiter";
   headshotUrl?: string | null;
 }
 

@@ -453,9 +453,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // ─── AGENT INVITATION ─────────────────────────────────────────────────────
   // POST /api/agents/invite — admin sends invite with just name + email
   app.post("/api/agents/invite", async (req, res) => {
-    const { name, email } = req.body;
+    const { name, email, role: reqRole } = req.body;
     if (!name || !email) return res.status(400).json({ error: "Name and email required" });
     const cleanEmail = email.toLowerCase().trim();
+    const assignedRole = ["admin", "agent", "recruiter"].includes(reqRole) ? reqRole : "agent";
 
     // Check duplicate
     const existing = rawDb.prepare("SELECT id FROM agents WHERE email = ?").get(cleanEmail);
@@ -472,7 +473,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         name,
         email: cleanEmail,
         password: tempPass,
-        role: "agent",
+        role: assignedRole,
         roundRobinOrder: 0,
         isActive: true,
       });
@@ -2638,6 +2639,98 @@ This template is for informational/outreach purposes only.`;
   // ─── CONNECTIVITY HEALTH CHECK (v11.40) ────────────────────────────────────
   // GET /api/health — checks all external service connections
   // Returns 200 if all critical services are up, 207 if some are degraded
+  // ─── ACTIVITY AUDIT TRAIL CSV EXPORT (v12.0) ──────────────────────────────
+  app.get("/api/export/activity", (req, res) => {
+    const escape = (val: any) => {
+      if (val == null) return "";
+      const str = String(val);
+      if (str.includes(",") || str.includes('"') || str.includes("\n")) return '"' + str.replace(/"/g, '""') + '"';
+      return str;
+    };
+
+    // Seller lead activity
+    const sellerActivity: any[] = rawDb.prepare(`
+      SELECT la.id, 'seller' as type, la.created_at, a.name as agent_name,
+             l.owner_name as client_name, l.phone, l.address, la.outcome, la.notes, la.points_awarded
+      FROM lead_activity la
+      LEFT JOIN agents a ON a.id = la.agent_id
+      LEFT JOIN leads l ON l.id = la.lead_id
+      ORDER BY la.created_at DESC
+      LIMIT 10000
+    `).all();
+
+    // Recruiting activity
+    const recruitActivity: any[] = rawDb.prepare(`
+      SELECT ala.id, 'recruiting' as type, ala.created_at, a.name as agent_name,
+             (al.first_name || ' ' || al.last_name) as client_name, al.phone,
+             al.matched_territory as territory, ala.outcome, ala.notes, ala.points_awarded
+      FROM agent_lead_activity ala
+      LEFT JOIN agents a ON a.id = ala.caller_id
+      LEFT JOIN agent_leads al ON al.id = ala.agent_lead_id
+      ORDER BY ala.created_at DESC
+      LIMIT 10000
+    `).all();
+
+    const allActivity = [...sellerActivity, ...recruitActivity]
+      .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""));
+
+    const headers = ["ID", "Type", "Date", "Agent", "Client", "Phone", "Address/Territory", "Outcome", "Notes", "Points"];
+    const rows = allActivity.map((r: any) => [
+      r.id, r.type, r.created_at, r.agent_name, r.client_name,
+      r.phone, r.address || r.territory, r.outcome, r.notes, r.points_awarded,
+    ].map(escape).join(","));
+
+    const csv = [headers.join(","), ...rows].join("\n");
+    const filename = `lead-depot-activity-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(csv);
+  });
+
+  // ─── AGENT INACTIVITY SAFETY NET (v12.0) ───────────────────────────────────
+  app.get("/api/admin/agent-inactivity", (req: any, res) => {
+    const weeksThreshold = parseInt(String(req.query.weeks || "2"));
+    const activeAgents = rawDb.prepare(`SELECT * FROM agents WHERE is_active = 1`).all() as any[];
+    const flagged: any[] = [];
+
+    for (const agent of activeAgents) {
+      const minDials = (agent as any).min_dials_per_week ?? 0;
+      if (minDials === 0) continue;
+
+      let consecutiveMissed = 0;
+      for (let w = 1; w <= weeksThreshold; w++) {
+        const weekStart = new Date();
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay() - (w - 1) * 7);
+        weekStart.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+        const cnt = (rawDb.prepare(
+          `SELECT COUNT(*) as c FROM agent_points WHERE agent_id = ? AND reason = 'dial' AND created_at >= ? AND created_at < ?`
+        ).get(agent.id, weekStart.toISOString(), weekEnd.toISOString()) as any)?.c ?? 0;
+        if (cnt < minDials) consecutiveMissed++; else break;
+      }
+
+      if (consecutiveMissed >= weeksThreshold) {
+        const thisWeekStart = new Date();
+        thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
+        thisWeekStart.setHours(0, 0, 0, 0);
+        const thisWeekDials = (rawDb.prepare(
+          `SELECT COUNT(*) as c FROM agent_points WHERE agent_id = ? AND reason = 'dial' AND created_at >= ?`
+        ).get(agent.id, thisWeekStart.toISOString()) as any)?.c ?? 0;
+        flagged.push({
+          id: agent.id,
+          name: agent.name,
+          email: agent.email,
+          minDialsPerWeek: minDials,
+          consecutiveWeeksMissed: consecutiveMissed,
+          thisWeekDials,
+          headshotUrl: (agent as any).headshot_url || null,
+        });
+      }
+    }
+
+    res.json({ flagged, count: flagged.length });
+  });
+
   app.get("/api/health", async (req, res) => {
     const results: Record<string, { ok: boolean; latencyMs?: number; detail?: string }> = {};
 
@@ -2723,7 +2816,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.83",
+      version: "v12.0",
       services: results,
     });
   });

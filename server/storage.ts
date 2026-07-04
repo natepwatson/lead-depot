@@ -36,6 +36,7 @@ try { sqlite.exec(`ALTER TABLE leads ADD COLUMN phone_states TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN score INTEGER DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN territory TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN source TEXT DEFAULT 'csv_upload'`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN territory TEXT`); } catch {}
 // Profile columns (v11.37) — must run before Drizzle prepares any query against agents
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN phone TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN brokerage TEXT`); } catch {}
@@ -219,7 +220,7 @@ export interface IStorage {
   getActivitiesForLead(leadId: number): LeadActivity[];
 
   // Round Robin
-  getNextAgentInRotation(): Agent | undefined;
+  getNextAgentInRotation(leadType?: string, leadTerritory?: string | null): Agent | undefined;
   updateRoundRobinState(agentId: number): void;
 
   // Stats
@@ -411,28 +412,39 @@ export class Storage implements IStorage {
       .all();
   }
 
-  getNextAgentInRotation(leadType?: string): Agent | undefined {
+  getNextAgentInRotation(leadType?: string, leadTerritory?: string | null): Agent | undefined {
     // Include: regular active agents with leadFlowOn=true, OR admins who opted in via receiveLeads=true
-    const activeAgents = db.select().from(agents)
+    const allActive = db.select().from(agents)
       .where(and(eq(agents.isActive, true), eq(agents.leadFlowOn, true)))
       .orderBy(asc(agents.roundRobinOrder))
       .all()
       .filter(a => {
-        // Must be an active agent or admin opted-in
         if (a.role === "admin" && !a.receiveLeads) return false;
         return true;
       });
 
-    if (activeAgents.length === 0) return undefined;
+    if (allActive.length === 0) return undefined;
+
+    // ── Territory-aware filtering ──────────────────────────────────────────────
+    // If lead has a territory AND at least one agent covers that territory,
+    // restrict the pool to territory-matching agents only.
+    // If no territory match exists (or lead has no territory), use all active agents.
+    let pool = allActive;
+    if (leadTerritory) {
+      const territoryAgents = allActive.filter(a => !a.territory || a.territory === leadTerritory);
+      // Only restrict to territory agents if at least one exists
+      if (territoryAgents.length > 0) pool = territoryAgents;
+    }
 
     const rrState = db.select().from(roundRobinState).get();
     if (!rrState || !rrState.lastAssignedAgentId) {
-      return activeAgents[0];
+      return pool[0];
     }
 
-    const lastIdx = activeAgents.findIndex(a => a.id === rrState.lastAssignedAgentId);
-    const nextIdx = (lastIdx + 1) % activeAgents.length;
-    return activeAgents[nextIdx];
+    // Find last assigned in pool; if not found (they cover a different territory), start from top
+    const lastIdx = pool.findIndex(a => a.id === rrState.lastAssignedAgentId);
+    const nextIdx = (lastIdx + 1) % pool.length;
+    return pool[nextIdx];
   }
 
   updateRoundRobinState(agentId: number): void {

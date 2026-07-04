@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit } from "./fub";
 import { runLandvoicePipeline } from "./landvoice";
 import { runBatchLeadsPipeline } from "./batchleads";
+import { getTerritoryForZip } from "./territories";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -1036,6 +1037,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         const motivation = row.motivation || row.Motivation
           || (price ? `Listed at $${Number(String(price).replace(/[^0-9.]/g,'')||0).toLocaleString()}${beds ? `, ${beds}bd` : ""}` : "");
 
+        // Territory — stamp from zip code
+        const territory = getTerritoryForZip(zip) || null;
+
         return {
           leadType,
           address: fullAddress,
@@ -1052,14 +1056,16 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           batchId: batchId || null,
           phones: JSON.stringify(uniquePhones),
           phoneStates: JSON.stringify(phoneStates),
+          territory,
+          source: "csv_upload",
         };
       })
     );
 
-    // Auto assign via round robin if agents exist
+    // Auto assign via territory-aware round robin if agents exist
     if (agentCount > 0) {
       for (const lead of created) {
-        const nextAgent = storage.getNextAgentInRotation(leadType);
+        const nextAgent = storage.getNextAgentInRotation(leadType, (lead as any).territory || null);
         if (nextAgent) {
           storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
           storage.updateRoundRobinState(nextAgent.id);
@@ -2406,7 +2412,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.63",
+      version: "v11.64",
       services: results,
     });
   });
@@ -2756,9 +2762,10 @@ This template is for informational/outreach purposes only.`;
       let assigned = 0;
       for (const lead of newLeads) {
         try {
-          const nextAgent = storage.getNextAgentForRoundRobin();
+          const nextAgent = storage.getNextAgentInRotation(lead.lead_type, lead.territory || null);
           if (nextAgent) {
             storage.updateLead(lead.id, { status: "assigned", assignedAgentId: nextAgent.id });
+            storage.updateRoundRobinState(nextAgent.id);
             assigned++;
           }
         } catch (e) {

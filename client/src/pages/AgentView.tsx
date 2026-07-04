@@ -615,12 +615,41 @@ function LeadCard({ lead }: { lead: Lead }) {
         background: "linear-gradient(135deg, rgba(200,170,90,0.12) 0%, rgba(200,170,90,0.04) 100%)",
         borderBottom: "1px solid rgba(200,170,90,0.2)",
       }}>
-        <span style={{
-          fontSize: 11, letterSpacing: "0.22em", textTransform: "uppercase",
-          color: "#c8aa5a", fontWeight: 700,
-        }}>
-          {typeLabel[lead.leadType] || lead.leadType}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{
+            fontSize: 11, letterSpacing: "0.22em", textTransform: "uppercase",
+            color: "#c8aa5a", fontWeight: 700,
+          }}>
+            {typeLabel[lead.leadType] || lead.leadType}
+          </span>
+          {/* Score badge — only show for leads with a BatchLeads/pipeline score */}
+          {(lead as any).score > 0 && (
+            <span title={`Lead score: ${(lead as any).score} — higher = more motivated seller`} style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              minWidth: 26, height: 20, padding: "0 6px",
+              borderRadius: 10, fontSize: 10, fontWeight: 800, letterSpacing: "0.05em",
+              background: (lead as any).score >= 12
+                ? "linear-gradient(135deg,#c8aa5a,#a8893a)"
+                : (lead as any).score >= 7
+                ? "rgba(200,170,90,0.25)"
+                : "rgba(255,255,255,0.1)",
+              color: (lead as any).score >= 12 ? "#080808" : "#c8aa5a",
+              border: (lead as any).score >= 12 ? "none" : "1px solid rgba(200,170,90,0.4)",
+              cursor: "default",
+            }}>
+              {(lead as any).score}
+            </span>
+          )}
+          {/* Territory badge */}
+          {(lead as any).territory && (
+            <span style={{
+              fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase",
+              color: "rgba(200,170,90,0.55)", fontWeight: 600,
+            }}>
+              {String((lead as any).territory).replace(/_/g, " ")}
+            </span>
+          )}
+        </div>
         <span style={{ fontSize: 11, color: "rgba(200,170,90,0.45)", letterSpacing: "0.1em" }}>
           #{lead.id}
         </span>

@@ -125,6 +125,18 @@ function parseCSV(text: string): Record<string, string>[] {
   return results;
 }
 
+// Official 7 territories — agent can be assigned to one (or null = receives all)
+const TERRITORY_OPTIONS = [
+  { value: "",                             label: "All Territories" },
+  { value: "north_jax_nassau",             label: "North Jax & Nassau" },
+  { value: "jacksonville_west",            label: "Jacksonville West" },
+  { value: "jacksonville_east",            label: "Jacksonville East" },
+  { value: "intracoastal_beaches",         label: "Intracoastal / Beaches" },
+  { value: "ponte_vedra_nocatee_st_aug",   label: "Ponte Vedra / Nocatee / St. Aug" },
+  { value: "st_johns_county",              label: "St. Johns County" },
+  { value: "clay_county",                  label: "Clay County" },
+];
+
 const OUTCOME_ICONS: Record<string, any> = {
   contacted_appointment: CheckCircle2,
   contacted_not_interested: XCircle,
@@ -651,7 +663,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.63) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.64) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -846,7 +858,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [statusFilter, setStatusFilter] = useState("all");
   const [drilldownAgent, setDrilldownAgent] = useState<{ id: number; name: string } | null>(null);
 
-  // Paginated leads state (v11.63)
+  // Paginated leads state (v11.64)
   const [leadsPage, setLeadsPage] = useState(0);
   const LEADS_PAGE_SIZE = 50;
   const [lbHistoryOpen, setLbHistoryOpen] = useState(false);
@@ -900,7 +912,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     refetchInterval: 15000,
   });
 
-  // Paginated lead list query (v11.63) — replaces full pipeline load for All Leads tab
+  // Paginated lead list query (v11.64) — replaces full pipeline load for All Leads tab
   const paginatedLeadsQuery = useQuery<any>({
     queryKey: ["/api/leads/paginated", statusFilter, searchTerm, leadsPage],
     queryFn: () => {
@@ -926,7 +938,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     }
   }, [statusFilter, searchTerm]);
 
-  // Leaderboard history (v11.63)
+  // Leaderboard history (v11.64)
   const { data: lbHistory = [] } = useQuery<any[]>({
     queryKey: ["/api/admin/leaderboard-history"],
     queryFn: () => apiRequest("GET", "/api/admin/leaderboard-history").then(r => r.json()),
@@ -1291,7 +1303,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.63
+              v11.64
             </p>
           </div>
         </div>
@@ -1535,7 +1547,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.63) */}
+                          {/* Rank badge — headshot or initials (v11.64) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
 {(() => {
                               const initials = stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -1896,7 +1908,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
           {/* ── ALL LEADS ───────────────────────────────────────────────────── */}
           <TabsContent value="leads" className="mt-5 space-y-3">
-            {/* ── Paginated All Leads (v11.63) ── */}
+            {/* ── Paginated All Leads (v11.64) ── */}
             {(() => {
               const plData = paginatedLeadsQuery.data;
               const plLeads: any[] = plData?.leads || [];
@@ -2577,6 +2589,31 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground">{agent.name}</p>
                               <p className="text-xs text-muted-foreground">{agent.email}</p>
+                              {/* Territory selector */}
+                              <select
+                                value={(agent as any).territory || ""}
+                                onChange={e => {
+                                  const territory = e.target.value || null;
+                                  apiRequest("PATCH", `/api/agents/${agent.id}`, { territory })
+                                    .then(() => queryClient.invalidateQueries({ queryKey: ["/api/agents"] }))
+                                    .catch(() => {});
+                                }}
+                                style={{
+                                  marginTop: 4, fontSize: 10, letterSpacing: "0.06em",
+                                  background: "rgba(200,170,90,0.07)",
+                                  border: "1px solid rgba(200,170,90,0.2)",
+                                  borderRadius: 5, color: "#c8aa5a",
+                                  padding: "2px 6px", cursor: "pointer", maxWidth: 190,
+                                  textTransform: "uppercase",
+                                }}
+                              >
+                                {TERRITORY_OPTIONS.map(opt => (
+                                  <option key={opt.value} value={opt.value}
+                                    style={{ background: "#111", color: "#c8aa5a" }}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                             <div className="flex items-center gap-3">
                               <div className="flex flex-col items-center gap-0.5">

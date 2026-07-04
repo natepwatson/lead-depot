@@ -19,6 +19,9 @@ export const agents = sqliteTable("agents", {
   brokerage: text("brokerage"),
   homeAddress: text("home_address"),
   headshotUrl: text("headshot_url"),
+  // Territory assignment — agent receives leads from this territory
+  // One of the 7 official territories or null (receives all territories)
+  territory: text("territory"),
 });
 
 export const insertAgentSchema = createInsertSchema(agents).omit({ id: true });

@@ -2412,7 +2412,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.64",
+      version: "v11.65",
       services: results,
     });
   });
@@ -2681,7 +2681,7 @@ This template is for informational/outreach purposes only.`;
 
       // Log activity note
       rawDb.prepare(`
-        INSERT INTO activities (lead_id, agent_id, outcome, notes, created_at)
+        INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, created_at)
         VALUES (?, NULL, ?, ?, ?)
       `).run(
         lead.id,
@@ -2709,14 +2709,14 @@ This template is for informational/outreach purposes only.`;
 
       // Find active leads with no activity in the last N days
       const staleLeads = rawDb.prepare(`
-        SELECT l.*, u.name as agent_name,
-          (SELECT MAX(a.created_at) FROM activities a WHERE a.lead_id = l.id) as last_activity
+        SELECT l.*, ag.name as agent_name,
+          (SELECT MAX(a.created_at) FROM lead_activity a WHERE a.lead_id = l.id) as last_activity
         FROM leads l
-        LEFT JOIN users u ON u.id = l.assigned_agent_id
+        LEFT JOIN agents ag ON ag.id = l.assigned_agent_id
         WHERE l.status IN ('assigned', 'no_answer', 'keep_in_touch', 'callback_requested')
           AND (
-            (SELECT MAX(a.created_at) FROM activities a WHERE a.lead_id = l.id) < ?
-            OR (SELECT COUNT(*) FROM activities a WHERE a.lead_id = l.id) = 0
+            (SELECT MAX(a.created_at) FROM lead_activity a WHERE a.lead_id = l.id) < ?
+            OR (SELECT COUNT(*) FROM lead_activity a WHERE a.lead_id = l.id) = 0
           )
         ORDER BY last_activity ASC
       `).all(cutoff) as any[];

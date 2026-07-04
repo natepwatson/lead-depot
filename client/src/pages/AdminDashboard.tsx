@@ -663,7 +663,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.64) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.65) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -858,7 +858,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [statusFilter, setStatusFilter] = useState("all");
   const [drilldownAgent, setDrilldownAgent] = useState<{ id: number; name: string } | null>(null);
 
-  // Paginated leads state (v11.64)
+  // Paginated leads state (v11.65)
   const [leadsPage, setLeadsPage] = useState(0);
   const LEADS_PAGE_SIZE = 50;
   const [lbHistoryOpen, setLbHistoryOpen] = useState(false);
@@ -912,7 +912,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     refetchInterval: 15000,
   });
 
-  // Paginated lead list query (v11.64) — replaces full pipeline load for All Leads tab
+  // Paginated lead list query (v11.65) — replaces full pipeline load for All Leads tab
   const paginatedLeadsQuery = useQuery<any>({
     queryKey: ["/api/leads/paginated", statusFilter, searchTerm, leadsPage],
     queryFn: () => {
@@ -938,7 +938,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     }
   }, [statusFilter, searchTerm]);
 
-  // Leaderboard history (v11.64)
+  // Leaderboard history (v11.65)
   const { data: lbHistory = [] } = useQuery<any[]>({
     queryKey: ["/api/admin/leaderboard-history"],
     queryFn: () => apiRequest("GET", "/api/admin/leaderboard-history").then(r => r.json()),
@@ -1303,7 +1303,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.64
+              v11.65
             </p>
           </div>
         </div>
@@ -1547,7 +1547,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.64) */}
+                          {/* Rank badge — headshot or initials (v11.65) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
 {(() => {
                               const initials = stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -1908,7 +1908,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
           {/* ── ALL LEADS ───────────────────────────────────────────────────── */}
           <TabsContent value="leads" className="mt-5 space-y-3">
-            {/* ── Paginated All Leads (v11.64) ── */}
+            {/* ── Paginated All Leads (v11.65) ── */}
             {(() => {
               const plData = paginatedLeadsQuery.data;
               const plLeads: any[] = plData?.leads || [];
@@ -1985,6 +1985,23 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                               <TypeBadge type={lead.leadType} />
                               <StatusBadge status={lead.status} />
                               {lead.attemptCount > 0 && <span className="text-xs text-muted-foreground">{lead.attemptCount} attempt{lead.attemptCount !== 1 ? "s" : ""}</span>}
+                              {lead.score > 0 && (
+                                <span title={`Lead score: ${lead.score}`} style={{
+                                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                  minWidth: 20, height: 16, padding: "0 5px",
+                                  borderRadius: 8, fontSize: 9, fontWeight: 800,
+                                  background: lead.score >= 12
+                                    ? "linear-gradient(135deg,#c8aa5a,#a8893a)"
+                                    : lead.score >= 7 ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.08)",
+                                  color: lead.score >= 12 ? "#080808" : "#c8aa5a",
+                                  border: lead.score >= 12 ? "none" : "1px solid rgba(200,170,90,0.35)",
+                                }}>{lead.score}</span>
+                              )}
+                              {lead.territory && (
+                                <span style={{ fontSize: 8, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(200,170,90,0.5)", fontWeight: 600 }}>
+                                  {String(lead.territory).replace(/_/g, " ")}
+                                </span>
+                              )}
                             </div>
                             <p className="text-sm font-medium text-foreground truncate">{lead.ownerName || "—"}</p>
                             <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={10}/>{lead.address}</p>
@@ -2033,8 +2050,9 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           {selectedLead && (() => {
             const lead = selectedLead;
             const extra = (() => { try { return JSON.parse(lead.extraData || "{}"); } catch { return {}; } })();
+            const leadCity = lead.city || extra.city || "";
             const zillow = lead.address
-              ? `https://www.zillow.com/homes/${encodeURIComponent(lead.address + (extra.city ? ", " + extra.city : ""))}_rb/`
+              ? `https://www.zillow.com/homes/${encodeURIComponent(lead.address + (leadCity ? ", " + leadCity : ""))}_rb/`
               : null;
             const subject = encodeURIComponent(`Regarding your property at ${lead.address}`);
             const body = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nBrothers Group Real Estate at Momentum Realty`);

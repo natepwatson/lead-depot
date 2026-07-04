@@ -36,6 +36,9 @@ try { sqlite.exec(`ALTER TABLE leads ADD COLUMN phone_states TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN score INTEGER DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN territory TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN source TEXT DEFAULT 'csv_upload'`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN city TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN state TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN zip TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN territory TEXT`); } catch {}
 // Profile columns (v11.37) — must run before Drizzle prepares any query against agents
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN phone TEXT`); } catch {}
@@ -339,6 +342,12 @@ export class Storage implements IStorage {
       uploadedAt: r.uploaded_at,
       uploadedBy: r.uploaded_by,
       batchId: r.batch_id,
+      score: r.score ?? 0,
+      territory: r.territory ?? null,
+      source: r.source ?? "csv_upload",
+      city: r.city ?? null,
+      state: r.state ?? null,
+      zip: r.zip ?? null,
       lLocation: r.l_location,
       lPricePaid: r.l_price_paid,
       lMotivation: r.l_motivation,

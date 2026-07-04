@@ -75,6 +75,9 @@ if (!leadCols.includes("l_buy"))           rawDb.prepare("ALTER TABLE leads ADD 
 if (!leadCols.includes("score"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN score INTEGER DEFAULT 0").run();
 if (!leadCols.includes("territory"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN territory TEXT").run();
 if (!leadCols.includes("source"))          rawDb.prepare("ALTER TABLE leads ADD COLUMN source TEXT DEFAULT 'csv_upload'").run();
+if (!leadCols.includes("city"))            rawDb.prepare("ALTER TABLE leads ADD COLUMN city TEXT").run();
+if (!leadCols.includes("state"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN state TEXT").run();
+if (!leadCols.includes("zip"))             rawDb.prepare("ALTER TABLE leads ADD COLUMN zip TEXT").run();
 
 // ─── leads — core columns that may be missing on older DBs ───────────────────
 if (!leadCols.includes("owner_name"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN owner_name TEXT").run();

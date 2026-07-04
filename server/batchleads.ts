@@ -582,8 +582,8 @@ export async function runBatchLeadsPipeline(rawDb: any): Promise<{
   const insertStmt = rawDb.prepare(`
     INSERT OR IGNORE INTO leads (
       owner_name, address, city, state, zip, phone, phones, phone_states, email,
-      lead_type, status, score, territory, source, batch_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, 'batchleads', ?, datetime('now'), datetime('now'))
+      lead_type, status, score, territory, source, batch_id, uploaded_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, 'batchleads', ?, datetime('now'))
   `);
 
   const batchId = `batchleads_${new Date().toISOString().slice(0, 10)}`;

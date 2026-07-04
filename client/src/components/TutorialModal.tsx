@@ -126,7 +126,7 @@ const SLIDES: Slide[] = [
         <div style={CARD}>
           {[
             ["Appt Set", "Congratulations — fill in the appointment details. Lead closes out."],
-            ["Keep in Touch", "You connected, they're not ready right now. Stays in your queue for nurturing."],
+            ["Keep in Touch", "You connected, they're not ready right now. Gets sent to FUB for long-term follow-up. Your team takes it from here."],
             ["No Answer", "Marks that number tried. Lead auto-advances to next phone number."],
             ["Not Interested", "Lead is closed. Respectful and final."],
             ["Wrong #", "Strikes that number. Only removes the lead if every number is invalid."],

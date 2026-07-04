@@ -1366,7 +1366,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
 
     } else if (outcome === "keep_in_touch") {
+      // KIT = connected, not ready now. FUB owns the long-term follow-up from here.
+      // Lead exits the active Lead Depot queue — same as Appointment.
       newStatus = "keep_in_touch";
+      newAssignedId = null; // unassign from agent — FUB takes over follow-up
 
     } else if (outcome === "callback_requested") {
       // Schedule callback — keep with same agent, store the requested date/time.
@@ -1698,7 +1701,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const leadCounts: any[] = rawDb.prepare(`
       SELECT assigned_agent_id as agent_id,
         COUNT(*) as total,
-        SUM(CASE WHEN status IN ('assigned','no_answer','keep_in_touch','callback_requested') THEN 1 ELSE 0 END) as active
+        SUM(CASE WHEN status IN ('assigned','no_answer','callback_requested') THEN 1 ELSE 0 END) as active
       FROM leads
       WHERE assigned_agent_id IS NOT NULL
       GROUP BY assigned_agent_id
@@ -1774,7 +1777,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     for (const row of statusCounts) byStatus[row.status] = row.cnt;
 
     // Active leads (paginated) for the live pipeline list
-    const ACTIVE = ["unassigned","assigned","no_answer","keep_in_touch","callback_requested"];
+    const ACTIVE = ["unassigned","assigned","no_answer","callback_requested"] // keep_in_touch exits to FUB;
     const activeRows = rawDb.prepare(
       `SELECT * FROM leads WHERE status IN (${ACTIVE.map(() => "?").join(",")}) ORDER BY uploaded_at DESC LIMIT ? OFFSET ?`
     ).all(...ACTIVE, limit, offset) as any[];
@@ -2182,7 +2185,7 @@ This template is for informational/outreach purposes only.`;
   app.get("/api/leads/my-count/:agentId", (req, res) => {
     const agentId = parseInt(req.params.agentId);
     const row: any = rawDb.prepare(
-      `SELECT COUNT(*) as n FROM leads WHERE assigned_agent_id = ? AND status IN ('assigned','no_answer','keep_in_touch','callback_requested')`
+      `SELECT COUNT(*) as n FROM leads WHERE assigned_agent_id = ? AND status IN ('assigned','no_answer','callback_requested')`
     ).get(agentId);
     res.json({ count: row?.n ?? 0 });
   });
@@ -2839,7 +2842,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v12.3",
+      version: "v12.4",
       services: results,
     });
   });
@@ -3331,7 +3334,7 @@ This template is for informational/outreach purposes only.`;
           (SELECT MAX(a.created_at) FROM lead_activity a WHERE a.lead_id = l.id) as last_activity
         FROM leads l
         LEFT JOIN agents ag ON ag.id = l.assigned_agent_id
-        WHERE l.status IN ('assigned', 'no_answer', 'keep_in_touch', 'callback_requested')
+        WHERE l.status IN ('assigned', 'no_answer', 'callback_requested')
           AND (
             (SELECT MAX(a.created_at) FROM lead_activity a WHERE a.lead_id = l.id) < ?
             OR (SELECT COUNT(*) FROM lead_activity a WHERE a.lead_id = l.id) = 0

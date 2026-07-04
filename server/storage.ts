@@ -250,7 +250,7 @@ export interface IStorage {
   };
 }
 
-const ACTIVE_STATUSES = ["assigned", "no_answer", "keep_in_touch", "callback_requested"];
+const ACTIVE_STATUSES = ["assigned", "no_answer", "callback_requested"]; // keep_in_touch exits to FUB
 const DEAD_STATUSES = ["contacted_not_interested", "wrong_number", "retired", "contacted_appointment"];
 
 export class Storage implements IStorage {
@@ -399,10 +399,11 @@ export class Storage implements IStorage {
     if (callbackReady) return callbackReady;
 
     // Otherwise return the next active assigned lead
+    // Note: keep_in_touch leads are excluded — they exit to FUB, not back into the dial queue
     return db.select().from(leads)
       .where(and(
         eq(leads.assignedAgentId, agentId),
-        inArray(leads.status, ["assigned", "no_answer", "keep_in_touch"])
+        inArray(leads.status, ["assigned", "no_answer"])
       ))
       .orderBy(asc(leads.attemptCount), asc(leads.uploadedAt))
       .get();
@@ -518,7 +519,7 @@ export class Storage implements IStorage {
         SUM(CASE WHEN assigned_agent_id IS NOT NULL THEN 1 ELSE 0 END)                   AS assignedLeads,
         SUM(CASE WHEN status = 'unassigned' THEN 1 ELSE 0 END)                           AS unassignedLeads,
         SUM(CASE WHEN status = 'contacted_appointment' THEN 1 ELSE 0 END)                AS appointmentsSet,
-        SUM(CASE WHEN status IN ('assigned','no_answer','keep_in_touch','callback_requested') THEN 1 ELSE 0 END) AS activeLeads,
+        SUM(CASE WHEN status IN ('assigned','no_answer','callback_requested') THEN 1 ELSE 0 END) AS activeLeads,
         SUM(CASE WHEN status IN ('contacted_not_interested','wrong_number','retired','contacted_appointment') THEN 1 ELSE 0 END) AS deadLeads
       FROM leads
     `).get();

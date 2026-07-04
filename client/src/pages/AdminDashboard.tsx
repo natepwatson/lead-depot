@@ -77,16 +77,52 @@ function StatCard({ label, value, sub, accent }: { label: string; value: number 
   );
 }
 
+// RFC-4180 compliant CSV parser — handles quoted fields with commas and newlines
 function parseCSV(text: string): Record<string, string>[] {
-  const lines = text.trim().split("\n");
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
-  return lines.slice(1).map(line => {
-    const vals = line.split(",").map(v => v.trim().replace(/^"|"$/g, ""));
+  // Tokenize: returns array of rows, each row is array of field strings
+  function tokenize(raw: string): string[][] {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = "";
+    let inQuotes = false;
+    let i = 0;
+    const n = raw.length;
+    while (i < n) {
+      const ch = raw[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (i + 1 < n && raw[i + 1] === '"') { field += '"'; i += 2; } // escaped quote
+          else { inQuotes = false; i++; }
+        } else {
+          field += ch; i++;
+        }
+      } else {
+        if (ch === '"') { inQuotes = true; i++; }
+        else if (ch === ',') { row.push(field.trim()); field = ""; i++; }
+        else if (ch === '\r' && i + 1 < n && raw[i + 1] === '\n') {
+          row.push(field.trim()); rows.push(row); row = []; field = ""; i += 2;
+        } else if (ch === '\n') {
+          row.push(field.trim()); rows.push(row); row = []; field = ""; i++;
+        } else { field += ch; i++; }
+      }
+    }
+    if (field || row.length) { row.push(field.trim()); rows.push(row); }
+    return rows;
+  }
+
+  const rows = tokenize(text);
+  if (rows.length < 2) return [];
+  const headers = rows[0];
+  const results: Record<string, string>[] = [];
+  for (let r = 1; r < rows.length; r++) {
+    const vals = rows[r];
+    // Skip completely empty rows
+    if (vals.every(v => !v)) continue;
     const obj: Record<string, string> = {};
-    headers.forEach((h, i) => { obj[h] = vals[i] || ""; });
-    return obj;
-  });
+    headers.forEach((h, i) => { obj[h] = vals[i] ?? ""; });
+    results.push(obj);
+  }
+  return results;
 }
 
 const OUTCOME_ICONS: Record<string, any> = {
@@ -615,7 +651,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.57) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.58) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -790,8 +826,17 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     return () => { wsRef.current?.close(); };
   }, []);
   const [uploading, setUploading] = useState(false);
+  const [uploadRowCount, setUploadRowCount] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadType, setUploadType] = useState<"expired" | "distressed" | "website_lead" | "fsbo" | "land">("expired");
+  // Agent recruiting state
+  const agentLeadFileRef = useRef<HTMLInputElement>(null);
+  const [agentLeadDragOver, setAgentLeadDragOver] = useState(false);
+  const [agentLeadUploading, setAgentLeadUploading] = useState(false);
+  const [agentLeadRowCount, setAgentLeadRowCount] = useState<number | null>(null);
+  const [quickAddForm, setQuickAddForm] = useState({ firstName: "", lastName: "", phone: "", email: "", currentBrokerage: "", licenseStatus: "", territory: "", notes: "" });
+  const [quickAddSubmitting, setQuickAddSubmitting] = useState(false);
+  const [recruitingSubTab, setRecruitingSubTab] = useState<"quick" | "bulk">("quick");
   const [websiteLeadForm, setWebsiteLeadForm] = useState({ firstName: "", lastName: "", email: "", phone: "", address: "", city: "", state: "FL", zip: "", county: "", propertyType: "", reasonForSelling: "", estimatedValue: "", timeframe: "" });
   const [submittingWebsiteLead, setSubmittingWebsiteLead] = useState(false);
   const [newAgent, setNewAgent] = useState({ name: "", email: "" });
@@ -801,7 +846,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [statusFilter, setStatusFilter] = useState("all");
   const [drilldownAgent, setDrilldownAgent] = useState<{ id: number; name: string } | null>(null);
 
-  // Paginated leads state (v11.57)
+  // Paginated leads state (v11.58)
   const [leadsPage, setLeadsPage] = useState(0);
   const LEADS_PAGE_SIZE = 50;
   const [lbHistoryOpen, setLbHistoryOpen] = useState(false);
@@ -855,7 +900,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     refetchInterval: 15000,
   });
 
-  // Paginated lead list query (v11.57) — replaces full pipeline load for All Leads tab
+  // Paginated lead list query (v11.58) — replaces full pipeline load for All Leads tab
   const paginatedLeadsQuery = useQuery<any>({
     queryKey: ["/api/leads/paginated", statusFilter, searchTerm, leadsPage],
     queryFn: () => {
@@ -881,7 +926,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     }
   }, [statusFilter, searchTerm]);
 
-  // Leaderboard history (v11.57)
+  // Leaderboard history (v11.58)
   const { data: lbHistory = [] } = useQuery<any[]>({
     queryKey: ["/api/admin/leaderboard-history"],
     queryFn: () => apiRequest("GET", "/api/admin/leaderboard-history").then(r => r.json()),
@@ -1017,10 +1062,12 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const processFile = async (file: File) => {
     if (!file) return;
     setUploading(true);
+    setUploadRowCount(null);
     try {
       const text = await file.text();
       const rows = parseCSV(text);
       if (!rows.length) throw new Error("No valid rows found in CSV");
+      setUploadRowCount(rows.length);
       const batchId = `batch_${Date.now()}`;
       const res = await apiRequest("POST", "/api/leads/upload", {
         leads: rows, leadType: uploadType, uploadedBy: user?.id, batchId,
@@ -1030,6 +1077,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
       const typeLabels: Record<string,string> = { expired:"Expired Listings", distressed:"Distressed", website_lead:"Website Lead", fsbo:"FSBO", land:"Land" };
       const disqNote = data.disqualified > 0 ? ` ${data.disqualified} skipped (missing name or phone).` : "";
       toast({ title: `${data.created} leads uploaded`, description: `Distributed via round-robin as ${typeLabels[uploadType] || uploadType}.${disqNote}` });
+      setUploadRowCount(null);
       qc.invalidateQueries({ queryKey: ["/api/leads"] });
       qc.invalidateQueries({ queryKey: ["/api/leads/stats"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/pipeline"] });
@@ -1039,6 +1087,66 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  // ── Agent Lead Handlers ────────────────────────────────────────────────────
+  const handleSubmitQuickAdd = async () => {
+    const { firstName, lastName, phone } = quickAddForm;
+    if (!firstName || !lastName || !phone) {
+      toast({ title: "Missing fields", description: "First name, last name, and phone are required.", variant: "destructive" });
+      return;
+    }
+    setQuickAddSubmitting(true);
+    try {
+      const res = await apiRequest("POST", "/api/agent-leads/manual-add", quickAddForm);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add agent lead");
+      toast({ title: "Agent lead added", description: `${firstName} ${lastName} added to recruiting queue.` });
+      setQuickAddForm({ firstName: "", lastName: "", phone: "", email: "", currentBrokerage: "", licenseStatus: "", territory: "", notes: "" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setQuickAddSubmitting(false);
+    }
+  };
+
+  const processAgentLeadFile = async (file: File) => {
+    if (!file) return;
+    setAgentLeadUploading(true);
+    setAgentLeadRowCount(null);
+    try {
+      const text = await file.text();
+      const rows = parseCSV(text);
+      if (!rows.length) throw new Error("No valid rows found in CSV");
+      setAgentLeadRowCount(rows.length);
+      const res = await apiRequest("POST", "/api/agent-leads/bulk-upload", { leads: rows });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      const skipNote = data.skipped > 0 ? ` ${data.skipped} skipped (missing name or phone).` : "";
+      toast({ title: `${data.created} agent prospects imported`, description: `Added to recruiting queue.${skipNote}` });
+      setAgentLeadRowCount(null);
+    } catch (err: any) {
+      toast({ title: "Upload error", description: err.message, variant: "destructive" });
+    } finally {
+      setAgentLeadUploading(false);
+      if (agentLeadFileRef.current) agentLeadFileRef.current.value = "";
+    }
+  };
+
+  const handleAgentLeadUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processAgentLeadFile(file);
+  };
+
+  const handleAgentLeadDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setAgentLeadDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.name.endsWith(".csv")) {
+      processAgentLeadFile(file);
+    } else {
+      toast({ title: "Please drop a .csv file", variant: "destructive" });
     }
   };
 
@@ -1183,7 +1291,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.57
+              v11.58
             </p>
           </div>
         </div>
@@ -1276,6 +1384,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               { value: "map",         icon: MapIcon,     label: "Map View" },
               { value: "reports",     icon: BarChart2,   label: "Reports" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
+              { value: "recruiting",  icon: Users,       label: "Recruiting" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
               { value: "profile",     icon: Settings,    label: "My Profile" },
@@ -1426,7 +1535,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.57) */}
+                          {/* Rank badge — headshot or initials (v11.58) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
 {(() => {
                               const initials = stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -1787,7 +1896,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
           {/* ── ALL LEADS ───────────────────────────────────────────────────── */}
           <TabsContent value="leads" className="mt-5 space-y-3">
-            {/* ── Paginated All Leads (v11.57) ── */}
+            {/* ── Paginated All Leads (v11.58) ── */}
             {(() => {
               const plData = paginatedLeadsQuery.data;
               const plLeads: any[] = plData?.leads || [];
@@ -2123,7 +2232,9 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                       >
                         <Upload style={{ margin: "0 auto 8px", color: dragOver ? "#c8aa5a" : "rgba(255,255,255,0.3)" }} size={24} />
                         <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)" }}>
-                          {uploading ? "Uploading…" : dragOver ? "Drop CSV here" : "Click or drag a CSV file here"}
+                          {uploading
+                            ? (uploadRowCount ? `Uploading ${uploadRowCount.toLocaleString()} rows…` : "Uploading…")
+                            : dragOver ? "Drop CSV here" : "Click or drag a CSV file here"}
                         </p>
                         <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", marginTop: 4 }}>
                           Expected columns: Address, Owner Name, Phone, Email, Motivation
@@ -2153,7 +2264,143 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           </TabsContent>
 
           {/* ── AGENTS ──────────────────────────────────────────────────────── */}
-          <TabsContent value="agents" className="mt-5 space-y-5">
+          {/* ── RECRUITING ──────────────────────────────────────────────────── */}
+          <TabsContent value="recruiting" className="mt-5">
+            <div className="max-w-lg space-y-5">
+              <div>
+                <h2 style={{
+                  fontFamily: "'Cormorant Garamond','Georgia',serif",
+                  fontSize: "1.3rem", fontWeight: 300, color: "#fff", marginBottom: 4,
+                }}>Agent Recruiting</h2>
+                <p className="text-sm text-muted-foreground">Add prospects to the recruiting queue for outreach in Prospecting Mode.</p>
+              </div>
+
+              {/* Sub-tab switcher */}
+              <div style={{ display: "flex", gap: 8 }}>
+                {([{ k: "quick", label: "Quick Add" }, { k: "bulk", label: "Bulk CSV Import" }] as const).map(({ k, label }) => (
+                  <button key={k} onClick={() => setRecruitingSubTab(k)} style={{
+                    padding: "9px 18px", borderRadius: 6, fontSize: 12, fontWeight: 500,
+                    letterSpacing: "0.05em", border: "1px solid",
+                    borderColor: recruitingSubTab === k ? "rgba(79,184,163,0.5)" : "rgba(255,255,255,0.1)",
+                    background: recruitingSubTab === k ? "rgba(79,184,163,0.1)" : "rgba(255,255,255,0.03)",
+                    color: recruitingSubTab === k ? "#4fb8a3" : "rgba(255,255,255,0.5)",
+                    cursor: "pointer", transition: "all 0.15s",
+                  }}>{label}</button>
+                ))}
+              </div>
+
+              {recruitingSubTab === "quick" ? (
+                /* ── QUICK ADD FORM ── */
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">Fast entry for events, open houses, or cold outreach. Name and phone are required.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-foreground/70">First Name *</Label>
+                      <Input value={quickAddForm.firstName} onChange={e => setQuickAddForm(p => ({...p, firstName: e.target.value}))}
+                        className="bg-secondary border-border" placeholder="Sarah" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-foreground/70">Last Name *</Label>
+                      <Input value={quickAddForm.lastName} onChange={e => setQuickAddForm(p => ({...p, lastName: e.target.value}))}
+                        className="bg-secondary border-border" placeholder="Martinez" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-foreground/70">Phone *</Label>
+                      <Input value={quickAddForm.phone} onChange={e => setQuickAddForm(p => ({...p, phone: e.target.value}))}
+                        className="bg-secondary border-border" placeholder="9045550123" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-foreground/70">Email</Label>
+                      <Input value={quickAddForm.email} onChange={e => setQuickAddForm(p => ({...p, email: e.target.value}))}
+                        className="bg-secondary border-border" placeholder="sarah@realty.com" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-foreground/70">Current Brokerage</Label>
+                      <Input value={quickAddForm.currentBrokerage} onChange={e => setQuickAddForm(p => ({...p, currentBrokerage: e.target.value}))}
+                        className="bg-secondary border-border" placeholder="Keller Williams" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-foreground/70">License Status</Label>
+                      <Input value={quickAddForm.licenseStatus} onChange={e => setQuickAddForm(p => ({...p, licenseStatus: e.target.value}))}
+                        className="bg-secondary border-border" placeholder="Active FL" />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-foreground/70">Territory Interest</Label>
+                    <Input value={quickAddForm.territory} onChange={e => setQuickAddForm(p => ({...p, territory: e.target.value}))}
+                      className="bg-secondary border-border" placeholder="e.g. Ponte Vedra / Nocatee" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-foreground/70">Notes</Label>
+                    <Input value={quickAddForm.notes} onChange={e => setQuickAddForm(p => ({...p, notes: e.target.value}))}
+                      className="bg-secondary border-border" placeholder="Met at open house on Coastal Hwy..." />
+                  </div>
+                  <button
+                    onClick={handleSubmitQuickAdd}
+                    disabled={quickAddSubmitting}
+                    style={{
+                      width: "100%", padding: "14px",
+                      background: quickAddSubmitting ? "rgba(79,184,163,0.3)" : "linear-gradient(135deg, rgba(79,184,163,0.8), rgba(79,184,163,0.5))",
+                      border: "none", borderRadius: 6,
+                      fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
+                      color: quickAddSubmitting ? "rgba(255,255,255,0.4)" : "#080808",
+                      cursor: quickAddSubmitting ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {quickAddSubmitting ? "Adding..." : "Add to Recruiting Queue"}
+                  </button>
+                </div>
+              ) : (
+                /* ── BULK CSV IMPORT ── */
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">Import a list of agent prospects via CSV. Supports up to 1,000 rows. Must include: First Name, Last Name, Phone.</p>
+                  <div
+                    style={{
+                      border: `2px dashed ${agentLeadDragOver ? "rgba(79,184,163,0.5)" : "rgba(255,255,255,0.1)"}`,
+                      borderRadius: 10, padding: "40px 20px", textAlign: "center",
+                      cursor: "pointer",
+                      background: agentLeadDragOver ? "rgba(79,184,163,0.04)" : "transparent",
+                      transition: "all 0.15s",
+                    }}
+                    onClick={() => agentLeadFileRef.current?.click()}
+                    onDragOver={(e) => { e.preventDefault(); setAgentLeadDragOver(true); }}
+                    onDragLeave={() => setAgentLeadDragOver(false)}
+                    onDrop={handleAgentLeadDrop}
+                  >
+                    <Upload style={{ margin: "0 auto 8px", color: agentLeadDragOver ? "#4fb8a3" : "rgba(255,255,255,0.3)" }} size={24} />
+                    <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)" }}>
+                      {agentLeadUploading
+                        ? (agentLeadRowCount ? `Importing ${agentLeadRowCount.toLocaleString()} prospects...` : "Importing...")
+                        : agentLeadDragOver ? "Drop CSV here" : "Click or drag a CSV file here"}
+                    </p>
+                    <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", marginTop: 4 }}>
+                      Columns: First Name, Last Name, Phone, Email, Current Brokerage, License Status, Territory, Notes
+                    </p>
+                  </div>
+                  <input ref={agentLeadFileRef} type="file" accept=".csv" className="hidden" onChange={handleAgentLeadUpload} />
+                  <div style={{
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                    borderRadius: 10, padding: 16,
+                  }}>
+                    <p className="text-xs font-semibold text-foreground/50 uppercase tracking-wider mb-2">Recognized Column Names</p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                      <span><span className="text-white/40">First Name</span> / firstName</span>
+                      <span><span className="text-white/40">Last Name</span> / lastName</span>
+                      <span><span className="text-white/40">Phone</span> / phone</span>
+                      <span><span className="text-white/40">Email</span> / email</span>
+                      <span><span className="text-white/40">Current Brokerage</span> / currentBrokerage</span>
+                      <span><span className="text-white/40">License Status</span> / licenseStatus</span>
+                      <span><span className="text-white/40">Territory</span> / territory</span>
+                      <span><span className="text-white/40">Notes</span> / notes</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+                    <TabsContent value="agents" className="mt-5 space-y-5">
 
             {/* Queue Management */}
             <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 16 }}>

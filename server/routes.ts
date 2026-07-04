@@ -2404,7 +2404,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.57",
+      version: "v11.58",
       services: results,
     });
   });
@@ -2596,6 +2596,65 @@ This template is for informational/outreach purposes only.`;
     }
 
     res.json({ ok: true, points });
+  });
+
+  // ── AGENT LEADS: MANUAL QUICK-ADD (admin) ──────────────────────────
+  app.post("/api/agent-leads/manual-add", (req: any, res) => {
+    const { firstName, lastName, phone, email, currentBrokerage, licenseStatus, territory, notes } = req.body;
+    if (!firstName || !lastName || !phone) {
+      return res.status(400).json({ error: "firstName, lastName, and phone are required" });
+    }
+    const now = new Date().toISOString();
+    const result = rawDb.prepare(`
+      INSERT INTO agent_leads
+        (first_name, last_name, email, phone, current_brokerage, license_status,
+         territory, applicant_notes, status, attempt_count, source, submitted_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', 0, 'manual_add', ?)
+    `).run(
+      firstName.trim(), lastName.trim(),
+      (email || "").trim(), phone.replace(/\D/g, ""),
+      (currentBrokerage || "").trim(), (licenseStatus || "").trim(),
+      (territory || "").trim(), (notes || "").trim(),
+      now
+    );
+    console.log(`[Agent Leads] Manual add: ${firstName} ${lastName} — id ${result.lastInsertRowid}`);
+    res.json({ ok: true, id: result.lastInsertRowid });
+  });
+
+  // ── AGENT LEADS: BULK CSV UPLOAD (admin) ────────────────────────
+  app.post("/api/agent-leads/bulk-upload", (req: any, res) => {
+    const { leads } = req.body;
+    if (!leads || !Array.isArray(leads)) {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+    const now = new Date().toISOString();
+    let created = 0;
+    let skipped = 0;
+    const insert = rawDb.prepare(`
+      INSERT INTO agent_leads
+        (first_name, last_name, email, phone, current_brokerage, license_status,
+         territory, applicant_notes, status, attempt_count, source, submitted_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', 0, 'bulk_import', ?)
+    `);
+    const insertMany = rawDb.transaction((rows: any[]) => {
+      for (const row of rows) {
+        const firstName = (row["First Name"] || row.firstName || row.first_name || "").trim();
+        const lastName  = (row["Last Name"]  || row.lastName  || row.last_name  || "").trim();
+        const phone     = (row.Phone || row.phone || row["Phone Number"] || "").replace(/\D/g, "");
+        const email     = (row.Email || row.email || "").trim();
+        const brokerage = (row["Current Brokerage"] || row.currentBrokerage || row.brokerage || "").trim();
+        const license   = (row["License Status"] || row.licenseStatus || row.license || "").trim();
+        const territory = (row.Territory || row.territory || "").trim();
+        const notes     = (row.Notes || row.notes || "").trim();
+
+        if (!firstName || !lastName || phone.length < 7) { skipped++; continue; }
+        insert.run(firstName, lastName, email, phone, brokerage, license, territory, notes, now);
+        created++;
+      }
+    });
+    insertMany(leads);
+    console.log(`[Agent Leads] Bulk import: ${created} created, ${skipped} skipped`);
+    res.json({ created, skipped });
   });
 
   return httpServer;

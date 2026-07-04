@@ -2352,7 +2352,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.48",
+      version: "v11.49",
       services: results,
     });
   });
@@ -2507,6 +2507,14 @@ This template is for informational/outreach purposes only.`;
 
     console.log(`[Agent Leads] New submission: ${firstName} ${lastName} (${email}) — id ${agentLeadId}`);
     res.json({ ok: true, id: agentLeadId });
+  });
+
+  // ── Recruiting landing page — must be registered in registerRoutes so it fires
+  // before the static middleware SPA fallback in serveStatic()
+  app.get("/join", (_req, res) => {
+    const distPath = path.resolve(__dirname, "public");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.sendFile(path.resolve(distPath, "join.html"));
   });
 
   return httpServer;

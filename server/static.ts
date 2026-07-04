@@ -65,10 +65,9 @@ export function serveStatic(app: Express) {
   }
 
   // ── Recruiting landing page — join.watsonbrothersgroup.com ───────────────
-  // Served at /join.html and also as the root for the join subdomain
+  // Served at /join and /join.html — redirect /join → /join.html so static middleware serves it
   app.get("/join", (_req, res) => {
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    res.sendFile(path.resolve(distPath, "join.html"));
+    res.redirect(301, "/join.html");
   });
 
   // ── SPA fallback ──────────────────────────────────────────────────────────

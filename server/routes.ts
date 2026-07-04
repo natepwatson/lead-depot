@@ -8,6 +8,7 @@ import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit } from "./fub";
 import { runLandvoicePipeline } from "./landvoice";
+import { runBatchLeadsPipeline } from "./batchleads";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -2405,7 +2406,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.62",
+      version: "v11.63",
       services: results,
     });
   });
@@ -2739,8 +2740,45 @@ This template is for informational/outreach purposes only.`;
     }
   });
 
-    // ─── LANDVOICE PIPELINE TRIGGER ─────────────────────────────────────────────
+    // ─── BATCHLEADS PIPELINE TRIGGER ──────────────────────────────────────────────
   // Called by daily 6am cron. Also callable manually by admins.
+  // Pulls leads saved to BatchLeads lists, scrubs, scores, and distributes.
+  app.post("/api/admin/batchleads-run", async (req: any, res) => {
+    try {
+      console.log("[BatchLeads] Manual/cron trigger received");
+      const stats = await runBatchLeadsPipeline(rawDb);
+
+      // After insert, trigger round-robin distribution for new unassigned leads
+      const newLeads = rawDb.prepare(
+        `SELECT * FROM leads WHERE status = 'unassigned' AND source = 'batchleads' AND created_at > datetime('now', '-1 hour')`
+      ).all() as any[];
+
+      let assigned = 0;
+      for (const lead of newLeads) {
+        try {
+          const nextAgent = storage.getNextAgentForRoundRobin();
+          if (nextAgent) {
+            storage.updateLead(lead.id, { status: "assigned", assignedAgentId: nextAgent.id });
+            assigned++;
+          }
+        } catch (e) {
+          // skip — will be redistributed by stale lead cron
+        }
+      }
+
+      res.json({
+        ok: true,
+        ...stats,
+        assigned,
+        message: `BatchLeads pipeline complete. ${stats.priority + stats.standard} leads inserted, ${assigned} assigned via round-robin.`,
+      });
+    } catch (err: any) {
+      console.error("[BatchLeads] Pipeline error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── LANDVOICE PIPELINE TRIGGER (legacy — keep for CSV fallback) ─────────────
   app.post("/api/admin/landvoice-run", async (req: any, res) => {
     try {
       console.log("[Landvoice] Manual/cron trigger received");

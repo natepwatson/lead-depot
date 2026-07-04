@@ -53,6 +53,10 @@ export const leads = sqliteTable("leads", {
   lMortgage: text("l_mortgage"),        // M - Mortgage (what do they owe?)
   lAppointment: text("l_appointment"),  // A - Appointment (are they available to meet?)
   lBuy: text("l_buy"),                  // B - Buyer (do they want to buy after selling?)
+  // Lead gen metadata
+  score: integer("score").default(0),          // Landvoice pipeline score (0–20+)
+  territory: text("territory"),                 // e.g. "jacksonville_west"
+  source: text("source").default("csv_upload"), // "landvoice" | "csv_upload" | "manual" | "website" | "network"
   // Upload metadata
   uploadedAt: text("uploaded_at").notNull().default(""),
   uploadedBy: integer("uploaded_by").references(() => agents.id),

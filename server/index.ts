@@ -19,6 +19,25 @@ declare module "http" {
   }
 }
 
+// ── CORS — allow KPI dashboard (hosted on pplx.app/sites) to call the API ──
+const CORS_ALLOWED = [
+  /\.pplx\.app$/,
+  /\.perplexity\.ai$/,
+  /^https?:\/\/localhost(:\d+)?$/,
+  /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+];
+app.use((req: any, res: any, next: any) => {
+  const origin = req.headers["origin"] || "";
+  if (CORS_ALLOWED.some(re => re.test(origin))) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Agent-Id, Authorization");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 // Compression first — before ALL routes including API, at level 1 (fast)
 app.use(compression({ level: 1, threshold: 1024 }));
 

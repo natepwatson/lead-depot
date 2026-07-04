@@ -196,3 +196,14 @@ for (const agent of allAgents) {
     rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${slug}.jpg`, agent.id);
   }
 }
+
+// v11.56 — leaderboard snapshots: permanent record of every period before reset
+rawDb.prepare(`
+  CREATE TABLE IF NOT EXISTS leaderboard_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_label TEXT NOT NULL,
+    reset_at TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`).run();

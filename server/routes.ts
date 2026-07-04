@@ -793,6 +793,24 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json(all);
   });
 
+  // ─── PAGINATED LEAD LIST (v11.56) — use for admin list view at scale ─────
+  app.get("/api/leads/paginated", (req: any, res: any) => {
+    const limit  = Math.min(parseInt(String(req.query.limit  || "50")), 200);
+    const offset = parseInt(String(req.query.offset || "0"));
+    const status = String(req.query.status || "all");
+    const search = String(req.query.search || "").trim();
+    const agentId = req.query.agentId ? parseInt(String(req.query.agentId)) : undefined;
+
+    const { rows, total } = storage.getLeadsPaginated({ status, agentId, search, limit, offset });
+
+    // Enrich with agent name
+    const allAgents = storage.getAllAgents();
+    const agentMap = Object.fromEntries(allAgents.map(a => [a.id, a.name]));
+    const enriched = rows.map(l => ({ ...l, assignedAgentName: l.assignedAgentId ? agentMap[l.assignedAgentId] || "Unknown" : null }));
+
+    res.json({ leads: enriched, total, limit, offset, hasMore: offset + limit < total });
+  });
+
   // Map endpoint — returns lightweight lead data for geocoding
   // ── Server-side geocoding helpers ────────────────────────────────────────
   function geoKey(addr: string) { return addr.toLowerCase().trim(); }
@@ -2085,16 +2103,63 @@ This template is for informational/outreach purposes only.`;
     res.json(result);
   });
 
-  // ─── LEADERBOARD RESET ────────────────────────────────────────────────────
-  app.post("/api/admin/leaderboard-reset", (req, res) => {
+  // ─── LEADERBOARD RESET (v11.56: snapshots scores before wiping) ──────────
+  app.post("/api/admin/leaderboard-reset", (req: any, res: any) => {
     const now = new Date().toISOString();
+
+    // 1. Capture current scores before reset
+    const prevResetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
+    const prevResetAt: string | null = prevResetRow?.value || null;
+
+    const allAgents = storage.getAllAgents();
+    const ptsRows = rawDb.prepare(
+      `SELECT agent_id, SUM(points) as total FROM agent_points ${prevResetAt ? "WHERE created_at >= ?" : ""} GROUP BY agent_id`
+    ).all(...(prevResetAt ? [prevResetAt] : [])) as any[];
+    const ptsMap: Record<number, number> = {};
+    for (const r of ptsRows) ptsMap[r.agent_id] = r.total || 0;
+
+    const snapshot = allAgents
+      .filter(a => a.isActive)
+      .map(a => ({ id: a.id, name: a.name, points: ptsMap[a.id] || 0 }))
+      .sort((a, b) => b.points - a.points);
+
+    // 2. Build a human-readable period label (e.g. "Jun 1 – Jul 3, 2026")
+    const startDate = prevResetAt ? new Date(prevResetAt) : null;
+    const endDate = new Date(now);
+    const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const periodLabel = startDate
+      ? `${fmt(startDate)} – ${fmt(endDate)}`
+      : `Through ${fmt(endDate)}`;
+
+    // 3. Save snapshot
+    rawDb.prepare(
+      `INSERT INTO leaderboard_snapshots (period_label, reset_at, snapshot_json, created_at) VALUES (?, ?, ?, ?)`
+    ).run(periodLabel, now, JSON.stringify(snapshot), now);
+
+    // 4. Update the reset timestamp (starts new period)
     rawDb.prepare(`INSERT INTO settings (key, value) VALUES ('leaderboard_reset_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(now);
-    res.json({ ok: true, resetAt: now });
+
+    res.json({ ok: true, resetAt: now, periodLabel, snapshot });
   });
 
   app.get("/api/admin/leaderboard-reset", (req, res) => {
     const row = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
     res.json({ resetAt: row?.value || null });
+  });
+
+  // ─── LEADERBOARD HISTORY (v11.56) ─────────────────────────────────────────
+  app.get("/api/admin/leaderboard-history", (_req, res) => {
+    const rows = rawDb.prepare(
+      `SELECT id, period_label, reset_at, snapshot_json, created_at FROM leaderboard_snapshots ORDER BY created_at DESC LIMIT 24`
+    ).all() as any[];
+    const history = rows.map(r => ({
+      id: r.id,
+      periodLabel: r.period_label,
+      resetAt: r.reset_at,
+      createdAt: r.created_at,
+      snapshot: JSON.parse(r.snapshot_json || "[]"),
+    }));
+    res.json(history);
   });
 
   // ─── AGENT-FACING LEADERBOARD (no admin-only data) ────────────────────────

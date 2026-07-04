@@ -801,6 +801,11 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [statusFilter, setStatusFilter] = useState("all");
   const [drilldownAgent, setDrilldownAgent] = useState<{ id: number; name: string } | null>(null);
 
+  // Paginated leads state (v11.56)
+  const [leadsPage, setLeadsPage] = useState(0);
+  const LEADS_PAGE_SIZE = 50;
+  const [lbHistoryOpen, setLbHistoryOpen] = useState(false);
+
   // Data queries
   const { data: stats } = useQuery({
     queryKey: ["/api/leads/stats"],
@@ -848,6 +853,39 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     queryKey: ["/api/admin/pipeline"],
     queryFn: () => apiRequest("GET", "/api/admin/pipeline").then(r => r.json()),
     refetchInterval: 15000,
+  });
+
+  // Paginated lead list query (v11.56) — replaces full pipeline load for All Leads tab
+  const paginatedLeadsQuery = useQuery<any>({
+    queryKey: ["/api/leads/paginated", statusFilter, searchTerm, leadsPage],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        limit: String(LEADS_PAGE_SIZE),
+        offset: String(leadsPage * LEADS_PAGE_SIZE),
+        status: statusFilter,
+        ...(searchTerm ? { search: searchTerm } : {}),
+      });
+      return apiRequest("GET", `/api/leads/paginated?${params}`).then(r => r.json());
+    },
+    keepPreviousData: true,
+  });
+
+  // Reset to page 0 when filters change
+  const prevStatusFilter = useRef(statusFilter);
+  const prevSearchTerm = useRef(searchTerm);
+  useEffect(() => {
+    if (prevStatusFilter.current !== statusFilter || prevSearchTerm.current !== searchTerm) {
+      setLeadsPage(0);
+      prevStatusFilter.current = statusFilter;
+      prevSearchTerm.current = searchTerm;
+    }
+  }, [statusFilter, searchTerm]);
+
+  // Leaderboard history (v11.56)
+  const { data: lbHistory = [] } = useQuery<any[]>({
+    queryKey: ["/api/admin/leaderboard-history"],
+    queryFn: () => apiRequest("GET", "/api/admin/leaderboard-history").then(r => r.json()),
+    enabled: lbHistoryOpen,
   });
 
   const { data: agents = [] } = useQuery<Agent[]>({
@@ -1609,81 +1647,125 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
           {/* ── ALL LEADS ───────────────────────────────────────────────────── */}
           <TabsContent value="leads" className="mt-5 space-y-3">
-            <div className="flex gap-2 flex-wrap items-center">
-              <Input
-                placeholder="Search address, name, phone…"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="max-w-xs bg-secondary border-border text-sm"
-                data-testid="input-search"
-              />
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-44 bg-secondary border-border text-sm" data-testid="select-status-filter">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="unassigned">Unassigned</SelectItem>
-                  <SelectItem value="assigned">Assigned</SelectItem>
-                  <SelectItem value="no_answer">No Answer</SelectItem>
-                  <SelectItem value="keep_in_touch">Keep in Touch</SelectItem>
-                  <SelectItem value="callback_requested">Callback</SelectItem>
-                  <SelectItem value="contacted_appointment">Appt Set</SelectItem>
-                  <SelectItem value="contacted_not_interested">Not Interested</SelectItem>
-                  <SelectItem value="wrong_number">Wrong #</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["/api/admin/pipeline"] })} className="gap-1 text-xs border-border">
-                <RefreshCw size={11}/> Refresh
-              </Button>
-              <span className="text-xs text-muted-foreground">{filteredLeads.length} leads</span>
-            </div>
-
-            {pipelineLoading ? (
-              <div className="space-y-2">{Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)}</div>
-            ) : filteredLeads.length === 0 ? (
-              <div style={{
-                padding: "48px 20px", textAlign: "center",
-                border: "1px dashed rgba(200,170,90,0.1)",
-                borderRadius: 12, color: "rgba(255,255,255,0.3)", fontSize: 13,
-              }}>
-                No leads found.
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {filteredLeads.map((lead: any) => (
-                  <div
-                    key={lead.id}
-                    style={{
-                      background: "rgba(255,255,255,0.02)",
-                      border: "1px solid rgba(255,255,255,0.07)",
-                      borderRadius: 8, padding: "12px 16px",
-                      display: "flex", alignItems: "center", gap: 12,
-                      cursor: "pointer",
-                      transition: "border-color 0.15s",
-                    }}
-                    onClick={() => setSelectedLead(lead)}
-                    data-testid={`row-lead-${lead.id}`}
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(200,170,90,0.2)")}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.07)")}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                        <TypeBadge type={lead.leadType} />
-                        <StatusBadge status={lead.status} />
-                        {lead.attemptCount > 0 && <span className="text-xs text-muted-foreground">{lead.attemptCount} attempt{lead.attemptCount !== 1 ? "s" : ""}</span>}
-                      </div>
-                      <p className="text-sm font-medium text-foreground truncate">{lead.ownerName || "—"}</p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={10}/>{lead.address}</p>
-                    </div>
-                    <div className="hidden md:flex flex-col items-end gap-1 text-xs text-muted-foreground shrink-0">
-                      {lead.phone && <span className="flex items-center gap-1"><Phone size={10}/>{lead.phone}</span>}
-                      {lead.assignedAgentName && <span className="text-foreground/60">{lead.assignedAgentName}</span>}
-                    </div>
+            {/* ── Paginated All Leads (v11.56) ── */}
+            {(() => {
+              const plData = paginatedLeadsQuery.data;
+              const plLeads: any[] = plData?.leads || [];
+              const plTotal: number = plData?.total || 0;
+              const plHasMore: boolean = plData?.hasMore || false;
+              const plLoading = paginatedLeadsQuery.isLoading;
+              const totalPages = Math.ceil(plTotal / LEADS_PAGE_SIZE);
+              return (
+                <>
+                  <div className="flex gap-2 flex-wrap items-center">
+                    <Input
+                      placeholder="Search address, name, phone…"
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="max-w-xs bg-secondary border-border text-sm"
+                      data-testid="input-search"
+                    />
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger className="w-44 bg-secondary border-border text-sm" data-testid="select-status-filter">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="unassigned">Unassigned</SelectItem>
+                        <SelectItem value="assigned">Assigned</SelectItem>
+                        <SelectItem value="no_answer">No Answer</SelectItem>
+                        <SelectItem value="keep_in_touch">Keep in Touch</SelectItem>
+                        <SelectItem value="callback_requested">Callback</SelectItem>
+                        <SelectItem value="contacted_appointment">Appt Set</SelectItem>
+                        <SelectItem value="contacted_not_interested">Not Interested</SelectItem>
+                        <SelectItem value="wrong_number">Wrong #</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button variant="outline" size="sm"
+                      onClick={() => qc.invalidateQueries({ queryKey: ["/api/leads/paginated"] })}
+                      className="gap-1 text-xs border-border">
+                      <RefreshCw size={11}/> Refresh
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {plTotal > 0 ? `${plTotal.toLocaleString()} total` : "0 leads"}
+                      {totalPages > 1 ? ` · page ${leadsPage + 1} of ${totalPages}` : ""}
+                    </span>
                   </div>
-                ))}
-              </div>
-            )}
+
+                  {plLoading ? (
+                    <div className="space-y-2">{Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)}</div>
+                  ) : plLeads.length === 0 ? (
+                    <div style={{
+                      padding: "48px 20px", textAlign: "center",
+                      border: "1px dashed rgba(200,170,90,0.1)",
+                      borderRadius: 12, color: "rgba(255,255,255,0.3)", fontSize: 13,
+                    }}>
+                      No leads found.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {plLeads.map((lead: any) => (
+                        <div
+                          key={lead.id}
+                          style={{
+                            background: "rgba(255,255,255,0.02)",
+                            border: "1px solid rgba(255,255,255,0.07)",
+                            borderRadius: 8, padding: "12px 16px",
+                            display: "flex", alignItems: "center", gap: 12,
+                            cursor: "pointer", transition: "border-color 0.15s",
+                          }}
+                          onClick={() => setSelectedLead(lead)}
+                          data-testid={`row-lead-${lead.id}`}
+                          onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(200,170,90,0.2)")}
+                          onMouseLeave={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.07)")}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                              <TypeBadge type={lead.leadType} />
+                              <StatusBadge status={lead.status} />
+                              {lead.attemptCount > 0 && <span className="text-xs text-muted-foreground">{lead.attemptCount} attempt{lead.attemptCount !== 1 ? "s" : ""}</span>}
+                            </div>
+                            <p className="text-sm font-medium text-foreground truncate">{lead.ownerName || "—"}</p>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={10}/>{lead.address}</p>
+                          </div>
+                          <div className="hidden md:flex flex-col items-end gap-1 text-xs text-muted-foreground shrink-0">
+                            {lead.phone && <span className="flex items-center gap-1"><Phone size={10}/>{lead.phone}</span>}
+                            {lead.assignedAgentName && <span className="text-foreground/60">{lead.assignedAgentName}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Pagination controls */}
+                  {totalPages > 1 && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, paddingTop: 8 }}>
+                      <button
+                        onClick={() => setLeadsPage(p => Math.max(0, p - 1))}
+                        disabled={leadsPage === 0}
+                        style={{
+                          padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                          background: leadsPage === 0 ? "rgba(255,255,255,0.04)" : "rgba(200,170,90,0.12)",
+                          border: "1px solid rgba(200,170,90,0.2)", color: leadsPage === 0 ? "rgba(255,255,255,0.2)" : "#c8aa5a",
+                          cursor: leadsPage === 0 ? "not-allowed" : "pointer",
+                        }}
+                      >‹ Prev</button>
+                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{leadsPage + 1} / {totalPages}</span>
+                      <button
+                        onClick={() => setLeadsPage(p => p + 1)}
+                        disabled={!plHasMore}
+                        style={{
+                          padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                          background: !plHasMore ? "rgba(255,255,255,0.04)" : "rgba(200,170,90,0.12)",
+                          border: "1px solid rgba(200,170,90,0.2)", color: !plHasMore ? "rgba(255,255,255,0.2)" : "#c8aa5a",
+                          cursor: !plHasMore ? "not-allowed" : "pointer",
+                        }}
+                      >Next ›</button>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </TabsContent>
 
           {/* ── LEAD MODAL ──────────────────────────────────────────────────── */}

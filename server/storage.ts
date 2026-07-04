@@ -283,6 +283,70 @@ export class Storage implements IStorage {
     return db.select().from(leads).orderBy(desc(leads.uploadedAt)).all();
   }
 
+  // Paginated + filtered lead query — use this for all admin list views at scale
+  getLeadsPaginated(opts: {
+    status?: string;
+    agentId?: number;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): { rows: Lead[]; total: number } {
+    const limit = opts.limit ?? 50;
+    const offset = opts.offset ?? 0;
+
+    // Build conditions with raw SQL for flexibility
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (opts.status && opts.status !== "all") {
+      conditions.push("status = ?");
+      params.push(opts.status);
+    }
+    if (opts.agentId) {
+      conditions.push("assigned_agent_id = ?");
+      params.push(opts.agentId);
+    }
+    if (opts.search) {
+      const s = `%${opts.search.toLowerCase()}%`;
+      conditions.push("(LOWER(address) LIKE ? OR LOWER(owner_name) LIKE ? OR phone LIKE ?)");
+      params.push(s, s, s);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const countRow = sqlite.prepare(`SELECT COUNT(*) as n FROM leads ${where}`).get(...params) as any;
+    const rows = sqlite.prepare(`SELECT * FROM leads ${where} ORDER BY uploaded_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset) as any[];
+
+    // Map snake_case DB columns to camelCase Lead shape
+    const mapped: Lead[] = rows.map((r: any) => ({
+      id: r.id,
+      ownerName: r.owner_name,
+      address: r.address,
+      phone: r.phone,
+      phones: r.phones,
+      phoneStates: r.phone_states,
+      email: r.email,
+      leadType: r.lead_type,
+      status: r.status,
+      motivation: r.motivation,
+      extraData: r.extra_data,
+      assignedAgentId: r.assigned_agent_id,
+      attemptCount: r.attempt_count,
+      callbackDate: r.callback_date,
+      uploadedAt: r.uploaded_at,
+      uploadedBy: r.uploaded_by,
+      batchId: r.batch_id,
+      lLocation: r.l_location,
+      lPricePaid: r.l_price_paid,
+      lMotivation: r.l_motivation,
+      lAgentHistory: r.l_agent_history,
+      lMortgage: r.l_mortgage,
+      lAppointment: r.l_appointment,
+      lBuy: r.l_buy,
+    }));
+
+    return { rows: mapped, total: countRow?.n ?? 0 };
+  }
+
   getLeadsByStatus(status: string): Lead[] {
     return db.select().from(leads).where(eq(leads.status, status)).all();
   }

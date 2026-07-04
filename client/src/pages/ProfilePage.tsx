@@ -135,11 +135,25 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
 
   // ── Upload headshot ───────────────────────────────────────────────────────
   const handleHeadshot = async (file: File) => {
-    if (!file.type.startsWith("image/")) {
+    if (!file.type.startsWith("image/") && !file.name.toLowerCase().match(/\.(heic|heif)$/)) {
       toast({ title: "Please select an image file", variant: "destructive" }); return;
     }
     setUploading(true);
     try {
+      // Convert HEIC/HEIF (iPhone native format) to JPEG before uploading
+      let processedFile: File | Blob = file;
+      if (file.type === "image/heic" || file.type === "image/heif" || file.name.toLowerCase().match(/\.(heic|heif)$/)) {
+        try {
+          const heic2any = (await import("heic2any")).default;
+          const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.88 });
+          processedFile = Array.isArray(converted) ? converted[0] : converted;
+        } catch {
+          toast({ title: "Could not convert iPhone photo. Please export as JPEG from your Photos app.", variant: "destructive" });
+          setUploading(false);
+          return;
+        }
+      }
+
       const reader = new FileReader();
       reader.onload = async (e) => {
         const dataUrl = e.target?.result as string;
@@ -157,7 +171,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
         }
         setUploading(false);
       };
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(processedFile);
     } catch {
       toast({ title: "Upload failed", variant: "destructive" });
       setUploading(false);
@@ -289,7 +303,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
               <Camera size={20} style={{ color: "#c8aa5a" }} />
             </div>
           </div>
-          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
+          <input ref={fileRef} type="file" accept="image/*,.heic,.heif" style={{ display: "none" }}
             onChange={e => { const f = e.target.files?.[0]; if (f) handleHeadshot(f); e.target.value = ""; }}
           />
           <button onClick={() => fileRef.current?.click()}

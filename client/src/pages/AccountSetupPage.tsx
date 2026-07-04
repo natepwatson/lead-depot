@@ -151,21 +151,30 @@ export default function AccountSetupPage() {
   const pwStr = strength(pw);
   const step0Valid = pw.length >= 8 && pw === pw2;
 
-  function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Convert HEIC/HEIF (iPhone native format) to JPEG before reading
+    let processedFile: File | Blob = file;
+    if (file.type === "image/heic" || file.type === "image/heif" || file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif")) {
+      try {
+        const heic2any = (await import("heic2any")).default;
+        const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.88 });
+        processedFile = Array.isArray(converted) ? converted[0] : converted;
+      } catch {
+        alert("Could not convert iPhone photo. Please export as JPEG from your Photos app and try again.");
+        return;
+      }
+    }
+
     const reader = new FileReader();
     reader.onload = ev => {
       const result = ev.target?.result as string;
-      // Enforce ~200KB limit
-      if (result.length > 270000) {
-        alert("Please choose an image smaller than 200 KB.");
-        return;
-      }
       setHeadshotB64(result);
       setHeadshotPreview(result);
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(processedFile);
   }
 
   async function finish() {
@@ -395,9 +404,9 @@ export default function AccountSetupPage() {
             >
               {headshotPreview ? "Change photo" : "Upload a photo"}
             </button>
-            <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, margin: "3px 0 0" }}>Max 200 KB · JPG or PNG</p>
+            <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, margin: "3px 0 0" }}>JPG, PNG, or iPhone photo</p>
           </div>
-          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: "none" }} onChange={handlePhoto} />
+          <input ref={fileRef} type="file" accept="image/*,.heic,.heif" style={{ display: "none" }} onChange={handlePhoto} />
         </div>
 
         {/* Phone */}

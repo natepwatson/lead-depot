@@ -702,22 +702,45 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     try {
       const sharp = require("sharp");
       const inputBuf = Buffer.from(imageData, "base64");
-      const meta = await sharp(inputBuf).metadata();
+      // Auto-rotate first so dimensions are post-EXIF-rotation
+      const rotated = await sharp(inputBuf).rotate().toBuffer();
+      const meta = await sharp(rotated).metadata();
       const w = meta.width ?? 800;
       const h = meta.height ?? 800;
 
-      // Simple face-region heuristic: crop upper-center 70% of height, centered horizontally
-      // This reliably catches faces across portrait/landscape/square shots without native face detection
-      const cropW = Math.min(w, h);
-      const cropH = Math.min(w, h);
-      const left = Math.max(0, Math.round((w - cropW) / 2));
-      // Bias crop toward top 55% of image (where faces live)
-      const topBias = Math.round(h * 0.08);
-      const top = Math.max(0, Math.min(topBias, h - cropH));
+      // Smart face-region crop:
+      // Portrait (h > w): take upper 75% vertically, full width — face is usually centered top
+      // Landscape (w > h): take center-left 60% of width as a square — face usually left/center
+      // Square: take upper-center square biased 10% from top
+      let left: number, top: number, cropW: number, cropH: number;
+      if (h > w) {
+        // Portrait — full width, upper 75%
+        cropW = w;
+        cropH = Math.round(Math.min(w, h * 0.75));
+        left = 0;
+        top = Math.round(h * 0.04); // slight top bias
+      } else if (w > h * 1.3) {
+        // Wide landscape — extract a square from upper-center
+        cropW = h;
+        cropH = h;
+        left = Math.max(0, Math.round((w - cropW) / 2)); // horizontal center
+        top = Math.round(h * 0.04);
+      } else {
+        // Near-square — standard upper-center crop
+        cropW = Math.min(w, h);
+        cropH = Math.min(w, h);
+        left = Math.max(0, Math.round((w - cropW) / 2));
+        top = Math.max(0, Math.round(h * 0.08));
+      }
 
-      const processed = await sharp(inputBuf)
-        .rotate() // auto-rotate from EXIF
-        .extract({ left, top, width: Math.min(cropW, w - left), height: Math.min(cropH, h - top) })
+      // Clamp to image bounds
+      left = Math.min(left, Math.max(0, w - cropW));
+      top = Math.min(top, Math.max(0, h - cropH));
+      cropW = Math.min(cropW, w - left);
+      cropH = Math.min(cropH, h - top);
+
+      const processed = await sharp(rotated)
+        .extract({ left, top, width: cropW, height: cropH })
         .resize(400, 400, { fit: "cover", position: "top" })
         .jpeg({ quality: 88, progressive: true })
         .toBuffer();
@@ -2816,7 +2839,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v12.1",
+      version: "v12.2",
       services: results,
     });
   });

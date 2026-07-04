@@ -22,15 +22,29 @@ export default function HeadshotGate({ userId, userName, onComplete }: HeadshotG
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState(false);
 
-  const handleFile = (file: File) => {
-    if (!file.type.startsWith("image/")) {
+  const handleFile = async (file: File) => {
+    if (!file.type.startsWith("image/") && !file.name.toLowerCase().match(/\.(heic|heif)$/)) {
       toast({ title: "Please select an image file", variant: "destructive" }); return;
     }
+
+    // Convert HEIC/HEIF (iPhone native format) to JPEG
+    let processedFile: File | Blob = file;
+    if (file.type === "image/heic" || file.type === "image/heif" || file.name.toLowerCase().match(/\.(heic|heif)$/)) {
+      try {
+        const heic2any = (await import("heic2any")).default;
+        const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.88 });
+        processedFile = Array.isArray(converted) ? converted[0] : converted;
+      } catch {
+        toast({ title: "Could not convert iPhone photo. Please export as JPEG from your Photos app.", variant: "destructive" });
+        return;
+      }
+    }
+
     const reader = new FileReader();
     reader.onload = (e) => {
       setPreview(e.target?.result as string);
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(processedFile);
   };
 
   const handleUpload = async () => {
@@ -160,7 +174,7 @@ export default function HeadshotGate({ userId, userName, onComplete }: HeadshotG
             <input
               ref={fileRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.heic,.heif"
               capture="user"
               style={{ display: "none" }}
               onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }}

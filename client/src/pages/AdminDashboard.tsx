@@ -976,12 +976,13 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
   // v12.5 — Territories with open/closed state. Drives the two-slot picker
   // (disable closed options) and the Territory Management panel below.
-  const { data: territoriesData } = useQuery<{ territories: { name: string; isOpen: boolean }[] }>({
+  // v12.5 — /api/territories returns a plain array (not { territories: [...] })
+  const { data: territoriesData } = useQuery<{ key: string; name: string; isOpen: boolean; leadCount: number }[]>({
     queryKey: ["/api/territories"],
     queryFn: () => apiRequest("GET", "/api/territories").then(r => r.json()),
     refetchInterval: 60000,
   });
-  const allTerritories = territoriesData?.territories || [];
+  const allTerritories = Array.isArray(territoriesData) ? territoriesData : [];
   const openTerritoryNames = allTerritories.filter(t => t.isOpen).map(t => t.name);
 
   // v12.5 — Get Leads Now / Hard Reset helpers
@@ -1395,7 +1396,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v12.8
+              v12.9
             </p>
           </div>
         </div>

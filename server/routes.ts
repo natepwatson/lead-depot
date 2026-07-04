@@ -156,6 +156,108 @@ async function sendCrmReport(opts: {
   });
 }
 
+// ─── APPOINTMENT ALERT ──────────────────────────────────────────────────────────────────────
+// Fires immediately when any agent logs an appointment (seller or recruiting)
+async function sendAppointmentAlert(opts: {
+  type: "seller" | "recruiting";
+  agentName: string;
+  clientName: string;
+  clientPhone?: string;
+  address?: string;       // seller leads
+  brokerage?: string;     // recruiting leads
+  territory?: string;     // recruiting leads
+  apptDate?: string;
+  apptTime?: string;
+  notes?: string;
+}) {
+  if (!resend) return;
+  const isSeller = opts.type === "seller";
+  const subject = isSeller
+    ? `🏠 Appointment Set — ${opts.clientName} | ${opts.address || "Address TBD"}`
+    : `🎯 Recruiting Appointment — ${opts.clientName} | ${opts.brokerage || "Brokerage TBD"}`;
+
+  const html = `
+<!DOCTYPE html><html>
+<body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+<div style="max-width:560px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid #2a2520">
+  <div style="background:linear-gradient(135deg,${isSeller ? '#c8aa5a 0%,#a8893a' : '#4fb8a3 0%,#2a8a7a'} 100%);padding:24px 28px">
+    <p style="margin:0 0 4px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:${isSeller ? '#5a3e00' : '#003a33'};font-weight:700">
+      ${isSeller ? 'Seller Lead' : 'Recruiting Lead'} — Appointment Alert
+    </p>
+    <h1 style="margin:0;font-size:20px;color:#080808;font-weight:700">${opts.clientName}</h1>
+    <p style="margin:6px 0 0;font-size:13px;color:${isSeller ? '#3a2800' : '#003a33'}">Booked by ${opts.agentName}</p>
+  </div>
+  <div style="padding:24px 28px">
+    <table style="width:100%;border-collapse:collapse">
+      ${isSeller ? `<tr><td style="padding:8px 0;color:#c8aa5a;font-size:11px;text-transform:uppercase;letter-spacing:.1em;width:140px">Address</td><td style="padding:8px 0;font-size:14px;color:#f0f0f0">${opts.address || '—'}</td></tr>` : ''}
+      ${!isSeller ? `<tr><td style="padding:8px 0;color:#4fb8a3;font-size:11px;text-transform:uppercase;letter-spacing:.1em;width:140px">Brokerage</td><td style="padding:8px 0;font-size:14px;color:#f0f0f0">${opts.brokerage || '—'}</td></tr>` : ''}
+      ${!isSeller && opts.territory ? `<tr><td style="padding:8px 0;color:#4fb8a3;font-size:11px;text-transform:uppercase;letter-spacing:.1em">Territory</td><td style="padding:8px 0;font-size:14px;color:#f0f0f0">${opts.territory}</td></tr>` : ''}
+      ${opts.clientPhone ? `<tr><td style="padding:8px 0;color:${isSeller ? '#c8aa5a' : '#4fb8a3'};font-size:11px;text-transform:uppercase;letter-spacing:.1em">Phone</td><td style="padding:8px 0;font-size:14px;color:#f0f0f0">${opts.clientPhone}</td></tr>` : ''}
+      ${opts.apptDate ? `<tr><td style="padding:8px 0;color:${isSeller ? '#c8aa5a' : '#4fb8a3'};font-size:11px;text-transform:uppercase;letter-spacing:.1em">Date</td><td style="padding:8px 0;font-size:14px;color:#f0f0f0">${opts.apptDate}${opts.apptTime ? ' at ' + opts.apptTime : ''}</td></tr>` : ''}
+      ${opts.notes ? `<tr><td style="padding:8px 0;color:${isSeller ? '#c8aa5a' : '#4fb8a3'};font-size:11px;text-transform:uppercase;letter-spacing:.1em">Notes</td><td style="padding:8px 0;font-size:14px;color:#f0f0f0">${opts.notes}</td></tr>` : ''}
+    </table>
+    <div style="margin-top:20px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.08);font-size:13px;color:rgba(255,255,255,0.6)">
+      📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
+    </div>
+  </div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v11.80 — Brothers Group · Momentum Realty</div>
+</div></body></html>`;
+
+  await resend.emails.send({
+    from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+    to:   ["alex@watsonbrothersgroup.com"],
+    cc:   ["nate@watsonbrothersgroup.com"],
+    subject,
+    html,
+  });
+}
+
+// ─── QUEUE DEPTH ALERT ──────────────────────────────────────────────────────────────────────
+// Fires when active seller lead queue drops to or below LOW_QUEUE_THRESHOLD per active agent
+const LOW_QUEUE_THRESHOLD = 5; // leads per active agent
+async function checkQueueDepthAlert(rawDb: any) {
+  if (!resend) return;
+  try {
+    const activeLeads = (rawDb.prepare(`SELECT COUNT(*) as n FROM leads WHERE status NOT IN ('retired','contacted_not_interested','contacted_appointment','keep_in_touch','wrong_number')`).get() as any)?.n ?? 0;
+    const activeAgents = (rawDb.prepare(`SELECT COUNT(*) as n FROM agents WHERE is_active = 1 AND receive_leads = 1 AND lead_flow_on = 1`).get() as any)?.n ?? 1;
+    const perAgent = Math.floor(activeLeads / Math.max(activeAgents, 1));
+    if (perAgent > LOW_QUEUE_THRESHOLD) return; // queue is healthy
+
+    // Rate-limit: only send once per 6 hours (track in app_settings)
+    const lastAlert = (rawDb.prepare(`SELECT value FROM app_settings WHERE key = 'queue_depth_alert_sent_at'`).get() as any)?.value;
+    if (lastAlert) {
+      const elapsed = Date.now() - new Date(lastAlert).getTime();
+      if (elapsed < 6 * 60 * 60 * 1000) return; // sent within last 6h
+    }
+    rawDb.prepare(`INSERT INTO app_settings (key, value) VALUES ('queue_depth_alert_sent_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(new Date().toISOString());
+
+    await resend.emails.send({
+      from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+      to:   ["alex@watsonbrothersgroup.com"],
+      subject: `⚠️ Lead Depot — Seller Queue Running Low (${activeLeads} leads, ~${perAgent}/agent)`,
+      html: `
+<!DOCTYPE html><html><body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+<div style="max-width:500px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid #2a2520">
+  <div style="background:linear-gradient(135deg,#92400e,#78350f);padding:22px 26px">
+    <h1 style="margin:0;font-size:18px;color:#fbbf24;font-weight:700">⚠️ Seller Queue Running Low</h1>
+    <p style="margin:6px 0 0;font-size:13px;color:#a16207">Lead Depot — Action Required</p>
+  </div>
+  <div style="padding:22px 26px">
+    <p style="font-size:15px;color:#f0f0f0;margin:0 0 16px">
+      The active seller lead queue has dropped to <strong style="color:#fbbf24">${activeLeads} leads</strong> across ${activeAgents} active agents (~${perAgent} per agent).
+    </p>
+    <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
+    <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
+  </div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v11.80 — Brothers Group · Momentum Realty</div>
+</div></body></html>`,
+    });
+    console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
+  } catch (err: any) {
+    console.error("[QueueAlert] Error:", err.message);
+  }
+}
+
 // Works in both ESM (tsx dev) and CJS (esbuild production bundle)
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
 
@@ -1375,6 +1477,20 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         apptTime:         apptTime || undefined,
         apptEmail:        apptEmail || undefined,
       }).catch(err => console.error("CRM report email failed:", err));
+
+      // ── Appointment Alert — instant ping to Alex/Nate for appt outcomes only
+      if (outcome === "contacted_appointment") {
+        sendAppointmentAlert({
+          type:       "seller",
+          agentName:  agent?.name || "Unknown Agent",
+          clientName: lead.ownerName || "Unknown Client",
+          clientPhone: lead.phone || undefined,
+          address:    confirmedAddress || lead.address || undefined,
+          apptDate:   apptDate || undefined,
+          apptTime:   apptTime || undefined,
+          notes:      notes || undefined,
+        }).catch(err => console.error("Appointment alert email failed:", err));
+      }
     }
 
     // ── FUB Integration — push outcome to Follow Up Boss (v11.40) ────────────
@@ -2600,10 +2716,13 @@ This template is for informational/outreach purposes only.`;
     const allOk = Object.values(results).every(r => r.ok);
     const criticalOk = results.database.ok && results.resend.ok;
 
+    // Fire-and-forget queue depth alert check
+    checkQueueDepthAlert(rawDb).catch(() => {});
+
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.80",
+      version: "v11.81",
       services: results,
     });
   });
@@ -2853,6 +2972,21 @@ This template is for informational/outreach purposes only.`;
     if (callerId && points > 0) {
       rawDb.prepare(`INSERT INTO agent_points (agent_id, points, reason, lead_id, created_at) VALUES (?, ?, ?, ?, ?)`)
         .run(callerId, points, `recruit_${outcome}`, id, new Date().toISOString());
+    }
+
+    // ── Appointment Alert — fire instantly when a recruiting appointment is set
+    if (outcome === "appointment") {
+      const agentLead = rawDb.prepare(`SELECT * FROM agent_leads WHERE id = ?`).get(id) as any;
+      const callerAgent = callerId ? rawDb.prepare(`SELECT name FROM agents WHERE id = ?`).get(callerId) as any : null;
+      sendAppointmentAlert({
+        type:        "recruiting",
+        agentName:   callerAgent?.name || "Unknown Agent",
+        clientName:  agentLead ? `${agentLead.first_name} ${agentLead.last_name}` : "Unknown",
+        clientPhone: agentLead?.phone || undefined,
+        brokerage:   agentLead?.current_brokerage || undefined,
+        territory:   agentLead?.territory || agentLead?.matched_territory || undefined,
+        notes:       notes || undefined,
+      }).catch(err => console.error("Recruiting appointment alert failed:", err));
     }
 
     res.json({ ok: true, points, status: newStatus, reactivateAt });

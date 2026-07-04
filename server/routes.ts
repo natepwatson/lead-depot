@@ -1442,56 +1442,72 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         (a.role === "admin" && a.receiveLeads)
       )
     );
-    const allLeads = storage.getAllLeads();
-    const allActivities = (() => {
-      const acts: any[] = [];
-      for (const lead of allLeads) {
-        const la = storage.getActivitiesForLead(lead.id);
-        // Filter activities after reset date if set
-        acts.push(...(resetAt ? la.filter((a: any) => a.createdAt > resetAt) : la));
-      }
-      return acts;
-    })();
+
+    // ── Use SQL aggregation instead of in-memory iteration (scales to 1000s of leads) ──
+    const resetFilter = resetAt ? `AND la.created_at > '${resetAt.replace(/'/g, "''")}' ` : "";
+
+    // Per-agent outcome counts via GROUP BY
+    const outcomeCounts: any[] = rawDb.prepare(`
+      SELECT la.agent_id,
+        la.outcome,
+        COUNT(*) as cnt,
+        MAX(la.created_at) as latest_at
+      FROM lead_activity la
+      WHERE la.agent_id IS NOT NULL ${resetFilter}
+      GROUP BY la.agent_id, la.outcome
+    `).all();
+
+    // Per-agent lead counts
+    const leadCounts: any[] = rawDb.prepare(`
+      SELECT assigned_agent_id as agent_id,
+        COUNT(*) as total,
+        SUM(CASE WHEN status IN ('assigned','no_answer','keep_in_touch','callback_requested') THEN 1 ELSE 0 END) as active
+      FROM leads
+      WHERE assigned_agent_id IS NOT NULL
+      GROUP BY assigned_agent_id
+    `).all();
+    const leadCountMap: Record<number, { total: number; active: number }> = {};
+    for (const r of leadCounts) leadCountMap[r.agent_id] = { total: r.total, active: r.active };
+
+    // Network leads per agent (uploaded_by, extra_data contains source:network)
+    const networkLeadRows: any[] = rawDb.prepare(
+      `SELECT uploaded_by, COUNT(*) as cnt FROM leads WHERE uploaded_by IS NOT NULL AND extra_data LIKE '%"source":"network"%' GROUP BY uploaded_by`
+    ).all();
+    const networkMap: Record<number, number> = {};
+    for (const r of networkLeadRows) networkMap[r.uploaded_by] = r.cnt;
 
     const stats = allAgents.map(agent => {
-      const agentLeads = allLeads.filter(l => l.assignedAgentId === agent.id);
-      const agentActs = allActivities.filter(a => a.agentId === agent.id);
+      const myOutcomes = outcomeCounts.filter((r: any) => r.agent_id === agent.id);
+      const getCount = (outcome: string) => myOutcomes.find((r: any) => r.outcome === outcome)?.cnt ?? 0;
 
       const outcomes = {
-        contacted_appointment: agentActs.filter(a => a.outcome === "contacted_appointment").length,
-        contacted_not_interested: agentActs.filter(a => a.outcome === "contacted_not_interested").length,
-        no_answer: agentActs.filter(a => a.outcome === "no_answer").length,
-        keep_in_touch: agentActs.filter(a => a.outcome === "keep_in_touch").length,
-        callback_requested: agentActs.filter(a => a.outcome === "callback_requested").length,
-        wrong_number: agentActs.filter(a => a.outcome === "wrong_number").length,
+        contacted_appointment:     getCount("contacted_appointment"),
+        contacted_not_interested:  getCount("contacted_not_interested"),
+        no_answer:                 getCount("no_answer"),
+        keep_in_touch:             getCount("keep_in_touch"),
+        callback_requested:        getCount("callback_requested"),
+        wrong_number:              getCount("wrong_number"),
       };
-
-      const emailsSent = agentActs.filter(a => a.outcome === "email_sent").length;
-      // Exclude email_sent from call attempt count
-      const totalAttempts = agentActs.filter(a => a.outcome !== "email_sent").length;
+      const emailsSent = getCount("email_sent");
+      const totalAttempts = myOutcomes
+        .filter((r: any) => r.outcome !== "email_sent")
+        .reduce((s: number, r: any) => s + r.cnt, 0);
       const contactRate = totalAttempts > 0
         ? Math.round(((outcomes.contacted_appointment + outcomes.contacted_not_interested + outcomes.keep_in_touch) / totalAttempts) * 100)
         : 0;
-
-      // Network leads = leads this agent personally submitted (source = "network", uploadedBy = agent.id)
-      const networkLeads = allLeads.filter(l => {
-        if (l.uploadedBy !== agent.id) return false;
-        try { const x = JSON.parse(l.extraData || "{}"); return x.source === "network"; } catch { return false; }
-      }).length;
-
-      // Last activity timestamp for this agent (most recent activity entry)
-      const lastActivityAt = agentActs.length > 0
-        ? agentActs.reduce((latest: string, a: any) => a.createdAt > latest ? a.createdAt : latest, agentActs[0].createdAt)
+      const lastActivityAt = myOutcomes.length > 0
+        ? myOutcomes.reduce((latest: string, r: any) => (r.latest_at || "") > latest ? r.latest_at : latest, "")
         : null;
+      const lc = leadCountMap[agent.id] || { total: 0, active: 0 };
 
       return {
         agent: { id: agent.id, name: agent.name, email: agent.email },
-        leadsReceived: agentLeads.length,
-        activeLeads: agentLeads.filter(l => ["assigned","no_answer","keep_in_touch","callback_requested"].includes(l.status)).length,
+        leadsReceived: lc.total,
+        activeLeads: lc.active,
         appointmentsSet: outcomes.contacted_appointment,
         totalAttempts,
         emailsSent,
-        networkLeads,
+        networkLeads: networkMap[agent.id] ?? 0,
         contactRate,
         outcomes,
         lastActivityAt,
@@ -2427,7 +2443,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.66",
+      version: "v11.67",
       services: results,
     });
   });

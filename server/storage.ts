@@ -470,14 +470,24 @@ export class Storage implements IStorage {
   }
 
   getAdminStats() {
-    const all = db.select().from(leads).all();
+    // Use SQL aggregation — much faster with 1000s of leads than loading all rows
+    const row: any = sqlite.prepare(`
+      SELECT
+        COUNT(*)                                                                          AS totalLeads,
+        SUM(CASE WHEN assigned_agent_id IS NOT NULL THEN 1 ELSE 0 END)                   AS assignedLeads,
+        SUM(CASE WHEN status = 'unassigned' THEN 1 ELSE 0 END)                           AS unassignedLeads,
+        SUM(CASE WHEN status = 'contacted_appointment' THEN 1 ELSE 0 END)                AS appointmentsSet,
+        SUM(CASE WHEN status IN ('assigned','no_answer','keep_in_touch','callback_requested') THEN 1 ELSE 0 END) AS activeLeads,
+        SUM(CASE WHEN status IN ('contacted_not_interested','wrong_number','retired','contacted_appointment') THEN 1 ELSE 0 END) AS deadLeads
+      FROM leads
+    `).get();
     return {
-      totalLeads: all.length,
-      assignedLeads: all.filter(l => l.assignedAgentId !== null).length,
-      unassignedLeads: all.filter(l => l.status === "unassigned").length,
-      appointmentsSet: all.filter(l => l.status === "contacted_appointment").length,
-      activeLeads: all.filter(l => ACTIVE_STATUSES.includes(l.status)).length,
-      deadLeads: all.filter(l => DEAD_STATUSES.includes(l.status)).length,
+      totalLeads:      row?.totalLeads ?? 0,
+      assignedLeads:   row?.assignedLeads ?? 0,
+      unassignedLeads: row?.unassignedLeads ?? 0,
+      appointmentsSet: row?.appointmentsSet ?? 0,
+      activeLeads:     row?.activeLeads ?? 0,
+      deadLeads:       row?.deadLeads ?? 0,
     };
   }
 

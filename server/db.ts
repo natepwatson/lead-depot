@@ -318,4 +318,21 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agents_email
 // geo_cache: address_key — geocode cache hits (already a PK but explicit helps explain)
 // (skipped — already a PRIMARY KEY, which is automatically indexed)
 
+// ─── v12.1 — performance indexes on high-frequency recruiting/leaderboard tables ──
+// agent_lead_activity: agent_lead_id — FK join in recruiting activity queries
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_lead_activity_lead_id
+  ON agent_lead_activity(agent_lead_id)`).run();
+
+// agent_lead_activity: caller_id + created_at — leaderboard aggregation, weekly dial gate
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_lead_activity_caller_created
+  ON agent_lead_activity(caller_id, created_at)`).run();
+
+// agent_points: agent_id + created_at — weekly points queries, performance gate
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_points_agent_created
+  ON agent_points(agent_id, created_at)`).run();
+
+// agent_points: reason — filter dials/wins/refs per leaderboard category
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_points_reason
+  ON agent_points(reason)`).run();
+
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");

@@ -2648,10 +2648,10 @@ This template is for informational/outreach purposes only.`;
       return str;
     };
 
-    // Seller lead activity
+    // Seller lead activity (lead_activity has no points_awarded column — use 0)
     const sellerActivity: any[] = rawDb.prepare(`
       SELECT la.id, 'seller' as type, la.created_at, a.name as agent_name,
-             l.owner_name as client_name, l.phone, l.address, la.outcome, la.notes, la.points_awarded
+             l.owner_name as client_name, l.phone, l.address, la.outcome, la.notes, 0 as points_awarded
       FROM lead_activity la
       LEFT JOIN agents a ON a.id = la.agent_id
       LEFT JOIN leads l ON l.id = la.lead_id
@@ -2816,7 +2816,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v12.0",
+      version: "v12.1",
       services: results,
     });
   });

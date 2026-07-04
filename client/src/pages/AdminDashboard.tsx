@@ -1363,35 +1363,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
             <Activity size={15} style={{ color: feedOpen ? "#c8aa5a" : "rgba(255,255,255,0.5)" }} />
           </button>
           <style>{`@keyframes feedPulseBtn { 0%,100%{box-shadow:0 0 0 0 rgba(200,170,90,0.3)} 50%{box-shadow:0 0 0 4px rgba(200,170,90,0)} }`}</style>
-          {/* Prospecting Mode Toggle */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button
-              onClick={() => toggleProspectingMutation.mutate(!prospectingMode)}
-              style={{
-                display: "flex", alignItems: "center", gap: 0,
-                background: "rgba(10,10,10,0.9)",
-                border: `1px solid ${prospectingMode ? "rgba(79,184,163,0.5)" : "rgba(200,170,90,0.3)"}`,
-                borderRadius: 20, padding: "3px 4px", cursor: "pointer",
-                transition: "all 0.3s", position: "relative", overflow: "hidden",
-              }}
-              title={prospectingMode ? "Switch to Seller Leads mode" : "Switch to Agent Prospecting mode"}
-            >
-              <span style={{
-                padding: "3px 10px", borderRadius: 14, fontSize: 10, fontWeight: 700,
-                letterSpacing: "0.08em", textTransform: "uppercase",
-                background: !prospectingMode ? "rgba(200,170,90,0.15)" : "transparent",
-                color: !prospectingMode ? "#c8aa5a" : "rgba(255,255,255,0.3)",
-                transition: "all 0.3s",
-              }}>Sellers</span>
-              <span style={{
-                padding: "3px 10px", borderRadius: 14, fontSize: 10, fontWeight: 700,
-                letterSpacing: "0.08em", textTransform: "uppercase",
-                background: prospectingMode ? "rgba(79,184,163,0.2)" : "transparent",
-                color: prospectingMode ? "#4fb8a3" : "rgba(255,255,255,0.3)",
-                transition: "all 0.3s",
-              }}>Recruiting</span>
-            </button>
-          </div>
+          {/* Prospecting Mode Toggle removed — Recruiting tab handles this separately */}
           {agents.filter(a => a.role === "admin" && a.id === user?.id && a.receiveLeads).length > 0 && (
             <Button
               size="sm"

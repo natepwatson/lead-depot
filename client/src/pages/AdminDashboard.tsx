@@ -615,7 +615,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.53) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.54) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -1150,7 +1150,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.53
+              v11.54
             </p>
           </div>
         </div>
@@ -1393,7 +1393,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.53) */}
+                          {/* Rank badge — headshot or initials (v11.54) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
 {(() => {
                               const initials = stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -2026,11 +2026,9 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
             {/* Active + Inactive Agents */}
             {(() => {
               const allRoleAgents = agents.filter(a => a.role === "agent");
-              const activeAgents = allRoleAgents.filter(a => a.isActive);
-              const flowOn = activeAgents.filter(a => a.leadFlowOn !== false);
-              const flowOff = activeAgents.filter(a => a.leadFlowOn === false);
-              const sortedActive = [...flowOn, ...flowOff];
-              const inactiveAgents = allRoleAgents.filter(a => !a.isActive);
+              // Active = isActive AND leadFlowOn. Everything else is Inactive.
+              const sortedActive = allRoleAgents.filter(a => a.isActive && a.leadFlowOn !== false);
+              const inactiveAgents = allRoleAgents.filter(a => !a.isActive || a.leadFlowOn === false);
               return (
                 <>
                   <div className="space-y-3">
@@ -2205,59 +2203,96 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                         <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.1rem", fontWeight: 300, color: "rgba(255,255,255,0.4)" }}>
                           Inactive Agents
                         </h2>
-                        <p className="text-xs text-muted-foreground">Removed from rotation. Re-activate to bring them back.</p>
+                        <p className="text-xs text-muted-foreground">Removed from rotation. Re-activate or turn flow on to bring them back.</p>
                       </div>
                       <div className="space-y-2">
-                        {inactiveAgents.map((agent) => (
-                          <div
-                            key={agent.id}
-                            style={{
-                              background: "rgba(255,255,255,0.01)",
-                              border: "1px solid rgba(255,255,255,0.05)",
-                              borderRadius: 10, padding: "12px 16px",
-                              display: "flex", alignItems: "center", gap: 12,
-                              opacity: 0.55,
-                            }}
-                            data-testid={`row-inactive-agent-${agent.id}`}
-                          >
-                            {(() => {
-                              const initials = agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
-                              if (agent.headshotUrl) return (
-                                <img src={agent.headshotUrl} alt={agent.name}
-                                  style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover",
-                                    border: "2px solid rgba(200,170,90,0.4)", flexShrink: 0 }}
-                                  onError={(e) => { e.currentTarget.style.display='none'; }}
-                                />
-                              );
-                              return (
-                                <div style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
-                                  display: "flex", alignItems: "center", justifyContent: "center",
-                                  border: "1px solid rgba(200,170,90,0.25)", background: "rgba(200,170,90,0.06)",
-                                  fontSize: 11, fontWeight: 700, color: "#c8aa5a",
-                                  fontFamily: "'Cormorant Garamond','Georgia',serif" }}>
-                                  {initials}
-                                </div>
-                              );
-                            })()}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-foreground/70">{agent.name}</p>
-                              <p className="text-xs text-muted-foreground">{agent.email}</p>
+                        {inactiveAgents.map((agent) => {
+                          // flowOffOnly = active account but flow disabled (no headshot / manually toggled)
+                          const flowOffOnly = agent.isActive && agent.leadFlowOn === false;
+                          return (
+                            <div
+                              key={agent.id}
+                              style={{
+                                background: "rgba(255,255,255,0.01)",
+                                border: "1px solid rgba(255,255,255,0.05)",
+                                borderRadius: 10, padding: "12px 16px",
+                                display: "flex", alignItems: "center", gap: 12,
+                                opacity: 0.55,
+                              }}
+                              data-testid={`row-inactive-agent-${agent.id}`}
+                            >
+                              {(() => {
+                                const initials = agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+                                if (agent.headshotUrl) return (
+                                  <img src={agent.headshotUrl} alt={agent.name}
+                                    style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover",
+                                      border: "2px solid rgba(200,170,90,0.4)", flexShrink: 0 }}
+                                    onError={(e) => { e.currentTarget.style.display='none'; }}
+                                  />
+                                );
+                                return (
+                                  <div style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    border: "1px solid rgba(200,170,90,0.25)", background: "rgba(200,170,90,0.06)",
+                                    fontSize: 11, fontWeight: 700, color: "#c8aa5a",
+                                    fontFamily: "'Cormorant Garamond','Georgia',serif" }}>
+                                    {initials}
+                                  </div>
+                                );
+                              })()}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-foreground/70">{agent.name}</p>
+                                <p className="text-xs text-muted-foreground">{agent.email}</p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                {flowOffOnly ? (
+                                  // Active account, flow just off — show flow toggle + badge
+                                  <>
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span className="text-[10px] text-muted-foreground">Flow</span>
+                                      <LuxToggle
+                                        on={false}
+                                        onToggle={() => toggleLeadFlowMutation.mutate({ id: agent.id, leadFlowOn: true })}
+                                        testId={`toggle-lead-flow-${agent.id}`}
+                                      />
+                                    </div>
+                                    <Badge variant="outline" className="text-xs text-amber-400 border-amber-400/30">Flow Off</Badge>
+                                    <Button
+                                      variant="ghost" size="icon"
+                                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                      onClick={() => openConfirm({
+                                        title: `Deactivate ${agent.name}?`,
+                                        message: `${agent.name} will be moved to Inactive Agents. All leads in their queue will be returned to the pool for redistribution. This cannot be undone without manually reactivating them.`,
+                                        confirmLabel: "Deactivate",
+                                        confirmColor: "#ef4444",
+                                        onConfirm: () => { closeConfirm(); deleteAgentMutation.mutate(agent.id); },
+                                      })}
+                                      title="Move to Inactive Agents"
+                                      data-testid={`button-delete-agent-${agent.id}`}
+                                    >
+                                      <Trash2 size={13}/>
+                                    </Button>
+                                  </>
+                                ) : (
+                                  // Fully deactivated — show Inactive badge + re-activate button
+                                  <>
+                                    <Badge variant="outline" className="text-xs text-red-400 border-red-400/30">Inactive</Badge>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="gap-1.5 text-xs border-green-500/40 text-green-400 hover:bg-green-500/10"
+                                      onClick={() => reactivateAgentMutation.mutate(agent.id)}
+                                      disabled={reactivateAgentMutation.isPending}
+                                      data-testid={`button-reactivate-agent-${agent.id}`}
+                                    >
+                                      <Power size={11}/> Re-activate
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-3">
-                              <Badge variant="outline" className="text-xs text-red-400 border-red-400/30">Inactive</Badge>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-1.5 text-xs border-green-500/40 text-green-400 hover:bg-green-500/10"
-                                onClick={() => reactivateAgentMutation.mutate(agent.id)}
-                                disabled={reactivateAgentMutation.isPending}
-                                data-testid={`button-reactivate-agent-${agent.id}`}
-                              >
-                                <Power size={11}/> Re-activate
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}

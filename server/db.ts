@@ -168,14 +168,16 @@ const headshotSourceDir = join(__dirname, "public", "headshots");
 
 const allAgents = rawDb.prepare("SELECT id, name, headshot_url FROM agents").all() as any[];
 for (const agent of allAgents) {
-  // Deactivate Usman Jan if no headshot on file
-  if (agent.name === "Usman Jan") {
-    rawDb.prepare("UPDATE agents SET is_active = 0 WHERE id = ? AND (headshot_url IS NULL OR headshot_url = '')").run(agent.id);
+  const slug = headshotMap[agent.name];
+
+  if (!slug) {
+    // v11.54 — agents with no headshot in headshotMap are incomplete; deactivate fully
+    rawDb.prepare(`
+      UPDATE agents SET is_active = 0, lead_flow_on = 0
+      WHERE id = ? AND (headshot_url IS NULL OR headshot_url = '' OR headshot_url NOT LIKE '/headshots/%')
+    `).run(agent.id);
     continue;
   }
-
-  const slug = headshotMap[agent.name];
-  if (!slug) continue;
 
   // Copy slug file into persistent headshots dir on every boot
   try {
@@ -194,11 +196,3 @@ for (const agent of allAgents) {
     rawDb.prepare("UPDATE agents SET headshot_url = ? WHERE id = ?").run(`/headshots/${slug}.jpg`, agent.id);
   }
 }
-
-// v11.53 — turn off lead flow for agents with no headshot (incomplete onboarding)
-rawDb.prepare(`
-  UPDATE agents SET lead_flow_on = 0
-  WHERE (headshot_url IS NULL OR headshot_url = '')
-  AND role = 'agent'
-  AND is_active = 1
-`).run();

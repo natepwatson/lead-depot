@@ -480,7 +480,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Reactivate a trashed agent
   app.patch("/api/agents/:id/reactivate", (req, res) => {
     const id = parseInt(req.params.id);
-    const updated = storage.updateAgent(id, { isActive: true, leadFlowOn: true });
+    // Only turn flow ON if agent has a headshot — no headshot = incomplete onboarding
+    const existing = storage.getAgent(id);
+    const hasHeadshot = !!(existing as any)?.headshotUrl;
+    const updated = storage.updateAgent(id, { isActive: true, leadFlowOn: hasHeadshot });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
     res.json({ ...updated, password: undefined });
   });
@@ -2352,7 +2355,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.53",
+      version: "v11.54",
       services: results,
     });
   });

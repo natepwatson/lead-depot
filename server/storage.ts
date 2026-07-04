@@ -77,6 +77,13 @@ try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN reactivate_at TEXT`); } ca
 
 // v11.82 — Performance gate: minDialsPerWeek column
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN min_dials_per_week INTEGER NOT NULL DEFAULT 0`); } catch {}
+// v12.5 — Two-territory support + territory-closed notice + points scoping
+// These MUST run here (not just in db.ts) because storage.ts's Drizzle bootstrap
+// selects agents at module-eval time — any missing column crashes boot on Railway.
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN territory1 TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN territory2 TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN territory_closed_notice INTEGER NOT NULL DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE agent_points ADD COLUMN scope TEXT NOT NULL DEFAULT 'seller'`); } catch {}
 // FREC fields (v11.71 — in case table was created before these existed)
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN frec_license_id TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN license_issue_date TEXT`); } catch {}

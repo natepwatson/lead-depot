@@ -2404,7 +2404,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.59",
+      version: "v11.60",
       services: results,
     });
   });
@@ -2598,7 +2598,147 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true, points });
   });
 
-  // ── AGENT LEADS: MANUAL QUICK-ADD (admin) ──────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // FUB WEBHOOK RECEIVER — Stage sync back to Lead Depot
+  // Configure in FUB: Settings → Integrations → Webhooks
+  //   URL: https://depot.watsonbrothersgroup.com/api/webhooks/fub
+  //   Events: Person Stage Changed, Person Updated
+  // ─────────────────────────────────────────────────────────────────────────
+  app.post("/api/webhooks/fub", (req: any, res) => {
+    try {
+      const payload = req.body;
+      const eventType = payload?.event || payload?.type || "";
+      const person = payload?.person || payload?.data?.person || {};
+
+      console.log(`[FUB Webhook] Received: ${eventType} — person id=${person.id} name="${person.firstName} ${person.lastName}"`);
+
+      // Only process stage change events
+      if (!eventType.toLowerCase().includes("stage") && !eventType.toLowerCase().includes("person")) {
+        return res.json({ ok: true, action: "ignored", reason: "unhandled event type" });
+      }
+
+      const fubPersonId = person.id;
+      const newStageName = (person.stage?.name || person.stage || "").toLowerCase();
+      const phone = person.phones?.[0]?.value?.replace(/\D/g, "") || "";
+
+      if (!fubPersonId && !phone) {
+        return res.json({ ok: true, action: "ignored", reason: "no identifiable person data" });
+      }
+
+      // Map FUB stage → Lead Depot status
+      const stageToStatus: Record<string, string> = {
+        "hot prospect":       "contacted_appointment",
+        "appointment set":    "contacted_appointment",
+        "active client":      "contacted_appointment",
+        "nurture":            "keep_in_touch",
+        "lead":               "assigned",
+        "contact":            "assigned",
+        "unresponsive":       "contacted_not_interested",
+        "closed won":         "contacted_appointment",  // keep in pipeline
+        "closed lost":        "contacted_not_interested",
+      };
+
+      const newStatus = stageToStatus[newStageName];
+      if (!newStatus) {
+        console.log(`[FUB Webhook] No Lead Depot mapping for stage "${newStageName}" — ignoring`);
+        return res.json({ ok: true, action: "ignored", reason: `no mapping for stage: ${newStageName}` });
+      }
+
+      // Find lead in Lead Depot by phone number
+      if (!phone) {
+        console.log("[FUB Webhook] No phone on person — cannot match to lead");
+        return res.json({ ok: true, action: "ignored", reason: "no phone to match" });
+      }
+
+      const lead = rawDb.prepare(
+        `SELECT * FROM leads WHERE replace(replace(replace(phone, '-', ''), '(', ''), ')', '') LIKE ? LIMIT 1`
+      ).get(`%${phone.slice(-10)}%`) as any;
+
+      if (!lead) {
+        console.log(`[FUB Webhook] No lead found for phone ${phone}`);
+        return res.json({ ok: true, action: "ignored", reason: "lead not found" });
+      }
+
+      // Don't downgrade a won/appt lead from FUB noise
+      const PROTECTED = ["contacted_appointment", "keep_in_touch", "wrong_number", "contacted_not_interested"];
+      if (PROTECTED.includes(lead.status) && newStatus === "assigned") {
+        console.log(`[FUB Webhook] Lead ${lead.id} already in terminal status "${lead.status}" — not downgrading`);
+        return res.json({ ok: true, action: "protected", leadId: lead.id });
+      }
+
+      rawDb.prepare(`UPDATE leads SET status = ?, updated_at = ? WHERE id = ?`)
+        .run(newStatus, new Date().toISOString(), lead.id);
+
+      console.log(`[FUB Webhook] Updated lead ${lead.id} (${lead.owner_name}) status: "${lead.status}" → "${newStatus}" (FUB stage: ${newStageName})`);
+
+      // Log activity note
+      rawDb.prepare(`
+        INSERT INTO activities (lead_id, agent_id, outcome, notes, created_at)
+        VALUES (?, NULL, ?, ?, ?)
+      `).run(
+        lead.id,
+        newStatus,
+        `[FUB Sync] Stage changed to "${person.stage?.name || newStageName}" in Follow Up Boss`,
+        new Date().toISOString()
+      );
+
+      res.json({ ok: true, action: "updated", leadId: lead.id, newStatus });
+
+    } catch (err: any) {
+      console.error("[FUB Webhook] Error:", err);
+      res.status(500).json({ error: "Webhook processing failed" });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STALE LEAD AUDIT — identifies leads untouched for 7+ days
+  // Called by weekly cron every Monday 9am EDT
+  // ─────────────────────────────────────────────────────────────────────────
+  app.post("/api/admin/stale-lead-audit", (req: any, res) => {
+    try {
+      const cutoffDays = parseInt(req.body?.cutoffDays || "7");
+      const cutoff = new Date(Date.now() - cutoffDays * 24 * 60 * 60 * 1000).toISOString();
+
+      // Find active leads with no activity in the last N days
+      const staleLeads = rawDb.prepare(`
+        SELECT l.*, u.name as agent_name,
+          (SELECT MAX(a.created_at) FROM activities a WHERE a.lead_id = l.id) as last_activity
+        FROM leads l
+        LEFT JOIN users u ON u.id = l.assigned_agent_id
+        WHERE l.status IN ('assigned', 'no_answer', 'keep_in_touch', 'callback_requested')
+          AND (
+            (SELECT MAX(a.created_at) FROM activities a WHERE a.lead_id = l.id) < ?
+            OR (SELECT COUNT(*) FROM activities a WHERE a.lead_id = l.id) = 0
+          )
+        ORDER BY last_activity ASC
+      `).all(cutoff) as any[];
+
+      // Group by agent
+      const byAgent: Record<string, any[]> = {};
+      for (const lead of staleLeads) {
+        const agentName = lead.agent_name || "Unassigned";
+        if (!byAgent[agentName]) byAgent[agentName] = [];
+        byAgent[agentName].push({
+          id: lead.id,
+          ownerName: lead.owner_name,
+          phone: lead.phone,
+          address: lead.address,
+          status: lead.status,
+          lastActivity: lead.last_activity || "Never",
+          agentName,
+        });
+      }
+
+      console.log(`[Stale Audit] Found ${staleLeads.length} stale leads across ${Object.keys(byAgent).length} agents`);
+      res.json({ total: staleLeads.length, byAgent, cutoffDays });
+
+    } catch (err: any) {
+      console.error("[Stale Audit] Error:", err);
+      res.status(500).json({ error: "Stale audit failed" });
+    }
+  });
+
+    // ── AGENT LEADS: MANUAL QUICK-ADD (admin) ──────────────────────────
   app.post("/api/agent-leads/manual-add", (req: any, res) => {
     const { firstName, lastName, phone, email, currentBrokerage, licenseStatus, territory, notes } = req.body;
     if (!firstName || !lastName || !phone) {

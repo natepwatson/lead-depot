@@ -651,7 +651,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.59) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.60) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -846,7 +846,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [statusFilter, setStatusFilter] = useState("all");
   const [drilldownAgent, setDrilldownAgent] = useState<{ id: number; name: string } | null>(null);
 
-  // Paginated leads state (v11.59)
+  // Paginated leads state (v11.60)
   const [leadsPage, setLeadsPage] = useState(0);
   const LEADS_PAGE_SIZE = 50;
   const [lbHistoryOpen, setLbHistoryOpen] = useState(false);
@@ -900,7 +900,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     refetchInterval: 15000,
   });
 
-  // Paginated lead list query (v11.59) — replaces full pipeline load for All Leads tab
+  // Paginated lead list query (v11.60) — replaces full pipeline load for All Leads tab
   const paginatedLeadsQuery = useQuery<any>({
     queryKey: ["/api/leads/paginated", statusFilter, searchTerm, leadsPage],
     queryFn: () => {
@@ -926,7 +926,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     }
   }, [statusFilter, searchTerm]);
 
-  // Leaderboard history (v11.59)
+  // Leaderboard history (v11.60)
   const { data: lbHistory = [] } = useQuery<any[]>({
     queryKey: ["/api/admin/leaderboard-history"],
     queryFn: () => apiRequest("GET", "/api/admin/leaderboard-history").then(r => r.json()),
@@ -1291,7 +1291,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.59
+              v11.60
             </p>
           </div>
         </div>
@@ -1535,7 +1535,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.59) */}
+                          {/* Rank badge — headshot or initials (v11.60) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
 {(() => {
                               const initials = stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -1896,7 +1896,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
           {/* ── ALL LEADS ───────────────────────────────────────────────────── */}
           <TabsContent value="leads" className="mt-5 space-y-3">
-            {/* ── Paginated All Leads (v11.59) ── */}
+            {/* ── Paginated All Leads (v11.60) ── */}
             {(() => {
               const plData = paginatedLeadsQuery.data;
               const plLeads: any[] = plData?.leads || [];

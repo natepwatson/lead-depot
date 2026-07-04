@@ -983,7 +983,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     refetchInterval: 60000,
   });
   const allTerritories = Array.isArray(territoriesData) ? territoriesData : [];
-  // v13.0 — Use .key here (matches TERRITORY_OPTIONS.value like "clay_county").
+  // v13.1 — Use .key here (matches TERRITORY_OPTIONS.value like "clay_county").
   // Prior v12.5 used .name which never matched, so every option showed as (closed).
   const openTerritoryNames = allTerritories.filter(t => t.isOpen).map(t => t.key);
 
@@ -1398,7 +1398,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v13.0
+              v13.1
             </p>
           </div>
         </div>
@@ -1448,7 +1448,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
       </header>
 
       <main style={{ padding: "20px 16px", maxWidth: 1200, margin: "0 auto" }}>
-        <Tabs defaultValue="leaderboard">
+        <Tabs defaultValue="admin">
           {/* ── Tab bar ──────────────────────────────────────────────────────── */}
           <TabsList style={{
             background: "rgba(255,255,255,0.03)",
@@ -1457,6 +1457,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
             display: "flex", flexWrap: "wrap", gap: 2,
           }}>
             {[
+              { value: "admin",       icon: Shield,      label: "Admin" },
               { value: "leaderboard", icon: Trophy,     label: "Leaderboard" },
               { value: "pipeline",    icon: Layers,      label: "Pipeline" },
               { value: "leads",       icon: List,        label: "All Leads" },
@@ -1479,8 +1480,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
             ))}
           </TabsList>
 
-          {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
-          <TabsContent value="leaderboard" className="mt-5 space-y-5">
+          {/* ── ADMIN (v13.1) — Consolidated admin controls: Toolbar, Territories, Queue Mgmt, Inactivity Alert ── */}
+          <TabsContent value="admin" className="mt-5 space-y-5">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <StatCard label="Total Leads" value={stats?.totalLeads ?? 0} />
               <StatCard label="Active in Queue" value={stats?.activeLeads ?? 0} accent="text-white" />
@@ -1488,7 +1489,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               <StatCard label="My Lead Queue" value={myQueueData?.count ?? 0} accent={myQueueData?.count ? "text-gold" : undefined} />
             </div>
 
-            {/* v12.5 — Seller Depot admin toolbar: Get Leads Now, Hard Reset, Territory management, Recruiting link */}
+            {/* Seller Depot admin toolbar: Get Leads Now, Hard Reset, Territory management, Recruiting link */}
             <div style={{
               display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16, alignItems: "center",
               padding: 12, background: "rgba(200,170,90,0.04)",
@@ -1524,7 +1525,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               >⚠ Hard Reset Seller</button>
             </div>
 
-            {/* v12.5 — Territory Management panel */}
+            {/* Territory Management panel */}
             <div style={{
               marginBottom: 16, padding: 14,
               background: "rgba(255,255,255,0.02)",
@@ -1564,6 +1565,86 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>No territories yet.</p>
                 )}
               </div>
+            </div>
+
+            {/* Queue Management (moved from Agents tab) */}
+            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 16 }}>
+              <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.55)", fontWeight: 600, marginBottom: 14 }}>Queue Management</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {/* Redistribute Unseen */}
+                <div style={{ background: "rgba(200,170,90,0.04)", border: "1px solid rgba(200,170,90,0.15)", borderRadius: 10, padding: 14 }}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Users size={12} style={{ color: "rgba(200,170,90,0.8)" }}/>
+                    <p className="text-xs font-semibold" style={{ color: "rgba(200,170,90,0.9)" }}>Redistribute Unseen</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3" style={{ lineHeight: 1.5 }}>Re-assigns every untouched lead evenly across active agents.</p>
+                  <Button variant="outline" size="sm"
+                    style={{ borderColor: "rgba(200,170,90,0.3)", color: "rgba(200,170,90,0.85)", fontSize: 11, width: "100%" }}
+                    className="gap-1.5 hover:bg-yellow-900/20"
+                    onClick={() => openConfirm({
+                      title: "Redistribute Unseen Leads?",
+                      message: "This will re-assign every lead no agent has interacted with yet — including already-assigned leads that haven't been touched. All agents get a fresh even share. This cannot be undone.",
+                      confirmLabel: "Redistribute",
+                      onConfirm: () => { closeConfirm(); redistributeUnseenMutation.mutate(); },
+                    })}
+                    disabled={redistributeUnseenMutation.isPending}
+                  >
+                    <Users size={10}/>{redistributeUnseenMutation.isPending ? "Redistributing…" : "Redistribute"}
+                  </Button>
+                </div>
+                {/* Clear Queue */}
+                <div style={{ background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.12)", borderRadius: 10, padding: 14 }}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Trash size={12} className="text-red-400"/>
+                    <p className="text-xs font-semibold text-red-300">Clear Active Queue</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3" style={{ lineHeight: 1.5 }}>Retires all active leads. History is preserved — no data deleted.</p>
+                  <Button variant="outline" size="sm"
+                    className="border-red-900/40 text-red-400 hover:bg-red-900/20 hover:text-red-300 text-xs gap-1.5"
+                    style={{ width: "100%", fontSize: 11 }}
+                    onClick={() => openConfirm({
+                      title: "Clear Active Queue?",
+                      message: "All in-progress leads will be marked Retired. Master records and full history are preserved — no data is deleted. Only the active queue is cleared.",
+                      confirmLabel: "Clear Queue",
+                      confirmColor: "#ef4444",
+                      onConfirm: () => { closeConfirm(); clearQueueMutation.mutate(); },
+                    })}
+                    disabled={clearQueueMutation.isPending}
+                    data-testid="button-clear-queue"
+                  >
+                    <Trash size={10}/>{clearQueueMutation.isPending ? "Clearing…" : "Clear Queue"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Agent Inactivity Alert (moved from Agents tab) */}
+            {inactivityFlagged.length > 0 && (
+              <div style={{
+                background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.3)",
+                borderRadius: 10, padding: "12px 16px",
+              }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: "#eab308", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>
+                  ⚠ Agent Inactivity Alert
+                </p>
+                {inactivityFlagged.map((f: any) => (
+                  <div key={f.id} style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", paddingBottom: 4 }}>
+                    <span style={{ color: "#eab308", fontWeight: 600 }}>{f.name}</span>
+                    {" — "}{f.consecutiveWeeksMissed} week(s) below {f.minDialsPerWeek} dials/wk goal
+                    <span style={{ color: "rgba(255,255,255,0.35)", marginLeft: 8 }}>({f.thisWeekDials} dials this week so far)</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
+          <TabsContent value="leaderboard" className="mt-5 space-y-5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard label="Total Leads" value={stats?.totalLeads ?? 0} />
+              <StatCard label="Active in Queue" value={stats?.activeLeads ?? 0} accent="text-white" />
+              <StatCard label="Appointments Set" value={stats?.appointmentsSet ?? 0} accent="text-green-400" />
+              <StatCard label="My Lead Queue" value={myQueueData?.count ?? 0} accent={myQueueData?.count ? "text-gold" : undefined} />
             </div>
 
             {/* v12.5 — Hard Reset confirmation modal (shared) */}
@@ -2933,56 +3014,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                     <TabsContent value="agents"
  className="mt-5 space-y-5">
 
-            {/* Queue Management */}
-            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 16 }}>
-              <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.55)", fontWeight: 600, marginBottom: 14 }}>Queue Management</p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {/* Redistribute Unseen */}
-                <div style={{ background: "rgba(200,170,90,0.04)", border: "1px solid rgba(200,170,90,0.15)", borderRadius: 10, padding: 14 }}>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Users size={12} style={{ color: "rgba(200,170,90,0.8)" }}/>
-                    <p className="text-xs font-semibold" style={{ color: "rgba(200,170,90,0.9)" }}>Redistribute Unseen</p>
-                  </div>
-                  <p className="text-xs text-muted-foreground mb-3" style={{ lineHeight: 1.5 }}>Re-assigns every untouched lead evenly across active agents.</p>
-                  <Button variant="outline" size="sm"
-                    style={{ borderColor: "rgba(200,170,90,0.3)", color: "rgba(200,170,90,0.85)", fontSize: 11, width: "100%" }}
-                    className="gap-1.5 hover:bg-yellow-900/20"
-                    onClick={() => openConfirm({
-                      title: "Redistribute Unseen Leads?",
-                      message: "This will re-assign every lead no agent has interacted with yet — including already-assigned leads that haven't been touched. All agents get a fresh even share. This cannot be undone.",
-                      confirmLabel: "Redistribute",
-                      onConfirm: () => { closeConfirm(); redistributeUnseenMutation.mutate(); },
-                    })}
-                    disabled={redistributeUnseenMutation.isPending}
-                  >
-                    <Users size={10}/>{redistributeUnseenMutation.isPending ? "Redistributing…" : "Redistribute"}
-                  </Button>
-                </div>
-                {/* Clear Queue */}
-                <div style={{ background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.12)", borderRadius: 10, padding: 14 }}>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Trash size={12} className="text-red-400"/>
-                    <p className="text-xs font-semibold text-red-300">Clear Active Queue</p>
-                  </div>
-                  <p className="text-xs text-muted-foreground mb-3" style={{ lineHeight: 1.5 }}>Retires all active leads. History is preserved — no data deleted.</p>
-                  <Button variant="outline" size="sm"
-                    className="border-red-900/40 text-red-400 hover:bg-red-900/20 hover:text-red-300 text-xs gap-1.5"
-                    style={{ width: "100%", fontSize: 11 }}
-                    onClick={() => openConfirm({
-                      title: "Clear Active Queue?",
-                      message: "All in-progress leads will be marked Retired. Master records and full history are preserved — no data is deleted. Only the active queue is cleared.",
-                      confirmLabel: "Clear Queue",
-                      confirmColor: "#ef4444",
-                      onConfirm: () => { closeConfirm(); clearQueueMutation.mutate(); },
-                    })}
-                    disabled={clearQueueMutation.isPending}
-                    data-testid="button-clear-queue"
-                  >
-                    <Trash size={10}/>{clearQueueMutation.isPending ? "Clearing…" : "Clear Queue"}
-                  </Button>
-                </div>
-              </div>
-            </div>
+            {/* v13.1 — Queue Management moved to Admin tab */}
 
             {/* Active + Inactive Agents — admins shown at top of same list */}
             {(() => {
@@ -3092,24 +3124,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                       </Dialog>
                     </div>
 
-                    {/* Inactivity safety net banner */}
-                    {inactivityFlagged.length > 0 && (
-                      <div style={{
-                        background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.3)",
-                        borderRadius: 10, padding: "12px 16px", marginBottom: 8,
-                      }}>
-                        <p style={{ fontSize: 11, fontWeight: 700, color: "#eab308", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>
-                          ⚠ Agent Inactivity Alert
-                        </p>
-                        {inactivityFlagged.map((f: any) => (
-                          <div key={f.id} style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", paddingBottom: 4 }}>
-                            <span style={{ color: "#eab308", fontWeight: 600 }}>{f.name}</span>
-                            {" — "}{f.consecutiveWeeksMissed} week(s) below {f.minDialsPerWeek} dials/wk goal
-                            <span style={{ color: "rgba(255,255,255,0.35)", marginLeft: 8 }}>({f.thisWeekDials} dials this week so far)</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    {/* v13.1 — Agent Inactivity Alert moved to Admin tab */}
                     <div className="space-y-2">
                       {sortedActive.map((agent, idx) => {
                         // For admins use receiveLeads, for agents use leadFlowOn

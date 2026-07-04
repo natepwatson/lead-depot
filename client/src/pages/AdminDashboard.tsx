@@ -615,7 +615,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.55) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.56) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -1188,7 +1188,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.55
+              v11.56
             </p>
           </div>
         </div>
@@ -1431,7 +1431,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.55) */}
+                          {/* Rank badge — headshot or initials (v11.56) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
 {(() => {
                               const initials = stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -1556,6 +1556,151 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                 );
               })()}
             </div>
+
+            {/* ── Reset + Past Periods ─────────────────────────────────────── */}
+            <div style={{ marginTop: 28, borderTop: "1px solid rgba(200,170,90,0.1)", paddingTop: 20 }}>
+
+              {/* Reset button */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)" }}>Period Reset</div>
+                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", marginTop: 2 }}>Snapshots scores before zeroing — visible in Past Periods below</div>
+                </div>
+                <button
+                  onClick={() => openConfirm({
+                    title: "Reset Leaderboard?",
+                    message: "Current scores will be saved as a historical snapshot, then all stats reset to zero. This cannot be undone.",
+                    confirmLabel: "Reset & Archive",
+                    confirmColor: "#ef4444",
+                    onConfirm: () => { closeConfirm(); leaderboardResetMutation.mutate(); },
+                  })}
+                  disabled={leaderboardResetMutation.isPending}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "8px 16px",
+                    background: "transparent",
+                    border: "1px solid rgba(239,68,68,0.35)",
+                    borderRadius: 6,
+                    fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: "#ef4444", cursor: "pointer",
+                    opacity: leaderboardResetMutation.isPending ? 0.5 : 1,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <RefreshCw size={11} />
+                  {leaderboardResetMutation.isPending ? "Resetting…" : "Reset Period"}
+                </button>
+              </div>
+
+              {/* Past Periods collapsible */}
+              <button
+                onClick={() => setLbHistoryOpen(o => !o)}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  width: "100%", padding: "10px 14px",
+                  background: "rgba(200,170,90,0.05)",
+                  border: "1px solid rgba(200,170,90,0.15)",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  transition: "background 0.15s",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Clock size={13} style={{ color: "rgba(200,170,90,0.6)" }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(200,170,90,0.8)" }}>
+                    Past Periods
+                  </span>
+                  {lbHistory.length > 0 && (
+                    <span style={{
+                      fontSize: 10, padding: "1px 7px", borderRadius: 10,
+                      background: "rgba(200,170,90,0.15)", color: "#c8aa5a",
+                    }}>{lbHistory.length}</span>
+                  )}
+                </div>
+                {lbHistoryOpen ? <ChevronUp size={14} style={{ color: "rgba(200,170,90,0.5)" }} /> : <ChevronDown size={14} style={{ color: "rgba(200,170,90,0.5)" }} />}
+              </button>
+
+              {lbHistoryOpen && (
+                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+                  {lbHistory.length === 0 ? (
+                    <div style={{
+                      padding: "24px 16px", textAlign: "center",
+                      border: "1px dashed rgba(200,170,90,0.1)",
+                      borderRadius: 8, color: "rgba(255,255,255,0.25)", fontSize: 12,
+                    }}>
+                      No archived periods yet. Reset the leaderboard to create your first snapshot.
+                    </div>
+                  ) : lbHistory.map((snap: any) => {
+                    let parsed: any[] = [];
+                    try { parsed = JSON.parse(snap.snapshot_json); } catch {}
+                    const sorted = [...parsed].sort((a, b) => (b.points || 0) - (a.points || 0));
+                    return (
+                      <div key={snap.id} style={{
+                        borderRadius: 10,
+                        border: "1px solid rgba(200,170,90,0.12)",
+                        background: "rgba(200,170,90,0.03)",
+                        overflow: "hidden",
+                      }}>
+                        {/* Period header */}
+                        <div style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "10px 14px",
+                          borderBottom: "1px solid rgba(200,170,90,0.08)",
+                          background: "rgba(200,170,90,0.06)",
+                        }}>
+                          <span style={{
+                            fontFamily: "'Cormorant Garamond','Georgia',serif",
+                            fontSize: 14, fontWeight: 400, color: "#c8aa5a",
+                          }}>
+                            {snap.period_label}
+                          </span>
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", letterSpacing: "0.05em" }}>
+                            {new Date(snap.reset_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          </span>
+                        </div>
+                        {/* Agent rows */}
+                        <div style={{ padding: "8px 0" }}>
+                          {sorted.map((entry: any, i: number) => (
+                            <div key={entry.agentId ?? i} style={{
+                              display: "flex", alignItems: "center", justifyContent: "space-between",
+                              padding: "6px 14px",
+                            }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{
+                                  width: 18, textAlign: "center",
+                                  fontSize: 10, fontWeight: 700,
+                                  color: i === 0 ? "#c8aa5a" : "rgba(255,255,255,0.2)",
+                                }}>{i + 1}</span>
+                                <span style={{ fontSize: 13, color: i === 0 ? "#fff" : "rgba(255,255,255,0.6)" }}>
+                                  {entry.agentName || "Unknown"}
+                                </span>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", minWidth: 50, textAlign: "right" }}>
+                                  {entry.dials ?? 0} dials
+                                </span>
+                                <span style={{ fontSize: 10, color: "#86efac", minWidth: 44, textAlign: "right" }}>
+                                  {entry.appts ?? 0} appts
+                                </span>
+                                <span style={{
+                                  fontSize: 13, fontWeight: 700, color: "#c8aa5a",
+                                  background: i === 0 ? "rgba(200,170,90,0.15)" : "transparent",
+                                  borderRadius: 5, padding: "1px 7px", minWidth: 44, textAlign: "right",
+                                }}>
+                                  {entry.points ?? 0} pts
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
           </TabsContent>
 
           {/* ── PIPELINE ────────────────────────────────────────────────────── */}

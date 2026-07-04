@@ -1941,10 +1941,10 @@ This template is for informational/outreach purposes only.`;
   // ─── ADMIN: MY LEAD QUEUE COUNT ──────────────────────────────────────────
   app.get("/api/leads/my-count/:agentId", (req, res) => {
     const agentId = parseInt(req.params.agentId);
-    const allLeads = storage.getAllLeads();
-    const activeStatuses = ["assigned", "no_answer", "keep_in_touch", "callback_requested"];
-    const count = allLeads.filter(l => l.assignedAgentId === agentId && activeStatuses.includes(l.status)).length;
-    res.json({ count });
+    const row: any = rawDb.prepare(
+      `SELECT COUNT(*) as n FROM leads WHERE assigned_agent_id = ? AND status IN ('assigned','no_answer','keep_in_touch','callback_requested')`
+    ).get(agentId);
+    res.json({ count: row?.n ?? 0 });
   });
 
   // ─── MY PIPELINE (callbacks + KIT, 60-day window) ────────────────────────
@@ -1956,23 +1956,36 @@ This template is for informational/outreach purposes only.`;
     cutoff.setDate(cutoff.getDate() - 60);
     const cutoffStr = cutoff.toISOString();
 
-    const allLeads = storage.getAllLeads().filter((l: any) =>
-      l.assignedAgentId === agentId &&
-      (l.status === "callback_requested" || l.status === "keep_in_touch" || l.status === "contacted_appointment") &&
-      l.uploadedAt >= cutoffStr
-    );
+    // Fetch only the matching leads via SQL (avoids loading all leads into memory)
+    const myLeadRows: any[] = rawDb.prepare(
+      `SELECT * FROM leads WHERE assigned_agent_id = ? AND status IN ('callback_requested','keep_in_touch','contacted_appointment') AND uploaded_at >= ?`
+    ).all(agentId, cutoffStr);
 
-    // Enrich with last activity notes
-    const enriched = allLeads.map((l: any) => {
-      const acts = storage.getActivitiesForLead(l.id);
-      const lastAct = acts.length > 0 ? acts[acts.length - 1] : null;
-      return {
-        ...l,
-        lastNote: lastAct?.notes || null,
-        activityCount: acts.filter((a: any) => a.outcome !== "email_sent").length,
-        emailCount: acts.filter((a: any) => a.outcome === "email_sent").length,
-      };
-    });
+    // Enrich with last activity notes using aggregation query
+    const leadIds = myLeadRows.map((r: any) => r.id);
+    const actRows: any[] = leadIds.length > 0
+      ? rawDb.prepare(
+          `SELECT lead_id,
+            MAX(CASE WHEN outcome != 'email_sent' THEN notes ELSE NULL END) as last_note,
+            SUM(CASE WHEN outcome != 'email_sent' THEN 1 ELSE 0 END) as activity_count,
+            SUM(CASE WHEN outcome = 'email_sent' THEN 1 ELSE 0 END) as email_count
+           FROM lead_activity WHERE lead_id IN (${leadIds.map(() => "?").join(",")})
+           GROUP BY lead_id`
+        ).all(...leadIds)
+      : [];
+    const actMap: Record<number, any> = {};
+    for (const r of actRows) actMap[r.lead_id] = r;
+
+    const enriched = myLeadRows.map((r: any) => ({
+      id: r.id, ownerName: r.owner_name, address: r.address, phone: r.phone,
+      leadType: r.lead_type, status: r.status, attemptCount: r.attempt_count,
+      callbackDate: r.callback_date, score: r.score ?? 0,
+      territory: r.territory ?? null, uploadedAt: r.uploaded_at,
+      assignedAgentId: r.assigned_agent_id,
+      lastNote: actMap[r.id]?.last_note || null,
+      activityCount: actMap[r.id]?.activity_count ?? 0,
+      emailCount: actMap[r.id]?.email_count ?? 0,
+    }));
 
     const callbacks = enriched
       .filter((l: any) => l.status === "callback_requested")
@@ -2443,7 +2456,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.67",
+      version: "v11.68",
       services: results,
     });
   });

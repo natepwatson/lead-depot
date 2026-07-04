@@ -615,7 +615,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.49) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.50) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -1137,7 +1137,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.49
+              v11.50
             </p>
           </div>
         </div>
@@ -1351,20 +1351,16 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.49) */}
+                          {/* Rank badge — headshot or initials (v11.50) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
-                            {stat.agent.headshotUrl ? (
-                              <img
-                                src={stat.agent.headshotUrl}
-                                alt={stat.agent.name}
-                                style={{
-                                  width: 36, height: 36, borderRadius: "50%", objectFit: "cover",
-                                  border: `2px solid ${isTop ? "rgba(200,170,90,0.6)" : "rgba(255,255,255,0.15)"}`,
-                                  boxShadow: isTop ? "0 0 10px rgba(200,170,90,0.3)" : "none",
-                                }}
-                              />
-                            ) : (
-                              <div style={{
+{(() => {
+                              const initials = stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+                              const avatarStyle = {
+                                width: 36, height: 36, borderRadius: "50%", objectFit: "cover" as const,
+                                border: `2px solid ${isTop ? "rgba(200,170,90,0.6)" : "rgba(255,255,255,0.15)"}`,
+                                boxShadow: isTop ? "0 0 10px rgba(200,170,90,0.3)" : "none",
+                              };
+                              const initialsStyle = {
                                 width: 36, height: 36, borderRadius: "50%",
                                 display: "flex", alignItems: "center", justifyContent: "center",
                                 border: `2px solid ${isTop ? "rgba(200,170,90,0.4)" : "rgba(255,255,255,0.1)"}`,
@@ -1372,10 +1368,24 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                 fontSize: 12, fontWeight: 700,
                                 color: isTop ? "#c8aa5a" : "rgba(255,255,255,0.4)",
                                 fontFamily: "'Cormorant Garamond','Georgia',serif",
-                              }}>
-                                {stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)}
-                              </div>
-                            )}
+                              };
+                              if (!stat.agent.headshotUrl) return <div style={initialsStyle}>{initials}</div>;
+                              return (
+                                <img
+                                  src={stat.agent.headshotUrl}
+                                  alt={stat.agent.name}
+                                  style={avatarStyle}
+                                  onError={(e) => {
+                                    const el = e.currentTarget;
+                                    el.style.display = 'none';
+                                    const fallback = document.createElement('div');
+                                    Object.assign(fallback.style, { ...initialsStyle, display: 'flex' });
+                                    fallback.textContent = initials;
+                                    el.parentNode?.insertBefore(fallback, el);
+                                  }}
+                                />
+                              );
+                            })()}
                             {/* Rank number badge */}
                             <div style={{
                               position: "absolute", bottom: -2, right: -2,

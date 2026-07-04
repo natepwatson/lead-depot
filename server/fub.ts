@@ -77,12 +77,12 @@ function outcomeToFubType(outcome: string, leadType: string): string {
 }
 
 // ─── STAGE MAPPING ────────────────────────────────────────────────────────────
-function outcomeToFubStage(outcome: string): string {
+function outcomeToFubStage(outcome: string): { name: string; id: number } {
   switch (outcome) {
-    case "contacted_appointment":    return "Hot Prospect";
-    case "keep_in_touch":           return "Nurture";
-    case "contacted_not_interested": return "Unresponsive";
-    default:                         return "Lead";
+    case "contacted_appointment":    return { name: "Hot Prospect", id: 3 };
+    case "keep_in_touch":           return { name: "Nurture",      id: 4 };
+    case "contacted_not_interested": return { name: "Lead",         id: 2 }; // No 'Unresponsive' stage in FUB
+    default:                         return { name: "Lead",         id: 2 };
   }
 }
 
@@ -291,6 +291,7 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
   const lastName = nameParts.slice(1).join(" ") || "";
 
   // Step 1: Send event (creates or updates contact, fires automations)
+  const emailToUse = apptEmail || lead.email;
   const eventPayload: any = {
     source: fubSource,
     system: FUB_SYSTEM,
@@ -300,23 +301,16 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
     person: {
       firstName,
       lastName,
-      stage: fubStage,
+      type: "Seller",  // All seller leads are Sellers — prevents FUB defaulting to Buyer on General Inquiry events
+      stage: fubStage.name,
       tags,
       assignedTo: agent.name,
       background: `Lead Type: ${fubSource}\nProperty: ${lead.address || "—"}\nSource: ${fubSource}`,
     },
   };
 
-  // Add phone if available
-  if (lead.phone) {
-    eventPayload.person.phones = [{ value: lead.phone }];
-  }
-
-  // Add email if available
-  const emailToUse = apptEmail || lead.email;
-  if (emailToUse) {
-    eventPayload.person.emails = [{ value: emailToUse }];
-  }
+  if (lead.phone) eventPayload.person.phones = [{ value: lead.phone }];
+  if (emailToUse) eventPayload.person.emails = [{ value: emailToUse }];
 
   console.log(`[FUB] Pushing ${outcome} for lead ${lead.id} (${lead.ownerName}) to FUB...`);
   const eventResult = await fubRequest("POST", "/events", eventPayload);
@@ -328,12 +322,26 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
 
   console.log(`[FUB] Event pushed — FUB responded ${eventResult.status} (${eventResult.status === 201 ? "new contact" : "existing contact updated"})`);
 
-  // Step 2: Get the person ID from the event response
-  const personId = eventResult.data?.person?.id;
+  // Step 2: Get person ID — try inline response first, fall back to search by phone
+  let personId = eventResult.data?.person?.id;
+  if (!personId && lead.phone) {
+    const searchRes = await fubRequest("GET", `/people?query=${encodeURIComponent(lead.phone)}&limit=1`);
+    personId = searchRes.data?.people?.[0]?.id;
+    if (personId) console.log(`[FUB] Person ID resolved via phone search: ${personId}`);
+  }
+  if (!personId && lead.ownerName) {
+    const searchRes = await fubRequest("GET", `/people?query=${encodeURIComponent(lead.ownerName)}&limit=1`);
+    personId = searchRes.data?.people?.[0]?.id;
+    if (personId) console.log(`[FUB] Person ID resolved via name search: ${personId}`);
+  }
   if (!personId) {
-    console.warn("[FUB] No person ID returned — skipping note post");
+    console.warn("[FUB] Could not resolve person ID — skipping stage force + note post");
     return;
   }
+
+  // Step 2b: Force correct stageId via PUT (stage string in /events is not always honored)
+  await fubRequest("PUT", `/people/${personId}`, { stageId: fubStage.id });
+  console.log(`[FUB] Stage forced → ${fubStage.name} (id=${fubStage.id}) for person ${personId}`);
 
   // Step 3: Post LPMAMAB note to their timeline
   const noteBody = buildLpmamabNote({

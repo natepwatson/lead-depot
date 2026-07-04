@@ -1,6 +1,8 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile } from "node:fs/promises";
+import { rm, readFile, copyFile, mkdir, readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import path from "node:path";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -57,6 +59,25 @@ async function buildAll() {
     external: externals,
     logLevel: "info",
   });
+
+  // ── Post-build: copy static assets that Vite doesn't handle ─────────────
+  // join.html — recruiting landing page
+  if (existsSync("public/join.html")) {
+    await copyFile("public/join.html", "dist/public/join.html");
+    console.log("copied public/join.html → dist/public/join.html");
+  }
+
+  // team photos — recruiting page headshots
+  const teamSrc = "public/team";
+  const teamDst = "dist/public/team";
+  if (existsSync(teamSrc)) {
+    await mkdir(teamDst, { recursive: true });
+    const files = await readdir(teamSrc);
+    for (const f of files) {
+      await copyFile(path.join(teamSrc, f), path.join(teamDst, f));
+    }
+    console.log(`copied ${files.length} team photos → dist/public/team/`);
+  }
 }
 
 buildAll().catch((err) => {

@@ -417,8 +417,6 @@ export class Storage implements IStorage {
       .filter(a => {
         // Must be an active agent or admin opted-in
         if (a.role === "admin" && !a.receiveLeads) return false;
-        // Website leads: only agents with receiveWebsiteLeads flag
-        if (leadType === "website_lead" && !a.receiveWebsiteLeads) return false;
         return true;
       });
 

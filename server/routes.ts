@@ -422,7 +422,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         error: "Cannot deactivate — at least one agent must be able to receive leads at all times. Activate another agent first, or enable lead flow on an admin.",
       });
     }
-    const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false, receiveWebsiteLeads: false });
+    const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
 
     const allLeads = storage.getAllLeads();
@@ -604,7 +604,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
     }
     // Soft-delete: mark inactive so activity history is preserved
-    storage.updateAgent(id, { isActive: false, leadFlowOn: false, receiveWebsiteLeads: false });
+    storage.updateAgent(id, { isActive: false, leadFlowOn: false });
     broadcast({ type: "leads_updated" });
     res.json({ deleted: true });
   });
@@ -684,21 +684,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         }
       }
     }
-    const patch: any = { leadFlowOn: !!leadFlowOn };
-    if (!leadFlowOn) patch.receiveWebsiteLeads = false;
-    const updated = storage.updateAgent(id, patch);
+    const updated = storage.updateAgent(id, { leadFlowOn: !!leadFlowOn });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
     res.json({ ...updated, password: undefined });
   });
 
-  // Toggle whether agent receives website leads
-  app.patch("/api/agents/:id/website-leads", (req, res) => {
-    const id = parseInt(req.params.id);
-    const { receiveWebsiteLeads } = req.body;
-    const updated = storage.updateAgent(id, { receiveWebsiteLeads: !!receiveWebsiteLeads });
-    if (!updated) return res.status(404).json({ error: "Agent not found" });
-    res.json({ ...updated, password: undefined });
-  });
 
   // ─── CLEAR QUEUE ──────────────────────────────────────────────────────────
   app.post("/api/leads/clear-queue", (req, res) => {
@@ -793,7 +783,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json(all);
   });
 
-  // ─── PAGINATED LEAD LIST (v11.56) — use for admin list view at scale ─────
+  // ─── PAGINATED LEAD LIST (v11.57) — use for admin list view at scale ─────
   app.get("/api/leads/paginated", (req: any, res: any) => {
     const limit  = Math.min(parseInt(String(req.query.limit  || "50")), 200);
     const offset = parseInt(String(req.query.offset || "0"));
@@ -2103,7 +2093,7 @@ This template is for informational/outreach purposes only.`;
     res.json(result);
   });
 
-  // ─── LEADERBOARD RESET (v11.56: snapshots scores before wiping) ──────────
+  // ─── LEADERBOARD RESET (v11.57: snapshots scores before wiping) ──────────
   app.post("/api/admin/leaderboard-reset", (req: any, res: any) => {
     const now = new Date().toISOString();
 
@@ -2147,7 +2137,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ resetAt: row?.value || null });
   });
 
-  // ─── LEADERBOARD HISTORY (v11.56) ─────────────────────────────────────────
+  // ─── LEADERBOARD HISTORY (v11.57) ─────────────────────────────────────────
   app.get("/api/admin/leaderboard-history", (_req, res) => {
     const rows = rawDb.prepare(
       `SELECT id, period_label, reset_at, snapshot_json, created_at FROM leaderboard_snapshots ORDER BY created_at DESC LIMIT 24`
@@ -2414,7 +2404,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.56",
+      version: "v11.57",
       services: results,
     });
   });

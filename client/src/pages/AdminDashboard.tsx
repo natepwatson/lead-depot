@@ -615,7 +615,7 @@ function activityDot(lastActivityAt: string | null): { color: string; label: str
   return { color: "#6b7280", label: "No activity in 48h+" };
 }
 
-// ─── CONNECTIVITY HEALTH WIDGET (v11.56) ────────────────────────────────────────
+// ─── CONNECTIVITY HEALTH WIDGET (v11.57) ────────────────────────────────────────
 type HealthService = { ok: boolean; latencyMs?: number; detail?: string };
 type HealthData = {
   status: "healthy" | "degraded" | "critical";
@@ -801,7 +801,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [statusFilter, setStatusFilter] = useState("all");
   const [drilldownAgent, setDrilldownAgent] = useState<{ id: number; name: string } | null>(null);
 
-  // Paginated leads state (v11.56)
+  // Paginated leads state (v11.57)
   const [leadsPage, setLeadsPage] = useState(0);
   const LEADS_PAGE_SIZE = 50;
   const [lbHistoryOpen, setLbHistoryOpen] = useState(false);
@@ -855,7 +855,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     refetchInterval: 15000,
   });
 
-  // Paginated lead list query (v11.56) — replaces full pipeline load for All Leads tab
+  // Paginated lead list query (v11.57) — replaces full pipeline load for All Leads tab
   const paginatedLeadsQuery = useQuery<any>({
     queryKey: ["/api/leads/paginated", statusFilter, searchTerm, leadsPage],
     queryFn: () => {
@@ -881,7 +881,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     }
   }, [statusFilter, searchTerm]);
 
-  // Leaderboard history (v11.56)
+  // Leaderboard history (v11.57)
   const { data: lbHistory = [] } = useQuery<any[]>({
     queryKey: ["/api/admin/leaderboard-history"],
     queryFn: () => apiRequest("GET", "/api/admin/leaderboard-history").then(r => r.json()),
@@ -982,11 +982,6 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     },
   });
 
-  const toggleWebsiteLeadsMutation = useMutation({
-    mutationFn: ({ id, receiveWebsiteLeads }: { id: number; receiveWebsiteLeads: boolean }) =>
-      apiRequest("PATCH", `/api/agents/${id}/website-leads`, { receiveWebsiteLeads }).then(r => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/agents"] }),
-  });
 
   const redistributeUnseenMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/admin/redistribute-unseen").then(r => r.json()),
@@ -1188,7 +1183,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.56
+              v11.57
             </p>
           </div>
         </div>
@@ -1431,7 +1426,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
-                          {/* Rank badge — headshot or initials (v11.56) */}
+                          {/* Rank badge — headshot or initials (v11.57) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
 {(() => {
                               const initials = stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -1792,7 +1787,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
           {/* ── ALL LEADS ───────────────────────────────────────────────────── */}
           <TabsContent value="leads" className="mt-5 space-y-3">
-            {/* ── Paginated All Leads (v11.56) ── */}
+            {/* ── Paginated All Leads (v11.57) ── */}
             {(() => {
               const plData = paginatedLeadsQuery.data;
               const plLeads: any[] = plData?.leads || [];
@@ -2211,51 +2206,19 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               </div>
             </div>
 
-            {/* Admin as Agent */}
-            <div style={{
-              background: "linear-gradient(135deg,#0f0f0f 0%,#0a0a0a 100%)",
-              border: "1px solid rgba(200,170,90,0.1)",
-              borderRadius: 12, padding: 16,
-            }}>
-              <div className="flex items-center gap-2 mb-3">
-                <UserCheck size={14} style={{ color: "rgba(200,170,90,0.7)" }} />
-                <h3 className="text-sm font-semibold text-foreground">Admin Lead Receiving</h3>
-                <span className="text-xs text-muted-foreground">— toggle to join the round-robin for all lead types</span>
-              </div>
-              {agents.filter(a => a.role === "admin").map((admin) => (
-                <div key={admin.id} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: "rgba(255,255,255,0.02)",
-                  border: "1px solid rgba(255,255,255,0.07)",
-                  borderRadius: 8, padding: "10px 16px",
-                }}>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{admin.name}</p>
-                    <p className="text-xs text-muted-foreground">{admin.email}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-[10px] text-muted-foreground">All Leads</span>
-                      <LuxToggle
-                        on={!!admin.receiveLeads}
-                        onToggle={() => toggleReceiveLeadsMutation.mutate({ id: admin.id, receiveLeads: !admin.receiveLeads })}
-                        testId={`toggle-receive-leads-${admin.id}`}
-                      />
-                    </div>
-                    <Badge variant="outline" className={`text-xs ${admin.receiveLeads ? "text-green-400 border-green-400/30" : "text-muted-foreground border-border"}`}>
-                      {admin.receiveLeads ? "Active" : "Off"}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Active + Inactive Agents */}
+            {/* Active + Inactive Agents — admins shown at top of same list */}
             {(() => {
-              const allRoleAgents = agents.filter(a => a.role === "agent");
-              // Active = isActive AND leadFlowOn. Everything else is Inactive.
-              const sortedActive = allRoleAgents.filter(a => a.isActive && a.leadFlowOn !== false);
-              const inactiveAgents = allRoleAgents.filter(a => !a.isActive || a.leadFlowOn === false);
+              // All users (admins + agents) in one unified list
+              // For admins: active = isActive AND receiveLeads. For agents: active = isActive AND leadFlowOn.
+              const allUsers = agents;
+              const sortedActive = allUsers.filter(a => {
+                if (a.role === "admin") return a.isActive && a.receiveLeads;
+                return a.isActive && a.leadFlowOn !== false;
+              });
+              const inactiveAgents = allUsers.filter(a => {
+                if (a.role === "admin") return !a.isActive || !a.receiveLeads;
+                return !a.isActive || a.leadFlowOn === false;
+              });
               return (
                 <>
                   <div className="space-y-3">
@@ -2328,7 +2291,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
                     <div className="space-y-2">
                       {sortedActive.map((agent, idx) => {
-                        const flowActive = agent.leadFlowOn !== false;
+                        // For admins use receiveLeads, for agents use leadFlowOn
+                        const flowActive = agent.role === "admin" ? !!agent.receiveLeads : agent.leadFlowOn !== false;
                         return (
                           <div
                             key={agent.id}
@@ -2372,22 +2336,14 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                 <span className="text-[10px] text-muted-foreground">Flow</span>
                                 <LuxToggle
                                   on={flowActive}
-                                  onToggle={() => toggleLeadFlowMutation.mutate({ id: agent.id, leadFlowOn: !agent.leadFlowOn })}
-                                  testId={`toggle-lead-flow-${agent.id}`}
-                                />
-                              </div>
-                              <div className="flex flex-col items-center gap-0.5">
-                                <span className="text-[10px] text-muted-foreground">Website</span>
-                                <LuxToggle
-                                  on={!!agent.receiveWebsiteLeads && flowActive}
                                   onToggle={() => {
-                                    if (!flowActive) return;
-                                    toggleWebsiteLeadsMutation.mutate({ id: agent.id, receiveWebsiteLeads: !agent.receiveWebsiteLeads });
+                                    if (agent.role === "admin") {
+                                      toggleReceiveLeadsMutation.mutate({ id: agent.id, receiveLeads: !agent.receiveLeads });
+                                    } else {
+                                      toggleLeadFlowMutation.mutate({ id: agent.id, leadFlowOn: !agent.leadFlowOn });
+                                    }
                                   }}
-                                  disabled={!flowActive}
-                                  testId={`toggle-website-leads-${agent.id}`}
-                                  activeColor="rgba(59,130,246,0.2)"
-                                  activeDot="#93c5fd"
+                                  testId={`toggle-lead-flow-${agent.id}`}
                                 />
                               </div>
                               <Badge variant="outline" className={`text-xs ${flowActive ? "text-green-400 border-green-400/30" : "text-red-400 border-red-400/30"}`}>

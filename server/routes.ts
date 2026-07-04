@@ -2722,7 +2722,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.81",
+      version: "v11.82",
       services: results,
     });
   });
@@ -2989,6 +2989,64 @@ This template is for informational/outreach purposes only.`;
       }).catch(err => console.error("Recruiting appointment alert failed:", err));
     }
 
+    // ── joined_team: auto-create agent account if none exists for this email ──
+    if (outcome === "joined_team") {
+      const agentLead = rawDb.prepare(`SELECT * FROM agent_leads WHERE id = ?`).get(id) as any;
+      if (agentLead && agentLead.email) {
+        const existingAgent = rawDb.prepare(`SELECT id FROM agents WHERE email = ?`).get(agentLead.email.toLowerCase().trim());
+        if (!existingAgent) {
+          try {
+            const tempPass = require("crypto").randomBytes(12).toString("hex");
+            const setupToken = require("crypto").randomBytes(32).toString("hex");
+            const setupExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+            const agentName = `${agentLead.first_name} ${agentLead.last_name}`.trim();
+            const cleanEmail = agentLead.email.toLowerCase().trim();
+            // Get next round-robin order
+            const maxOrder = (rawDb.prepare(`SELECT MAX(round_robin_order) as m FROM agents`).get() as any)?.m ?? 0;
+            rawDb.prepare(`
+              INSERT INTO agents (name, email, password, role, round_robin_order, is_active, receive_leads, lead_flow_on, receive_website_leads, can_recruit, min_dials_per_week, phone, territory, setup_token, setup_expires, onboarded)
+              VALUES (?, ?, ?, 'agent', ?, 1, 0, 0, 0, 0, 0, ?, ?, ?, ?, 0)
+            `).run(agentName, cleanEmail, tempPass, maxOrder + 1, agentLead.phone || null, agentLead.matched_territory || agentLead.territory || null, setupToken, setupExpires);
+
+            const newAgentRow = rawDb.prepare(`SELECT id FROM agents WHERE email = ?`).get(cleanEmail) as any;
+            const appBase = process.env.APP_URL ?? "https://depot.watsonbrothersgroup.com";
+            const setupLink = `${appBase}/#/setup/${setupToken}`;
+
+            // Send onboarding email
+            if (resend) {
+              resend.emails.send({
+                from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+                to: cleanEmail,
+                subject: "Welcome to the team — Set up your Lead Depot account",
+                html: `
+                  <div style="font-family:'Georgia',serif;background:#09090b;color:#e5e5e5;padding:40px 24px;max-width:600px;margin:0 auto;border-radius:12px;">
+                    <div style="text-align:center;margin-bottom:32px;">
+                      <svg width="44" height="44" viewBox="0 0 36 36" fill="none" style="margin-bottom:12px;">
+                        <rect x="2" y="18" width="32" height="15" rx="1" stroke="#c8aa5a" stroke-width="1.6"/>
+                        <path d="M2 18 L18 5 L34 18" stroke="#c8aa5a" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
+                        <rect x="13" y="24" width="10" height="9" rx="0.5" stroke="#c8aa5a" stroke-width="1.4"/>
+                      </svg>
+                      <p style="color:#c8aa5a;letter-spacing:0.18em;font-size:11px;text-transform:uppercase;margin:0;">Brothers Group · Momentum Realty</p>
+                    </div>
+                    <h1 style="color:#fff;font-weight:300;font-size:28px;margin:0 0 8px;">Welcome to the team, ${agentName}.</h1>
+                    <p style="color:rgba(255,255,255,0.6);font-size:15px;line-height:1.7;margin:0 0 32px;">Your Lead Depot account has been created. Complete your setup below — upload your headshot and set a secure password to activate your account and start receiving leads.</p>
+                    <div style="text-align:center;margin-bottom:32px;">
+                      <a href="${setupLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Complete My Account Setup</a>
+                    </div>
+                    <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.15);padding-top:20px;">This link expires in 7 days. Lead Depot · Brothers Group at Momentum Realty · Fernandina Beach, FL</p>
+                  </div>
+                `,
+              }).catch((err: any) => console.error("joined_team onboarding email failed:", err));
+            }
+
+            console.log(`[joined_team] Auto-created agent account for ${agentName} (${cleanEmail}), id=${newAgentRow?.id}`);
+          } catch (err: any) {
+            console.error("[joined_team] Auto-create agent failed:", err.message);
+          }
+        }
+      }
+    }
+
     res.json({ ok: true, points, status: newStatus, reactivateAt });
   });
 
@@ -2998,6 +3056,16 @@ This template is for informational/outreach purposes only.`;
     const { canRecruit } = req.body;
     if (typeof canRecruit !== 'boolean') return res.status(400).json({ error: 'canRecruit must be boolean' });
     rawDb.prepare(`UPDATE agents SET can_recruit = ? WHERE id = ?`).run(canRecruit ? 1 : 0, agentId);
+    res.json({ ok: true });
+  });
+
+  // ── Set minDialsPerWeek performance gate for an agent (admin only) ────────────────────────────
+  app.patch("/api/agents/:id/min-dials", (req: any, res) => {
+    const agentId = parseInt(req.params.id);
+    const { minDialsPerWeek } = req.body;
+    const val = parseInt(minDialsPerWeek);
+    if (isNaN(val) || val < 0) return res.status(400).json({ error: "minDialsPerWeek must be a non-negative integer" });
+    rawDb.prepare(`UPDATE agents SET min_dials_per_week = ? WHERE id = ?`).run(val, agentId);
     res.json({ ok: true });
   });
 

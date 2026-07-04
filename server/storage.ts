@@ -74,6 +74,9 @@ try { sqlite.exec(`ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT`);
 // v11.80 — Recruiting module: canRecruit flag, new statuses, reactivate_at
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN can_recruit INTEGER NOT NULL DEFAULT 0`); } catch {}
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN reactivate_at TEXT`); } catch {}
+
+// v11.82 — Performance gate: minDialsPerWeek column
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN min_dials_per_week INTEGER NOT NULL DEFAULT 0`); } catch {}
 // FREC fields (v11.71 — in case table was created before these existed)
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN frec_license_id TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN license_issue_date TEXT`); } catch {}
@@ -442,10 +445,35 @@ export class Storage implements IStorage {
       .all()
       .filter(a => {
         if (a.role === "admin" && !a.receiveLeads) return false;
+        // Performance gate: skip agents below their weekly dial threshold
+        const minDials = (a as any).minDialsPerWeek ?? 0;
+        if (minDials > 0) {
+          const weekStart = new Date();
+          weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday
+          weekStart.setHours(0, 0, 0, 0);
+          const dialCount = (sqlite.prepare(
+            `SELECT COUNT(*) as cnt FROM agent_points WHERE agent_id = ? AND reason = 'dial' AND created_at >= ?`
+          ).get(a.id, weekStart.toISOString()) as any)?.cnt ?? 0;
+          if (dialCount < minDials) return false;
+        }
         return true;
       });
 
-    if (allActive.length === 0) return undefined;
+    // If ALL agents are gated, fall back to ungated pool to avoid deadlock
+    if (allActive.length === 0) {
+      const ungated = db.select().from(agents)
+        .where(and(eq(agents.isActive, true), eq(agents.leadFlowOn, true)))
+        .orderBy(asc(agents.roundRobinOrder))
+        .all()
+        .filter(a => {
+          if (a.role === "admin" && !a.receiveLeads) return false;
+          return true;
+        });
+      if (ungated.length === 0) return undefined;
+      const rrFallback = db.select().from(roundRobinState).get();
+      const lastIdxF = ungated.findIndex(a => a.id === rrFallback?.lastAssignedAgentId);
+      return ungated[(lastIdxF + 1) % ungated.length];
+    }
 
     // ── Territory-aware filtering ──────────────────────────────────────────────
     // If lead has a territory AND at least one agent covers that territory,

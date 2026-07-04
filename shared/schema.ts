@@ -15,6 +15,8 @@ export const agents = sqliteTable("agents", {
   leadFlowOn: integer("lead_flow_on", { mode: "boolean" }).notNull().default(true),
   receiveWebsiteLeads: integer("receive_website_leads", { mode: "boolean" }).notNull().default(false),
   canRecruit: integer("can_recruit", { mode: "boolean" }).notNull().default(false),
+  // Performance gate — agent is muted from round-robin until they hit this weekly dial count (0 = disabled)
+  minDialsPerWeek: integer("min_dials_per_week").notNull().default(0),
   // Agent profile fields
   phone: text("phone"),
   brokerage: text("brokerage"),

@@ -250,6 +250,10 @@ rawDb.prepare(`
     AND reactivate_at IS NOT NULL
     AND date(reactivate_at) <= date('now')
 `).run();
+// v11.82 — Performance gate: minDialsPerWeek
+const agentColsV82 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
+if (!agentColsV82.includes("min_dials_per_week")) rawDb.prepare("ALTER TABLE agents ADD COLUMN min_dials_per_week INTEGER NOT NULL DEFAULT 0").run();
+
 // Unique index on dedup_hash — prevents within-run and cross-run duplicates
 rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_leads_dedup_hash ON agent_leads(dedup_hash) WHERE dedup_hash IS NOT NULL`).run();
 // Index for freshness queries (last_scraped_at)

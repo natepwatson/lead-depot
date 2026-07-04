@@ -1589,6 +1589,7 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
   const [recruitCallNotes, setRecruitCallNotes] = React.useState("");
   const [recruitCallbackDate, setRecruitCallbackDate] = React.useState("");
   const [recruitPendingOutcome, setRecruitPendingOutcome] = React.useState<string | null>(null);
+  const [joinedTeamConfirm, setJoinedTeamConfirm] = React.useState(false);
 
   const agentLeadMutation = useMutation({
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string }) =>
@@ -1599,6 +1600,7 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
       setRecruitCallNotes("");
       setRecruitCallbackDate("");
       setRecruitPendingOutcome(null);
+      setJoinedTeamConfirm(false);
     },
   });
 
@@ -1919,19 +1921,56 @@ export default function AgentView({ onBackToAdmin, initialTab }: { onBackToAdmin
                             >{label}</button>
                           ))}
                         </div>
-                        <button
-                          onClick={() => submitRecruitOutcome("joined_team")}
-                          disabled={agentLeadMutation.isPending}
-                          style={{
-                            width: "100%",
-                            background: "linear-gradient(135deg, rgba(34,197,94,0.3), rgba(34,197,94,0.15))",
-                            border: "1px solid rgba(34,197,94,0.5)",
-                            borderRadius: 12, padding: "14px 8px",
-                            fontSize: 14, fontWeight: 700, color: "#22c55e",
-                            cursor: "pointer", letterSpacing: "0.06em",
-                            opacity: agentLeadMutation.isPending ? 0.5 : 1,
-                          }}
-                        >✓ Joined Watson Brothers</button>
+                        {/* Joined Watson Brothers — confirm step */}
+                        {!joinedTeamConfirm ? (
+                          <button
+                            onClick={() => setJoinedTeamConfirm(true)}
+                            disabled={agentLeadMutation.isPending}
+                            style={{
+                              width: "100%",
+                              background: "linear-gradient(135deg, rgba(34,197,94,0.3), rgba(34,197,94,0.15))",
+                              border: "1px solid rgba(34,197,94,0.5)",
+                              borderRadius: 12, padding: "14px 8px",
+                              fontSize: 14, fontWeight: 700, color: "#22c55e",
+                              cursor: "pointer", letterSpacing: "0.06em",
+                              opacity: agentLeadMutation.isPending ? 0.5 : 1,
+                            }}
+                          >✓ Joined Watson Brothers</button>
+                        ) : (
+                          <div style={{
+                            background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.4)",
+                            borderRadius: 12, padding: "16px 14px",
+                          }}>
+                            <p style={{ fontSize: 13, color: "#22c55e", fontWeight: 700, marginBottom: 6, textAlign: "center" }}>
+                              Confirm: Mark as Joined?
+                            </p>
+                            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 12, textAlign: "center", lineHeight: 1.5 }}>
+                              This will award 50 pts and auto-create a Lead Depot account for this agent.
+                              They will receive a setup email to complete onboarding.
+                            </p>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button
+                                onClick={() => setJoinedTeamConfirm(false)}
+                                style={{
+                                  flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+                                  borderRadius: 8, padding: "10px 8px", fontSize: 12, fontWeight: 600,
+                                  color: "rgba(255,255,255,0.5)", cursor: "pointer",
+                                }}
+                              >Cancel</button>
+                              <button
+                                onClick={() => { setJoinedTeamConfirm(false); submitRecruitOutcome("joined_team"); }}
+                                disabled={agentLeadMutation.isPending}
+                                style={{
+                                  flex: 2, background: "linear-gradient(135deg, rgba(34,197,94,0.35), rgba(34,197,94,0.2))",
+                                  border: "1px solid rgba(34,197,94,0.6)",
+                                  borderRadius: 8, padding: "10px 8px", fontSize: 12, fontWeight: 700,
+                                  color: "#22c55e", cursor: "pointer",
+                                  opacity: agentLeadMutation.isPending ? 0.5 : 1,
+                                }}
+                              >✓ Yes, Confirm Joined</button>
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>

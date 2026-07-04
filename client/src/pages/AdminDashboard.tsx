@@ -1327,7 +1327,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v11.81
+              v11.82
             </p>
           </div>
         </div>
@@ -2951,6 +2951,39 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                               <Badge variant="outline" className={`text-xs ${flowActive ? "text-green-400 border-green-400/30" : "text-red-400 border-red-400/30"}`}>
                                 {flowActive ? "Active" : "Inactive"}
                               </Badge>
+                              {/* Performance gate badge + inline dial threshold input */}
+                              {(() => {
+                                const minDials = (agent as any).minDialsPerWeek ?? 0;
+                                return (
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <span className="text-[10px] text-muted-foreground">Min Dials/Wk</span>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={999}
+                                      defaultValue={minDials}
+                                      onBlur={(e) => {
+                                        const val = parseInt(e.target.value);
+                                        if (!isNaN(val) && val >= 0 && val !== minDials) {
+                                          apiRequest("PATCH", `/api/agents/${agent.id}/min-dials`, { minDialsPerWeek: val })
+                                            .then(() => queryClient.invalidateQueries({ queryKey: ["/api/agents"] }))
+                                            .catch(() => {});
+                                        }
+                                      }}
+                                      style={{
+                                        width: 44, textAlign: "center", fontSize: 11,
+                                        background: minDials > 0 ? "rgba(234,179,8,0.12)" : "rgba(255,255,255,0.04)",
+                                        border: `1px solid ${minDials > 0 ? "rgba(234,179,8,0.4)" : "rgba(255,255,255,0.1)"}`,
+                                        borderRadius: 5, color: minDials > 0 ? "#eab308" : "#888",
+                                        padding: "2px 4px",
+                                      }}
+                                    />
+                                    {minDials > 0 && (
+                                      <span style={{ fontSize: 9, color: "#eab308", letterSpacing: "0.05em", textTransform: "uppercase" }}>Gated</span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"

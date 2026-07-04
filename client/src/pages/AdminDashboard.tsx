@@ -990,6 +990,27 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   // v12.5 — Get Leads Now / Hard Reset helpers
   const [hardResetOpen, setHardResetOpen] = useState<null | "seller" | "recruiting">(null);
   const [hardResetInput, setHardResetInput] = useState("");
+  // v13.2 — Reactivate Retired Leads (go-live helper)
+  const [busyReactivate, setBusyReactivate] = useState(false);
+  const reactivateRetiredLeads = async () => {
+    if (!confirm("Reactivate ALL retired leads and round-robin them across active agents? This puts them back in the queue as fresh, unassigned leads.")) return;
+    setBusyReactivate(true);
+    try {
+      const r = await apiRequest("POST", "/api/admin/reactivate-retired-leads", {});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) {
+        alert(`Reactivated ${j.reactivated ?? 0} leads. Assigned ${j.assigned ?? 0} to agents.`);
+        qc.invalidateQueries({ queryKey: ["stats"] });
+        qc.invalidateQueries({ queryKey: ["/api/leads/paginated"] });
+      } else {
+        alert("Reactivate failed: " + (j.error || r.statusText));
+      }
+    } catch (e: any) {
+      alert("Reactivate failed: " + e.message);
+    } finally {
+      setBusyReactivate(false);
+    }
+  };
   const [busyGetLeads, setBusyGetLeads] = useState<null | "seller" | "recruiting">(null);
   const runGetLeadsNow = async (which: "seller" | "recruiting") => {
     setBusyGetLeads(which);
@@ -1398,7 +1419,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v13.1
+              v13.2
             </p>
           </div>
         </div>
@@ -1504,6 +1525,16 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)", color: "#080808",
                 }}
               >{busyGetLeads === "seller" ? "Running…" : "⚡ Get Leads Now"}</button>
+              <button
+                onClick={reactivateRetiredLeads}
+                disabled={busyReactivate}
+                style={{
+                  fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+                  padding: "7px 14px", borderRadius: 6, border: "1px solid rgba(200,170,90,0.4)",
+                  cursor: busyReactivate ? "wait" : "pointer",
+                  background: "rgba(200,170,90,0.08)", color: "#c8aa5a",
+                }}
+              >{busyReactivate ? "Reactivating…" : "♻ Reactivate Retired Leads"}</button>
               <a
                 href="#/recruiting"
                 style={{

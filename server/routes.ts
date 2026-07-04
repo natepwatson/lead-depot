@@ -149,7 +149,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v13.1 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v13.2 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -208,7 +208,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.1 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.2 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -257,7 +257,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.1 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.2 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -3002,7 +3002,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v13.1",
+      version: "v13.2",
       services: results,
     });
   });
@@ -3723,6 +3723,52 @@ This template is for informational/outreach purposes only.`;
       `).all() as any[];
       res.json({ total, lastRun, byTerritory, byStatus });
     } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── REACTIVATE RETIRED LEADS (admin) ───────────────────────────────────────
+  // v13.2 — Go-live helper: takes every lead currently in 'retired' status,
+  // flips them back to 'unassigned', clears callbackDate, and round-robins them
+  // across active seller-side agents so the team has a working queue tonight.
+  app.post("/api/admin/reactivate-retired-leads", (req: any, res) => {
+    try {
+      // 1) Grab all retired leads
+      const retired = rawDb.prepare(
+        `SELECT id, lead_type as leadType, territory FROM leads WHERE status = 'retired'`
+      ).all() as { id: number; leadType: string; territory: string | null }[];
+
+      if (retired.length === 0) {
+        return res.json({ ok: true, reactivated: 0, assigned: 0, message: "No retired leads to reactivate." });
+      }
+
+      // 2) Flip all to unassigned, clear callback
+      const now = new Date().toISOString();
+      const flipStmt = rawDb.prepare(
+        `UPDATE leads SET status = 'unassigned', assigned_agent_id = NULL, callback_date = NULL, uploaded_at = ? WHERE id = ?`
+      );
+      const flipMany = rawDb.transaction((rows: typeof retired) => {
+        for (const r of rows) flipStmt.run(now, r.id);
+      });
+      flipMany(retired);
+
+      // 3) Round-robin assign — use the same rotation logic as new-lead ingestion.
+      //    Fetches next agent per lead based on leadType + territory, honors
+      //    territory1/territory2, dial-gates, and admin receiveLeads flag.
+      let assigned = 0;
+      for (const r of retired) {
+        const nextAgent = storage.getNextAgentInRotation(r.leadType, r.territory);
+        if (nextAgent) {
+          storage.updateLead(r.id, { assignedAgentId: nextAgent.id, status: "assigned" });
+          storage.updateRoundRobinState(nextAgent.id);
+          assigned++;
+        }
+      }
+
+      console.log(`[Reactivate Retired] Reactivated ${retired.length} leads, assigned ${assigned} to agents.`);
+      res.json({ ok: true, reactivated: retired.length, assigned });
+    } catch (err: any) {
+      console.error("[Reactivate Retired] Error:", err);
       res.status(500).json({ error: err.message });
     }
   });

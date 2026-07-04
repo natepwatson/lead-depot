@@ -141,7 +141,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.40 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.77 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -1179,8 +1179,19 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // ─── OUTCOMES ─────────────────────────────────────────────────────────────
   app.post("/api/leads/:id/outcome", async (req, res) => {
     const leadId = parseInt(req.params.id);
+    if (isNaN(leadId)) return res.status(400).json({ error: "Invalid lead id" });
+
     const { agentId, outcome, notes, lpmamab, callbackDate,
             apptEmail, confirmedAddress, apptDate, apptTime, stage, intention } = req.body;
+
+    // Whitelist valid outcomes — prevents garbage data from getting into the activity log
+    const VALID_OUTCOMES = [
+      "no_answer", "contacted_appointment", "keep_in_touch", "callback_requested",
+      "contacted_not_interested", "wrong_number", "email_sent", "network_referral",
+    ];
+    if (!outcome || !VALID_OUTCOMES.includes(outcome)) {
+      return res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_OUTCOMES.join(", ")}` });
+    }
 
     const lead = storage.getLeadById(leadId);
     if (!lead) return res.status(404).json({ error: "Lead not found" });
@@ -2412,7 +2423,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.40 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v11.77 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -2577,7 +2588,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.76",
+      version: "v11.77",
       services: results,
     });
   });
@@ -3207,7 +3218,7 @@ async function sendDailyDigest() {
     </div>` : "";
 
   // ── Unassigned leads (sitting in pool) ───────────────────────────────────
-  const unassignedLeads = allLeadsRaw.filter((l: any) => l.status === "unassigned" || (!l.assigned_agent_id && !["contacted_not_interested","contacted_appointment","wrong_number"].includes(l.status)));
+  const unassignedLeads = allLeadsRaw.filter((l: any) => l.status === "unassigned" || (!l.assigned_agent_id && !["contacted_not_interested","contacted_appointment","wrong_number","keep_in_touch","callback_requested"].includes(l.status)));
   const unassignedSection = unassignedLeads.length > 0 ? `
     <div style="padding:20px 24px 0">
       <div style="font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#f87171;font-weight:700;margin-bottom:8px">⚠️ Unassigned Leads (${unassignedLeads.length})</div>
@@ -3309,7 +3320,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.40</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v11.77</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

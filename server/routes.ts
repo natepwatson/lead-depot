@@ -2444,7 +2444,28 @@ This template is for informational/outreach purposes only.`;
       results.app_url = { ok: false, detail: e.message };
     }
 
-    // 5. WebSocket server
+    // 5. BatchLeads API
+    const blKey = process.env.BATCHLEADS_API_KEY;
+    if (blKey) {
+      try {
+        const start = Date.now();
+        const blRes = await fetch("https://app.batchleads.io/api/v1/lists?page=1&per_page=1", {
+          headers: { "api-key": blKey },
+          signal: AbortSignal.timeout(6000),
+        });
+        results.batchleads = {
+          ok: blRes.ok,
+          latencyMs: Date.now() - start,
+          detail: blRes.ok ? "Connected" : `HTTP ${blRes.status}`,
+        };
+      } catch (e: any) {
+        results.batchleads = { ok: false, detail: e.message };
+      }
+    } else {
+      results.batchleads = { ok: false, detail: "BATCHLEADS_API_KEY not set in Railway env" };
+    }
+
+    // 6. WebSocket server
     results.websocket = {
       ok: true,
       detail: "WS server active (broadcast available)",
@@ -2456,7 +2477,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.68",
+      version: "v11.69",
       services: results,
     });
   });

@@ -2145,22 +2145,27 @@ This template is for informational/outreach purposes only.`;
 
     const allAgents = storage.getAllAgents().filter(a => a.isActive);
 
-    // ── SQL: aggregate activity counts per agent per outcome for today + week ──
-    const OUTCOMES = ["contacted_appointment","keep_in_touch","email_sent","no_answer","contacted_not_interested"];
+    // ── SQL: aggregate activity counts per agent per outcome for today + week + all-time ──
     const aggRows: any[] = rawDb.prepare(`
       SELECT agent_id,
         SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as today_total,
         SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as week_total,
+        COUNT(*) as all_total,
         SUM(CASE WHEN outcome = 'contacted_appointment' AND created_at >= ? THEN 1 ELSE 0 END) as today_appts,
         SUM(CASE WHEN outcome = 'contacted_appointment' AND created_at >= ? THEN 1 ELSE 0 END) as week_appts,
+        SUM(CASE WHEN outcome = 'contacted_appointment' THEN 1 ELSE 0 END) as all_appts,
         SUM(CASE WHEN outcome = 'keep_in_touch' AND created_at >= ? THEN 1 ELSE 0 END) as today_kit,
         SUM(CASE WHEN outcome = 'keep_in_touch' AND created_at >= ? THEN 1 ELSE 0 END) as week_kit,
+        SUM(CASE WHEN outcome = 'keep_in_touch' THEN 1 ELSE 0 END) as all_kit,
         SUM(CASE WHEN outcome = 'email_sent' AND created_at >= ? THEN 1 ELSE 0 END) as today_emails,
         SUM(CASE WHEN outcome = 'email_sent' AND created_at >= ? THEN 1 ELSE 0 END) as week_emails,
+        SUM(CASE WHEN outcome = 'email_sent' THEN 1 ELSE 0 END) as all_emails,
         SUM(CASE WHEN outcome = 'no_answer' AND created_at >= ? THEN 1 ELSE 0 END) as today_no_answer,
         SUM(CASE WHEN outcome = 'no_answer' AND created_at >= ? THEN 1 ELSE 0 END) as week_no_answer,
+        SUM(CASE WHEN outcome = 'no_answer' THEN 1 ELSE 0 END) as all_no_answer,
         SUM(CASE WHEN outcome = 'contacted_not_interested' AND created_at >= ? THEN 1 ELSE 0 END) as today_not_int,
         SUM(CASE WHEN outcome = 'contacted_not_interested' AND created_at >= ? THEN 1 ELSE 0 END) as week_not_int,
+        SUM(CASE WHEN outcome = 'contacted_not_interested' THEN 1 ELSE 0 END) as all_not_int,
         MAX(created_at) as last_activity_at
       FROM lead_activity
       WHERE agent_id IS NOT NULL
@@ -2199,15 +2204,15 @@ This template is for informational/outreach purposes only.`;
     const todayReferralsMap: Record<number, number> = {};
     for (const r of todayRefRows) todayReferralsMap[r.uploaded_by] = r.cnt;
 
-    const buildStats = (agg: any, period: "today" | "week", agentId: number) => {
+    const buildStats = (agg: any, period: "today" | "week" | "all", agentId: number) => {
       if (!agg) return { dials: 0, appts: 0, kit: 0, emails: 0, noAnswer: 0, convRate: 0, referrals: 0 };
-      const p = period === "today" ? "today" : "week";
+      const p = period === "today" ? "today" : period === "week" ? "week" : "all";
       const appts    = agg[`${p}_appts`]    || 0;
       const kit      = agg[`${p}_kit`]      || 0;
       const emails   = agg[`${p}_emails`]   || 0;
       const noAnswer = agg[`${p}_no_answer`] || 0;
       const notInt   = agg[`${p}_not_int`]  || 0;
-      const total    = agg[`${p}_total`]    || 0;
+      const total    = agg[`${p}_total`]    || (p === "all" ? (agg.all_total || 0) : 0);
       const dials    = total - emails;
       const convRate = dials > 0 ? Math.round(((appts + notInt + kit) / dials) * 100) : 0;
       const referrals = period === "today" ? (todayReferralsMap[agentId] || 0) : (weekReferralsMap[agentId] || 0);
@@ -2219,8 +2224,9 @@ This template is for informational/outreach purposes only.`;
       return {
         agent: { id: agent.id, name: agent.name, email: agent.email, headshotUrl: (agent as any).headshotUrl || null },
         lastActivityAt: agg?.last_activity_at || null,
-        today:  buildStats(agg, "today",  agent.id),
-        weekly: buildStats(agg, "week",   agent.id),
+        today:   buildStats(agg, "today", agent.id),
+        weekly:  buildStats(agg, "week",  agent.id),
+        allTime: buildStats(agg, "all",   agent.id),
       };
     });
 
@@ -2573,7 +2579,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.73",
+      version: "v11.74",
       services: results,
     });
   });

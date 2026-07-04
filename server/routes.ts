@@ -886,13 +886,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     // Parse address components from each lead
     const mapLeads = all.map(l => {
-      let city = ""; let state = "FL"; let zip = "";
-      if (l.extraData) {
+      // Use dedicated columns first (BatchLeads leads), fall back to extraData, then address parsing
+      let city = (l as any).city || ""; let state = (l as any).state || "FL"; let zip = (l as any).zip || "";
+      if (!city && l.extraData) {
         try {
           const ex = JSON.parse(l.extraData);
           city  = ex.city  || ex.City  || ex.PropertyCity  || ex["Property City"]  || "";
-          state = ex.state || ex.State || ex.PropertyState || ex["Property State"] || "FL";
-          zip   = ex.zip   || ex.Zip   || ex.zipcode || ex.Zipcode || ex.PostalCode ||
+          state = state || ex.state || ex.State || ex.PropertyState || ex["Property State"] || "FL";
+          zip   = zip || ex.zip   || ex.Zip   || ex.zipcode || ex.Zipcode || ex.PostalCode ||
                   ex["Postal Code"] || ex.PropertyZip || ex["Property Zip"] || "";
         } catch {}
       }
@@ -1504,27 +1505,41 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   // ─── ADMIN: PIPELINE VIEW ─────────────────────────────────────────────────
   app.get("/api/admin/pipeline", (req, res) => {
-    const allLeads = storage.getAllLeads();
+    // Return counts-only in byStatus to avoid sending thousands of leads to client.
+    // The live pipeline tab shows top 50 active leads + counts.
+    const limit = parseInt((req.query.limit as string) || "50");
+    const offset = parseInt((req.query.offset as string) || "0");
+
     const allAgents = storage.getAllAgents();
     const agentMap = Object.fromEntries(allAgents.map(a => [a.id, a.name]));
 
-    const enriched = allLeads.map(l => ({
-      ...l,
-      assignedAgentName: l.assignedAgentId ? agentMap[l.assignedAgentId] || "Unknown" : null,
+    // Counts only per status (fast — single query per status)
+    const statusCounts = rawDb.prepare(
+      `SELECT status, COUNT(*) as cnt FROM leads GROUP BY status`
+    ).all() as any[];
+    const byStatus: Record<string, number> = {};
+    for (const row of statusCounts) byStatus[row.status] = row.cnt;
+
+    // Active leads (paginated) for the live pipeline list
+    const ACTIVE = ["unassigned","assigned","no_answer","keep_in_touch","callback_requested"];
+    const activeRows = rawDb.prepare(
+      `SELECT * FROM leads WHERE status IN (${ACTIVE.map(() => "?").join(",")}) ORDER BY uploaded_at DESC LIMIT ? OFFSET ?`
+    ).all(...ACTIVE, limit, offset) as any[];
+
+    const activeLeads = activeRows.map((r: any) => ({
+      id: r.id, ownerName: r.owner_name, address: r.address, phone: r.phone,
+      leadType: r.lead_type, status: r.status, attemptCount: r.attempt_count,
+      callbackDate: r.callback_date, score: r.score ?? 0,
+      territory: r.territory ?? null,
+      assignedAgentId: r.assigned_agent_id,
+      assignedAgentName: r.assigned_agent_id ? agentMap[r.assigned_agent_id] || "Unknown" : null,
     }));
 
-    const byStatus = {
-      unassigned: enriched.filter(l => l.status === "unassigned"),
-      assigned: enriched.filter(l => l.status === "assigned"),
-      no_answer: enriched.filter(l => l.status === "no_answer"),
-      keep_in_touch: enriched.filter(l => l.status === "keep_in_touch"),
-      callback_requested: enriched.filter(l => l.status === "callback_requested"),
-      contacted_appointment: enriched.filter(l => l.status === "contacted_appointment"),
-      contacted_not_interested: enriched.filter(l => l.status === "contacted_not_interested"),
-      wrong_number: enriched.filter(l => l.status === "wrong_number"),
-    };
+    const totalActive = (rawDb.prepare(
+      `SELECT COUNT(*) as n FROM leads WHERE status IN (${ACTIVE.map(() => "?").join(",")})`
+    ).get(...ACTIVE) as any)?.n ?? 0;
 
-    res.json({ leads: enriched, byStatus, total: allLeads.length });
+    res.json({ leads: activeLeads, byStatus, total: totalActive });
   });
 
   // ─── ADMIN: LEADS FOR SPECIFIC AGENT ─────────────────────────────────────
@@ -2412,7 +2427,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.65",
+      version: "v11.66",
       services: results,
     });
   });

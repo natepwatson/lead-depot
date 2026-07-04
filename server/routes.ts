@@ -7,6 +7,7 @@ import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit } from "./fub";
+import { runLandvoicePipeline } from "./landvoice";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -2404,7 +2405,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.60",
+      version: "v11.61",
       services: results,
     });
   });
@@ -2735,6 +2736,44 @@ This template is for informational/outreach purposes only.`;
     } catch (err: any) {
       console.error("[Stale Audit] Error:", err);
       res.status(500).json({ error: "Stale audit failed" });
+    }
+  });
+
+    // ─── LANDVOICE PIPELINE TRIGGER ─────────────────────────────────────────────
+  // Called by daily 6am cron. Also callable manually by admins.
+  app.post("/api/admin/landvoice-run", async (req: any, res) => {
+    try {
+      console.log("[Landvoice] Manual/cron trigger received");
+      const stats = await runLandvoicePipeline(rawDb);
+
+      // After insert, trigger round-robin distribution for priority + standard leads
+      const newLeads = rawDb.prepare(
+        `SELECT * FROM leads WHERE status = 'unassigned' AND source = 'landvoice' AND created_at > datetime('now', '-1 hour')`
+      ).all() as any[];
+
+      let assigned = 0;
+      for (const lead of newLeads) {
+        try {
+          // Reuse existing round-robin logic via internal fetch
+          const nextAgent = storage.getNextAgentForRoundRobin();
+          if (nextAgent) {
+            storage.updateLead(lead.id, { status: "assigned", assignedAgentId: nextAgent.id });
+            assigned++;
+          }
+        } catch (e) {
+          // skip — will be redistributed by morning cron
+        }
+      }
+
+      res.json({
+        ok: true,
+        ...stats,
+        assigned,
+        message: `Pipeline complete. ${stats.priority + stats.standard} leads inserted, ${assigned} assigned via round-robin.`,
+      });
+    } catch (err: any) {
+      console.error("[Landvoice] Pipeline error:", err);
+      res.status(500).json({ error: err.message });
     }
   });
 

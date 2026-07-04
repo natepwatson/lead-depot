@@ -274,6 +274,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     "/api/admin/stale-lead-audit",
     "/api/admin/batchleads-run",
     "/api/admin/frec-run",
+    "/api/admin/missed-appointments",
   ];
   app.use("/api/admin", (req: any, res: any, next: any) => {
     const fullPath = req.baseUrl + req.path;
@@ -2722,7 +2723,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v11.82",
+      version: "v11.83",
       services: results,
     });
   });
@@ -3173,6 +3174,36 @@ This template is for informational/outreach purposes only.`;
   // STALE LEAD AUDIT — identifies leads untouched for 7+ days
   // Called by weekly cron every Monday 9am EDT
   // ─────────────────────────────────────────────────────────────────────────
+  // GET /api/admin/missed-appointments — returns stale 'appointment' recruiting leads (> 48h no activity)
+  app.get("/api/admin/missed-appointments", (req: any, res) => {
+    const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const stale = rawDb.prepare(`
+      SELECT al.id, al.first_name, al.last_name, al.phone,
+             al.matched_territory, al.status,
+             MAX(ala.created_at) as last_activity_at,
+             a.name as last_caller
+      FROM agent_leads al
+      LEFT JOIN agent_lead_activity ala ON ala.agent_lead_id = al.id
+      LEFT JOIN agents a ON a.id = ala.caller_id
+      WHERE al.status = 'appointment'
+      GROUP BY al.id
+      HAVING last_activity_at < ? OR last_activity_at IS NULL
+      ORDER BY last_activity_at ASC
+      LIMIT 20
+    `).all(fortyEightHoursAgo);
+    res.json({ stale, count: stale.length });
+  });
+
+  // POST /api/admin/missed-appointments — manually trigger the missed-appt email
+  app.post("/api/admin/missed-appointments", async (req: any, res) => {
+    try {
+      await checkMissedAppointments();
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/admin/stale-lead-audit", (req: any, res) => {
     try {
       const cutoffDays = parseInt(req.body?.cutoffDays || "7");
@@ -3921,3 +3952,236 @@ redistributeUnassignedLeads().catch((err) =>
 
 // Schedule daily 8am EDT run
 scheduleRedistribution();
+
+// ─── WEEKLY RECRUITING FUNNEL EMAIL ──────────────────────────────────────────
+// Sends every Sunday at 7am EDT (11:00 UTC)
+// Summarises: new FREC leads added, contacted, hot prospects, appointments, joined
+async function sendWeeklyRecruitingFunnel() {
+  if (!resend) return;
+
+  const now = new Date();
+  // Week window: last 7 days
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const stats = rawDb.prepare(`
+    SELECT
+      COUNT(*) FILTER (WHERE source = 'frec_scrape' AND submitted_at >= ?) as new_frec,
+      COUNT(*) FILTER (WHERE status IN ('contacted','hot_prospect','appointment','callback_requested') AND submitted_at >= ?) as engaged,
+      COUNT(*) FILTER (WHERE status = 'hot_prospect') as hot,
+      COUNT(*) FILTER (WHERE status = 'appointment') as appt,
+      COUNT(*) FILTER (WHERE status = 'joined') as joined,
+      COUNT(*) FILTER (WHERE status NOT IN ('not_interested','do_not_contact','joined')) as pipeline,
+      COUNT(*) as total
+    FROM agent_leads
+  `).get(weekAgo, weekAgo) as any;
+
+  // Top callers this week
+  const topCallers = rawDb.prepare(`
+    SELECT a.name, COUNT(*) as calls
+    FROM agent_lead_activity ala
+    JOIN agents a ON a.id = ala.caller_id
+    WHERE ala.created_at >= ?
+    GROUP BY ala.caller_id
+    ORDER BY calls DESC
+    LIMIT 5
+  `).all(weekAgo) as any[];
+
+  // Recent joins
+  const recentJoins = rawDb.prepare(`
+    SELECT first_name, last_name, matched_territory
+    FROM agent_leads WHERE status = 'joined'
+    ORDER BY rowid DESC LIMIT 5
+  `).all() as any[];
+
+  const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/New_York" });
+
+  const topCallersHtml = topCallers.length > 0
+    ? topCallers.map((c: any) => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05)"><span style="color:#e5e5e5;font-size:13px">${c.name}</span><span style="color:#4fb8a3;font-size:13px;font-weight:700">${c.calls} calls</span></div>`).join("")
+    : `<div style="color:rgba(255,255,255,0.35);font-size:13px">No recruiting calls this week</div>`;
+
+  const recentJoinsHtml = recentJoins.length > 0
+    ? recentJoins.map((j: any) => `<div style="padding:4px 0;font-size:13px;color:#22c55e">✓ ${j.first_name} ${j.last_name}${j.matched_territory ? ` · ${j.matched_territory}` : ""}</div>`).join("")
+    : `<div style="color:rgba(255,255,255,0.35);font-size:13px">No joins yet — keep pushing</div>`;
+
+  await resend.emails.send({
+    from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+    to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+    subject: `📊 Weekly Recruiting Funnel — ${dateLabel}`,
+    html: `
+      <div style="font-family:'Georgia',serif;background:#09090b;color:#e5e5e5;padding:0;max-width:600px;margin:0 auto;border-radius:12px;overflow:hidden;">
+        <div style="background:linear-gradient(135deg,#0f1f1d,#071210);padding:32px 28px;border-bottom:1px solid rgba(79,184,163,0.2)">
+          <p style="color:#4fb8a3;letter-spacing:.18em;font-size:11px;text-transform:uppercase;margin:0 0 8px">Brothers Group · Lead Depot</p>
+          <h1 style="color:#fff;font-weight:300;font-size:26px;margin:0">Weekly Recruiting Funnel</h1>
+          <p style="color:rgba(255,255,255,0.4);font-size:13px;margin:6px 0 0">${dateLabel}</p>
+        </div>
+
+        <div style="padding:24px 28px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px">
+            ${[
+              { label: "New FREC Leads", val: stats?.new_frec ?? 0, color: "#4fb8a3" },
+              { label: "Hot Prospects", val: stats?.hot ?? 0, color: "#f97316" },
+              { label: "Appointments", val: stats?.appt ?? 0, color: "#c8aa5a" },
+            ].map(s => `
+              <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:14px 12px;text-align:center">
+                <div style="font-size:28px;font-weight:700;color:${s.color};font-family:sans-serif">${s.val}</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">${s.label}</div>
+              </div>`).join("")}
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px">
+            <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:10px;padding:14px 12px;text-align:center">
+              <div style="font-size:28px;font-weight:700;color:#22c55e;font-family:sans-serif">${stats?.joined ?? 0}</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">Joined Team</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:14px 12px;text-align:center">
+              <div style="font-size:28px;font-weight:700;color:#e5e5e5;font-family:sans-serif">${stats?.pipeline ?? 0}</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">Total Pipeline</div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <p style="font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#4fb8a3;font-weight:700;margin:0 0 10px">Top Callers This Week</p>
+            ${topCallersHtml}
+          </div>
+
+          <div style="margin-bottom:24px">
+            <p style="font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#22c55e;font-weight:700;margin:0 0 10px">Recent Joins</p>
+            ${recentJoinsHtml}
+          </div>
+
+          <div style="text-align:center">
+            <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#4fb8a3,#2d7f72);color:#fff;font-weight:700;font-size:13px;letter-spacing:.1em;text-transform:uppercase;border-radius:8px;text-decoration:none">Open Lead Depot</a>
+          </div>
+        </div>
+
+        <div style="padding:16px 28px;border-top:1px solid rgba(255,255,255,0.05);text-align:center">
+          <p style="color:rgba(255,255,255,0.25);font-size:11px;margin:0">Lead Depot · Brothers Group at Momentum Realty · Fernandina Beach, FL</p>
+        </div>
+      </div>
+    `,
+  });
+  console.log("[recruiting-funnel] Weekly email sent");
+}
+
+function scheduleWeeklyRecruitingFunnel() {
+  function msUntilSunday7amEDT(): number {
+    // Sunday 7am EDT = Sunday 11:00 UTC
+    const now = new Date();
+    const next = new Date(now);
+    // Find next Sunday
+    const daysUntilSunday = (7 - now.getUTCDay()) % 7 || 7;
+    next.setUTCDate(now.getUTCDate() + daysUntilSunday);
+    next.setUTCHours(11, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 7);
+    return next.getTime() - now.getTime();
+  }
+
+  function scheduleNext() {
+    const delay = msUntilSunday7amEDT();
+    console.log(`[recruiting-funnel] Next weekly email in ${Math.round(delay / 60000)} min (Sunday 7am EDT)`);
+    setTimeout(() => {
+      sendWeeklyRecruitingFunnel().catch(err => console.error("[recruiting-funnel] Error:", err));
+      scheduleNext();
+    }, delay);
+  }
+  scheduleNext();
+}
+scheduleWeeklyRecruitingFunnel();
+
+// ─── MISSED APPOINTMENT FOLLOW-UP CHECK ──────────────────────────────────────
+// Runs daily at 9am EDT (13:00 UTC). Finds recruiting leads in 'appointment' status
+// where the last activity is > 48h ago with no subsequent outcome logged.
+// Sends an alert email to Alex when gaps are found.
+async function checkMissedAppointments() {
+  if (!resend) return;
+
+  const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+  // Find appointment-status leads where latest activity was > 48h ago
+  const stale: any[] = rawDb.prepare(`
+    SELECT al.id, al.first_name, al.last_name, al.phone, al.email,
+           al.matched_territory, al.status,
+           MAX(ala.created_at) as last_activity_at,
+           a.name as last_caller
+    FROM agent_leads al
+    LEFT JOIN agent_lead_activity ala ON ala.agent_lead_id = al.id
+    LEFT JOIN agents a ON a.id = ala.caller_id
+    WHERE al.status = 'appointment'
+    GROUP BY al.id
+    HAVING last_activity_at < ? OR last_activity_at IS NULL
+    ORDER BY last_activity_at ASC
+    LIMIT 20
+  `).all(fortyEightHoursAgo) as any[];
+
+  if (stale.length === 0) {
+    console.log("[missed-appt] No stale appointment leads found.");
+    return;
+  }
+
+  const rows = stale.map((s: any) => {
+    const lastAgo = s.last_activity_at
+      ? `${Math.round((Date.now() - new Date(s.last_activity_at).getTime()) / (1000 * 60 * 60))}h ago`
+      : "Never";
+    return `
+      <tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
+        <td style="padding:10px 14px;font-size:13px;color:#f0f0f0;font-weight:600">${s.first_name} ${s.last_name}</td>
+        <td style="padding:10px 14px;font-size:12px;color:rgba(255,255,255,0.5)">${s.phone || "—"}</td>
+        <td style="padding:10px 14px;font-size:12px;color:rgba(255,255,255,0.5)">${s.matched_territory || "—"}</td>
+        <td style="padding:10px 14px;font-size:12px;color:#ef4444">${lastAgo}</td>
+        <td style="padding:10px 14px;font-size:12px;color:rgba(255,255,255,0.4)">${s.last_caller || "—"}</td>
+      </tr>`;
+  }).join("");
+
+  await resend.emails.send({
+    from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+    to: "alex@watsonbrothersgroup.com",
+    subject: `⚠️ ${stale.length} Recruiting Appointment(s) Need Follow-Up`,
+    html: `
+      <div style="font-family:'Georgia',serif;background:#09090b;color:#e5e5e5;padding:32px 24px;max-width:600px;margin:0 auto;border-radius:12px;">
+        <h2 style="color:#ef4444;font-weight:400;font-size:22px;margin:0 0 6px">Missed Appointment Follow-Up</h2>
+        <p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0 0 24px">
+          ${stale.length} recruiting lead(s) are in <strong style="color:#c8aa5a">Appointment</strong> status
+          with no activity logged in the last 48 hours. These may be missed or need a post-appointment outcome logged.
+        </p>
+        <table style="width:100%;border-collapse:collapse;background:rgba(255,255,255,0.02);border-radius:8px;overflow:hidden;margin-bottom:24px">
+          <thead>
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
+              <th style="padding:8px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.1em">Agent</th>
+              <th style="padding:8px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.1em">Phone</th>
+              <th style="padding:8px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.1em">Territory</th>
+              <th style="padding:8px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.1em">Last Activity</th>
+              <th style="padding:8px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.1em">Last Caller</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div style="text-align:center">
+          <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:13px;letter-spacing:.1em;text-transform:uppercase;border-radius:8px;text-decoration:none">Open Lead Depot</a>
+        </div>
+      </div>
+    `,
+  });
+  console.log(`[missed-appt] Alert sent for ${stale.length} stale appointment lead(s)`);
+}
+
+function scheduleMissedAppointmentCheck() {
+  // Daily at 9am EDT = 13:00 UTC
+  function msUntil9amEDT(): number {
+    const now = new Date();
+    const next = new Date(now);
+    next.setUTCHours(13, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    return next.getTime() - now.getTime();
+  }
+
+  function scheduleNext() {
+    const delay = msUntil9amEDT();
+    console.log(`[missed-appt] Next check in ${Math.round(delay / 60000)} min (9am EDT)`);
+    setTimeout(() => {
+      checkMissedAppointments().catch(err => console.error("[missed-appt] Error:", err));
+      scheduleNext();
+    }, delay);
+  }
+  scheduleNext();
+}
+scheduleMissedAppointmentCheck();

@@ -67,6 +67,18 @@ async function buildAll() {
     console.log("copied public/join.html → dist/public/join.html");
   }
 
+  // agent headshots — slug-named jpg files served at /headshots/
+  const headshotSrc = "public/headshots";
+  const headshotDst = "dist/public/headshots";
+  if (existsSync(headshotSrc)) {
+    await mkdir(headshotDst, { recursive: true });
+    const files = await readdir(headshotSrc);
+    for (const f of files) {
+      await copyFile(path.join(headshotSrc, f), path.join(headshotDst, f));
+    }
+    console.log(`copied ${files.length} headshots → dist/public/headshots/`);
+  }
+
   // team photos — recruiting page headshots
   const teamSrc = "public/team";
   const teamDst = "dist/public/team";

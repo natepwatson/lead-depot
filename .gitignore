@@ -14,3 +14,7 @@ data.db-journal
 
 *.log
 .DS_Store
+
+# FREC/DBPR snapshots (runtime artifacts, not source)
+dbpr_csv_snapshot.csv
+frec_html_snapshot.html

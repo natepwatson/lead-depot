@@ -404,9 +404,12 @@ export class Storage implements IStorage {
   }
 
   getActiveLeadCountForAgent(agentId: number): number {
-    return db.select().from(leads)
-      .where(and(eq(leads.assignedAgentId, agentId), inArray(leads.status, ACTIVE_STATUSES)))
-      .all().length;
+    // Use raw SQL COUNT — avoids loading all rows into memory at scale
+    const placeholders = ACTIVE_STATUSES.map(() => "?").join(",");
+    const row = sqlite.prepare(
+      `SELECT COUNT(*) as cnt FROM leads WHERE assigned_agent_id = ? AND status IN (${placeholders})`
+    ).get(agentId, ...ACTIVE_STATUSES) as any;
+    return row?.cnt || 0;
   }
 
   createLeadActivity(data: InsertLeadActivity): LeadActivity {

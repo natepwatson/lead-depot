@@ -149,7 +149,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v13.4 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v13.5 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -208,7 +208,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.5 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -257,7 +257,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.5 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -282,7 +282,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     "/api/admin/stale-lead-audit",
     "/api/admin/batchleads-run",
     "/api/admin/dbpr-run",
-    "/api/admin/frec-run", // legacy alias — kept so existing crons still fire (v13.4)
+    "/api/admin/frec-run", // legacy alias — kept so existing crons still fire (v13.5)
     "/api/admin/missed-appointments",
   ];
   app.use("/api/admin", (req: any, res: any, next: any) => {
@@ -3003,7 +3003,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v13.4",
+      version: "v13.5",
       services: results,
     });
   });
@@ -3606,7 +3606,7 @@ This template is for informational/outreach purposes only.`;
     },
   ];
   app.post("/api/admin/dbpr-run", ...dbprRunHandler);
-  // Legacy alias — kept so any existing external cron pointing at /frec-run still fires (v13.4)
+  // Legacy alias — kept so any existing external cron pointing at /frec-run still fires (v13.5)
   app.post("/api/admin/frec-run", ...dbprRunHandler);
 
   // ─── RECRUITING PIPELINE (admin) ────────────────────────────────────────────
@@ -3733,7 +3733,7 @@ This template is for informational/outreach purposes only.`;
     }
   };
   app.get("/api/admin/dbpr-stats", dbprStatsHandler);
-  // Legacy alias for old client bundles hitting /frec-stats (v13.4)
+  // Legacy alias for old client bundles hitting /frec-stats (v13.5)
   app.get("/api/admin/frec-stats", dbprStatsHandler);
 
   // ─── REACTIVATE RETIRED LEADS (admin) ───────────────────────────────────────

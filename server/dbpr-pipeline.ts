@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createRequire } from "node:module";
-import { scrapeAllDbpr } from "./dbpr-scraper";
+import { scrapeAllDbpr, DBPR_TARGET_COUNTIES } from "./dbpr-scraper";
 import { getTerritoryForZip, ALL_NE_FLORIDA_ZIPS } from "./territories";
 
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);

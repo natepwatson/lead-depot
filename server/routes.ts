@@ -17,7 +17,15 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 
 // ─── POINTS HELPER (v11.40) ───────────────────────────────────────────────────
 // Scoring: Appointment=10, KIT=3, WrongNumber=+2 (list cleanup reward), Referral=5, any other dial=1
-function awardPoints(agentId: number | null | undefined, outcome: string, leadId?: number) {
+// v12.5 — scoped: "seller" (default, existing seller-side call flow) or
+// "recruiting" (agent-recruiting depot). Leaderboards + hard resets filter by
+// scope so the two systems stay fully isolated.
+function awardPoints(
+  agentId: number | null | undefined,
+  outcome: string,
+  leadId?: number,
+  scope: "seller" | "recruiting" = "seller",
+) {
   if (!agentId) return;
   const pts: Record<string, number> = {
     contacted_appointment: 10,
@@ -29,8 +37,8 @@ function awardPoints(agentId: number | null | undefined, outcome: string, leadId
   const points = pts[outcome] ?? 1;
   const reason = outcome;
   rawDb.prepare(
-    `INSERT INTO agent_points (agent_id, points, reason, lead_id, created_at) VALUES (?, ?, ?, ?, ?)`
-  ).run(agentId, points, reason, leadId ?? null, new Date().toISOString());
+    `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(agentId, points, reason, leadId ?? null, scope, new Date().toISOString());
 }
 
 
@@ -141,7 +149,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v11.77 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v12.5 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -200,7 +208,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v11.80 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v12.5 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -249,7 +257,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v11.80 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v12.5 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -436,9 +444,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const id = parseInt(req.params.id);
     // Safeguard (v11.70): whitelist allowed fields — never let client overwrite
     // role, password, id, or receiveLeads without going through dedicated routes
+    // v12.5 — territory1/territory2 replace territory. Legacy "territory" is still
+    // accepted for one release as a compatibility shim (goes into territory1).
     const ALLOWED_AGENT_PATCH_FIELDS = [
       "name", "email", "phone", "brokerage", "homeAddress", "headshotUrl",
-      "isActive", "leadFlowOn", "territory", "onboarded",
+      "isActive", "leadFlowOn", "territory", "territory1", "territory2",
+      "territoryClosedNotice", "onboarded",
     ] as const;
     const patch: Record<string, any> = {};
     for (const key of ALLOWED_AGENT_PATCH_FIELDS) {
@@ -456,7 +467,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const { name, email, role: reqRole } = req.body;
     if (!name || !email) return res.status(400).json({ error: "Name and email required" });
     const cleanEmail = email.toLowerCase().trim();
-    const assignedRole = ["admin", "agent", "recruiter"].includes(reqRole) ? reqRole : "agent";
+    // v12.5 — recruiter role is gone; only admin/agent supported.
+    const assignedRole = ["admin", "agent"].includes(reqRole) ? reqRole : "agent";
 
     // Check duplicate
     const existing = rawDb.prepare("SELECT id FROM agents WHERE email = ?").get(cleanEmail);
@@ -1819,26 +1831,32 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   // ─── LIVE ACTIVITY FEED HISTORY (v11.40) ────────────────────────────────
   // Returns the last N agent_points rows enriched with agent info for history display
+  // scope query param (v12.5): "seller" (default) | "recruiting"
   app.get("/api/admin/activity-feed", (req, res) => {
     const limit = parseInt(String(req.query.limit || "80"));
+    const scope = (String(req.query.scope || "seller") === "recruiting") ? "recruiting" : "seller";
     const rows = rawDb.prepare(`
       SELECT ap.*, a.name as agent_name, a.headshot_url as agent_headshot
       FROM agent_points ap
       LEFT JOIN agents a ON a.id = ap.agent_id
+      WHERE ap.scope = ?
       ORDER BY ap.created_at DESC
       LIMIT ?
-    `).all(limit) as any[];
+    `).all(scope, limit) as any[];
     res.json(rows.reverse()); // oldest first for the feed
   });
 
   // ─── AGENT POINTS TOTAL ───────────────────────────────────────────────────
+  // scope query param (v12.5): "seller" (default) | "recruiting"
   app.get("/api/agents/:id/points", (req, res) => {
     const agentId = parseInt(req.params.id);
-    const resetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
+    const scope = (String(req.query.scope || "seller") === "recruiting") ? "recruiting" : "seller";
+    const resetKey = scope === "recruiting" ? "leaderboard_reset_at_recruiting" : "leaderboard_reset_at";
+    const resetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = ?`).get(resetKey) as any;
     const resetAt: string | null = resetRow?.value || null;
     const row = rawDb.prepare(
-      `SELECT SUM(points) as total FROM agent_points WHERE agent_id = ? ${resetAt ? "AND created_at >= ?" : ""}`
-    ).get(...([agentId, ...(resetAt ? [resetAt] : [])])) as any;
+      `SELECT SUM(points) as total FROM agent_points WHERE agent_id = ? AND scope = ? ${resetAt ? "AND created_at >= ?" : ""}`
+    ).get(...([agentId, scope, ...(resetAt ? [resetAt] : [])])) as any;
     res.json({ points: row?.total || 0 });
   });
 
@@ -2399,9 +2417,13 @@ This template is for informational/outreach purposes only.`;
     });
 
     // ─── Points from agent_points table ───────────────────────────────────────
-    const resetRow2 = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
+    // v12.5 — scoped points: leaderboard filters to its own depot
+    const resetKey2 = scope === "recruiting" ? "leaderboard_reset_at_recruiting" : "leaderboard_reset_at";
+    const resetRow2 = rawDb.prepare(`SELECT value FROM settings WHERE key = ?`).get(resetKey2) as any;
     const resetAt2: string | null = resetRow2?.value || null;
-    const allPtsRows = rawDb.prepare(`SELECT agent_id, SUM(points) as total FROM agent_points ${resetAt2 ? "WHERE created_at >= ?" : ""} GROUP BY agent_id`).all(...(resetAt2 ? [resetAt2] : [])) as any[];
+    const ptsSql = `SELECT agent_id, SUM(points) as total FROM agent_points WHERE scope = ? ${resetAt2 ? "AND created_at >= ?" : ""} GROUP BY agent_id`;
+    const ptsParams = resetAt2 ? [scope, resetAt2] : [scope];
+    const allPtsRows = rawDb.prepare(ptsSql).all(...ptsParams) as any[];
     const ptsMap: Record<number, number> = {};
     for (const r of allPtsRows) ptsMap[r.agent_id] = r.total || 0;
     for (const r of result) (r as any).points = ptsMap[(r.agent as any).id] || 0;
@@ -2411,17 +2433,20 @@ This template is for informational/outreach purposes only.`;
   });
 
   // ─── LEADERBOARD RESET (v11.57: snapshots scores before wiping) ──────────
+  // v12.5 — accepts ?scope=seller|recruiting so each depot's leaderboard resets independently.
   app.post("/api/admin/leaderboard-reset", (req: any, res: any) => {
     const now = new Date().toISOString();
+    const scope = (String(req.query.scope || "seller") === "recruiting") ? "recruiting" : "seller";
+    const resetKey = scope === "recruiting" ? "leaderboard_reset_at_recruiting" : "leaderboard_reset_at";
 
     // 1. Capture current scores before reset
-    const prevResetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
+    const prevResetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = ?`).get(resetKey) as any;
     const prevResetAt: string | null = prevResetRow?.value || null;
 
     const allAgents = storage.getAllAgents();
-    const ptsRows = rawDb.prepare(
-      `SELECT agent_id, SUM(points) as total FROM agent_points ${prevResetAt ? "WHERE created_at >= ?" : ""} GROUP BY agent_id`
-    ).all(...(prevResetAt ? [prevResetAt] : [])) as any[];
+    const ptsSql = `SELECT agent_id, SUM(points) as total FROM agent_points WHERE scope = ? ${prevResetAt ? "AND created_at >= ?" : ""} GROUP BY agent_id`;
+    const ptsParams = prevResetAt ? [scope, prevResetAt] : [scope];
+    const ptsRows = rawDb.prepare(ptsSql).all(...ptsParams) as any[];
     const ptsMap: Record<number, number> = {};
     for (const r of ptsRows) ptsMap[r.agent_id] = r.total || 0;
 
@@ -2435,23 +2460,25 @@ This template is for informational/outreach purposes only.`;
     const endDate = new Date(now);
     const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
     const periodLabel = startDate
-      ? `${fmt(startDate)} – ${fmt(endDate)}`
-      : `Through ${fmt(endDate)}`;
+      ? `${fmt(startDate)} – ${fmt(endDate)} (${scope})`
+      : `Through ${fmt(endDate)} (${scope})`;
 
     // 3. Save snapshot
     rawDb.prepare(
       `INSERT INTO leaderboard_snapshots (period_label, reset_at, snapshot_json, created_at) VALUES (?, ?, ?, ?)`
     ).run(periodLabel, now, JSON.stringify(snapshot), now);
 
-    // 4. Update the reset timestamp (starts new period)
-    rawDb.prepare(`INSERT INTO settings (key, value) VALUES ('leaderboard_reset_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(now);
+    // 4. Update the reset timestamp for this scope (starts new period)
+    rawDb.prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(resetKey, now);
 
-    res.json({ ok: true, resetAt: now, periodLabel, snapshot });
+    res.json({ ok: true, resetAt: now, periodLabel, snapshot, scope });
   });
 
   app.get("/api/admin/leaderboard-reset", (req, res) => {
-    const row = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
-    res.json({ resetAt: row?.value || null });
+    const scope = (String(req.query.scope || "seller") === "recruiting") ? "recruiting" : "seller";
+    const resetKey = scope === "recruiting" ? "leaderboard_reset_at_recruiting" : "leaderboard_reset_at";
+    const row = rawDb.prepare(`SELECT value FROM settings WHERE key = ?`).get(resetKey) as any;
+    res.json({ resetAt: row?.value || null, scope });
   });
 
   // ─── LEADERBOARD HISTORY (v11.57) ─────────────────────────────────────────
@@ -2467,6 +2494,136 @@ This template is for informational/outreach purposes only.`;
       snapshot: JSON.parse(r.snapshot_json || "[]"),
     }));
     res.json(history);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TERRITORY MANAGEMENT (v12.5) — admin can close/open territories.
+  // Closing a territory hard-deletes its unassigned + assigned leads (activity
+  // history stays for the leaderboard). Any agent with that territory in slot 1
+  // or 2 has that slot cleared and gets a reselect notice.
+  // ═══════════════════════════════════════════════════════════════════════════
+  app.get("/api/territories", (_req, res) => {
+    // Pull display names from the source module so the UI can render them cleanly.
+    const { TERRITORIES: TER_META } = require("./territories") as { TERRITORIES: Record<string, { displayName: string }> };
+    const rows = rawDb.prepare(`SELECT name, is_open FROM territories ORDER BY name`).all() as any[];
+    // Map by display name (that's what's stored in territories.name via the seed).
+    const withCounts = rows.map(t => {
+      const leadCount = (rawDb.prepare(
+        `SELECT COUNT(*) as c FROM leads WHERE territory = ? AND status NOT IN ('retired','contacted_appointment')`
+      ).get(t.name) as any)?.c || 0;
+      // Reverse-map display name → key for the frontend
+      const key = Object.entries(TER_META).find(([, v]) => v.displayName === t.name)?.[0] || t.name;
+      return { key, name: t.name, isOpen: !!t.is_open, leadCount };
+    });
+    res.json(withCounts);
+  });
+
+  app.post("/api/admin/territories/:name/close", (req: any, res) => {
+    const name = req.params.name;
+    const row = rawDb.prepare(`SELECT id, is_open FROM territories WHERE name = ?`).get(name) as any;
+    if (!row) return res.status(404).json({ error: "Territory not found" });
+
+    // 1. Delete leads in this territory (activity history preserved for leaderboard).
+    // Match by both the stored territory key AND the display name for safety.
+    const { TERRITORIES: TER_META } = require("./territories") as { TERRITORIES: Record<string, { displayName: string }> };
+    const key = Object.entries(TER_META).find(([, v]) => v.displayName === name)?.[0];
+    const territoryValues = key ? [name, key] : [name];
+    const placeholders = territoryValues.map(() => "?").join(",");
+    const del = rawDb.prepare(`DELETE FROM leads WHERE territory IN (${placeholders})`).run(...territoryValues);
+
+    // 2. Clear this territory from any agent's slot 1 or slot 2. Flag them.
+    // Match by both key and display name in case older records used either format.
+    const affectedAgents = rawDb.prepare(`
+      SELECT id, name, email, territory1, territory2 FROM agents
+      WHERE territory1 IN (${placeholders}) OR territory2 IN (${placeholders})
+    `).all(...territoryValues, ...territoryValues) as any[];
+    for (const a of affectedAgents) {
+      const clearSlot1 = territoryValues.includes(a.territory1);
+      const clearSlot2 = territoryValues.includes(a.territory2);
+      rawDb.prepare(`
+        UPDATE agents
+        SET territory1 = CASE WHEN ? THEN NULL ELSE territory1 END,
+            territory2 = CASE WHEN ? THEN NULL ELSE territory2 END,
+            territory_closed_notice = 1
+        WHERE id = ?
+      `).run(clearSlot1 ? 1 : 0, clearSlot2 ? 1 : 0, a.id);
+    }
+
+    // 3. Flip the flag.
+    rawDb.prepare(`UPDATE territories SET is_open = 0 WHERE id = ?`).run(row.id);
+
+    res.json({
+      ok: true,
+      territory: name,
+      leadsDeleted: del.changes,
+      agentsNotified: affectedAgents.length,
+    });
+  });
+
+  app.post("/api/admin/territories/:name/open", (req: any, res) => {
+    const name = req.params.name;
+    const row = rawDb.prepare(`SELECT id FROM territories WHERE name = ?`).get(name) as any;
+    if (!row) return res.status(404).json({ error: "Territory not found" });
+    rawDb.prepare(`UPDATE territories SET is_open = 1 WHERE id = ?`).run(row.id);
+    res.json({ ok: true, territory: name });
+  });
+
+  // Agent's territory-closed-notice: read + dismiss
+  app.get("/api/agents/:id/territory-notice", (req: any, res) => {
+    const id = parseInt(req.params.id);
+    const a = rawDb.prepare(`SELECT territory_closed_notice, territory1, territory2 FROM agents WHERE id = ?`).get(id) as any;
+    if (!a) return res.status(404).json({ error: "Agent not found" });
+    res.json({
+      notice: !!a.territory_closed_notice,
+      territory1: a.territory1 || null,
+      territory2: a.territory2 || null,
+    });
+  });
+  app.post("/api/agents/:id/territory-notice/clear", (req: any, res) => {
+    const id = parseInt(req.params.id);
+    rawDb.prepare(`UPDATE agents SET territory_closed_notice = 0 WHERE id = ?`).run(id);
+    res.json({ ok: true });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARD RESET (v12.5) — nukes one depot back to zero. Auto-refill resumes on
+  // next scheduled cron. Requires typed confirmation to prevent misfires.
+  // ═══════════════════════════════════════════════════════════════════════════
+  app.post("/api/admin/seller-hard-reset", (req: any, res) => {
+    if (req.body?.confirm !== "RESET") {
+      return res.status(400).json({ error: 'Must send { "confirm": "RESET" } in body' });
+    }
+    const txn = rawDb.transaction(() => {
+      // Delete seller data ONLY.
+      rawDb.prepare(`DELETE FROM lead_activity`).run();
+      rawDb.prepare(`DELETE FROM leads`).run();
+      rawDb.prepare(`DELETE FROM agent_points WHERE scope = 'seller'`).run();
+      // Close all territories, clear all agents' territory slots, and flag them.
+      rawDb.prepare(`UPDATE territories SET is_open = 0`).run();
+      rawDb.prepare(`UPDATE agents SET territory1 = NULL, territory2 = NULL, territory_closed_notice = 1`).run();
+      // Reset the seller leaderboard period marker.
+      rawDb.prepare(`INSERT INTO settings (key, value) VALUES ('leaderboard_reset_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+        .run(new Date().toISOString());
+    });
+    txn();
+    res.json({ ok: true, side: "seller" });
+  });
+
+  app.post("/api/admin/recruiting-hard-reset", (req: any, res) => {
+    if (req.body?.confirm !== "RESET") {
+      return res.status(400).json({ error: 'Must send { "confirm": "RESET" } in body' });
+    }
+    const txn = rawDb.transaction(() => {
+      // Delete recruiting data ONLY.
+      rawDb.prepare(`DELETE FROM agent_lead_activity`).run();
+      rawDb.prepare(`DELETE FROM agent_leads`).run();
+      rawDb.prepare(`DELETE FROM agent_points WHERE scope = 'recruiting'`).run();
+      // Reset the recruiting leaderboard period marker.
+      rawDb.prepare(`INSERT INTO settings (key, value) VALUES ('leaderboard_reset_at_recruiting', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+        .run(new Date().toISOString());
+    });
+    txn();
+    res.json({ ok: true, side: "recruiting" });
   });
 
   // ─── AGENT-FACING LEADERBOARD (no admin-only data) ────────────────────────
@@ -2729,8 +2886,9 @@ This template is for informational/outreach purposes only.`;
         weekStart.setDate(weekStart.getDate() - weekStart.getDay() - (w - 1) * 7);
         weekStart.setHours(0, 0, 0, 0);
         const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+        // v12.5 — gate on seller-side dials only; recruiting activity is a separate program
         const cnt = (rawDb.prepare(
-          `SELECT COUNT(*) as c FROM agent_points WHERE agent_id = ? AND reason = 'dial' AND created_at >= ? AND created_at < ?`
+          `SELECT COUNT(*) as c FROM agent_points WHERE agent_id = ? AND reason = 'dial' AND scope = 'seller' AND created_at >= ? AND created_at < ?`
         ).get(agent.id, weekStart.toISOString(), weekEnd.toISOString()) as any)?.c ?? 0;
         if (cnt < minDials) consecutiveMissed++; else break;
       }
@@ -2740,7 +2898,7 @@ This template is for informational/outreach purposes only.`;
         thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
         thisWeekStart.setHours(0, 0, 0, 0);
         const thisWeekDials = (rawDb.prepare(
-          `SELECT COUNT(*) as c FROM agent_points WHERE agent_id = ? AND reason = 'dial' AND created_at >= ?`
+          `SELECT COUNT(*) as c FROM agent_points WHERE agent_id = ? AND reason = 'dial' AND scope = 'seller' AND created_at >= ?`
         ).get(agent.id, thisWeekStart.toISOString()) as any)?.c ?? 0;
         flagged.push({
           id: agent.id,
@@ -3090,7 +3248,8 @@ This template is for informational/outreach purposes only.`;
       .run(id, callerId || null, outcome, notes || null, points, new Date().toISOString());
 
     if (callerId && points > 0) {
-      rawDb.prepare(`INSERT INTO agent_points (agent_id, points, reason, lead_id, created_at) VALUES (?, ?, ?, ?, ?)`)
+      // v12.5 — recruiting-scoped so it lands on the recruiting leaderboard only.
+      rawDb.prepare(`INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, 'recruiting', ?)`)
         .run(callerId, points, `recruit_${outcome}`, id, new Date().toISOString());
     }
 
@@ -3123,10 +3282,12 @@ This template is for informational/outreach purposes only.`;
             const cleanEmail = agentLead.email.toLowerCase().trim();
             // Get next round-robin order
             const maxOrder = (rawDb.prepare(`SELECT MAX(round_robin_order) as m FROM agents`).get() as any)?.m ?? 0;
+            const initialTerritory = agentLead.matched_territory || agentLead.territory || null;
+            // v12.5 — write to BOTH legacy territory + new territory1 for compat during rollback window.
             rawDb.prepare(`
-              INSERT INTO agents (name, email, password, role, round_robin_order, is_active, receive_leads, lead_flow_on, receive_website_leads, can_recruit, min_dials_per_week, phone, territory, setup_token, setup_expires, onboarded)
-              VALUES (?, ?, ?, 'agent', ?, 1, 0, 0, 0, 0, 0, ?, ?, ?, ?, 0)
-            `).run(agentName, cleanEmail, tempPass, maxOrder + 1, agentLead.phone || null, agentLead.matched_territory || agentLead.territory || null, setupToken, setupExpires);
+              INSERT INTO agents (name, email, password, role, round_robin_order, is_active, receive_leads, lead_flow_on, receive_website_leads, can_recruit, min_dials_per_week, phone, territory, territory1, setup_token, setup_expires, onboarded)
+              VALUES (?, ?, ?, 'agent', ?, 1, 0, 0, 0, 0, 0, ?, ?, ?, ?, ?, 0)
+            `).run(agentName, cleanEmail, tempPass, maxOrder + 1, agentLead.phone || null, initialTerritory, initialTerritory, setupToken, setupExpires);
 
             const newAgentRow = rawDb.prepare(`SELECT id FROM agents WHERE email = ?`).get(cleanEmail) as any;
             const appBase = process.env.APP_URL ?? "https://depot.watsonbrothersgroup.com";

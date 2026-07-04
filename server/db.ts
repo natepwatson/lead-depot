@@ -254,6 +254,41 @@ rawDb.prepare(`
 const agentColsV82 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
 if (!agentColsV82.includes("min_dials_per_week")) rawDb.prepare("ALTER TABLE agents ADD COLUMN min_dials_per_week INTEGER NOT NULL DEFAULT 0").run();
 
+// ─── v12.5 — Two-territory support + territory-closed notice + points scoping ──
+// Agents can now pick up to 2 territories (hard cap). Territory admins can close
+// a territory, which clears its leads and forces any agent assigned to it to
+// reselect. Points table gets a scope column so seller/recruiting leaderboards
+// stay fully isolated.
+const agentColsV125 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
+if (!agentColsV125.includes("territory1"))               rawDb.prepare("ALTER TABLE agents ADD COLUMN territory1 TEXT").run();
+if (!agentColsV125.includes("territory2"))               rawDb.prepare("ALTER TABLE agents ADD COLUMN territory2 TEXT").run();
+if (!agentColsV125.includes("territory_closed_notice"))  rawDb.prepare("ALTER TABLE agents ADD COLUMN territory_closed_notice INTEGER NOT NULL DEFAULT 0").run();
+// One-shot backfill: copy legacy territory into territory1 for any agent that
+// hasn't been migrated yet. Safe to re-run — only fills when territory1 is null.
+rawDb.prepare(`
+  UPDATE agents
+     SET territory1 = territory
+   WHERE territory1 IS NULL
+     AND territory IS NOT NULL
+     AND TRIM(territory) <> ''
+`).run();
+
+const pointsColsV125 = rawDb.prepare("PRAGMA table_info(agent_points)").all().map((c: any) => c.name);
+if (!pointsColsV125.includes("scope")) {
+  rawDb.prepare("ALTER TABLE agent_points ADD COLUMN scope TEXT NOT NULL DEFAULT 'seller'").run();
+  // Existing rows are all seller-side by definition (recruiting scope didn't exist
+  // until v12.5). The DEFAULT 'seller' handles it, but we re-affirm here in case
+  // any historical NULLs slipped in via direct SQL.
+  rawDb.prepare("UPDATE agent_points SET scope = 'seller' WHERE scope IS NULL OR scope = ''").run();
+}
+// Index for scope-filtered leaderboard queries
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_points_scope_agent
+  ON agent_points(scope, agent_id)`).run();
+
+// v12.5 — recruiting is admin-only now. Any legacy "recruiter" role accounts
+// are collapsed to "agent" (seller-side). Admins still have full recruiting access.
+rawDb.prepare("UPDATE agents SET role = 'agent' WHERE role = 'recruiter'").run();
+
 // Unique index on dedup_hash — prevents within-run and cross-run duplicates
 rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_leads_dedup_hash ON agent_leads(dedup_hash) WHERE dedup_hash IS NOT NULL`).run();
 // Index for freshness queries (last_scraped_at)

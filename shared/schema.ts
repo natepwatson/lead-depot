@@ -22,9 +22,15 @@ export const agents = sqliteTable("agents", {
   brokerage: text("brokerage"),
   homeAddress: text("home_address"),
   headshotUrl: text("headshot_url"),
-  // Territory assignment — agent receives leads from this territory
-  // One of the 7 official territories or null (receives all territories)
+  // Territory assignment — agent receives leads from up to 2 territories (v12.5)
+  // Each is one of the official territory keys, or null.
+  territory1: text("territory1"),
+  territory2: text("territory2"),
+  // Kept for one release as a rollback safety net — no longer read/written by app (v12.5)
   territory: text("territory"),
+  // Set true when one of the agent's territories was closed by admin; agent
+  // sees a banner on next login prompting them to reselect (v12.5)
+  territoryClosedNotice: integer("territory_closed_notice", { mode: "boolean" }).notNull().default(false),
 });
 
 export const insertAgentSchema = createInsertSchema(agents).omit({ id: true });
@@ -106,12 +112,16 @@ export const roundRobinState = sqliteTable("round_robin_state", {
 export type RoundRobinState = typeof roundRobinState.$inferSelect;
 
 // Agent points table — cumulative gamification scoring
+// scope isolates the two depots: seller-side activity earns seller points,
+// recruiting-side activity earns recruiting points. Leaderboards + hard resets
+// filter by scope so the two systems never bleed into each other (v12.5).
 export const agentPoints = sqliteTable("agent_points", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   agentId: integer("agent_id").notNull().references(() => agents.id),
   points: integer("points").notNull().default(0),
   reason: text("reason").notNull(), // "appointment" | "kit" | "dial" | "wrong_number" | "referral"
   leadId: integer("lead_id"),       // optional reference
+  scope: text("scope").notNull().default("seller"), // "seller" | "recruiting"
   createdAt: text("created_at").notNull().default(""),
 });
 export type AgentPoints = typeof agentPoints.$inferSelect;

@@ -1,4 +1,4 @@
-import { Switch, Route, Router } from "wouter";
+import { Switch, Route, Router, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -12,11 +12,12 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import HeadshotGate from "./components/ld/HeadshotGate";
 import NotFound from "./pages/not-found";
 import JoinPage from "./pages/JoinPage";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 function AppRoutes() {
   const { user, setHeadshot } = useAuth();
   const [adminViewingLeads, setAdminViewingLeads] = useState(false);
+  const [location, navigate] = useLocation();
 
   if (!user) return <LoginPage />;
 
@@ -33,13 +34,22 @@ function AppRoutes() {
     );
   }
 
+  // v12.5 — Recruiting Depot is admin-only. Non-admin at #/recruiting → redirect.
+  const onRecruiting = location.startsWith("/recruiting");
+  if (onRecruiting && user.role !== "admin") {
+    navigate("/", { replace: true });
+    return null;
+  }
+  // Admin at #/recruiting sees the Recruiting Depot AgentView shell
+  if (onRecruiting && user.role === "admin") {
+    return <AgentView mode="recruiting" initialTab="leads" onBackToAdmin={() => navigate("/", { replace: true })} />;
+  }
+
   if (user.role === "admin" && adminViewingLeads) {
-    return <AgentView onBackToAdmin={() => setAdminViewingLeads(false)} initialTab="leads" />;
+    return <AgentView mode="seller" onBackToAdmin={() => setAdminViewingLeads(false)} initialTab="leads" />;
   }
   if (user.role === "admin") return <AdminDashboard onWorkMyLeads={() => setAdminViewingLeads(true)} />;
-  // Recruiter role: recruiting tab only, no seller leads
-  if (user.role === "recruiter") return <AgentView initialTab="recruiting" recruiterOnly />;
-  return <AgentView />;
+  return <AgentView mode="seller" />;
 }
 
 export default function App() {
@@ -54,6 +64,8 @@ export default function App() {
             <Route path="/setup/:token" component={AccountSetupPage} />
             {/* Password reset — no auth required, token-gated */}
             <Route path="/reset-password/:token" component={ResetPasswordPage} />
+            {/* v12.5 — Recruiting Depot (admin-only, guarded in AppRoutes) */}
+            <Route path="/recruiting" component={AppRoutes} />
             <Route path="/" component={AppRoutes} />
             <Route component={NotFound} />
           </Switch>

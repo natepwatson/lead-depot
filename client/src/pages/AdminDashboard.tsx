@@ -974,6 +974,61 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     queryFn: () => apiRequest("GET", "/api/agents").then(r => r.json()),
   });
 
+  // v12.5 — Territories with open/closed state. Drives the two-slot picker
+  // (disable closed options) and the Territory Management panel below.
+  const { data: territoriesData } = useQuery<{ territories: { name: string; isOpen: boolean }[] }>({
+    queryKey: ["/api/territories"],
+    queryFn: () => apiRequest("GET", "/api/territories").then(r => r.json()),
+    refetchInterval: 60000,
+  });
+  const allTerritories = territoriesData?.territories || [];
+  const openTerritoryNames = allTerritories.filter(t => t.isOpen).map(t => t.name);
+
+  // v12.5 — Get Leads Now / Hard Reset helpers
+  const [hardResetOpen, setHardResetOpen] = useState<null | "seller" | "recruiting">(null);
+  const [hardResetInput, setHardResetInput] = useState("");
+  const [busyGetLeads, setBusyGetLeads] = useState<null | "seller" | "recruiting">(null);
+  const runGetLeadsNow = async (which: "seller" | "recruiting") => {
+    setBusyGetLeads(which);
+    try {
+      const url = which === "seller" ? "/api/admin/batchleads-run" : "/api/admin/frec-run";
+      const r = await apiRequest("POST", url, {});
+      const j = await r.json().catch(() => ({}));
+      toast({ title: `${which === "seller" ? "Seller" : "Recruiting"} pipeline started`, description: j.message || "Running now." });
+    } catch (err: any) {
+      toast({ title: "Failed to start pipeline", description: err?.message || String(err), variant: "destructive" });
+    } finally {
+      setBusyGetLeads(null);
+    }
+  };
+  const runHardReset = async () => {
+    if (!hardResetOpen || hardResetInput !== "RESET") return;
+    try {
+      const url = hardResetOpen === "seller" ? "/api/admin/seller-hard-reset" : "/api/admin/recruiting-hard-reset";
+      await apiRequest("POST", url, { confirm: "RESET" });
+      toast({ title: `${hardResetOpen === "seller" ? "Seller" : "Recruiting"} depot reset`, description: "All data cleared." });
+      qc.invalidateQueries();
+    } catch (err: any) {
+      toast({ title: "Reset failed", description: err?.message || String(err), variant: "destructive" });
+    } finally {
+      setHardResetOpen(null);
+      setHardResetInput("");
+    }
+  };
+  const closeTerritoryMutation = useMutation({
+    mutationFn: async ({ name, close }: { name: string; close: boolean }) => {
+      const path = close ? "close" : "open";
+      const r = await apiRequest("POST", `/api/admin/territories/${name}/${path}`, {});
+      return r.json();
+    },
+    onSuccess: (_d, v) => {
+      toast({ title: `Territory ${v.close ? "closed" : "reopened"}` });
+      qc.invalidateQueries({ queryKey: ["/api/territories"] });
+      qc.invalidateQueries({ queryKey: ["/api/agents"] });
+    },
+    onError: (e: any) => toast({ title: "Failed to update territory", description: e?.message || String(e), variant: "destructive" }),
+  });
+
   const createAgentMutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/agents/invite", data).then(async r => {
       const body = await r.json();
@@ -1340,7 +1395,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v12.1
+              v12.5
             </p>
           </div>
         </div>
@@ -1429,6 +1484,127 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               <StatCard label="Appointments Set" value={stats?.appointmentsSet ?? 0} accent="text-green-400" />
               <StatCard label="My Lead Queue" value={myQueueData?.count ?? 0} accent={myQueueData?.count ? "text-gold" : undefined} />
             </div>
+
+            {/* v12.5 — Seller Depot admin toolbar: Get Leads Now, Hard Reset, Territory management, Recruiting link */}
+            <div style={{
+              display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16, alignItems: "center",
+              padding: 12, background: "rgba(200,170,90,0.04)",
+              border: "1px solid rgba(200,170,90,0.15)", borderRadius: 10,
+            }}>
+              <button
+                onClick={() => runGetLeadsNow("seller")}
+                disabled={busyGetLeads === "seller"}
+                style={{
+                  fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+                  padding: "7px 14px", borderRadius: 6, border: "none", cursor: busyGetLeads === "seller" ? "wait" : "pointer",
+                  background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)", color: "#080808",
+                }}
+              >{busyGetLeads === "seller" ? "Running…" : "⚡ Get Leads Now"}</button>
+              <a
+                href="#/recruiting"
+                style={{
+                  fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+                  padding: "7px 14px", borderRadius: 6, textDecoration: "none",
+                  background: "rgba(79,184,163,0.1)", color: "#4fb8a3",
+                  border: "1px solid rgba(79,184,163,0.3)",
+                }}
+              >Recruiting Depot →</a>
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={() => setHardResetOpen("seller")}
+                style={{
+                  fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+                  padding: "7px 14px", borderRadius: 6, cursor: "pointer",
+                  background: "rgba(239,68,68,0.1)", color: "#ef4444",
+                  border: "1px solid rgba(239,68,68,0.4)",
+                }}
+              >⚠ Hard Reset Seller</button>
+            </div>
+
+            {/* v12.5 — Territory Management panel */}
+            <div style={{
+              marginBottom: 16, padding: 14,
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(200,170,90,0.15)", borderRadius: 10,
+            }}>
+              <p style={{
+                fontSize: 11, fontWeight: 700, color: "#c8aa5a", letterSpacing: "0.12em",
+                textTransform: "uppercase", marginBottom: 10,
+              }}>Territories</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+                {allTerritories.map(t => (
+                  <div key={t.name} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "8px 10px", borderRadius: 6,
+                    background: t.isOpen ? "rgba(34,197,94,0.06)" : "rgba(239,68,68,0.06)",
+                    border: `1px solid ${t.isOpen ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)"}`,
+                  }}>
+                    <span style={{ fontSize: 11, color: "#fff", textTransform: "capitalize" }}>
+                      {t.name.replace(/_/g, " ")}
+                    </span>
+                    <button
+                      onClick={() => {
+                        if (t.isOpen && !confirm(`Close ${t.name.replace(/_/g, " ")}? This deletes all its leads and unassigns agents.`)) return;
+                        closeTerritoryMutation.mutate({ name: t.name, close: t.isOpen });
+                      }}
+                      style={{
+                        fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                        padding: "3px 8px", borderRadius: 4, cursor: "pointer",
+                        background: t.isOpen ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
+                        color: t.isOpen ? "#ef4444" : "#22c55e",
+                        border: `1px solid ${t.isOpen ? "rgba(239,68,68,0.4)" : "rgba(34,197,94,0.4)"}`,
+                      }}
+                    >{t.isOpen ? "Close" : "Reopen"}</button>
+                  </div>
+                ))}
+                {allTerritories.length === 0 && (
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>No territories yet.</p>
+                )}
+              </div>
+            </div>
+
+            {/* v12.5 — Hard Reset confirmation modal (shared) */}
+            {hardResetOpen && (
+              <div style={{
+                position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)",
+                display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+              }} onClick={() => { setHardResetOpen(null); setHardResetInput(""); }}>
+                <div style={{
+                  background: "#0a0a0a", border: "1px solid rgba(239,68,68,0.4)",
+                  borderRadius: 12, padding: 24, maxWidth: 460, width: "90%",
+                }} onClick={e => e.stopPropagation()}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: "#ef4444", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>
+                    ⚠ Hard Reset {hardResetOpen === "seller" ? "Seller Depot" : "Recruiting Depot"}
+                  </p>
+                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginBottom: 14, lineHeight: 1.5 }}>
+                    This wipes all {hardResetOpen === "seller" ? "seller leads, activity, points, and appointments" : "agent-recruiting leads, activity, and recruiting points"}. Cannot be undone. Type <b style={{ color: "#ef4444" }}>RESET</b> to confirm.
+                  </p>
+                  <input
+                    autoFocus
+                    value={hardResetInput}
+                    onChange={e => setHardResetInput(e.target.value)}
+                    placeholder="Type RESET"
+                    style={{
+                      width: "100%", padding: "10px 12px", fontSize: 13,
+                      background: "rgba(255,255,255,0.05)", color: "#fff",
+                      border: "1px solid rgba(239,68,68,0.3)", borderRadius: 6, marginBottom: 12,
+                    }}
+                  />
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button onClick={() => { setHardResetOpen(null); setHardResetInput(""); }}
+                      style={{ padding: "7px 14px", fontSize: 12, borderRadius: 6, background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer" }}>
+                      Cancel
+                    </button>
+                    <button onClick={runHardReset} disabled={hardResetInput !== "RESET"}
+                      style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, borderRadius: 6,
+                        background: hardResetInput === "RESET" ? "#ef4444" : "rgba(239,68,68,0.3)",
+                        color: "#fff", border: "none", cursor: hardResetInput === "RESET" ? "pointer" : "not-allowed" }}>
+                      Reset Everything
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div>
               {/* Header */}
@@ -2306,6 +2482,43 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           {/* ── RECRUITING ──────────────────────────────────────────────────── */}
           <TabsContent value="recruiting" className="mt-5">
             <div style={{ maxWidth: 900 }}>
+              {/* v12.5 — Recruiting admin toolbar */}
+              <div style={{
+                display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16, alignItems: "center",
+                padding: 12, background: "rgba(79,184,163,0.04)",
+                border: "1px solid rgba(79,184,163,0.2)", borderRadius: 10,
+              }}>
+                <button
+                  onClick={() => runGetLeadsNow("recruiting")}
+                  disabled={busyGetLeads === "recruiting"}
+                  style={{
+                    fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+                    padding: "7px 14px", borderRadius: 6, border: "none",
+                    cursor: busyGetLeads === "recruiting" ? "wait" : "pointer",
+                    background: "linear-gradient(135deg,#4fb8a3 0%,#2d8a75 100%)", color: "#080808",
+                  }}
+                >{busyGetLeads === "recruiting" ? "Running…" : "⚡ Get Agent Leads Now"}</button>
+                <a
+                  href="#/recruiting"
+                  style={{
+                    fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+                    padding: "7px 14px", borderRadius: 6, textDecoration: "none",
+                    background: "rgba(79,184,163,0.1)", color: "#4fb8a3",
+                    border: "1px solid rgba(79,184,163,0.3)",
+                  }}
+                >Open Recruiting Depot →</a>
+                <div style={{ flex: 1 }} />
+                <button
+                  onClick={() => setHardResetOpen("recruiting")}
+                  style={{
+                    fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+                    padding: "7px 14px", borderRadius: 6, cursor: "pointer",
+                    background: "rgba(239,68,68,0.1)", color: "#ef4444",
+                    border: "1px solid rgba(239,68,68,0.4)",
+                  }}
+                >⚠ Hard Reset Recruiting</button>
+              </div>
+
               {/* Sub-tab switcher */}
               <div style={{ display: "flex", gap: 6, marginBottom: 20, overflowX: "auto", paddingBottom: 2 }}>
                 {([
@@ -2852,8 +3065,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                   }}
                                 >
                                   <option value="agent" style={{ background: "#111" }}>Agent — works seller leads</option>
-                                  <option value="recruiter" style={{ background: "#111" }}>Recruiter — recruiting calls only</option>
-                                  <option value="admin" style={{ background: "#111" }}>Admin — full access</option>
+                                  <option value="admin" style={{ background: "#111" }}>Admin — full access (incl. Recruiting Depot)</option>
                                 </select>
                               </div>
                             </div>
@@ -2936,31 +3148,40 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground">{agent.name}</p>
                               <p className="text-xs text-muted-foreground">{agent.email}</p>
-                              {/* Territory selector */}
-                              <select
-                                value={(agent as any).territory || ""}
-                                onChange={e => {
-                                  const territory = e.target.value || null;
-                                  apiRequest("PATCH", `/api/agents/${agent.id}`, { territory })
-                                    .then(() => queryClient.invalidateQueries({ queryKey: ["/api/agents"] }))
-                                    .catch(() => {});
-                                }}
-                                style={{
-                                  marginTop: 4, fontSize: 10, letterSpacing: "0.06em",
-                                  background: "rgba(200,170,90,0.07)",
-                                  border: "1px solid rgba(200,170,90,0.2)",
-                                  borderRadius: 5, color: "#c8aa5a",
-                                  padding: "2px 6px", cursor: "pointer", maxWidth: 190,
-                                  textTransform: "uppercase",
-                                }}
-                              >
-                                {TERRITORY_OPTIONS.map(opt => (
-                                  <option key={opt.value} value={opt.value}
-                                    style={{ background: "#111", color: "#c8aa5a" }}>
-                                    {opt.label}
-                                  </option>
+                              {/* v12.5 — Two-territory picker. Only OPEN territories are selectable. */}
+                              <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
+                                {([1, 2] as const).map(slot => (
+                                  <select
+                                    key={slot}
+                                    value={(agent as any)[`territory${slot}`] || ""}
+                                    onChange={e => {
+                                      const val = e.target.value || null;
+                                      apiRequest("PATCH", `/api/agents/${agent.id}`, { [`territory${slot}`]: val })
+                                        .then(() => queryClient.invalidateQueries({ queryKey: ["/api/agents"] }))
+                                        .catch(() => {});
+                                    }}
+                                    style={{
+                                      fontSize: 10, letterSpacing: "0.06em",
+                                      background: "rgba(200,170,90,0.07)",
+                                      border: "1px solid rgba(200,170,90,0.2)",
+                                      borderRadius: 5, color: "#c8aa5a",
+                                      padding: "2px 6px", cursor: "pointer", maxWidth: 190,
+                                      textTransform: "uppercase",
+                                    }}
+                                  >
+                                    <option value="" style={{ background: "#111", color: "#c8aa5a" }}>T{slot} — none</option>
+                                    {TERRITORY_OPTIONS.filter(o => o.value).map(opt => {
+                                      const isOpen = openTerritoryNames.length === 0 || openTerritoryNames.includes(opt.value);
+                                      return (
+                                        <option key={opt.value} value={opt.value} disabled={!isOpen}
+                                          style={{ background: "#111", color: isOpen ? "#c8aa5a" : "rgba(200,170,90,0.3)" }}>
+                                          {opt.label}{!isOpen ? " (closed)" : ""}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
                                 ))}
-                              </select>
+                              </div>
                             </div>
                             <div className="flex items-center gap-3">
                               <div className="flex flex-col items-center gap-0.5">

@@ -482,7 +482,16 @@ export class Storage implements IStorage {
     // If no territory match exists (or lead has no territory), use all active agents.
     let pool = allActive;
     if (leadTerritory) {
-      const territoryAgents = allActive.filter(a => !a.territory || a.territory === leadTerritory);
+      // v12.5 — agents can hold up to TWO territories (territory1 + territory2).
+      // Match if EITHER slot matches the lead's territory. Legacy `territory` column
+      // stays supported as a fallback until fully backfilled/deprecated.
+      const territoryAgents = allActive.filter(a => {
+        const t1 = (a as any).territory1 || null;
+        const t2 = (a as any).territory2 || null;
+        const legacy = (a as any).territory || null;
+        const covers = !t1 && !t2 && !legacy; // no territory set → covers everything
+        return covers || t1 === leadTerritory || t2 === leadTerritory || legacy === leadTerritory;
+      });
       // Only restrict to territory agents if at least one exists
       if (territoryAgents.length > 0) pool = territoryAgents;
     }

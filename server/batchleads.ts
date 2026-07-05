@@ -15,6 +15,23 @@ import { rawDb } from "./db";
 const BATCHLEADS_API_KEY = process.env.BATCHLEADS_API_KEY || "";
 const BATCHLEADS_BASE = "https://app.batchleads.io/api/v1";
 
+// v13.8.4 — Frugal-mode ingest caps to stay within Growth plan (10k leads/mo).
+// Per lead type per county cap. Total budget: 10,000 raw pulls/mo across all lists.
+//   Absentee × 4 counties × 1500 = 6,000  (highest LTV, biggest share)
+//   Expired  × 4 counties × 400  = 1,600
+//   FSBO     × 4 counties × 300  = 1,200
+//   Land     × 4 counties × 200  =   800
+//   Total = 9,600 (400 lead buffer)
+const INGEST_CAPS: Record<string, number> = {
+  absentee: 1500,
+  expired:  400,
+  fsbo:     300,
+  land:     200,
+};
+export function getIngestCap(leadType: string): number {
+  return INGEST_CAPS[leadType] ?? 500;
+}
+
 // ─── TRUST / ENTITY DETECTION ─────────────────────────────────────────────────
 const ENTITY_KEYWORDS = [
   "trust", "llc", "l.l.c", "inc", "corp", "incorporated", "partners", "partnership",
@@ -506,6 +523,8 @@ async function fetchBatchLeadsPage(
   listIds: number[],
   page: number,
   pagesize: number = 50,
+  sortBy: string = "lead_score",
+  sortOrder: "asc" | "desc" = "desc",
 ): Promise<{ properties: BatchLeadsProperty[]; total: number }> {
   const resp = await fetch(`${BATCHLEADS_BASE}/property`, {
     method: "POST",
@@ -518,8 +537,8 @@ async function fetchBatchLeadsPage(
       list_ids: listIds,
       page,
       pagesize,
-      sort_by: "created_at",
-      sort_order: "desc",
+      sort_by: sortBy,
+      sort_order: sortOrder,
     }),
   });
 
@@ -678,30 +697,35 @@ export async function fetchBatchLeadsForPipeline(
     return [];
   }
 
-  // 2. Pull leads from each list, filter by recency
-  const sinceMs = sinceHours * 60 * 60 * 1000;
-  const cutoff = new Date(Date.now() - sinceMs).toISOString();
+  // 2. Pull top-N leads from each list (sorted by BatchRank lead_score desc).
+  // v13.8.4 — sinceHours param retained for backwards compatibility but not used;
+  // frugal mode ingests top-of-list up to the per-type cap on every run.
+  void sinceHours;
   const allLeads: BatchRawLead[] = [];
 
   for (const { id: listId, leadType } of matchedLists) {
-    console.log(`[BatchLeads] Pulling ${leadType} leads from list ${listId} since ${cutoff}`);
+    // v13.8.4 — Frugal mode: per-list cap enforced (one list = one county × one type).
+    // Sort by BatchRank lead_score DESC so we ingest the highest-value leads first.
+    const cap = getIngestCap(leadType);
+    console.log(`[BatchLeads] Pulling ${leadType} leads from list ${listId} (cap=${cap}, sort=lead_score desc)`);
     let page = 1;
     let fetched = 0;
+    let ingested = 0;
     let total = Infinity;
+    let capHit = false;
 
-    while (fetched < total) {
+    while (fetched < total && ingested < cap) {
       try {
-        const { properties, total: t } = await fetchBatchLeadsPage([listId], page);
+        const { properties, total: t } = await fetchBatchLeadsPage(
+          [listId], page, 50, "lead_score", "desc",
+        );
         total = t;
 
         if (properties.length === 0) break;
 
         for (const prop of properties) {
-          // Only process leads added within sinceHours
-          const createdAt = prop.created_at || prop.updated_at || "";
-          if (createdAt && createdAt < cutoff) {
-            // Since sorted desc by created_at, once we hit older records we can stop
-            fetched = total; // signal loop exit
+          if (ingested >= cap) {
+            capHit = true;
             break;
           }
 
@@ -709,20 +733,23 @@ export async function fetchBatchLeadsForPipeline(
           const contacts = await fetchPhoneDetails(prop.id);
           const normalized = normalizeBatchProperty(prop, leadType, contacts);
           allLeads.push(normalized);
+          ingested++;
         }
 
         fetched += properties.length;
         page++;
 
-        // Safety: max 500 per list per run
-        if (fetched >= 500) break;
+        if (capHit) break;
       } catch (err) {
         console.error(`[BatchLeads] Error fetching list ${listId} page ${page}:`, err);
         break;
       }
     }
 
-    console.log(`[BatchLeads] ${leadType}: pulled ${allLeads.filter(l => l.leadType === leadType).length} leads`);
+    if (capHit) {
+      console.log(`[BatchLeads] ${leadType} list ${listId}: cap ${cap} reached (source total=${total})`);
+    }
+    console.log(`[BatchLeads] ${leadType} list ${listId}: ingested ${ingested} / cap ${cap}`);
   }
 
   return allLeads;

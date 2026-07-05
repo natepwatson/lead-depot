@@ -41,11 +41,13 @@ const LPMAMAB_FIELDS = [
 ] as const;
 
 // ─── Outcome configs ───────────────────────────────────────────────────────────
+// v14.0 — 6 outcomes. Callback = immediate recycle to pool (rush-seller / fumble safety net).
 const OUTCOMES = [
   { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.12)",  border: "rgba(236,72,153,0.4)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.22)" },
+  { key: "callback_requested",      label: "Callback",      icon: Phone,         bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
   { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.12)",   border: "rgba(34,197,94,0.4)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.22)" },
-  { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },
   { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
+  { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },
   { key: "wrong_number",            label: "Wrong #",       icon: AlertTriangle, bg: "rgba(239,68,68,0.08)",   border: "rgba(239,68,68,0.25)",   text: "rgba(252,165,165,0.8)", hoverBg: "rgba(239,68,68,0.15)" },
 ] as const;
 
@@ -488,8 +490,28 @@ function LeadCard({ lead }: { lead: Lead }) {
     no_answer:                { label: "No Answer — Logged",      color: "rgb(253,224,71)" },
     contacted_not_interested: { label: "Not Interested — Logged", color: "rgb(252,165,165)" },
     wrong_number:             { label: "Wrong # — Logged",        color: "rgba(252,165,165,0.8)" },
-    callback_requested:       { label: "Callback Scheduled",      color: "#e8af34" },
+    callback_requested:       { label: "Recycled to Pool",         color: "#22d3ee" },
   };
+
+  // v14.0 — Callback is now handled via the /recycle endpoint (immediate unassign + reassign,
+  // same behavior as the Recycle Lead button). Rush-seller/agent-fumble safety net.
+  const recycleForCallback = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/leads/${lead.id}/recycle`, {
+        agentId: user?.id,
+        notes: notes || "Callback — recycled to pool for reassignment.",
+      }).then(r => r.json()),
+    onSuccess: () => {
+      setOutcomeFlash({ label: "Recycled to Pool", color: "#22d3ee" });
+      setTimeout(() => {
+        setOutcomeFlash(null);
+        qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+        qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
+        qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
+      }, 900);
+    },
+    onError: () => toast({ title: "Error recycling lead", variant: "destructive" }),
+  });
 
   const outcomeMutation = useMutation({
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string }) =>
@@ -537,11 +559,10 @@ function LeadCard({ lead }: { lead: Lead }) {
     outcomeMutation.mutate({ outcome: key, notes, dialedPhone: activePhone });
   };
 
-  const handleCallbackSubmit = (data: { callbackDate: string; callbackTime: string }) => {
-    const callbackDateTime = data.callbackTime
-      ? `${data.callbackDate}T${data.callbackTime}`
-      : data.callbackDate;
-    outcomeMutation.mutate({ outcome: "callback_requested", notes, callbackDate: callbackDateTime });
+  // v14.0 — Callback confirm triggers recycle (no date, no schedule). Lead unassigns
+  // + round-robins to next agent immediately — protects against rush sellers / fumbles.
+  const handleCallbackSubmit = (_data: { callbackDate: string; callbackTime: string }) => {
+    recycleForCallback.mutate();
     setPendingCallback(false);
   };
 
@@ -640,8 +661,8 @@ function LeadCard({ lead }: { lead: Lead }) {
               {(lead as any).score}
             </span>
           )}
-          {/* Territory badge */}
-          {(lead as any).territory && (
+          {/* v14.0 — Territory badge removed. Kept the render guard so old data is a no-op. */}
+          {false && (lead as any).territory && (
             <span style={{
               fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase",
               color: "rgba(200,170,90,0.55)", fontWeight: 600,
@@ -1381,10 +1402,11 @@ function MyLeadsTab() {
     enabled: !!user?.id,
   });
 
-  const callbacks    = data?.callbacks    || [];
+  // v14.0 — My Leads shows only Appts + Keep in Touch. Callbacks are gone
+  // (Callback = immediate recycle to pool; no longer stays with the agent).
   const kitLeads     = data?.kitLeads     || [];
   const appointments = data?.appointments || [];
-  const total = callbacks.length + kitLeads.length + appointments.length;
+  const total = kitLeads.length + appointments.length;
 
   if (isLoading) return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "8px 0" }}>
@@ -1395,8 +1417,8 @@ function MyLeadsTab() {
   return (
     <div style={{ padding: "0 0 24px" }}>
 
-      {/* ── Summary bar ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 24 }}>
+      {/* ── Summary bar (v14.0: Appts + Connected only) ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 24 }}>
         <div style={{
           padding: "14px 8px", textAlign: "center", borderRadius: 12,
           background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.22)",
@@ -1406,17 +1428,6 @@ function MyLeadsTab() {
           </p>
           <p style={{ fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginTop: 6 }}>
             Appts
-          </p>
-        </div>
-        <div style={{
-          padding: "14px 8px", textAlign: "center", borderRadius: 12,
-          background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.22)",
-        }}>
-          <p style={{ fontSize: 26, fontWeight: 600, color: "rgb(103,232,249)", fontFamily: "'Cormorant Garamond','Georgia',serif", lineHeight: 1, margin: 0 }}>
-            {callbacks.length}
-          </p>
-          <p style={{ fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginTop: 6 }}>
-            Callbacks
           </p>
         </div>
         <div style={{
@@ -1439,7 +1450,7 @@ function MyLeadsTab() {
             Your pipeline is empty
           </p>
           <p style={{ fontSize: 13, color: "rgba(255,255,255,0.3)", lineHeight: 1.6 }}>
-            Appointments, callbacks, and keep-in-touch leads appear here for 60 days.
+            Appointments and keep-in-touch leads appear here for 60 days.
           </p>
         </div>
       ) : (
@@ -1452,18 +1463,6 @@ function MyLeadsTab() {
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {appointments.map(l => <PipelineCard key={l.id} lead={l} type="appt" />)}
-              </div>
-            </div>
-          )}
-
-          {/* ── Callbacks ── */}
-          {callbacks.length > 0 && (
-            <div style={{ marginBottom: 28 }}>
-              <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(103,232,249,0.7)", marginBottom: 12, fontWeight: 600 }}>
-                Callback Schedule
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {callbacks.map(l => <PipelineCard key={l.id} lead={l} type="callback" />)}
               </div>
             </div>
           )}
@@ -1636,35 +1635,8 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
   const prospectingMode = mode === "recruiting";
   const isAdmin = user?.role === "admin";
 
-  // v12.5 — territory-closed notice. When an agent's territory gets shut
-  // down, the server sets territory_closed_notice=1. Show a reselect banner
-  // until they pick a new territory (or dismiss).
-  const { data: territoryNotice } = useQuery<{ notice: boolean }>({
-    queryKey: [`/api/agents/${user?.id}/territory-notice`],
-    queryFn: () => apiRequest("GET", `/api/agents/${user?.id}/territory-notice`).then(r => r.json()),
-    enabled: !!user?.id && mode === "seller",
-    refetchInterval: 60000,
-  });
-  const { data: openTerritoriesData } = useQuery<{ territories: { name: string; isOpen: boolean }[] }>({
-    queryKey: ["/api/territories"],
-    queryFn: () => apiRequest("GET", "/api/territories").then(r => r.json()),
-    enabled: !!user?.id && mode === "seller",
-  });
-  const openTerritories = (openTerritoriesData?.territories || []).filter(t => t.isOpen).map(t => t.name);
-  const [pickT1, setPickT1] = useState("");
-  const [pickT2, setPickT2] = useState("");
-  const [savingTerritory, setSavingTerritory] = useState(false);
-  const saveNewTerritory = async () => {
-    if (!pickT1) return;
-    setSavingTerritory(true);
-    try {
-      await apiRequest("PATCH", `/api/agents/${user?.id}`, { territory1: pickT1, territory2: pickT2 || null });
-      await apiRequest("POST", `/api/agents/${user?.id}/territory-notice/clear`, {});
-      qc.invalidateQueries({ queryKey: [`/api/agents/${user?.id}/territory-notice`] });
-    } finally {
-      setSavingTerritory(false);
-    }
-  };
+  // v14.0 — territories removed. Home County (Nassau/Duval/St Johns) is the only
+  // location construct. Agents pick it once at first login and can change it in Profile.
 
   const { data: nextAgentLead, isLoading: agentLeadLoading } = useQuery<any | null>({
     queryKey: ["/api/agent-leads/my-next"],
@@ -1812,46 +1784,6 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
           </button>
         </div>
       </header>
-
-      {/* v12.5 — Territory Closed / Reselect Banner (seller depot only) */}
-      {mode === "seller" && territoryNotice?.notice && (
-        <div style={{
-          background: "linear-gradient(135deg, rgba(239,68,68,0.15) 0%, rgba(8,8,8,1) 90%)",
-          borderBottom: "1px solid rgba(239,68,68,0.35)",
-          padding: "14px 18px",
-        }}>
-          <p style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>
-            Your territory was closed — pick up to two new territories
-          </p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <select value={pickT1} onChange={e => setPickT1(e.target.value)} style={{
-              background: "rgba(255,255,255,0.05)", color: "#fff", border: "1px solid rgba(200,170,90,0.3)",
-              borderRadius: 6, padding: "7px 10px", fontSize: 12,
-            }}>
-              <option value="">Territory 1 (required)</option>
-              {openTerritories.map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
-            </select>
-            <select value={pickT2} onChange={e => setPickT2(e.target.value)} style={{
-              background: "rgba(255,255,255,0.05)", color: "#fff", border: "1px solid rgba(200,170,90,0.3)",
-              borderRadius: 6, padding: "7px 10px", fontSize: 12,
-            }}>
-              <option value="">Territory 2 (optional)</option>
-              {openTerritories.filter(t => t !== pickT1).map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
-            </select>
-            <button
-              onClick={saveNewTerritory}
-              disabled={!pickT1 || savingTerritory}
-              style={{
-                background: pickT1 && !savingTerritory ? "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)" : "rgba(200,170,90,0.2)",
-                color: "#080808", border: "none", borderRadius: 6,
-                padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: pickT1 && !savingTerritory ? "pointer" : "not-allowed",
-              }}
-            >
-              {savingTerritory ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Prospecting Mode Banner */}
       {prospectingMode && (

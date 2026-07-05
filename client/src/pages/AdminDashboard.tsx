@@ -134,7 +134,7 @@ const TERRITORY_OPTIONS = [
   { value: "intracoastal_beaches",         label: "Intracoastal / Beaches" },
   { value: "ponte_vedra_nocatee_st_aug",   label: "Ponte Vedra / Nocatee / St. Aug" },
   { value: "st_johns_county",              label: "St. Johns County" },
-  { value: "clay_county",                  label: "Clay County" },
+  // v14.0 — Clay County removed.
 ];
 
 const OUTCOME_ICONS: Record<string, any> = {
@@ -1282,13 +1282,17 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   };
 
 
-  // Agent inactivity safety net
-  const { data: inactivityData } = useQuery<{ flagged: any[]; count: number }>({
+  // Weekly dials snapshot (v14 — motivation over shaming)
+  const { data: weeklyDialsData } = useQuery<{
+    agents: Array<{ id: number; name: string; email: string; headshotUrl: string | null; thisWeekDials: number }>;
+    weekStart: string;
+  }>({
     queryKey: ["/api/admin/agent-inactivity"],
-    queryFn: () => apiRequest("GET", "/api/admin/agent-inactivity?weeks=2").then(r => r.json()),
+    queryFn: () => apiRequest("GET", "/api/admin/agent-inactivity").then(r => r.json()),
     refetchInterval: 5 * 60 * 1000, // refresh every 5min
   });
-  const inactivityFlagged = inactivityData?.flagged ?? [];
+  const weeklyDials = weeklyDialsData?.agents ?? [];
+  const weeklyDialsTotal = weeklyDials.reduce((sum, a) => sum + (a.thisWeekDials ?? 0), 0);
 
   const handleExportCSV = () => {
     window.open("/api/export/leads", "_blank");
@@ -1419,7 +1423,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v13.11
+              v14.0
             </p>
           </div>
         </div>
@@ -1563,47 +1567,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               >⚠ Hard Reset Seller</button>
             </div>
 
-            {/* Territory Management panel */}
-            <div style={{
-              marginBottom: 16, padding: 14,
-              background: "rgba(255,255,255,0.02)",
-              border: "1px solid rgba(200,170,90,0.15)", borderRadius: 10,
-            }}>
-              <p style={{
-                fontSize: 11, fontWeight: 700, color: "#c8aa5a", letterSpacing: "0.12em",
-                textTransform: "uppercase", marginBottom: 10,
-              }}>Territories</p>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
-                {allTerritories.map(t => (
-                  <div key={t.name} style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "8px 10px", borderRadius: 6,
-                    background: t.isOpen ? "rgba(34,197,94,0.06)" : "rgba(239,68,68,0.06)",
-                    border: `1px solid ${t.isOpen ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)"}`,
-                  }}>
-                    <span style={{ fontSize: 11, color: "#fff", textTransform: "capitalize" }}>
-                      {t.name.replace(/_/g, " ")}
-                    </span>
-                    <button
-                      onClick={() => {
-                        if (t.isOpen && !confirm(`Close ${t.name.replace(/_/g, " ")}? This deletes all its leads and unassigns agents.`)) return;
-                        closeTerritoryMutation.mutate({ name: t.name, close: t.isOpen });
-                      }}
-                      style={{
-                        fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                        padding: "3px 8px", borderRadius: 4, cursor: "pointer",
-                        background: t.isOpen ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
-                        color: t.isOpen ? "#ef4444" : "#22c55e",
-                        border: `1px solid ${t.isOpen ? "rgba(239,68,68,0.4)" : "rgba(34,197,94,0.4)"}`,
-                      }}
-                    >{t.isOpen ? "Close" : "Reopen"}</button>
-                  </div>
-                ))}
-                {allTerritories.length === 0 && (
-                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>No territories yet.</p>
-                )}
-              </div>
-            </div>
+            {/* v14.0 — Territory Management panel removed. Leads flow county-first via Home County. */}
 
             {/* Queue Management (moved from Agents tab) */}
             <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 16 }}>
@@ -1656,24 +1620,104 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               </div>
             </div>
 
-            {/* Agent Inactivity Alert (moved from Agents tab) */}
-            {inactivityFlagged.length > 0 && (
-              <div style={{
-                background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.3)",
-                borderRadius: 10, padding: "12px 16px",
-              }}>
-                <p style={{ fontSize: 11, fontWeight: 700, color: "#eab308", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>
-                  ⚠ Agent Inactivity Alert
+            {/* v14.0 — Dials This Week snapshot (motivation over shaming) */}
+            <div
+              style={{
+                background: "rgba(20,20,20,0.7)",
+                border: "1px solid rgba(200,170,90,0.35)",
+                borderRadius: 14,
+                padding: 18,
+                marginTop: 18,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 }}>
+                <p
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: "0.2em",
+                    textTransform: "uppercase",
+                    color: "rgba(200,170,90,0.55)",
+                    fontWeight: 600,
+                  }}
+                >
+                  Dials This Week
                 </p>
-                {inactivityFlagged.map((f: any) => (
-                  <div key={f.id} style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", paddingBottom: 4 }}>
-                    <span style={{ color: "#eab308", fontWeight: 600 }}>{f.name}</span>
-                    {" — "}{f.consecutiveWeeksMissed} week(s) below {f.minDialsPerWeek} dials/wk goal
-                    <span style={{ color: "rgba(255,255,255,0.35)", marginLeft: 8 }}>({f.thisWeekDials} dials this week so far)</span>
-                  </div>
-                ))}
+                <p style={{ fontSize: 12, color: "#c8aa5a", fontWeight: 600 }}>
+                  Team total: {weeklyDialsTotal}
+                </p>
               </div>
-            )}
+              {weeklyDials.length === 0 ? (
+                <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>No active agents yet.</p>
+              ) : (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                    gap: 10,
+                  }}
+                >
+                  {weeklyDials
+                    .slice()
+                    .sort((a, b) => (b.thisWeekDials ?? 0) - (a.thisWeekDials ?? 0))
+                    .map((agent) => (
+                      <div
+                        key={agent.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "10px 12px",
+                          background: "rgba(0,0,0,0.35)",
+                          border: "1px solid rgba(200,170,90,0.15)",
+                          borderRadius: 10,
+                        }}
+                      >
+                        {agent.headshotUrl ? (
+                          <img
+                            src={agent.headshotUrl}
+                            alt={agent.name}
+                            style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover" }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: "50%",
+                              background: "rgba(200,170,90,0.15)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 12,
+                              color: "#c8aa5a",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {agent.name?.charAt(0) ?? "?"}
+                          </div>
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p
+                            style={{
+                              fontSize: 13,
+                              color: "#fff",
+                              fontWeight: 500,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {agent.name}
+                          </p>
+                          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+                            {agent.thisWeekDials} {agent.thisWeekDials === 1 ? "dial" : "dials"}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
@@ -2989,7 +3033,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                       <div>
                         <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 4 }}>DBPR Auto-Scraper</p>
                         <p className="text-xs text-muted-foreground" style={{ lineHeight: 1.5 }}>
-                          Pulls active licensed agents from the Florida DBPR weekly extract across Nassau, Duval, St. Johns, and Clay counties. Runs automatically every Sunday at 2am.
+                          Pulls active licensed agents from the Florida DBPR weekly extract across Nassau, Duval, and St. Johns counties. Runs automatically every Sunday at 2am.
                         </p>
                       </div>
                       {dbprStatsQuery.data && (
@@ -3204,39 +3248,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground">{agent.name}</p>
                               <p className="text-xs text-muted-foreground">{agent.email}</p>
-                              {/* v12.5 — Two-territory picker. Only OPEN territories are selectable. */}
+                              {/* v14.0 — Territory pickers removed. Home County is the only location control. */}
                               <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
-                                {([1, 2] as const).map(slot => (
-                                  <select
-                                    key={slot}
-                                    value={(agent as any)[`territory${slot}`] || ""}
-                                    onChange={e => {
-                                      const val = e.target.value || null;
-                                      apiRequest("PATCH", `/api/agents/${agent.id}`, { [`territory${slot}`]: val })
-                                        .then(() => queryClient.invalidateQueries({ queryKey: ["/api/agents"] }))
-                                        .catch(() => {});
-                                    }}
-                                    style={{
-                                      fontSize: 10, letterSpacing: "0.06em",
-                                      background: "rgba(200,170,90,0.07)",
-                                      border: "1px solid rgba(200,170,90,0.2)",
-                                      borderRadius: 5, color: "#c8aa5a",
-                                      padding: "2px 6px", cursor: "pointer", maxWidth: 190,
-                                      textTransform: "uppercase",
-                                    }}
-                                  >
-                                    <option value="" style={{ background: "#111", color: "#c8aa5a" }}>T{slot} — none</option>
-                                    {TERRITORY_OPTIONS.filter(o => o.value).map(opt => {
-                                      const isOpen = openTerritoryNames.length === 0 || openTerritoryNames.includes(opt.value);
-                                      return (
-                                        <option key={opt.value} value={opt.value} disabled={!isOpen}
-                                          style={{ background: "#111", color: isOpen ? "#c8aa5a" : "rgba(200,170,90,0.3)" }}>
-                                          {opt.label}{!isOpen ? " (closed)" : ""}
-                                        </option>
-                                      );
-                                    })}
-                                  </select>
-                                ))}
                                 {/* v13.9 — Home County picker (drives lead-serving order) */}
                                 <select
                                   value={(agent as any).homeCounty || ""}
@@ -3281,39 +3294,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                               <Badge variant="outline" className={`text-xs ${flowActive ? "text-green-400 border-green-400/30" : "text-red-400 border-red-400/30"}`}>
                                 {flowActive ? "Active" : "Inactive"}
                               </Badge>
-                              {/* Performance gate badge + inline dial threshold input */}
-                              {(() => {
-                                const minDials = (agent as any).minDialsPerWeek ?? 0;
-                                return (
-                                  <div className="flex flex-col items-center gap-0.5">
-                                    <span className="text-[10px] text-muted-foreground">Min Dials/Wk</span>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      max={999}
-                                      defaultValue={minDials}
-                                      onBlur={(e) => {
-                                        const val = parseInt(e.target.value);
-                                        if (!isNaN(val) && val >= 0 && val !== minDials) {
-                                          apiRequest("PATCH", `/api/agents/${agent.id}/min-dials`, { minDialsPerWeek: val })
-                                            .then(() => queryClient.invalidateQueries({ queryKey: ["/api/agents"] }))
-                                            .catch(() => {});
-                                        }
-                                      }}
-                                      style={{
-                                        width: 44, textAlign: "center", fontSize: 11,
-                                        background: minDials > 0 ? "rgba(234,179,8,0.12)" : "rgba(255,255,255,0.04)",
-                                        border: `1px solid ${minDials > 0 ? "rgba(234,179,8,0.4)" : "rgba(255,255,255,0.1)"}`,
-                                        borderRadius: 5, color: minDials > 0 ? "#eab308" : "#888",
-                                        padding: "2px 4px",
-                                      }}
-                                    />
-                                    {minDials > 0 && (
-                                      <span style={{ fontSize: 9, color: "#eab308", letterSpacing: "0.05em", textTransform: "uppercase" }}>Gated</span>
-                                    )}
-                                  </div>
-                                );
-                              })()}
+                              {/* v14.0 — Min Dials/Wk gate removed. Motivation over shaming. */}
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"

@@ -1,12 +1,12 @@
 // ─── DBPR LICENSEE PIPELINE ───────────────────────────────────────────────────
-// v13.4 — Renamed FREC → DBPR. v13.3 switched from HTML scraping to the
-// official DBPR weekly CSV extract (RE_rgn3.csv), which covers our NE Florida
-// footprint (Baker, Clay, Duval, Flagler, Nassau, St. Johns).
+// v14.0 — Removed Clay County. v13.4 renamed FREC → DBPR. v13.3 switched from
+// HTML scraping to the official DBPR weekly CSV extract (RE_rgn3.csv), which
+// covers our NE Florida footprint (Baker, Duval, Flagler, Nassau, St. Johns).
 //
 // The CSV is refreshed weekly by DBPR. NULL & VOID records are already
 // excluded server-side. We further filter to Current+Active individual
 // licensees (SL Sales Associate, BK Broker, BL Broker Sales) in our target
-// counties (Nassau, Duval, St. Johns, Clay).
+// counties (Nassau, Duval, St. Johns).
 //
 // Docs: https://www2.myfloridalicense.com/real-estate-commission/public-records/
 // File: https://www2.myfloridalicense.com/sto/file_download/extracts/RE_rgn3.csv
@@ -16,11 +16,11 @@ import { createRequire } from "node:module";
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
 
 // DBPR weekly CSV extract for NE Florida real estate licensees
-// (Baker, Clay, Duval, Flagler, Nassau, St. Johns + overflow)
+// (Baker, Duval, Flagler, Nassau, St. Johns + overflow)
 const DBPR_CSV_URL = "https://www2.myfloridalicense.com/sto/file_download/extracts/RE_rgn3.csv";
 
-// Counties that cover our 7 NE Florida territories
-export const DBPR_TARGET_COUNTIES = ["Nassau", "Duval", "St. Johns", "Clay"];
+// Counties that cover our NE Florida territories (v14.0: Clay removed)
+export const DBPR_TARGET_COUNTIES = ["Nassau", "Duval", "St. Johns"];
 
 // Rank codes we care about — only individuals, no corps/branch offices
 const TARGET_RANKS = new Set([
@@ -41,7 +41,7 @@ export interface DbprRecord {
   licenseStatus: string;      // "Current Active"
   licenseIssueDate: string;   // YYYY-MM-DD
   licenseExpireDate: string;  // YYYY-MM-DD
-  county: string;             // Nassau | Duval | St. Johns | Clay
+  county: string;             // Nassau | Duval | St. Johns
   rawAddress: string;         // full mailing address (addr1 + addr2 + addr3 + city, state zip)
   zip: string;                // from address
   currentBrokerage: string;   // employer name (blank for brokers who own their own shop)

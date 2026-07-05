@@ -391,7 +391,7 @@ export function filterBatchLead(
     return { pass: false, reason: "owner_is_licensed_agent" };
   }
 
-  // 12. v13.8 — 8-county ZIP scope (Nassau/Duval/St.Johns/Clay/Baker FL + Camden/Charlton/Glynn GA)
+  // 12. v14.0 — 7-county ZIP scope (Nassau/Duval/St.Johns/Baker FL + Camden/Charlton/Glynn GA)
   if (raw.zip && !ALL_NE_FLORIDA_ZIPS.has(raw.zip.slice(0, 5))) {
     return { pass: false, reason: `zip_out_of_footprint (${raw.zip})` };
   }

@@ -149,7 +149,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v13.11 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.0 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -208,7 +208,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.11 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -257,7 +257,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.11 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -3160,49 +3160,34 @@ This template is for informational/outreach purposes only.`;
     res.send(csv);
   });
 
-  // ─── AGENT INACTIVITY SAFETY NET (v12.0) ───────────────────────────────────
-  app.get("/api/admin/agent-inactivity", (req: any, res) => {
-    const weeksThreshold = parseInt(String(req.query.weeks || "2"));
-    const activeAgents = rawDb.prepare(`SELECT * FROM agents WHERE is_active = 1`).all() as any[];
-    const flagged: any[] = [];
+  // ─── WEEKLY DIALS SNAPSHOT (v14.0) ─────────────────────────────────────────
+  // Replaces the old "Agent Inactivity Alert" (which shamed agents for missing
+  // a weekly dial goal). Now returns every active seller-side agent with their
+  // dial count for the current week — informational only, no goals, no misses.
+  app.get("/api/admin/agent-inactivity", (_req: any, res) => {
+    const activeAgents = rawDb.prepare(
+      `SELECT id, name, email, headshot_url FROM agents WHERE is_active = 1 AND role != 'admin' AND receive_leads = 1`
+    ).all() as any[];
 
-    for (const agent of activeAgents) {
-      const minDials = (agent as any).min_dials_per_week ?? 0;
-      if (minDials === 0) continue;
+    const thisWeekStart = new Date();
+    thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
+    thisWeekStart.setHours(0, 0, 0, 0);
+    const isoStart = thisWeekStart.toISOString();
 
-      let consecutiveMissed = 0;
-      for (let w = 1; w <= weeksThreshold; w++) {
-        const weekStart = new Date();
-        weekStart.setDate(weekStart.getDate() - weekStart.getDay() - (w - 1) * 7);
-        weekStart.setHours(0, 0, 0, 0);
-        const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-        // v12.5 — gate on seller-side dials only; recruiting activity is a separate program
-        const cnt = (rawDb.prepare(
-          `SELECT COUNT(*) as c FROM agent_points WHERE agent_id = ? AND reason = 'dial' AND scope = 'seller' AND created_at >= ? AND created_at < ?`
-        ).get(agent.id, weekStart.toISOString(), weekEnd.toISOString()) as any)?.c ?? 0;
-        if (cnt < minDials) consecutiveMissed++; else break;
-      }
+    const rows = activeAgents.map((a: any) => {
+      const c = (rawDb.prepare(
+        `SELECT COUNT(*) as c FROM agent_points WHERE agent_id = ? AND reason = 'dial' AND scope = 'seller' AND created_at >= ?`
+      ).get(a.id, isoStart) as any)?.c ?? 0;
+      return {
+        id: a.id,
+        name: a.name,
+        email: a.email,
+        headshotUrl: a.headshot_url || null,
+        thisWeekDials: c,
+      };
+    }).sort((a: any, b: any) => b.thisWeekDials - a.thisWeekDials);
 
-      if (consecutiveMissed >= weeksThreshold) {
-        const thisWeekStart = new Date();
-        thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
-        thisWeekStart.setHours(0, 0, 0, 0);
-        const thisWeekDials = (rawDb.prepare(
-          `SELECT COUNT(*) as c FROM agent_points WHERE agent_id = ? AND reason = 'dial' AND scope = 'seller' AND created_at >= ?`
-        ).get(agent.id, thisWeekStart.toISOString()) as any)?.c ?? 0;
-        flagged.push({
-          id: agent.id,
-          name: agent.name,
-          email: agent.email,
-          minDialsPerWeek: minDials,
-          consecutiveWeeksMissed: consecutiveMissed,
-          thisWeekDials,
-          headshotUrl: (agent as any).headshot_url || null,
-        });
-      }
-    }
-
-    res.json({ flagged, count: flagged.length });
+    res.json({ agents: rows, weekStart: isoStart });
   });
 
   app.get("/api/health", async (req, res) => {
@@ -3290,7 +3275,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v13.11",
+      version: "v14.0",
       services: results,
     });
   });
@@ -3341,10 +3326,6 @@ This template is for informational/outreach purposes only.`;
       "st. augustine": "Ponte Vedra/Nocatee/St. Aug",
       "st johns": "St. Johns County",
       "st. johns": "St. Johns County",
-      "clay county": "Clay County",
-      "clay": "Clay County",
-      "orange park": "Clay County",
-      "fleming island": "Clay County",
     };
     let matchedTerritory: string | undefined;
     if (territory) {

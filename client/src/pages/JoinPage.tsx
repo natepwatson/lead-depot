@@ -14,7 +14,6 @@ const TERRITORIES = [
   "Intracoastal/Beaches",
   "Ponte Vedra/Nocatee/St. Aug",
   "St. Johns County",
-  "Clay County",
   "Not sure yet",
 ];
 

@@ -148,7 +148,7 @@ if (!existingTables.includes('app_settings')) rawDb.exec(`CREATE TABLE IF NOT EX
 // Seed territories
 const TERRITORIES = [
   'North Jax & Nassau', 'Jacksonville West', 'Jacksonville East',
-  'Intracoastal/Beaches', 'Ponte Vedra/Nocatee/St. Aug', 'St. Johns County', 'Clay County'
+  'Intracoastal/Beaches', 'Ponte Vedra/Nocatee/St. Aug', 'St. Johns County'
 ];
 for (const t of TERRITORIES) {
   try { rawDb.prepare("INSERT OR IGNORE INTO territories (name) VALUES (?)").run(t); } catch {}

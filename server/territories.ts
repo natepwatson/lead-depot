@@ -55,12 +55,7 @@ export const TERRITORIES: Record<string, {
     zipcodes: ["32259", "32260", "32033", "32145"],
     notes: "St. Johns County remainder (not covered by Ponte Vedra/Nocatee/St. Aug)."
   },
-  "clay_county": {
-    displayName: "Clay County",
-    cities: ["Orange Park", "Fleming Island", "Green Cove Springs", "Middleburg", "Keystone Heights", "Penney Farms", "Doctors Inlet"],
-    zipcodes: ["32003", "32006", "32030", "32043", "32050", "32065", "32067", "32068", "32073", "32079", "32656", "32160"],
-    notes: "Full Clay County. 32234 (Baldwin) assigned to North Jax — see file header."
-  },
+  // v14.0 — Clay County removed. Watson Brothers Group focuses on Nassau/Duval/St. Johns.
 };
 
 // Flat lookup: zip → territory key (for scoring/assignment)

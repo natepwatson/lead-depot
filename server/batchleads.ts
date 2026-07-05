@@ -10,6 +10,7 @@
 // tracked as raw fields (city/state/zip/county/lat/lng). ZIP scope for the 8-county
 // footprint is kept as a static list here to gate ingest — no territory logic.
 import { ALL_NE_FLORIDA_ZIPS } from "./territories";
+import { rawDb } from "./db";
 
 const BATCHLEADS_API_KEY = process.env.BATCHLEADS_API_KEY || "";
 const BATCHLEADS_BASE = "https://app.batchleads.io/api/v1";
@@ -46,6 +47,76 @@ function isCallablePhone(phone: string): boolean {
 }
 
 // ─── DATA SHAPE ───────────────────────────────────────────────────────────────
+// v13.8.1 — DBPR agent-owned filter. Cross-reference each lead against the
+// recruiting-side DBPR licensees table (populated weekly by dbpr-pipeline.ts).
+// Match on (a) first + last name OR (b) phone number — either is enough to drop.
+let _dbprCache: {
+  names: Set<string>;      // "first|last" lowercase
+  phones: Set<string>;     // 10-digit
+  refreshedAt: number;
+} | null = null;
+const DBPR_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour — DBPR table only changes weekly
+
+function refreshDbprCache(): void {
+  try {
+    // Recruiting-side table populated weekly by dbpr-pipeline.ts.
+    // Only pull rows that came from the DBPR scrape (source='dbpr_scrape').
+    const rows: any[] = rawDb.prepare(
+      `SELECT first_name, last_name, phone FROM agent_leads
+       WHERE source = 'dbpr_scrape' AND first_name IS NOT NULL AND last_name IS NOT NULL`
+    ).all();
+    const names = new Set<string>();
+    const phones = new Set<string>();
+    for (const r of rows) {
+      const fn = String(r.first_name || "").trim().toLowerCase();
+      const ln = String(r.last_name  || "").trim().toLowerCase();
+      if (fn && ln) names.add(`${fn}|${ln}`);
+      const ph = String(r.phone || "").replace(/\D/g, "").slice(-10);
+      if (ph.length === 10) phones.add(ph);
+    }
+    _dbprCache = { names, phones, refreshedAt: Date.now() };
+    console.log(`[BatchLeads] DBPR cache refreshed: ${names.size} names, ${phones.size} phones`);
+  } catch (err) {
+    console.warn("[BatchLeads] DBPR cache refresh failed (table may not exist yet):", err);
+    _dbprCache = { names: new Set(), phones: new Set(), refreshedAt: Date.now() };
+  }
+}
+
+function isOwnerLicensedAgent(raw: BatchRawLead): boolean {
+  if (!_dbprCache || (Date.now() - _dbprCache.refreshedAt) > DBPR_CACHE_TTL_MS) {
+    refreshDbprCache();
+  }
+  if (!_dbprCache) return false;
+
+  // Phone match — strongest signal (works even if lead uses spouse's name / trust)
+  for (const ph of raw.allPhones) {
+    const normalized = ph.replace(/\D/g, "").slice(-10);
+    if (_dbprCache.phones.has(normalized)) return true;
+  }
+
+  // Name match — owner_name format is typically "LAST, FIRST" or "FIRST LAST"
+  const own = (raw.ownerName || "").toLowerCase().trim();
+  if (!own) return false;
+
+  // Try "LAST, FIRST" pattern
+  const commaSplit = own.split(",").map(s => s.trim());
+  if (commaSplit.length === 2) {
+    const ln = commaSplit[0].split(/\s+/)[0];
+    const fn = commaSplit[1].split(/\s+/)[0];
+    if (fn && ln && _dbprCache.names.has(`${fn}|${ln}`)) return true;
+  }
+
+  // Try "FIRST LAST" pattern (also handles "FIRST M LAST")
+  const parts = own.split(/\s+/).filter(p => p.length > 1);
+  if (parts.length >= 2) {
+    const fn = parts[0];
+    const ln = parts[parts.length - 1];
+    if (_dbprCache.names.has(`${fn}|${ln}`)) return true;
+  }
+
+  return false;
+}
+
 export interface BatchRawLead {
   ownerName: string;
   address: string;
@@ -69,6 +140,8 @@ export interface BatchRawLead {
   equityPct?: number;
   daysOnMarket?: number;
   daysSinceExpiration?: number;
+  lastSaleDate?: string;      // v13.8.1 — ISO date of most recent recorded sale
+  offMarketDate?: string;     // v13.8.1 — ISO date the failed listing came off market
   expirationCount?: number;
   priceReductions?: number;
   ownerOccupied?: boolean;
@@ -237,9 +310,31 @@ export function filterBatchLead(
     }
   }
 
-  // 11. Only goes back 18 months for expired
-  if (raw.leadType === "expired" && (raw.daysSinceExpiration || 0) > 540) {
-    return { pass: false, reason: "expired_too_old (>18 months)" };
+  // 11. Only goes back 24 months for expired (v13.8.1 — was 18 months)
+  if (raw.leadType === "expired" && (raw.daysSinceExpiration || 0) > 720) {
+    return { pass: false, reason: "expired_too_old (>24 months)" };
+  }
+
+  // 11a. v13.8.1 — blank/confidential address = likely LEO or protected owner. Drop.
+  const addr = (raw.address || "").trim().toUpperCase();
+  if (!addr || /^(CONFIDENTIAL|EXEMPT|PROTECTED|WITHHELD|NOT DISCLOSED|N\/A)$/i.test(addr) || addr.length < 5) {
+    return { pass: false, reason: "address_confidential_or_missing" };
+  }
+
+  // 11b. v13.8.1 — Sold after expiration (Failed listing but property has since sold to someone else).
+  //  Uses BatchLeads sale-date fields if present. If last_sale_date > off_market_date, drop.
+  if (raw.leadType === "expired" && raw.lastSaleDate && raw.offMarketDate) {
+    const saleTs = Date.parse(raw.lastSaleDate);
+    const offTs = Date.parse(raw.offMarketDate);
+    if (!isNaN(saleTs) && !isNaN(offTs) && saleTs > offTs) {
+      return { pass: false, reason: "sold_after_expiration" };
+    }
+  }
+
+  // 11c. v13.8.1 — Owner is a licensed real estate agent (DBPR match on name OR phone).
+  //  We built the DBPR table on the recruiting side; reuse it here to block agent-owned homes.
+  if (isOwnerLicensedAgent(raw)) {
+    return { pass: false, reason: "owner_is_licensed_agent" };
   }
 
   // 12. v13.8 — 8-county ZIP scope (Nassau/Duval/St.Johns/Clay/Baker FL + Camden/Charlton/Glynn GA)
@@ -323,13 +418,21 @@ interface BatchLeadsProperty {
   }[];
 }
 
-// v13.8 — map BatchLeads list names to our 3 internal lead types.
-// Alex creates these list names in BatchLeads UI → My Lists.
-const LIST_NAME_TO_TYPE: Record<string, string> = {
-  "Lead Depot - Expired":  "expired",
-  "Lead Depot - FSBO":     "fsbo",
-  "Lead Depot - Land":     "land",
-};
+// v13.8.1 — map BatchLeads list names to our 3 internal lead types by PREFIX.
+// Alex builds one list per county (e.g. "Lead Depot - Expired - Duval"), so we
+// match the type by the leading segment and ignore the county suffix.
+// Naming convention (case-insensitive):
+//   Lead Depot - Expired[ - <County>]
+//   Lead Depot - FSBO[ - <County>]
+//   Lead Depot - Land[ - <County>]
+function listNameToLeadType(name: string): string | null {
+  const n = name.trim().toLowerCase();
+  if (!n.startsWith("lead depot -")) return null;
+  if (/\blead depot\s*-\s*expired\b/.test(n)) return "expired";
+  if (/\blead depot\s*-\s*fsbo\b/.test(n))    return "fsbo";
+  if (/\blead depot\s*-\s*land\b/.test(n))    return "land";
+  return null;
+}
 
 async function fetchBatchLeadsPage(
   listIds: number[],
@@ -432,6 +535,9 @@ function normalizeBatchProperty(
   const county = anyProp.county ?? anyProp.county_name;
   const lat = anyProp.latitude ?? anyProp.lat;
   const lng = anyProp.longitude ?? anyProp.lng;
+  // v13.8.1 — sale-history fields used by "sold after expiration" filter
+  const lastSaleDate = anyProp.last_sale_date ?? anyProp.sale_date ?? anyProp.last_sold_date;
+  const offMarketDate = anyProp.off_market_date ?? anyProp.expiration_date ?? anyProp.mls_expired_date ?? anyProp.failed_date;
 
   return {
     ownerName,
@@ -467,6 +573,8 @@ function normalizeBatchProperty(
     lotSizeAcres: typeof lotSizeAcres === "number" ? lotSizeAcres : undefined,
     yearPurchased: typeof yearPurchased === "number" ? yearPurchased : undefined,
     propertyType: typeof propertyType === "string" ? propertyType : undefined,
+    lastSaleDate: typeof lastSaleDate === "string" ? lastSaleDate : undefined,
+    offMarketDate: typeof offMarketDate === "string" ? offMarketDate : undefined,
   };
 }
 
@@ -489,7 +597,7 @@ export async function fetchBatchLeadsForPipeline(
 
   const matchedLists: { id: number; leadType: string }[] = [];
   for (const list of userLists) {
-    const leadType = LIST_NAME_TO_TYPE[list.name];
+    const leadType = listNameToLeadType(list.name);
     if (leadType) {
       matchedLists.push({ id: list.id, leadType });
       console.log(`[BatchLeads] Found list: "${list.name}" → ${leadType} (id=${list.id})`);
@@ -498,7 +606,7 @@ export async function fetchBatchLeadsForPipeline(
 
   if (matchedLists.length === 0) {
     console.warn("[BatchLeads] No matching Lead Depot lists found. Create lists named:");
-    Object.keys(LIST_NAME_TO_TYPE).forEach(name => console.warn(`  • ${name}`));
+    console.warn("  Expected naming: 'Lead Depot - Expired - <County>', 'Lead Depot - FSBO - <County>', 'Lead Depot - Land - <County>'");
     return [];
   }
 

@@ -31,6 +31,10 @@ export const agents = sqliteTable("agents", {
   // Set true when one of the agent's territories was closed by admin; agent
   // sees a banner on next login prompting them to reselect (v12.5)
   territoryClosedNotice: integer("territory_closed_notice", { mode: "boolean" }).notNull().default(false),
+  // v13.9 — Home county. Agent receives leads from this county first; overflows
+  // to other counties ONLY when their home county is completely dry.
+  // NULL = admin / no restriction (killer mode — sees everything, cross-county).
+  homeCounty: text("home_county"),
 });
 
 export const insertAgentSchema = createInsertSchema(agents).omit({ id: true });

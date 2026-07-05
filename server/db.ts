@@ -276,6 +276,10 @@ const agentColsV125 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: a
 if (!agentColsV125.includes("territory1"))               rawDb.prepare("ALTER TABLE agents ADD COLUMN territory1 TEXT").run();
 if (!agentColsV125.includes("territory2"))               rawDb.prepare("ALTER TABLE agents ADD COLUMN territory2 TEXT").run();
 if (!agentColsV125.includes("territory_closed_notice"))  rawDb.prepare("ALTER TABLE agents ADD COLUMN territory_closed_notice INTEGER NOT NULL DEFAULT 0").run();
+
+// v13.9 — home_county for home-county-first lead serving
+const agentColsV139 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
+if (!agentColsV139.includes("home_county")) rawDb.prepare("ALTER TABLE agents ADD COLUMN home_county TEXT").run();
 // One-shot backfill: copy legacy territory into territory1 for any agent that
 // hasn't been migrated yet. Safe to re-run — only fills when territory1 is null.
 rawDb.prepare(`

@@ -939,9 +939,10 @@ function LeadCard({ lead }: { lead: Lead }) {
 
 // ─── Leaderboard Tab ──────────────────────────────────────────────────────────
 interface AgentStat {
-  agent: { id: number; name: string; email: string };
+  agent: { id: number; name: string; email: string; headshotUrl?: string | null };
   appointmentsSet: number;
   totalAttempts: number;
+  emailsSent?: number;
   contactRate: number;
   outcomes: Record<string, number>;
 }
@@ -1080,6 +1081,47 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                       ? <Trophy size={16} style={{ color: medalColor }} />
                       : <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>#{i+1}</span>}
                   </span>
+                  {/* v13.9 — headshot or initials */}
+                  {(() => {
+                    const initials = s.agent.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+                    const commonStyle = {
+                      width: 32, height: 32, borderRadius: "50%",
+                      border: `1.5px solid ${medalColor ?? "rgba(255,255,255,0.12)"}`,
+                      flexShrink: 0,
+                    } as const;
+                    if (s.agent.headshotUrl) {
+                      return (
+                        <img
+                          src={s.agent.headshotUrl}
+                          alt={s.agent.name}
+                          style={{ ...commonStyle, objectFit: "cover" }}
+                          onError={(e) => {
+                            const el = e.currentTarget;
+                            el.style.display = "none";
+                            const fallback = document.createElement("div");
+                            Object.assign(fallback.style, {
+                              ...commonStyle,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              background: "rgba(200,170,90,0.08)",
+                              color: "#c8aa5a", fontSize: "11px", fontWeight: "700",
+                              fontFamily: "'Cormorant Garamond','Georgia',serif",
+                            });
+                            fallback.textContent = initials;
+                            el.parentNode?.insertBefore(fallback, el);
+                          }}
+                        />
+                      );
+                    }
+                    return (
+                      <div style={{
+                        ...commonStyle,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        background: "rgba(200,170,90,0.08)",
+                        color: "#c8aa5a", fontSize: 11, fontWeight: 700,
+                        fontFamily: "'Cormorant Garamond','Georgia',serif",
+                      }}>{initials}</div>
+                    );
+                  })()}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{
                       fontSize: 14, fontWeight: isMe ? 700 : 500,

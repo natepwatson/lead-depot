@@ -1419,7 +1419,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v13.8.5
+              v13.9
             </p>
           </div>
         </div>
@@ -3237,6 +3237,30 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                     })}
                                   </select>
                                 ))}
+                                {/* v13.9 — Home County picker (drives lead-serving order) */}
+                                <select
+                                  value={(agent as any).homeCounty || ""}
+                                  title="Home county — lead flow serves this county first, then overflows"
+                                  onChange={e => {
+                                    const val = e.target.value || null;
+                                    apiRequest("PATCH", `/api/admin/agents/${agent.id}/home-county`, { homeCounty: val })
+                                      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/agents"] }))
+                                      .catch(() => {});
+                                  }}
+                                  style={{
+                                    fontSize: 10, letterSpacing: "0.06em",
+                                    background: "rgba(56,189,248,0.07)",
+                                    border: "1px solid rgba(56,189,248,0.28)",
+                                    borderRadius: 5, color: "#38bdf8",
+                                    padding: "2px 6px", cursor: "pointer", maxWidth: 190,
+                                    textTransform: "uppercase",
+                                  }}
+                                >
+                                  <option value="" style={{ background: "#111", color: "#38bdf8" }}>Home — all counties</option>
+                                  <option value="Nassau" style={{ background: "#111", color: "#38bdf8" }}>Nassau</option>
+                                  <option value="Duval" style={{ background: "#111", color: "#38bdf8" }}>Duval</option>
+                                  <option value="St Johns" style={{ background: "#111", color: "#38bdf8" }}>St Johns</option>
+                                </select>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">

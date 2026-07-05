@@ -149,7 +149,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v13.8.5 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v13.9 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -208,7 +208,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.8.5 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.9 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -257,7 +257,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.8.5 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.9 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1163,12 +1163,99 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ lead: next || null, totalActive: total });
   });
 
-  // ─── AGENT: NEXT LEAD (query-param version used by AgentView) ─────────────
+  // ─── AGENT: NEXT LEAD (v13.9 — home-county-first, cross-county overflow) ─────
+  // Priority order:
+  //   1. Callbacks due now (agent's own, any county)
+  //   2. Home-county unassigned pool: expired → absentee → land → fsbo
+  //   3. Overflow to other counties ONLY when home county is completely dry
+  //      (expired → absentee → land → fsbo across all other counties)
+  // Admins with home_county=NULL skip step 2/3 gating — they see everything.
+  //
+  // Locks a lead to the agent for 60 min so no other agent gets it.
   app.get("/api/leads/my-next", (req, res) => {
     const agentId = parseInt(String(req.query.agentId || ""));
     if (!agentId || isNaN(agentId)) return res.status(400).json({ error: "Missing agentId" });
-    const next = storage.getNextLeadForAgent(agentId);
+
+    const agent: any = rawDb.prepare(`SELECT id, home_county, role FROM agents WHERE id = ?`).get(agentId);
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+
+    // Sweep expired locks so recycled leads are eligible again.
+    rawDb.prepare(`DELETE FROM lead_locks WHERE expires_at < datetime('now')`).run();
+
+    // If this agent already has a lead locked, return it (idempotent Load).
+    const alreadyLocked: any = rawDb.prepare(`
+      SELECT l.* FROM leads l
+      JOIN lead_locks lk ON lk.lead_id = l.id
+      WHERE lk.agent_id = ?
+      ORDER BY lk.locked_at DESC
+      LIMIT 1
+    `).get(agentId);
+    if (alreadyLocked) return res.json(alreadyLocked);
+
+    // 1. Callbacks due now (agent's own, all counties).
+    const today = new Date().toISOString().split("T")[0];
+    const callback: any = rawDb.prepare(`
+      SELECT * FROM leads
+      WHERE assigned_agent_id = ?
+        AND status = 'callback_requested'
+        AND (callback_date IS NULL OR callback_date <= ?)
+      ORDER BY callback_date ASC
+      LIMIT 1
+    `).get(agentId, today);
+    if (callback) return res.json(callback);
+
+    // Lead-type priority order.
+    const TYPE_ORDER = ["expired", "absentee", "land", "fsbo"];
+
+    // Helper: pull next unassigned+unlocked lead matching WHERE. Sorted score DESC.
+    const pullPool = (leadType: string, countyClause: string, countyParams: any[]): any => {
+      return rawDb.prepare(`
+        SELECT l.* FROM leads l
+        LEFT JOIN lead_locks lk ON lk.lead_id = l.id
+        WHERE l.lead_type = ?
+          AND l.status = 'unassigned'
+          AND lk.lead_id IS NULL
+          ${countyClause}
+        ORDER BY l.score DESC, l.uploaded_at ASC, l.id ASC
+        LIMIT 1
+      `).get(leadType, ...countyParams);
+    };
+
+    let next: any = null;
+    const homeCounty = agent.home_county;
+
+    if (homeCounty) {
+      // 2. Home-county leads, in type-priority order.
+      for (const t of TYPE_ORDER) {
+        next = pullPool(t, `AND LOWER(l.county) = LOWER(?)`, [homeCounty]);
+        if (next) break;
+      }
+
+      // 3. Overflow — only if home county produced nothing.
+      if (!next) {
+        for (const t of TYPE_ORDER) {
+          next = pullPool(t, `AND (l.county IS NULL OR LOWER(l.county) <> LOWER(?))`, [homeCounty]);
+          if (next) break;
+        }
+      }
+    } else {
+      // Admin / no county restriction — killer mode across all counties.
+      for (const t of TYPE_ORDER) {
+        next = pullPool(t, ``, []);
+        if (next) break;
+      }
+    }
+
     if (!next) return res.status(204).end();
+
+    // Lock it for 60 min so no other agent grabs the same lead.
+    const now = new Date();
+    const expires = new Date(now.getTime() + 60 * 60 * 1000);
+    rawDb.prepare(`
+      INSERT OR REPLACE INTO lead_locks (lead_id, agent_id, locked_at, expires_at)
+      VALUES (?, ?, ?, ?)
+    `).run(next.id, agentId, now.toISOString(), expires.toISOString());
+
     res.json(next);
   });
 
@@ -2310,13 +2397,77 @@ This template is for informational/outreach purposes only.`;
   });
 
 
-  // ─── ADMIN: MY LEAD QUEUE COUNT ──────────────────────────────────────────
+  // ─── AGENT: MY LEAD QUEUE COUNT (v13.9 — home-county aware) ─────────────
+  // Counts what this agent can still call today:
+  //   - Own assigned/no-answer/callback leads
+  //   - PLUS eligible unassigned pool (home-county if set, else all counties)
+  //   - If home-county pool is dry, falls through to overflow pool (all other counties)
   app.get("/api/leads/my-count/:agentId", (req, res) => {
     const agentId = parseInt(req.params.agentId);
-    const row: any = rawDb.prepare(
-      `SELECT COUNT(*) as n FROM leads WHERE assigned_agent_id = ? AND status IN ('assigned','no_answer','callback_requested')`
+    const agent: any = rawDb.prepare(`SELECT home_county FROM agents WHERE id = ?`).get(agentId);
+    if (!agent) return res.json({ count: 0 });
+
+    // Sweep expired locks first.
+    rawDb.prepare(`DELETE FROM lead_locks WHERE expires_at < datetime('now')`).run();
+
+    // Own queue.
+    const own: any = rawDb.prepare(
+      `SELECT COUNT(*) as n FROM leads
+       WHERE assigned_agent_id = ?
+         AND status IN ('assigned','no_answer','callback_requested')`
     ).get(agentId);
-    res.json({ count: row?.n ?? 0 });
+
+    // Home-county pool count.
+    let poolCount = 0;
+    const homeCounty = agent.home_county;
+    if (homeCounty) {
+      const homeRow: any = rawDb.prepare(`
+        SELECT COUNT(*) as n FROM leads l
+        LEFT JOIN lead_locks lk ON lk.lead_id = l.id
+        WHERE l.status = 'unassigned' AND lk.lead_id IS NULL
+          AND LOWER(l.county) = LOWER(?)
+      `).get(homeCounty);
+      poolCount = homeRow?.n ?? 0;
+
+      // Home is dry → overflow to other counties.
+      if (poolCount === 0) {
+        const ovRow: any = rawDb.prepare(`
+          SELECT COUNT(*) as n FROM leads l
+          LEFT JOIN lead_locks lk ON lk.lead_id = l.id
+          WHERE l.status = 'unassigned' AND lk.lead_id IS NULL
+            AND (l.county IS NULL OR LOWER(l.county) <> LOWER(?))
+        `).get(homeCounty);
+        poolCount = ovRow?.n ?? 0;
+      }
+    } else {
+      // Admin / no home-county — sees all counties.
+      const allRow: any = rawDb.prepare(`
+        SELECT COUNT(*) as n FROM leads l
+        LEFT JOIN lead_locks lk ON lk.lead_id = l.id
+        WHERE l.status = 'unassigned' AND lk.lead_id IS NULL
+      `).get();
+      poolCount = allRow?.n ?? 0;
+    }
+
+    res.json({ count: (own?.n ?? 0) + poolCount });
+  });
+
+  // ─── ADMIN: SET AGENT HOME COUNTY (v13.9) ──────────────────────
+  // PATCH /api/admin/agents/:id/home-county  { homeCounty: string|null }
+  //   null / empty string → killer mode (all counties, Alex + Nate)
+  //   "Nassau" | "Duval" | "St Johns" → restricted to that county + overflow
+  app.patch("/api/admin/agents/:id/home-county", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid agent id" });
+    const raw = req.body?.homeCounty;
+    const homeCounty: string | null = raw && String(raw).trim() ? String(raw).trim() : null;
+
+    const existing = storage.getAgentById(id);
+    if (!existing) return res.status(404).json({ error: "Agent not found" });
+
+    rawDb.prepare(`UPDATE agents SET home_county = ? WHERE id = ?`).run(homeCounty, id);
+    const updated = storage.getAgentById(id);
+    res.json({ ...updated, password: undefined });
   });
 
   // ─── MY PIPELINE (callbacks + KIT, 60-day window) ────────────────────────
@@ -2772,7 +2923,12 @@ This template is for informational/outreach purposes only.`;
       const total = (r.total_all || 0) - (r.emails_sent || 0);
       const contacted = (r.appts || 0) + (r.not_int || 0);
       return {
-        agent: { id: agent.id, name: agent.name, email: agent.email },
+        agent: {
+          id: agent.id,
+          name: agent.name,
+          email: agent.email,
+          headshotUrl: (agent as any).headshotUrl || (agent as any).headshot_url || null,
+        },
         appointmentsSet: r.appts || 0,
         totalAttempts: total,
         emailsSent: r.emails_sent || 0,
@@ -3113,7 +3269,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v13.8.5",
+      version: "v13.9",
       services: results,
     });
   });

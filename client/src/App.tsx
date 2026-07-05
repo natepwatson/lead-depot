@@ -9,30 +9,21 @@ import AdminDashboard from "./pages/AdminDashboard";
 import AgentView from "./pages/AgentView";
 import AccountSetupPage from "./pages/AccountSetupPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
-import HeadshotGate from "./components/ld/HeadshotGate";
 import NotFound from "./pages/not-found";
 import JoinPage from "./pages/JoinPage";
 import { useEffect, useState } from "react";
 
 function AppRoutes() {
-  const { user, setHeadshot } = useAuth();
+  const { user } = useAuth();
   const [adminViewingLeads, setAdminViewingLeads] = useState(false);
   const [location, navigate] = useLocation();
 
   if (!user) return <LoginPage />;
 
-  // Gate: block until headshot is on file.
-  // headshotUrl is now stored in the auth payload from /api/login,
-  // so this is an instant check — no extra API call needed.
-  if (!user.headshotUrl) {
-    return (
-      <HeadshotGate
-        userId={user.id}
-        userName={user.name}
-        onComplete={(url) => setHeadshot(url)}
-      />
-    );
-  }
+  // v13.9 — HeadshotGate removed post-login.
+  // Only NEW agents get a headshot prompt during AccountSetupPage (which is optional).
+  // Existing agents are never blocked, even if headshot is missing.
+  // Leaderboard and admin views fall back to initials when no headshot is on file.
 
   // v12.5 — Recruiting Depot is admin-only. Non-admin at #/recruiting → redirect.
   const onRecruiting = location.startsWith("/recruiting");

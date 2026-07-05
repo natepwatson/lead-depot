@@ -15,18 +15,19 @@ import { rawDb } from "./db";
 const BATCHLEADS_API_KEY = process.env.BATCHLEADS_API_KEY || "";
 const BATCHLEADS_BASE = "https://app.batchleads.io/api/v1";
 
-// v13.8.4 — Frugal-mode ingest caps to stay within Growth plan (10k leads/mo).
-// Per lead type per county cap. Total budget: 10,000 raw pulls/mo across all lists.
-//   Absentee × 4 counties × 1500 = 6,000  (highest LTV, biggest share)
-//   Expired  × 4 counties × 400  = 1,600
-//   FSBO     × 4 counties × 300  = 1,200
-//   Land     × 4 counties × 200  =   800
-//   Total = 9,600 (400 lead buffer)
+// v13.8.5 — Frugal-mode ingest caps to stay within Growth plan (10k leads/mo).
+// Per lead type per county cap. Total budget: 10,000 raw pulls/mo across 4 counties.
+// Priority order: Expired >> Absentee >> Land ≈ FSBO
+//   Expired  × 4 counties × 1500 = 6,000  (60% — 44% list rate, 20% sold, urgent motivation)
+//   Absentee × 4 counties ×  800 = 3,200  (32% — slow drip, 14% list rate, 6-18mo LTV)
+//   Land     × 4 counties ×  100 =   400  (4%  — niche, low competition token pull)
+//   FSBO     × 4 counties ×  100 =   400  (4%  — shrinking pool, 5% of market)
+//   Total = 10,000 (full budget)
 const INGEST_CAPS: Record<string, number> = {
-  absentee: 1500,
-  expired:  400,
-  fsbo:     300,
-  land:     200,
+  expired:  1500,
+  absentee:  800,
+  land:      100,
+  fsbo:      100,
 };
 export function getIngestCap(leadType: string): number {
   return INGEST_CAPS[leadType] ?? 500;

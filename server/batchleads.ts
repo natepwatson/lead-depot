@@ -254,13 +254,15 @@ export function filterBatchLead(
     return { pass: false, reason: "entity_owner (trust/LLC/corp)" };
   }
 
-  // 2. Blank or privacy-blocked address
-  if (hasBlankAddress(raw.address)) {
-    return { pass: false, reason: "blank_address (law enforcement privacy block)" };
+  // 2. v13.8.2 — Blank address is OK if there's a callable phone (LEO leads).
+  //     Drop only when BOTH address is missing AND no callable phone exists.
+  const callablePhones = raw.allPhones.filter(isCallablePhone);
+  const addressBlank = hasBlankAddress(raw.address);
+  if (addressBlank && callablePhones.length === 0) {
+    return { pass: false, reason: "unworkable (no address and no phone)" };
   }
 
-  // 3. No callable phone
-  const callablePhones = raw.allPhones.filter(isCallablePhone);
+  // 3. No callable phone (with or without address, unworkable)
   if (callablePhones.length === 0) {
     return { pass: false, reason: "no_callable_phone" };
   }
@@ -288,10 +290,12 @@ export function filterBatchLead(
     }
   }
 
-  // 8. Already in Lead Depot (address match)
-  const normalizedAddr = raw.address.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (existingAddresses.has(normalizedAddr)) {
-    return { pass: false, reason: "duplicate_address" };
+  // 8. Already in Lead Depot (address match) — skip check when address is blank (LEO)
+  if (!addressBlank) {
+    const normalizedAddr = raw.address.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (existingAddresses.has(normalizedAddr)) {
+      return { pass: false, reason: "duplicate_address" };
+    }
   }
 
   // 9. Recently marked wrong number (90-day block)
@@ -315,11 +319,8 @@ export function filterBatchLead(
     return { pass: false, reason: "expired_too_old (>24 months)" };
   }
 
-  // 11a. v13.8.1 — blank/confidential address = likely LEO or protected owner. Drop.
-  const addr = (raw.address || "").trim().toUpperCase();
-  if (!addr || /^(CONFIDENTIAL|EXEMPT|PROTECTED|WITHHELD|NOT DISCLOSED|N\/A)$/i.test(addr) || addr.length < 5) {
-    return { pass: false, reason: "address_confidential_or_missing" };
-  }
+  // 11a. v13.8.1 — LEO / address-confidentiality leads are KEPT (Watson Brothers works with LEOs).
+  //  AgentView renders "Address confidential" when address is blank.
 
   // 11b. v13.8.1 — Sold after expiration (Failed listing but property has since sold to someone else).
   //  Uses BatchLeads sale-date fields if present. If last_sale_date > off_market_date, drop.

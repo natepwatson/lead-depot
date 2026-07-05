@@ -9,21 +9,43 @@ import AdminDashboard from "./pages/AdminDashboard";
 import AgentView from "./pages/AgentView";
 import AccountSetupPage from "./pages/AccountSetupPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import HeadshotGate from "./components/ld/HeadshotGate";
+import HomeCountyGate from "./components/ld/HomeCountyGate";
 import NotFound from "./pages/not-found";
 import JoinPage from "./pages/JoinPage";
 import { useEffect, useState } from "react";
 
 function AppRoutes() {
-  const { user } = useAuth();
+  const { user, setHeadshot, setHomeCounty } = useAuth();
   const [adminViewingLeads, setAdminViewingLeads] = useState(false);
   const [location, navigate] = useLocation();
 
   if (!user) return <LoginPage />;
 
-  // v13.9 — HeadshotGate removed post-login.
-  // Only NEW agents get a headshot prompt during AccountSetupPage (which is optional).
-  // Existing agents are never blocked, even if headshot is missing.
-  // Leaderboard and admin views fall back to initials when no headshot is on file.
+  // v13.10 — Two required gates for agents (admins skip both).
+  //   1. HomeCountyGate — hard block until they pick their county (drives lead flow)
+  //   2. HeadshotGate   — nag every login until a photo is on file
+  // Admins (Alex + Nate) skip both — they work all counties (killer mode) and
+  // their photo is optional.
+  const isAgent = user.role === "agent";
+  if (isAgent && !user.homeCounty) {
+    return (
+      <HomeCountyGate
+        userId={user.id}
+        userName={user.name}
+        onComplete={(county) => setHomeCounty(county)}
+      />
+    );
+  }
+  if (isAgent && !user.headshotUrl) {
+    return (
+      <HeadshotGate
+        userId={user.id}
+        userName={user.name}
+        onComplete={(url) => setHeadshot(url)}
+      />
+    );
+  }
 
   // v12.5 — Recruiting Depot is admin-only. Non-admin at #/recruiting → redirect.
   const onRecruiting = location.startsWith("/recruiting");

@@ -149,7 +149,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v13.9 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v13.10 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -208,7 +208,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.9 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.10 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -257,7 +257,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.9 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.10 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -327,7 +327,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (!agent.isActive) {
       return res.status(403).json({ error: "Your account has been deactivated. Contact an admin." });
     }
-    res.json({ agent: { id: agent.id, name: agent.name, email: agent.email, role: agent.role, headshotUrl: (agent as any).headshotUrl || (agent as any).headshot_url || null } });
+    res.json({ agent: {
+      id: agent.id, name: agent.name, email: agent.email, role: agent.role,
+      headshotUrl: (agent as any).headshotUrl || (agent as any).headshot_url || null,
+      homeCounty: (agent as any).homeCounty || (agent as any).home_county || null,
+    } });
   });
 
   // ─── FORGOT PASSWORD ─────────────────────────────────────────────────────
@@ -413,6 +417,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       brokerage: (agent as any).brokerage ?? "",
       homeAddress: (agent as any).home_address ?? "",
       headshotUrl: (agent as any).headshot_url ?? "",
+      homeCounty: (agent as any).homeCounty || (agent as any).home_county || null,
     }});
   });
 
@@ -2452,6 +2457,22 @@ This template is for informational/outreach purposes only.`;
     res.json({ count: (own?.n ?? 0) + poolCount });
   });
 
+  // ─── AGENT SELF-SERVICE: SET OWN HOME COUNTY (v13.10) ──────────────
+  // PATCH /api/agents/:id/home-county  { homeCounty: "Nassau"|"Duval"|"St Johns" }
+  // Called by the first-login gate. Agent picks their county — required to enter app.
+  app.patch("/api/agents/:id/home-county", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid agent id" });
+    const raw = req.body?.homeCounty;
+    const county = raw ? String(raw).trim() : "";
+    const ALLOWED = ["Nassau", "Duval", "St Johns"];
+    if (!ALLOWED.includes(county)) return res.status(400).json({ error: "Invalid county" });
+    const existing = storage.getAgentById(id);
+    if (!existing) return res.status(404).json({ error: "Agent not found" });
+    rawDb.prepare(`UPDATE agents SET home_county = ? WHERE id = ?`).run(county, id);
+    res.json({ ok: true, homeCounty: county });
+  });
+
   // ─── ADMIN: SET AGENT HOME COUNTY (v13.9) ──────────────────────
   // PATCH /api/admin/agents/:id/home-county  { homeCounty: string|null }
   //   null / empty string → killer mode (all counties, Alex + Nate)
@@ -3269,7 +3290,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v13.9",
+      version: "v13.10",
       services: results,
     });
   });

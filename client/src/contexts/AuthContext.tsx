@@ -6,6 +6,7 @@ interface AuthUser {
   email: string;
   role: "admin" | "agent" | "recruiter";
   headshotUrl?: string | null;
+  homeCounty?: string | null;
 }
 
 interface AuthContextType {
@@ -13,6 +14,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ error?: string }>;
   logout: () => void;
   setHeadshot: (url: string) => void;
+  setHomeCounty: (county: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -87,8 +89,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const setHomeCounty = (county: string) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, homeCounty: county };
+      saveUser(updated);
+      return updated;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, setHeadshot }}>
+    <AuthContext.Provider value={{ user, login, logout, setHeadshot, setHomeCounty }}>
       {children}
     </AuthContext.Provider>
   );

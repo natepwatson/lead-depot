@@ -22,9 +22,22 @@ const ENTITY_KEYWORDS = [
   "revocable", "irrevocable", "family trust", "living trust", "land trust",
 ];
 
+// v13.8.3 — Portfolio/institutional wording (definitely block on absentee).
+// Simple single-property LLCs (e.g. "123 Main St LLC", "Smith Family LLC") are ALLOWED
+// for absentee only — wealth-mindset owners often use a pass-through LLC per property.
+const PORTFOLIO_KEYWORDS = [
+  "holdings", "properties", "investments", "realty", "group", "fund", "partners",
+  "partnership", "capital", "management", "ventures", "equity", "reit",
+];
+
 function isEntityOwner(ownerName: string): boolean {
   const lower = (ownerName || "").toLowerCase();
   return ENTITY_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+function isPortfolioEntity(ownerName: string): boolean {
+  const lower = (ownerName || "").toLowerCase();
+  return PORTFOLIO_KEYWORDS.some(kw => lower.includes(kw));
 }
 
 // ─── BLANK / LAW ENFORCEMENT ADDRESS DETECTION ────────────────────────────────
@@ -146,7 +159,7 @@ export interface BatchRawLead {
   priceReductions?: number;
   ownerOccupied?: boolean;
   absenteeOutOfState?: boolean;
-  leadType: string;              // v13.8: only "expired" | "fsbo" | "land"
+  leadType: string;              // v13.8.3: "expired" | "fsbo" | "land" | "absentee"
   sourceId: string;              // BatchLeads address ID for dedup
   isFsbo?: boolean;
   hasActiveListing?: boolean;
@@ -206,12 +219,22 @@ export function scoreBatchLead(raw: BatchRawLead): ScoredBatchLead {
     if (acres >= 10)      { score += 4; breakdown.push(`+4 land ${acres.toFixed(1)} acres (large)`); }
     else if (acres >= 5)  { score += 2; breakdown.push(`+2 land ${acres.toFixed(1)} acres`); }
     else if (acres >= 1)  { score += 1; breakdown.push(`+1 land ${acres.toFixed(1)} acres`); }
+  }
 
+  // v13.8.3 — Absentee owner (wealth-mindset investor lead)
+  if (raw.leadType === "absentee") {
     const yp = raw.yearPurchased || 0;
-    const yrsOwned = yp > 0 ? new Date().getFullYear() - yp : 0;
-    if (yrsOwned >= 20)      { score += 3; breakdown.push(`+3 owned ${yrsOwned} years`); }
-    else if (yrsOwned >= 10) { score += 2; breakdown.push(`+2 owned ${yrsOwned} years`); }
-    else if (yrsOwned >= 5)  { score += 1; breakdown.push(`+1 owned ${yrsOwned} years`); }
+    const currentYear = new Date().getFullYear();
+    const tenure = yp > 0 ? currentYear - yp : 0;
+    if (tenure >= 15)      { score += 5; breakdown.push(`+5 owned ${tenure}yr (landlord fatigue)`); }
+    else if (tenure >= 10) { score += 4; breakdown.push(`+4 owned ${tenure}yr`); }
+    else if (tenure >= 7)  { score += 2; breakdown.push(`+2 owned ${tenure}yr`); }
+
+    if (raw.absenteeOutOfState) { score += 3; breakdown.push("+3 out-of-state absentee"); }
+
+    const ev = raw.estimatedValue || 0;
+    if (ev >= 1000000)     { score += 3; breakdown.push(`+3 estValue $${(ev/1e6).toFixed(1)}M`); }
+    else if (ev >= 500000) { score += 2; breakdown.push(`+2 estValue $${Math.round(ev/1000)}k`); }
   }
 
   // ── Equity (applies to all types where we have it)
@@ -250,7 +273,19 @@ export function filterBatchLead(
 ): { pass: boolean; reason?: string } {
 
   // 1. Trust / LLC / corporate owner
-  if (isEntityOwner(raw.ownerName)) {
+  //    v13.8.3 — for ABSENTEE only, allow single-property LLCs (Smith LLC, 123 Main St LLC)
+  //    but still block trusts and portfolio-wording entities (Holdings, Investments, etc.)
+  if (raw.leadType === "absentee") {
+    const lower = (raw.ownerName || "").toLowerCase();
+    const isTrust = /\btrust\b|revocable|irrevocable|estate of/.test(lower);
+    if (isTrust) {
+      return { pass: false, reason: "entity_owner (trust — blocked on absentee)" };
+    }
+    if (isPortfolioEntity(raw.ownerName)) {
+      return { pass: false, reason: "portfolio_entity (multi-property investor LLC)" };
+    }
+    // single-property LLCs / corp allowed — fall through
+  } else if (isEntityOwner(raw.ownerName)) {
     return { pass: false, reason: "entity_owner (trust/LLC/corp)" };
   }
 
@@ -351,6 +386,37 @@ export function filterBatchLead(
     }
   }
 
+  // 15. v13.8.3 — Absentee: equity ≥ 60%, owned ≥ 7 years, residential property.
+  //     LLC handling already done in filter #1 above.
+  if (raw.leadType === "absentee") {
+    // Must be absentee (not owner-occupied) — BatchLeads flag or out-of-state mailing
+    if (raw.ownerOccupied === true) {
+      return { pass: false, reason: "absentee_but_owner_occupied" };
+    }
+
+    const equity = raw.equityPct || 0;
+    if (equity < 60) {
+      return { pass: false, reason: `absentee_equity_under_60 (${equity}%)` };
+    }
+
+    const yp = raw.yearPurchased || 0;
+    const currentYear = new Date().getFullYear();
+    if (yp === 0 || (currentYear - yp) < 7) {
+      return { pass: false, reason: `absentee_tenure_under_7yr (bought ${yp || "unknown"})` };
+    }
+
+    // Residential only (single-family, condo, townhouse, duplex, multi-family) — exclude vacant land
+    if (raw.propertyType && /vacant|land|lot/i.test(raw.propertyType)) {
+      return { pass: false, reason: `absentee_is_land (${raw.propertyType})` };
+    }
+
+    // Minimum estimated value $200K (avoid low-value manufactured / mobile home leads)
+    const ev = raw.estimatedValue || raw.assessedValue || 0;
+    if (ev < 200000) {
+      return { pass: false, reason: `absentee_value_under_200k ($${ev})` };
+    }
+  }
+
   // 14. v13.8 — Land: 1AC+, $75K+ assessed value, owned 5+ years, vacant land
   if (raw.leadType === "land") {
     const acres = raw.lotSizeAcres || 0;
@@ -429,9 +495,10 @@ interface BatchLeadsProperty {
 function listNameToLeadType(name: string): string | null {
   const n = name.trim().toLowerCase();
   if (!n.startsWith("lead depot -")) return null;
-  if (/\blead depot\s*-\s*expired\b/.test(n)) return "expired";
-  if (/\blead depot\s*-\s*fsbo\b/.test(n))    return "fsbo";
-  if (/\blead depot\s*-\s*land\b/.test(n))    return "land";
+  if (/\blead depot\s*-\s*expired\b/.test(n))  return "expired";
+  if (/\blead depot\s*-\s*fsbo\b/.test(n))     return "fsbo";
+  if (/\blead depot\s*-\s*land\b/.test(n))     return "land";
+  if (/\blead depot\s*-\s*absentee\b/.test(n)) return "absentee";
   return null;
 }
 

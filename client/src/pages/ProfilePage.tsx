@@ -3,9 +3,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
-  User, Mail, Phone, Lock, Home, Building2, Trash2,
+  User, Mail, Phone, Lock, Home, Building2, Trash2, MapPin,
   Camera, ChevronLeft, Check, AlertTriangle, Eye, EyeOff,
 } from "lucide-react";
+
+const COUNTIES = ["Nassau", "Duval", "St Johns"] as const;
 
 const lbl: React.CSSProperties = {
   display: "block", fontSize: 10, letterSpacing: "0.18em",
@@ -43,11 +45,12 @@ interface AgentProfile {
   brokerage: string;
   homeAddress: string;
   headshotUrl: string;
+  homeCounty: string;
   role: string;
 }
 
 export default function ProfilePage({ onBack }: { onBack: () => void }) {
-  const { user, logout } = useAuth();
+  const { user, logout, setHomeCounty } = useAuth();
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -60,8 +63,10 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
     brokerage: "",
     homeAddress: "",
     headshotUrl: "",
+    homeCounty: user?.homeCounty ?? "",
     role: user?.role ?? "agent",
   });
+  const [savingCounty, setSavingCounty] = useState(false);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -96,6 +101,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
             brokerage:   d.agent.brokerage   ?? "",
             homeAddress: d.agent.homeAddress ?? d.agent.home_address ?? "",
             headshotUrl: d.agent.headshotUrl ?? d.agent.headshot_url ?? "",
+            homeCounty:  d.agent.homeCounty  ?? d.agent.home_county ?? "",
             role:        d.agent.role        ?? p.role,
           }));
         }
@@ -346,6 +352,42 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
               <label style={lbl}><Home size={9} style={{ display: "inline", marginRight: 5 }} />Home Address</label>
               <input style={inp} value={profile.homeAddress} onChange={e => setProfile(p => ({ ...p, homeAddress: e.target.value }))} placeholder="123 Main St, Fernandina Beach, FL 32034" />
             </div>
+            {profile.role === "agent" && (
+              <div>
+                <label style={lbl}><MapPin size={9} style={{ display: "inline", marginRight: 5 }} />Home County (Primary Lead Territory)</label>
+                <select
+                  style={inp}
+                  value={profile.homeCounty}
+                  disabled={savingCounty}
+                  onChange={async (e) => {
+                    const county = e.target.value;
+                    if (!county || !COUNTIES.includes(county as any)) return;
+                    const prev = profile.homeCounty;
+                    setProfile(p => ({ ...p, homeCounty: county }));
+                    setSavingCounty(true);
+                    try {
+                      const res = await apiRequest("PATCH", `/api/agents/${user?.id}/home-county`, { homeCounty: county });
+                      if (!res.ok) throw new Error("failed");
+                      setHomeCounty(county);
+                      toast({ title: `Home county set to ${county}` });
+                    } catch {
+                      setProfile(p => ({ ...p, homeCounty: prev }));
+                      toast({ title: "Could not update home county", variant: "destructive" });
+                    } finally {
+                      setSavingCounty(false);
+                    }
+                  }}
+                >
+                  <option value="" disabled>Select your county</option>
+                  {COUNTIES.map(c => (
+                    <option key={c} value={c} style={{ background: "#0a0a0a" }}>{c}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 10, color: "rgba(200,170,90,0.55)", marginTop: 6, letterSpacing: "0.05em" }}>
+                  You get leads in this county first. Overflow from other counties only when yours runs dry.
+                </div>
+              </div>
+            )}
           </div>
 
           <button

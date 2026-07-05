@@ -1419,7 +1419,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v13.6
+              v13.7
             </p>
           </div>
         </div>
@@ -1456,15 +1456,22 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           )}
           <button
             onClick={logout}
+            title="Sign out"
+            className="ld-signout-btn"
             style={{
               display: "flex", alignItems: "center", gap: 5,
               fontSize: 11, color: "rgba(255,255,255,0.3)",
               background: "none", border: "none", cursor: "pointer",
-              letterSpacing: "0.04em",
+              letterSpacing: "0.04em", flexShrink: 0, whiteSpace: "nowrap",
             }}
           >
-            <LogOut size={13}/> Sign out
+            <LogOut size={13}/> <span className="ld-signout-label">Sign out</span>
           </button>
+          <style>{`
+            @media (max-width: 480px){.ld-signout-label{display:none}.ld-signout-btn{padding:4px}}
+            @media (max-width: 640px){.ld-lb-cols{gap:8px !important}.ld-lb-cols>div{width:32px !important}}
+            @media (max-width: 380px){.ld-lb-cols{gap:6px !important}.ld-lb-cols>div{width:26px !important;font-size:9px}}
+          `}</style>
         </div>
       </header>
 
@@ -1782,8 +1789,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                 borderBottom: "1px solid rgba(255,255,255,0.06)",
                 marginBottom: 6,
               }}>
-                <div style={{ flex: 1 }} />
-                <div style={{ display: "flex", gap: 20, textAlign: "center", alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: 0 }} />
+                <div className="ld-lb-cols" style={{ display: "flex", gap: 20, textAlign: "center", alignItems: "center", flexShrink: 0 }}>
                   {lbTab === "today" ? (
                     <>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
@@ -1904,7 +1911,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                 background: dot.color, flexShrink: 0, display: "inline-block",
                                 boxShadow: `0 0 5px ${dot.color}88`,
                               }} />
-                              <span style={{ fontSize: 13, fontWeight: 500, color: "#fff", fontFamily: "'Switzer','Inter',sans-serif" }}>
+                              <span style={{ fontSize: 13, fontWeight: 500, color: "#fff", fontFamily: "'Switzer','Inter',sans-serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>
                                 {stat.agent.name}
                               </span>
                               <ChevronRight size={11} className="text-muted-foreground group-hover:text-gold transition-colors" />
@@ -1912,7 +1919,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           </div>
 
                           {/* Stats columns */}
-                          <div style={{ display: "flex", gap: 20, textAlign: "center", flexShrink: 0 }}>
+                          <div className="ld-lb-cols" style={{ display: "flex", gap: 20, textAlign: "center", flexShrink: 0 }}>
                             {lbTab === "today" ? (
                               <>
                                 <div style={{ width: 44 }}>

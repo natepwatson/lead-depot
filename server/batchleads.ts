@@ -6,7 +6,10 @@
 //   Profile → Integrations → Integration Keys → Add Integration Key
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { ALL_NE_FLORIDA_ZIPS, getTerritoryForZip } from "./territories";
+// v13.8 — territories removed as a routing/tagging construct. Location is still
+// tracked as raw fields (city/state/zip/county/lat/lng). ZIP scope for the 8-county
+// footprint is kept as a static list here to gate ingest — no territory logic.
+import { ALL_NE_FLORIDA_ZIPS } from "./territories";
 
 const BATCHLEADS_API_KEY = process.env.BATCHLEADS_API_KEY || "";
 const BATCHLEADS_BASE = "https://app.batchleads.io/api/v1";
@@ -49,6 +52,9 @@ export interface BatchRawLead {
   city: string;
   state: string;
   zip: string;
+  county?: string;
+  lat?: number;
+  lng?: number;
   phone: string;
   phone2?: string;
   phone3?: string;
@@ -57,7 +63,8 @@ export interface BatchRawLead {
   allPhones: string[];           // all valid phone numbers from BatchLeads
   email?: string;
   listPrice?: number;
-  estimatedValue?: number;
+  estimatedValue?: number;       // v13.8: used as Land assessed-value floor ($75K+)
+  assessedValue?: number;
   mortgageBalance?: number;
   equityPct?: number;
   daysOnMarket?: number;
@@ -66,27 +73,30 @@ export interface BatchRawLead {
   priceReductions?: number;
   ownerOccupied?: boolean;
   absenteeOutOfState?: boolean;
-  leadType: string;
+  leadType: string;              // v13.8: only "expired" | "fsbo" | "land"
   sourceId: string;              // BatchLeads address ID for dedup
-  isPreforeclosure?: boolean;
   isFsbo?: boolean;
-  isVacant?: boolean;
   hasActiveListing?: boolean;
   batchRankScore?: number;       // BatchLeads AI distress score (0-10)
   phoneTypes?: string[];         // ["mobile","landline", ...] per phone
   dnc?: boolean[];               // DNC status per phone
   isLitigator?: boolean[];       // litigator flag per phone
+  // v13.8 fields
+  lotSizeAcres?: number;         // Land 1AC+ filter
+  yearPurchased?: number;        // Land 5yr+ ownership filter (year owner acquired)
+  propertyType?: string;         // "Single Family", "Vacant Land", etc.
 }
 
 export interface ScoredBatchLead extends BatchRawLead {
   score: number;
   scoreBreakdown: string[];
-  territory: string | null;
   priority: "priority" | "standard" | "reserve" | "discard";
   filterReason?: string;
 }
 
 // ─── LEAD SCORER ──────────────────────────────────────────────────────────────
+// v13.8 — scoring is used only for prioritization inside a lead type's FIFO pool.
+// Higher-scoring leads sort to the top of the type queue, but all leads served FIFO.
 export function scoreBatchLead(raw: BatchRawLead): ScoredBatchLead {
   const breakdown: string[] = [];
   let score = 0;
@@ -99,55 +109,62 @@ export function scoreBatchLead(raw: BatchRawLead): ScoredBatchLead {
   }
 
   // ── Expired-specific
-  const expCount = raw.expirationCount || 1;
-  if (expCount >= 2) { score += 5; breakdown.push(`+5 expired ${expCount}x`); }
+  if (raw.leadType === "expired") {
+    const expCount = raw.expirationCount || 1;
+    if (expCount >= 2) { score += 5; breakdown.push(`+5 expired ${expCount}x`); }
 
-  const dse = raw.daysSinceExpiration || 0;
-  if (dse <= 30)        { score += 4; breakdown.push("+4 expired <30 days ago"); }
-  else if (dse <= 90)   { score += 3; breakdown.push("+3 expired 31–90 days ago"); }
-  else if (dse <= 180)  { score += 2; breakdown.push("+2 expired 91–180 days ago"); }
-  else if (dse <= 540)  { score += 1; breakdown.push("+1 expired 181–540 days ago"); }
+    const dse = raw.daysSinceExpiration || 0;
+    if (dse <= 30)        { score += 4; breakdown.push("+4 expired <30 days ago"); }
+    else if (dse <= 90)   { score += 3; breakdown.push("+3 expired 31–90 days ago"); }
 
-  // ── Price reductions
-  if ((raw.priceReductions || 0) >= 2) { score += 3; breakdown.push("+3 price reduced 2+ times"); }
+    if ((raw.priceReductions || 0) >= 2) { score += 3; breakdown.push("+3 price reduced 2+ times"); }
+  }
 
-  // ── Equity
+  // ── FSBO-specific
+  if (raw.leadType === "fsbo") {
+    if (raw.isFsbo) { score += 3; breakdown.push("+3 FSBO confirmed"); }
+    const dom = raw.daysOnMarket || 0;
+    if (dom >= 60) { score += 2; breakdown.push("+2 FSBO 60+ days on market"); }
+  }
+
+  // ── Land-specific (1AC+, $75K+ value, 5+ yr ownership)
+  if (raw.leadType === "land") {
+    const acres = raw.lotSizeAcres || 0;
+    if (acres >= 10)      { score += 4; breakdown.push(`+4 land ${acres.toFixed(1)} acres (large)`); }
+    else if (acres >= 5)  { score += 2; breakdown.push(`+2 land ${acres.toFixed(1)} acres`); }
+    else if (acres >= 1)  { score += 1; breakdown.push(`+1 land ${acres.toFixed(1)} acres`); }
+
+    const yp = raw.yearPurchased || 0;
+    const yrsOwned = yp > 0 ? new Date().getFullYear() - yp : 0;
+    if (yrsOwned >= 20)      { score += 3; breakdown.push(`+3 owned ${yrsOwned} years`); }
+    else if (yrsOwned >= 10) { score += 2; breakdown.push(`+2 owned ${yrsOwned} years`); }
+    else if (yrsOwned >= 5)  { score += 1; breakdown.push(`+1 owned ${yrsOwned} years`); }
+  }
+
+  // ── Equity (applies to all types where we have it)
   const equity = raw.equityPct || 0;
   if (equity >= 50)      { score += 5; breakdown.push(`+5 equity ~${equity}% (high)`); }
   else if (equity >= 30) { score += 3; breakdown.push(`+3 equity ~${equity}% (moderate)`); }
 
-  // ── Pre-foreclosure
-  if (raw.isPreforeclosure) { score += 4; breakdown.push("+4 pre-foreclosure (NOD filed)"); }
-
   // ── Owner occupied
   if (raw.ownerOccupied) { score += 2; breakdown.push("+2 owner-occupied"); }
 
-  // ── Absentee out of state
+  // ── Absentee out of state (motivated seller signal)
   if (raw.absenteeOutOfState) { score += 1; breakdown.push("+1 absentee out-of-state"); }
-
-  // ── FSBO
-  if (raw.isFsbo) { score += 2; breakdown.push("+2 FSBO"); }
-
-  // ── Vacant / distressed
-  if (raw.isVacant) { score += 2; breakdown.push("+2 vacant/distressed signal"); }
 
   // ── Mobile phone confirmed
   if (raw.phoneTypes && raw.phoneTypes.some(t => t === "mobile" || t === "2")) {
     score += 3; breakdown.push("+3 mobile phone confirmed");
   }
 
-  // ── Territory match
-  const territory = getTerritoryForZip(raw.zip);
-  if (territory) { score += 2; breakdown.push(`+2 in active territory (${territory})`); }
-
-  // ── Priority tier
+  // ── Priority tier (used for insert order into the type pool)
   let priority: ScoredBatchLead["priority"];
   if (score >= 12)      priority = "priority";
   else if (score >= 7)  priority = "standard";
   else if (score >= 4)  priority = "reserve";
   else                  priority = "discard";
 
-  return { ...raw, score, scoreBreakdown: breakdown, territory, priority };
+  return { ...raw, score, scoreBreakdown: breakdown, priority };
 }
 
 // ─── HARD FILTER CHAIN ────────────────────────────────────────────────────────
@@ -225,6 +242,40 @@ export function filterBatchLead(
     return { pass: false, reason: "expired_too_old (>18 months)" };
   }
 
+  // 12. v13.8 — 8-county ZIP scope (Nassau/Duval/St.Johns/Clay/Baker FL + Camden/Charlton/Glynn GA)
+  if (raw.zip && !ALL_NE_FLORIDA_ZIPS.has(raw.zip.slice(0, 5))) {
+    return { pass: false, reason: `zip_out_of_footprint (${raw.zip})` };
+  }
+
+  // 13. v13.8 — Expired & FSBO: $500K minimum list price
+  if ((raw.leadType === "expired" || raw.leadType === "fsbo")) {
+    const lp = raw.listPrice || 0;
+    if (lp < 500000) {
+      return { pass: false, reason: `list_price_under_500k ($${lp})` };
+    }
+  }
+
+  // 14. v13.8 — Land: 1AC+, $75K+ assessed value, owned 5+ years, vacant land
+  if (raw.leadType === "land") {
+    const acres = raw.lotSizeAcres || 0;
+    if (acres < 1) {
+      return { pass: false, reason: `land_under_1_acre (${acres})` };
+    }
+    const value = raw.assessedValue || raw.estimatedValue || 0;
+    if (value < 75000) {
+      return { pass: false, reason: `land_value_under_75k ($${value})` };
+    }
+    const yp = raw.yearPurchased || 0;
+    const currentYear = new Date().getFullYear();
+    if (yp === 0 || (currentYear - yp) < 5) {
+      return { pass: false, reason: `land_owned_under_5_years (bought ${yp || "unknown"})` };
+    }
+    // Vacant land type only
+    if (raw.propertyType && !/vacant|land|lot/i.test(raw.propertyType)) {
+      return { pass: false, reason: `land_not_vacant (${raw.propertyType})` };
+    }
+  }
+
   return { pass: true };
 }
 
@@ -272,15 +323,12 @@ interface BatchLeadsProperty {
   }[];
 }
 
-// Map BatchLeads list names to our internal lead types
-// You set these list names up in BatchLeads UI → My Lists
+// v13.8 — map BatchLeads list names to our 3 internal lead types.
+// Alex creates these list names in BatchLeads UI → My Lists.
 const LIST_NAME_TO_TYPE: Record<string, string> = {
-  "Lead Depot - Expired":          "expired",
-  "Lead Depot - FSBO":             "fsbo",
-  "Lead Depot - Pre-Foreclosure":  "preforeclosure",
-  "Lead Depot - Distressed":       "distressed",
-  "Lead Depot - Vacant":           "vacant",
-  "Lead Depot - Land":             "land",
+  "Lead Depot - Expired":  "expired",
+  "Lead Depot - FSBO":     "fsbo",
+  "Lead Depot - Land":     "land",
 };
 
 async function fetchBatchLeadsPage(
@@ -375,25 +423,37 @@ function normalizeBatchProperty(
   const primaryIdx = dncFlags.findIndex(d => !d);
   const primaryPhone = allPhones[primaryIdx >= 0 ? primaryIdx : 0] || "";
 
+  // v13.8 — accept a few new optional BatchLeads fields we now depend on.
+  const anyProp = prop as any;
+  const lotSizeAcres = anyProp.lot_size_acres ?? anyProp.acres ?? anyProp.lot_acres;
+  const yearPurchased = anyProp.year_purchased ?? anyProp.year_bought ?? anyProp.owner_purchase_year ?? anyProp.last_sale_year;
+  const propertyType = anyProp.property_type ?? anyProp.property_class ?? anyProp.type;
+  const assessedValue = anyProp.assessed_value ?? anyProp.tax_assessed_value;
+  const county = anyProp.county ?? anyProp.county_name;
+  const lat = anyProp.latitude ?? anyProp.lat;
+  const lng = anyProp.longitude ?? anyProp.lng;
+
   return {
     ownerName,
     address: prop.address || "",
     city: prop.city || "",
     state: prop.state || "FL",
     zip: prop.zip || "",
+    county,
+    lat: typeof lat === "number" ? lat : undefined,
+    lng: typeof lng === "number" ? lng : undefined,
     phone: primaryPhone,
     allPhones,
     leadType,
     sourceId: String(prop.id),
-    isPreforeclosure: prop.pre_foreclosure === true || leadType === "preforeclosure",
     isFsbo: prop.is_fsbo === true || leadType === "fsbo",
-    isVacant: prop.vacant === true || leadType === "vacant",
     hasActiveListing: prop.active_listing === true,
     ownerOccupied: prop.owner_occupied === true,
     absenteeOutOfState: prop.out_of_state === true,
     batchRankScore: prop.lead_score,
     equityPct: prop.equity_percent,
     estimatedValue: prop.estimated_value,
+    assessedValue: typeof assessedValue === "number" ? assessedValue : undefined,
     mortgageBalance: prop.mortgage_balance,
     listPrice: prop.list_price,
     daysOnMarket: prop.days_on_market,
@@ -403,6 +463,10 @@ function normalizeBatchProperty(
     phoneTypes,
     dnc: dncFlags,
     isLitigator: litigatorFlags,
+    // v13.8 fields
+    lotSizeAcres: typeof lotSizeAcres === "number" ? lotSizeAcres : undefined,
+    yearPurchased: typeof yearPurchased === "number" ? yearPurchased : undefined,
+    propertyType: typeof propertyType === "string" ? propertyType : undefined,
   };
 }
 
@@ -586,11 +650,16 @@ export async function runBatchLeadsPipeline(rawDb: any): Promise<{
     ...toInsert.filter(l => l.priority === "reserve"),
   ];
 
+  // v13.8 — insert includes new geo + property fields. Status is 'unassigned'
+  // (the shared FIFO pool). No territory column. Agents claim via /api/leads/next.
   const insertStmt = rawDb.prepare(`
     INSERT OR IGNORE INTO leads (
-      owner_name, address, city, state, zip, phone, phones, phone_states, email,
-      lead_type, status, score, territory, source, batch_id, uploaded_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, 'batchleads', ?, datetime('now'))
+      owner_name, address, city, state, zip, county, lat, lng,
+      phone, phones, phone_states, email,
+      lead_type, status, score,
+      list_price, assessed_value, lot_size_acres, year_purchased,
+      source, batch_id, uploaded_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, ?, ?, ?, 'batchleads', ?, datetime('now'))
   `);
 
   const batchId = `batchleads_${new Date().toISOString().slice(0, 10)}`;
@@ -603,8 +672,12 @@ export async function runBatchLeadsPipeline(rawDb: any): Promise<{
       );
       insertStmt.run(
         l.ownerName, l.address, l.city, l.state, l.zip,
+        l.county || null, l.lat ?? null, l.lng ?? null,
         primaryPhone, allPhones, phoneStates, l.email || "",
-        l.leadType, l.score, l.territory || "", batchId
+        l.leadType, l.score,
+        l.listPrice ?? null, l.assessedValue ?? null,
+        l.lotSizeAcres ?? null, l.yearPurchased ?? null,
+        batchId
       );
     }
   });

@@ -71,8 +71,16 @@ export const leads = sqliteTable("leads", {
   zip: text("zip"),
   // Lead gen metadata
   score: integer("score").default(0),          // BatchLeads pipeline score (0–20+)
-  territory: text("territory"),                 // e.g. "jacksonville_west"
+  territory: text("territory"),                 // LEGACY — kept for historical data. v13.8 no longer reads/writes.
   source: text("source").default("csv_upload"), // "batchleads" | "csv_upload" | "manual" | "website" | "network"
+  // v13.8 — filter/display data for the 3 playbooks
+  lotSizeAcres: real("lot_size_acres"),         // Land 1AC+ filter
+  assessedValue: integer("assessed_value"),     // Land $75K+ filter
+  listPrice: integer("list_price"),             // Expired/FSBO $500K+ filter
+  yearPurchased: integer("year_purchased"),     // Land 5yr+ ownership filter
+  county: text("county"),                       // Raw location — map view + county filter
+  lat: real("lat"),                             // Map view pin
+  lng: real("lng"),                             // Map view pin
   // Upload metadata
   uploadedAt: text("uploaded_at").notNull().default(""),
   uploadedBy: integer("uploaded_by").references(() => agents.id),
@@ -208,7 +216,8 @@ export const insertAgentLeadActivitySchema = createInsertSchema(agentLeadActivit
 export type InsertAgentLeadActivity = z.infer<typeof insertAgentLeadActivitySchema>;
 export type AgentLeadActivity = typeof agentLeadActivity.$inferSelect;
 
-// Territories reference table
+// Territories reference table — LEGACY as of v13.8. Kept for historical data
+// and DBPR recruiting-side use. No longer used by seller-lead routing.
 export const territories = sqliteTable("territories", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull().unique(),
@@ -216,6 +225,15 @@ export const territories = sqliteTable("territories", {
 });
 
 export type Territory = typeof territories.$inferSelect;
+
+// v13.8 — Lead locks: 60-minute exclusive claim so two agents don't dial the same lead
+export const leadLocks = sqliteTable("lead_locks", {
+  leadId: integer("lead_id").primaryKey().references(() => leads.id),
+  agentId: integer("agent_id").notNull().references(() => agents.id),
+  lockedAt: text("locked_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+});
+export type LeadLock = typeof leadLocks.$inferSelect;
 
 // App-wide settings (key/value)
 export const appSettings = sqliteTable("app_settings", {

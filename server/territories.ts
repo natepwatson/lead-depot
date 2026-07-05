@@ -71,8 +71,29 @@ for (const [key, t] of Object.entries(TERRITORIES)) {
   }
 }
 
-// All NE Florida zips in one flat array (for BatchLeads and DBPR territory filtering)
-export const ALL_NE_FLORIDA_ZIPS = [...new Set(Object.values(TERRITORIES).flatMap(t => t.zipcodes))];
+// v13.8 — SE Georgia footprint zips (Camden, Charlton, Glynn counties).
+// Used only for BatchLeads ingest scope; recruiting/DBPR side unchanged.
+const SE_GEORGIA_ZIPS = [
+  // Camden County GA
+  "31537", "31548", "31558", "31565", "31569",
+  // Charlton County GA
+  "31537", "31631", "31533", "31647",
+  // Glynn County GA
+  "31520", "31521", "31522", "31523", "31524", "31525", "31527", "31561",
+];
+
+// All NE Florida zips in one flat array (for BatchLeads and DBPR territory filtering).
+// Kept as an array for backwards compatibility with existing callers.
+export const ALL_NE_FLORIDA_ZIPS_ARRAY = [
+  ...new Set(Object.values(TERRITORIES).flatMap(t => t.zipcodes)),
+];
+
+// v13.8 — 8-county ingest footprint (5 FL + 3 GA) as a Set for fast .has() lookups.
+// This is what BatchLeads filterBatchLead uses to gate ZIP scope.
+export const ALL_NE_FLORIDA_ZIPS: Set<string> = new Set([
+  ...ALL_NE_FLORIDA_ZIPS_ARRAY,
+  ...SE_GEORGIA_ZIPS,
+]);
 
 export function getTerritoryForZip(zip: string): string | null {
   return ZIP_TO_TERRITORY[zip.trim().slice(0, 5)] || null;

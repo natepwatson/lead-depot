@@ -149,7 +149,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v13.7 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v13.8 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -208,7 +208,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.8 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -257,7 +257,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v13.8 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1170,6 +1170,117 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const next = storage.getNextLeadForAgent(agentId);
     if (!next) return res.status(204).end();
     res.json(next);
+  });
+
+  // ─── v13.8 POOL-SERVING ENDPOINTS ─────────────────────────────────────────
+  // GET /api/leads/next?type=expired|fsbo|land&agentId=<id>
+  //   Serves the next unclaimed lead FIFO for a given type. Creates a 60-minute
+  //   lock in lead_locks so no other agent gets the same lead. Ignores leads that
+  //   are already locked and not yet expired.
+  //
+  // POST /api/leads/:id/release  { agentId }
+  //   Releases the lock (agent bailed out without an outcome). Anyone can pick it
+  //   up again immediately.
+  //
+  // Callback/round-robin/territory logic is intentionally NOT invoked here —
+  // v13.8 has no assignment. Leads only leave the pool via a terminal outcome.
+
+  app.get("/api/leads/next", (req, res) => {
+    const type = String(req.query.type || "").toLowerCase();
+    const agentId = parseInt(String(req.query.agentId || ""));
+    if (!agentId || isNaN(agentId)) {
+      return res.status(400).json({ error: "Missing agentId" });
+    }
+    if (!type || !["expired", "fsbo", "land"].includes(type)) {
+      return res.status(400).json({ error: "type must be expired|fsbo|land" });
+    }
+
+    // Housekeeping: sweep expired locks before serving so stale leads come back.
+    rawDb.prepare(`DELETE FROM lead_locks WHERE expires_at < datetime('now')`).run();
+
+    // Optional: return the lead this agent already has locked (idempotent Load).
+    const existing: any = rawDb.prepare(`
+      SELECT l.* FROM leads l
+      JOIN lead_locks lk ON lk.lead_id = l.id
+      WHERE lk.agent_id = ? AND l.lead_type = ?
+      LIMIT 1
+    `).get(agentId, type);
+    if (existing) {
+      return res.json({ lead: existing, alreadyLocked: true });
+    }
+
+    // FIFO by uploaded_at ascending, priority-score tiebreak (higher first).
+    // Filter out leads currently locked by another agent.
+    const next: any = rawDb.prepare(`
+      SELECT l.* FROM leads l
+      LEFT JOIN lead_locks lk ON lk.lead_id = l.id
+      WHERE l.lead_type = ?
+        AND l.status = 'unassigned'
+        AND lk.lead_id IS NULL
+      ORDER BY l.score DESC, l.uploaded_at ASC, l.id ASC
+      LIMIT 1
+    `).get(type);
+
+    if (!next) return res.status(204).end();
+
+    // Create a 60-minute lock. Use INSERT OR REPLACE in case a stale row survives.
+    const now = new Date();
+    const expires = new Date(now.getTime() + 60 * 60 * 1000);
+    rawDb.prepare(`
+      INSERT OR REPLACE INTO lead_locks (lead_id, agent_id, locked_at, expires_at)
+      VALUES (?, ?, ?, ?)
+    `).run(next.id, agentId, now.toISOString(), expires.toISOString());
+
+    res.json({ lead: next, alreadyLocked: false, lockExpiresAt: expires.toISOString() });
+  });
+
+  app.post("/api/leads/:id/release", (req, res) => {
+    const leadId = parseInt(req.params.id);
+    const { agentId } = req.body || {};
+    if (!leadId || isNaN(leadId)) return res.status(400).json({ error: "Invalid lead id" });
+    if (!agentId) return res.status(400).json({ error: "Missing agentId" });
+
+    // Only the lock owner can release (prevents griefing).
+    const lock: any = rawDb.prepare(
+      `SELECT agent_id FROM lead_locks WHERE lead_id = ?`
+    ).get(leadId);
+    if (!lock) return res.json({ released: false, reason: "no_lock" });
+    if (lock.agent_id !== agentId) {
+      return res.status(403).json({ error: "lock_owned_by_another_agent" });
+    }
+
+    rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+    res.json({ released: true });
+  });
+
+  // Admin view of active locks (used by MapView + AdminDashboard tomorrow).
+  app.get("/api/leads/locks", (_req, res) => {
+    const rows = rawDb.prepare(`
+      SELECT lk.lead_id, lk.agent_id, lk.locked_at, lk.expires_at,
+             a.name as agent_name, l.owner_name, l.lead_type
+      FROM lead_locks lk
+      JOIN agents a ON a.id = lk.agent_id
+      JOIN leads l  ON l.id = lk.lead_id
+      WHERE lk.expires_at > datetime('now')
+      ORDER BY lk.locked_at DESC
+    `).all();
+    res.json(rows);
+  });
+
+  // Pool counts for the Work Leads landing page (3 buttons need per-type counts).
+  app.get("/api/leads/pool-counts", (_req, res) => {
+    const rows: any[] = rawDb.prepare(`
+      SELECT lead_type, COUNT(*) as n FROM leads
+      WHERE status = 'unassigned' AND id NOT IN (
+        SELECT lead_id FROM lead_locks WHERE expires_at > datetime('now')
+      )
+      GROUP BY lead_type
+    `).all();
+    const counts: Record<string, number> = { expired: 0, fsbo: 0, land: 0 };
+    for (const r of rows) {
+      if (r.lead_type in counts) counts[r.lead_type] = r.n;
+    }
+    res.json(counts);
   });
 
   app.post("/api/leads/upload", (req, res) => {
@@ -3002,7 +3113,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v13.7",
+      version: "v13.8",
       services: results,
     });
   });
@@ -4518,3 +4629,24 @@ function scheduleMissedAppointmentCheck() {
   scheduleNext();
 }
 scheduleMissedAppointmentCheck();
+
+// ─── v13.8 — STALE LOCK RELEASER ─────────────────────────────────────────
+// Every 5 minutes, delete lead_locks rows whose expires_at is in the past.
+// This lets abandoned leads flow back into the pool without agent action.
+// Cheap sweep — one indexed DELETE with a WHERE on expires_at.
+function scheduleStaleLockReleaser() {
+  setInterval(() => {
+    try {
+      const info = rawDb.prepare(
+        `DELETE FROM lead_locks WHERE expires_at < datetime('now')`
+      ).run();
+      if (info.changes && info.changes > 0) {
+        console.log(`[lead-locks] Released ${info.changes} stale lock(s)`);
+      }
+    } catch (err) {
+      console.error("[lead-locks] Sweep error:", err);
+    }
+  }, 5 * 60 * 1000);
+  console.log("[lead-locks] Stale-lock releaser running every 5 min");
+}
+scheduleStaleLockReleaser();

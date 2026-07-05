@@ -383,4 +383,58 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_points_agent_created
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_points_reason
   ON agent_points(reason)`).run();
 
+// ─── v13.8 — Pool-serving model (territories & callbacks removed) ─────────────
+// The 3-playbook model (Expired / FSBO / Land 1AC+) replaces territory routing
+// and pre-assignment. Leads live in shared pools. Agents click Load Leads and
+// get one lead at a time (FIFO), locked to them for 60 minutes.
+//
+// Backwards compatibility: legacy territory/callback/assigned_agent_id columns
+// STAY on the leads table so historical data is preserved. New code no longer
+// reads or writes them. Do not drop columns — SQLite drops are destructive.
+
+// leads: new pool-serving columns
+const leadColsV138 = rawDb.prepare("PRAGMA table_info(leads)").all().map((c: any) => c.name);
+if (!leadColsV138.includes("lot_size_acres"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN lot_size_acres REAL").run();
+if (!leadColsV138.includes("assessed_value"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN assessed_value INTEGER").run();
+if (!leadColsV138.includes("list_price"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN list_price INTEGER").run();
+if (!leadColsV138.includes("year_purchased"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN year_purchased INTEGER").run();
+if (!leadColsV138.includes("county"))               rawDb.prepare("ALTER TABLE leads ADD COLUMN county TEXT").run();
+if (!leadColsV138.includes("lat"))                  rawDb.prepare("ALTER TABLE leads ADD COLUMN lat REAL").run();
+if (!leadColsV138.includes("lng"))                  rawDb.prepare("ALTER TABLE leads ADD COLUMN lng REAL").run();
+
+// lead_locks — 60-minute exclusive lock so two agents don't call the same lead.
+// One row per active lock. Deleted on outcome, or auto-expired via cron.
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS lead_locks (
+    lead_id INTEGER PRIMARY KEY,
+    agent_id INTEGER NOT NULL,
+    locked_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
+  )
+`);
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_lead_locks_agent ON lead_locks(agent_id)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_lead_locks_expires ON lead_locks(expires_at)`).run();
+
+// leads: index on lead_type + status for FIFO pool queries ("next unclaimed")
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_type_status_uploaded
+  ON leads(lead_type, status, uploaded_at)`).run();
+
+// One-shot: any leads still in "callback_requested" status get flipped to "unassigned"
+// so they re-enter the pool. Callbacks are FUB-side now.
+rawDb.prepare(`
+  UPDATE leads SET status = 'unassigned', assigned_agent_id = NULL, callback_date = NULL
+  WHERE status = 'callback_requested'
+`).run();
+
+// One-shot: unassign every currently-assigned lead. v13.8 has no per-agent queue —
+// leads flow through the shared pool. This releases the 291 pre-assigned leads and
+// any others so they hit the new UI cleanly.
+rawDb.prepare(`
+  UPDATE leads SET status = 'unassigned', assigned_agent_id = NULL
+  WHERE status = 'assigned' AND assigned_agent_id IS NOT NULL
+`).run();
+
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
+console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");

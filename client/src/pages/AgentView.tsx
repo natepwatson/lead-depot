@@ -41,10 +41,11 @@ const LPMAMAB_FIELDS = [
 ] as const;
 
 // ─── Outcome configs ───────────────────────────────────────────────────────────
-// v14.0 — 6 outcomes. Callback = immediate recycle to pool (rush-seller / fumble safety net).
+// v14.6 — 6 outcomes in a 3×2 grid. Callback was replaced by Recycle in the same slot
+// (rush-seller / agent-fumble safety net that immediately unassigns the lead back to the pool).
 const OUTCOMES = [
   { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.12)",  border: "rgba(236,72,153,0.4)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.22)" },
-  { key: "callback_requested",      label: "Callback",      icon: Phone,         bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
+  { key: "callback_requested",      label: "Recycle",       icon: RefreshCw,     bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
   { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.12)",   border: "rgba(34,197,94,0.4)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.22)" },
   { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
   { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },
@@ -295,7 +296,7 @@ function CallbackModal({
           Recycle Lead
         </h2>
         <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginTop: 0, marginBottom: 28, lineHeight: 1.5 }}>
-          This lead will be immediately returned to the pool and assigned to the next agent in rotation — just like a fresh lead.
+          This lead will be immediately returned to the shared pool. The next agent who taps Load Next Lead can pick it up — just like a fresh lead.
         </p>
         <button
           onClick={() => onSubmit({ callbackDate: "", callbackTime: "" })}
@@ -930,8 +931,6 @@ function LeadCard({ lead }: { lead: Lead }) {
               </button>
             );
           })}
-          {/* Recycle — 6th cell, completing the 3×2 grid */}
-          <RecycleButton lead={lead} inGrid />
         </div>
       </div>
 

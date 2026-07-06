@@ -151,7 +151,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.5 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.6 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -210,7 +210,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.5 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -259,7 +259,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.5 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -270,6 +270,51 @@ async function checkQueueDepthAlert(rawDb: any) {
 
 // Works in both ESM (tsx dev) and CJS (esbuild production bundle)
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
+
+// v14.6 — Convert a raw snake_case DB row into the camelCase shape the client
+// expects. Used by any endpoint that returns a raw `SELECT * FROM leads` row.
+// Without this the client sees `undefined` for ownerName / leadType / phoneStates
+// and renders "Unknown Owner" plus "No script saved for this lead type."
+function toApiLead(r: any): any {
+  if (!r || typeof r !== "object") return r;
+  return {
+    id: r.id,
+    ownerName: r.owner_name,
+    address: r.address,
+    city: r.city,
+    state: r.state,
+    zip: r.zip,
+    county: r.county,
+    phone: r.phone,
+    phones: r.phones,
+    phoneStates: r.phone_states,
+    email: r.email,
+    leadType: r.lead_type,
+    status: r.status,
+    motivation: r.motivation,
+    extraData: r.extra_data,
+    assignedAgentId: r.assigned_agent_id,
+    attemptCount: r.attempt_count,
+    callbackDate: r.callback_date,
+    lLocation: r.l_location,
+    lPricePaid: r.l_price_paid,
+    lMotivation: r.l_motivation,
+    lAgentHistory: r.l_agent_history,
+    lMortgage: r.l_mortgage,
+    lAppointment: r.l_appointment,
+    lBuy: r.l_buy,
+    uploadedAt: r.uploaded_at,
+    uploadedBy: r.uploaded_by,
+    batchId: r.batch_id,
+    score: r.score,
+    territory: r.territory,
+    source: r.source,
+    listPrice: r.list_price,
+    assessedValue: r.assessed_value,
+    lotSizeAcres: r.lot_size_acres,
+    yearPurchased: r.year_purchased,
+  };
+}
 
 export function registerRoutes(httpServer: ReturnType<typeof createServer>, app: Express) {
 
@@ -1197,7 +1242,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       ORDER BY lk.locked_at DESC
       LIMIT 1
     `).get(agentId);
-    if (alreadyLocked) return res.json(alreadyLocked);
+    if (alreadyLocked) return res.json(toApiLead(alreadyLocked));
 
     // 1. Callbacks due now (agent's own, all counties).
     const today = new Date().toISOString().split("T")[0];
@@ -1209,7 +1254,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       ORDER BY callback_date ASC
       LIMIT 1
     `).get(agentId, today);
-    if (callback) return res.json(callback);
+    if (callback) return res.json(toApiLead(callback));
 
     // Lead-type priority order (v14.4: FSBO and Land removed).
     const TYPE_ORDER = ["expired", "absentee"];
@@ -1263,7 +1308,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       VALUES (?, ?, ?, ?)
     `).run(next.id, agentId, now.toISOString(), expires.toISOString());
 
-    res.json(next);
+    res.json(toApiLead(next));
   });
 
   // ─── v13.8 POOL-SERVING ENDPOINTS ─────────────────────────────────────────
@@ -1300,7 +1345,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       LIMIT 1
     `).get(agentId, type);
     if (existing) {
-      return res.json({ lead: existing, alreadyLocked: true });
+      return res.json({ lead: toApiLead(existing), alreadyLocked: true });
     }
 
     // FIFO by uploaded_at ascending, priority-score tiebreak (higher first).
@@ -1325,7 +1370,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       VALUES (?, ?, ?, ?)
     `).run(next.id, agentId, now.toISOString(), expires.toISOString());
 
-    res.json({ lead: next, alreadyLocked: false, lockExpiresAt: expires.toISOString() });
+    res.json({ lead: toApiLead(next), alreadyLocked: false, lockExpiresAt: expires.toISOString() });
   });
 
   app.post("/api/leads/:id/release", (req, res) => {
@@ -3277,7 +3322,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.5",
+      version: "v14.6",
       services: results,
     });
   });

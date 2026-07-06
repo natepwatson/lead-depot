@@ -1,13 +1,19 @@
 // v14.3 — Manual CSV/XLSX import from BatchLeads UI export.
+// v14.5 — Also handles LandVoice CSV exports (auto-detected by column headers).
 // Bypasses the broken /property API by letting admins upload the file
-// downloaded from BatchLeads → Export to Excel.
+// downloaded from BatchLeads → Export to Excel or LandVoice CSV download.
 //
-// Expected columns (BatchLeads xlsx export, "SELECT ALL" preset):
+// BatchLeads columns (xlsx export, "SELECT ALL" preset):
 //   First Name, Last Name, Property Address, Property City, Property State,
 //   Property Zip, Property County, Email, Estimated Value, Last Sale Price,
 //   Year Built, Bedroom Count, Bathroom Count, Total Building Area Square Feet,
 //   Lot Size Square Feet, Mls Status, Mls Listing Amount, Mls Listing Date,
 //   Batchrank Score Category, Phone 1..5, Phone 1..5 DNC, Phone 1..5 TYPE, List
+//
+// LandVoice columns (CSV, listing/expired export):
+//   Address, City, State, Zip, First Name, Last Name, Primary Phone,
+//   Secondary Phone, Email, Price, Beds, Baths, Square Footage, Parcel Number,
+//   Lot Size, LandvoiceContact1..4FirstName/LastName/Phone/DNC, LandvoiceOwnerEmail
 
 import * as XLSX from "xlsx";
 
@@ -71,10 +77,110 @@ function scoreCategoryToNumber(cat: any): number {
   return 50;
 }
 
+// Zip → County map for NE FL (Nassau/Duval/St. Johns). Used for LandVoice which
+// doesn't include a county column. Any zip not listed falls back to Duval
+// (dominant county for LandVoice Duval-focused pulls).
+const NEFL_ZIP_TO_COUNTY: Record<string, string> = {};
+// Nassau county zips
+for (const z of ["32009", "32011", "32034", "32035", "32041", "32046", "32097"]) NEFL_ZIP_TO_COUNTY[z] = "Nassau";
+// St. Johns county zips
+for (const z of ["32080", "32081", "32082", "32084", "32085", "32086", "32092", "32095", "32137", "32145", "32259"]) NEFL_ZIP_TO_COUNTY[z] = "St. Johns";
+// Duval county zips (Jacksonville metro)
+for (const z of ["32099", "32202", "32203", "32204", "32205", "32206", "32207", "32208", "32209", "32210", "32211", "32212", "32214", "32216", "32217", "32218", "32219", "32220", "32221", "32222", "32223", "32224", "32225", "32226", "32227", "32228", "32233", "32234", "32244", "32246", "32250", "32254", "32256", "32257", "32258", "32266", "32277"]) NEFL_ZIP_TO_COUNTY[z] = "Duval";
+
+function inferCountyFromZip(zip: string): string | null {
+  const z = zip.trim().slice(0, 5);
+  return NEFL_ZIP_TO_COUNTY[z] || null;
+}
+
+// Detect which format we're looking at by examining the header row keys.
+function detectFormat(sampleRow: any): "batchleads" | "landvoice" | "unknown" {
+  if (!sampleRow || typeof sampleRow !== "object") return "unknown";
+  const keys = Object.keys(sampleRow);
+  if (keys.some(k => k.startsWith("Landvoice"))) return "landvoice";
+  if (keys.includes("Batchrank Score Category") || keys.includes("Property Address")) return "batchleads";
+  return "unknown";
+}
+
+function parseLandVoiceRow(r: any): ImportRow | null {
+  // Collect phones: Primary, Secondary, then Landvoice Contact 1..4 (each has DNC).
+  const allPhones: string[] = [];
+  const phoneStates: Record<string, string> = {};
+  const addPhone = (raw: any) => {
+    const p = normalizePhone(raw);
+    if (p && !allPhones.includes(p)) {
+      allPhones.push(p);
+      phoneStates[p] = "untried";
+    }
+  };
+  addPhone(r["Primary Phone"]);
+  addPhone(r["Secondary Phone"]);
+  for (let i = 1; i <= 4; i++) addPhone(r[`LandvoiceContact${i}Phone`]);
+
+  const primary = allPhones[0] || "";
+  if (!primary) return null;
+
+  const firstName = String(r["First Name"] || r["LandvoiceOwnerFirstName"] || "").trim();
+  const lastName = String(r["Last Name"] || r["LandvoiceOwnerLastName"] || "").trim();
+  const ownerName = [firstName, lastName].filter(Boolean).join(" ").trim() || "Unknown";
+
+  const address = String(r["Address"] || r["Property Address"] || "").trim();
+  if (!address) return null;
+
+  // LandVoice has two "City" columns (property + owner mailing). sheet_to_json will
+  // dedupe to a single key; we use whichever survives, then fall back to Duval-area default.
+  const city = String(r["City"] || r["Property City"] || "").trim();
+  const state = String(r["State"] || "FL").trim();
+  const zip = String(r["Zip"] || r["Postal Code"] || "").split("-")[0].trim();
+  const county = inferCountyFromZip(zip);
+
+  const email = String(r["Email"] || r["LandvoiceOwnerEmail"] || "").trim();
+  const listPrice = toNum(r["Price"]);
+  // LandVoice doesn't give assessed value, use list price as a placeholder.
+  const assessedValue = null;
+  const lotSizeAcres = toNum(r["Lot Size"]);
+
+  return {
+    ownerName,
+    address,
+    city,
+    state,
+    zip,
+    county,
+    email,
+    phone: primary,
+    allPhones,
+    phoneStates,
+    leadType: "expired",  // LandVoice = expired only
+    score: 70,             // reasonable default (BatchLeads Medium/High range)
+    listPrice,
+    assessedValue,
+    lotSizeAcres,
+    yearPurchased: null,
+  };
+}
+
 export function parseBatchLeadsFile(buffer: Buffer): ImportRow[] {
   const wb = XLSX.read(buffer, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+  if (rows.length === 0) return [];
+
+  const format = detectFormat(rows[0]);
+  console.log(`[Import] Detected format: ${format} (${rows.length} rows)`);
+
+  if (format === "landvoice") {
+    const out: ImportRow[] = [];
+    for (const r of rows) {
+      const row = parseLandVoiceRow(r);
+      if (row) out.push(row);
+    }
+    return out;
+  }
+
+  // Fall through to BatchLeads path below.
+  // (Original BatchLeads loop follows.)
 
   const out: ImportRow[] = [];
 

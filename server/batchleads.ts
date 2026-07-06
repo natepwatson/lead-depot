@@ -15,19 +15,14 @@ import { rawDb } from "./db";
 const BATCHLEADS_API_KEY = process.env.BATCHLEADS_API_KEY || "";
 const BATCHLEADS_BASE = "https://app.batchleads.io/api/v1";
 
-// v13.8.5 — Frugal-mode ingest caps to stay within Growth plan (10k leads/mo).
-// Per lead type per county cap. Total budget: 10,000 raw pulls/mo across 4 counties.
-// Priority order: Expired >> Absentee >> Land ≈ FSBO
-//   Expired  × 4 counties × 1500 = 6,000  (60% — 44% list rate, 20% sold, urgent motivation)
-//   Absentee × 4 counties ×  800 = 3,200  (32% — slow drip, 14% list rate, 6-18mo LTV)
-//   Land     × 4 counties ×  100 =   400  (4%  — niche, low competition token pull)
-//   FSBO     × 4 counties ×  100 =   400  (4%  — shrinking pool, 5% of market)
-//   Total = 10,000 (full budget)
+// v14.1 — Two-flow model: Expired + Absentee only (FSBO and Land removed).
+// Per lead type per county cap. Priority: Expired >> Absentee.
+//   Expired  × 3 counties × 1500 = 4,500  (Nassau/Duval/St. Johns — 44% list rate, urgent)
+//   Absentee × 3 counties ×  800 = 2,400  (slow drip, 14% list rate, 6-18mo LTV)
+//   Total = 6,900 raw pulls/mo
 const INGEST_CAPS: Record<string, number> = {
   expired:  1500,
   absentee:  800,
-  land:      100,
-  fsbo:      100,
 };
 export function getIngestCap(leadType: string): number {
   return INGEST_CAPS[leadType] ?? 500;
@@ -224,20 +219,7 @@ export function scoreBatchLead(raw: BatchRawLead): ScoredBatchLead {
     if ((raw.priceReductions || 0) >= 2) { score += 3; breakdown.push("+3 price reduced 2+ times"); }
   }
 
-  // ── FSBO-specific
-  if (raw.leadType === "fsbo") {
-    if (raw.isFsbo) { score += 3; breakdown.push("+3 FSBO confirmed"); }
-    const dom = raw.daysOnMarket || 0;
-    if (dom >= 60) { score += 2; breakdown.push("+2 FSBO 60+ days on market"); }
-  }
-
-  // ── Land-specific (1AC+, $75K+ value, 5+ yr ownership)
-  if (raw.leadType === "land") {
-    const acres = raw.lotSizeAcres || 0;
-    if (acres >= 10)      { score += 4; breakdown.push(`+4 land ${acres.toFixed(1)} acres (large)`); }
-    else if (acres >= 5)  { score += 2; breakdown.push(`+2 land ${acres.toFixed(1)} acres`); }
-    else if (acres >= 1)  { score += 1; breakdown.push(`+1 land ${acres.toFixed(1)} acres`); }
-  }
+  // v14.1 — FSBO and Land removed. Expired + Absentee flows only.
 
   // v13.8.3 — Absentee owner (wealth-mindset investor lead)
   if (raw.leadType === "absentee") {
@@ -396,8 +378,8 @@ export function filterBatchLead(
     return { pass: false, reason: `zip_out_of_footprint (${raw.zip})` };
   }
 
-  // 13. v13.8 — Expired & FSBO: $500K minimum list price
-  if ((raw.leadType === "expired" || raw.leadType === "fsbo")) {
+  // 13. v14.1 — Expired: $500K minimum list price
+  if (raw.leadType === "expired") {
     const lp = raw.listPrice || 0;
     if (lp < 500000) {
       return { pass: false, reason: `list_price_under_500k ($${lp})` };
@@ -435,25 +417,9 @@ export function filterBatchLead(
     }
   }
 
-  // 14. v13.8 — Land: 1AC+, $75K+ assessed value, owned 5+ years, vacant land
-  if (raw.leadType === "land") {
-    const acres = raw.lotSizeAcres || 0;
-    if (acres < 1) {
-      return { pass: false, reason: `land_under_1_acre (${acres})` };
-    }
-    const value = raw.assessedValue || raw.estimatedValue || 0;
-    if (value < 75000) {
-      return { pass: false, reason: `land_value_under_75k ($${value})` };
-    }
-    const yp = raw.yearPurchased || 0;
-    const currentYear = new Date().getFullYear();
-    if (yp === 0 || (currentYear - yp) < 5) {
-      return { pass: false, reason: `land_owned_under_5_years (bought ${yp || "unknown"})` };
-    }
-    // Vacant land type only
-    if (raw.propertyType && !/vacant|land|lot/i.test(raw.propertyType)) {
-      return { pass: false, reason: `land_not_vacant (${raw.propertyType})` };
-    }
+  // v14.1 — Land filter removed. Reject any land/FSBO leads that slip through.
+  if (raw.leadType === "land" || raw.leadType === "fsbo") {
+    return { pass: false, reason: `disabled_lead_type (${raw.leadType})` };
   }
 
   return { pass: true };
@@ -503,19 +469,17 @@ interface BatchLeadsProperty {
   }[];
 }
 
-// v13.8.1 — map BatchLeads list names to our 3 internal lead types by PREFIX.
+// v14.1 — map BatchLeads list names to our 2 active lead types by PREFIX.
 // Alex builds one list per county (e.g. "Lead Depot - Expired - Duval"), so we
 // match the type by the leading segment and ignore the county suffix.
 // Naming convention (case-insensitive):
 //   Lead Depot - Expired[ - <County>]
-//   Lead Depot - FSBO[ - <County>]
-//   Lead Depot - Land[ - <County>]
-function listNameToLeadType(name: string): string | null {
+//   Lead Depot - Absentee[ - <County>]
+function listNameToLeadType(name: string | null | undefined): string | null {
+  if (!name || typeof name !== "string") return null;
   const n = name.trim().toLowerCase();
   if (!n.startsWith("lead depot -")) return null;
   if (/\blead depot\s*-\s*expired\b/.test(n))  return "expired";
-  if (/\blead depot\s*-\s*fsbo\b/.test(n))     return "fsbo";
-  if (/\blead depot\s*-\s*land\b/.test(n))     return "land";
   if (/\blead depot\s*-\s*absentee\b/.test(n)) return "absentee";
   return null;
 }
@@ -694,7 +658,7 @@ export async function fetchBatchLeadsForPipeline(
 
   if (matchedLists.length === 0) {
     console.warn("[BatchLeads] No matching Lead Depot lists found. Create lists named:");
-    console.warn("  Expected naming: 'Lead Depot - Expired - <County>', 'Lead Depot - FSBO - <County>', 'Lead Depot - Land - <County>'");
+    console.warn("  Expected naming: 'Lead Depot - Expired - <County>', 'Lead Depot - Absentee - <County>'");
     return [];
   }
 

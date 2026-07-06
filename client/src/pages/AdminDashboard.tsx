@@ -1012,6 +1012,33 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     }
   };
   const [busyGetLeads, setBusyGetLeads] = useState<null | "seller" | "recruiting">(null);
+  const [busyCsvImport, setBusyCsvImport] = useState(false);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const runCsvImport = async (file: File) => {
+    setBusyCsvImport(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const agentId = (window as any).localStorage?.getItem("agentId") || "1";
+      const r = await fetch("/api/admin/import-batchleads-csv", {
+        method: "POST", body: fd, headers: { "x-agent-id": agentId },
+      });
+      const j = await r.json();
+      if (r.ok && j.ok) {
+        const byC = Object.entries(j.byCounty || {}).map(([k,v]) => `${k}: ${v}`).join(", ");
+        const byT = Object.entries(j.byType || {}).map(([k,v]) => `${k}: ${v}`).join(", ");
+        toast({ title: `Imported ${j.inserted} leads`, description: `${j.assigned} assigned. By type: ${byT}. Counties: ${byC}. ${j.skippedDuplicate} duplicates skipped.` });
+        qc.invalidateQueries();
+      } else {
+        toast({ title: "Import failed", description: j.error || r.statusText, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Import failed", description: err?.message || String(err), variant: "destructive" });
+    } finally {
+      setBusyCsvImport(false);
+      if (csvInputRef.current) csvInputRef.current.value = "";
+    }
+  };
   const runGetLeadsNow = async (which: "seller" | "recruiting") => {
     setBusyGetLeads(which);
     try {
@@ -1423,7 +1450,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.2
+              v14.3
             </p>
           </div>
         </div>
@@ -1536,6 +1563,23 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)", color: "#080808",
                 }}
               >{busyGetLeads === "seller" ? "Running…" : "⚡ Get Leads Now"}</button>
+              <input
+                ref={csvInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                style={{ display: "none" }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) runCsvImport(f); }}
+              />
+              <button
+                onClick={() => csvInputRef.current?.click()}
+                disabled={busyCsvImport}
+                style={{
+                  fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+                  padding: "7px 14px", borderRadius: 6, border: "1px solid rgba(200,170,90,0.4)",
+                  cursor: busyCsvImport ? "wait" : "pointer",
+                  background: "rgba(200,170,90,0.08)", color: "#c8aa5a",
+                }}
+              >{busyCsvImport ? "Importing…" : "⇧ Import BatchLeads CSV"}</button>
               <button
                 onClick={reactivateRetiredLeads}
                 disabled={busyReactivate}

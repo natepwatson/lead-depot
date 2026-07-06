@@ -8,6 +8,8 @@ import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit } from "./fub";
 import { runBatchLeadsPipeline } from "./batchleads";
+import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
+import multer from "multer";
 import { runDbprPipeline } from "./dbpr-pipeline";
 import { getTerritoryForZip, TERRITORIES as TERRITORY_META } from "./territories";
 import fs from "node:fs";
@@ -149,7 +151,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.2 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.3 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -208,7 +210,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.2 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.3 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -257,7 +259,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.2 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.3 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1168,7 +1170,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ lead: next || null, totalActive: total });
   });
 
-  // ─── AGENT: NEXT LEAD (v14.2 — home-county-first, cross-county overflow) ─────
+  // ─── AGENT: NEXT LEAD (v14.3 — home-county-first, cross-county overflow) ─────
   // Priority order:
   //   1. Callbacks due now (agent's own, any county)
   //   2. Home-county unassigned pool: expired → absentee
@@ -1209,7 +1211,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     `).get(agentId, today);
     if (callback) return res.json(callback);
 
-    // Lead-type priority order (v14.2: FSBO and Land removed).
+    // Lead-type priority order (v14.3: FSBO and Land removed).
     const TYPE_ORDER = ["expired", "absentee"];
 
     // Helper: pull next unassigned+unlocked lead matching WHERE. Sorted score DESC.
@@ -3275,7 +3277,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.2",
+      version: "v14.3",
       services: results,
     });
   });
@@ -3841,6 +3843,58 @@ This template is for informational/outreach purposes only.`;
     }
   });
 
+
+  // ─── BATCHLEADS CSV/XLSX IMPORT (v14.3) ────────────────────────────────────
+  // Manual upload path for BatchLeads UI exports. Bypasses the /property API.
+  // Admin uploads the .xlsx from BatchLeads → Export to Excel; we parse, dedup,
+  // insert, and round-robin assign.
+  const uploadMem = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+  app.post("/api/admin/import-batchleads-csv", uploadMem.single("file"), async (req: any, res: any) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      console.log(`[BatchLeads CSV] Received ${req.file.originalname} (${req.file.size} bytes)`);
+
+      const rows = parseBatchLeadsFile(req.file.buffer);
+      console.log(`[BatchLeads CSV] Parsed ${rows.length} valid rows`);
+
+      const stats = insertImportedLeads(rawDb, rows);
+
+      // Round-robin assign the newly-inserted leads
+      const newLeads = rawDb.prepare(
+        `SELECT * FROM leads WHERE status = 'unassigned' AND source = 'batchleads_csv' AND uploaded_at > datetime('now', '-2 minutes')`
+      ).all() as any[];
+
+      let assigned = 0;
+      for (const lead of newLeads) {
+        try {
+          const nextAgent = storage.getNextAgentInRotation(lead.lead_type, lead.territory || null);
+          if (nextAgent) {
+            storage.updateLead(lead.id, { status: "assigned", assignedAgentId: nextAgent.id });
+            storage.updateRoundRobinState(nextAgent.id);
+            assigned++;
+          }
+        } catch (e) {
+          // skip — stale-lead cron will redistribute
+        }
+      }
+
+      res.json({
+        ok: true,
+        filename: req.file.originalname,
+        rowsInFile: rows.length,
+        inserted: stats.inserted,
+        skippedDuplicate: stats.skippedDuplicate,
+        byType: stats.byType,
+        byCounty: stats.byCounty,
+        assigned,
+        message: `Imported ${stats.inserted} leads (${stats.skippedDuplicate} duplicates skipped). ${assigned} assigned via round-robin.`,
+      });
+    } catch (err: any) {
+      console.error("[BatchLeads CSV] Import error:", err);
+      res.status(500).json({ error: err.message, stack: err.stack });
+    }
+  });
 
     // ── AGENT LEADS: MANUAL QUICK-ADD (admin) ──────────────────────────
   // ─── DBPR AGENT SCRAPER PIPELINE TRIGGER ────────────────────────────────────

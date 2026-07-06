@@ -501,9 +501,9 @@ async function fetchBatchLeadsPage(
     body: JSON.stringify({
       list_ids: listIds,
       page,
-      pagesize,
+      per_page: pagesize,
       sort_by: sortBy,
-      sort_order: sortOrder,
+      sort_type: sortOrder,
     }),
   });
 

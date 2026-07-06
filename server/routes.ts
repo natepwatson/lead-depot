@@ -151,7 +151,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.6 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.7 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -210,7 +210,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.6 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.7 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -259,7 +259,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.6 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.7 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -3322,7 +3322,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.6",
+      version: "v14.7",
       services: results,
     });
   });
@@ -3856,25 +3856,9 @@ This template is for informational/outreach purposes only.`;
       console.log("[BatchLeads] Manual/cron trigger received");
       const stats = await runBatchLeadsPipeline(rawDb);
 
-      // After insert, trigger round-robin distribution for new unassigned leads.
-      // NOTE: leads table has uploaded_at (not created_at) — historical column name.
-      const newLeads = rawDb.prepare(
-        `SELECT * FROM leads WHERE status = 'unassigned' AND source = 'batchleads' AND uploaded_at > datetime('now', '-1 hour')`
-      ).all() as any[];
-
-      let assigned = 0;
-      for (const lead of newLeads) {
-        try {
-          const nextAgent = storage.getNextAgentInRotation(lead.lead_type, lead.territory || null);
-          if (nextAgent) {
-            storage.updateLead(lead.id, { status: "assigned", assignedAgentId: nextAgent.id });
-            storage.updateRoundRobinState(nextAgent.id);
-            assigned++;
-          }
-        } catch (e) {
-          // skip — will be redistributed by stale lead cron
-        }
-      }
+      // v14.7 — PULL MODE: new BatchLeads stay in the shared pool.
+      // Agents pull via Load Next Lead. No round-robin push.
+      const assigned = 0;
 
       res.json({
         ok: true,
@@ -4120,18 +4104,8 @@ This template is for informational/outreach purposes only.`;
       });
       flipMany(retired);
 
-      // 3) Round-robin assign — use the same rotation logic as new-lead ingestion.
-      //    Fetches next agent per lead based on leadType + territory, honors
-      //    territory1/territory2, dial-gates, and admin receiveLeads flag.
-      let assigned = 0;
-      for (const r of retired) {
-        const nextAgent = storage.getNextAgentInRotation(r.leadType, r.territory);
-        if (nextAgent) {
-          storage.updateLead(r.id, { assignedAgentId: nextAgent.id, status: "assigned" });
-          storage.updateRoundRobinState(nextAgent.id);
-          assigned++;
-        }
-      }
+      // v14.7 — PULL MODE: reactivated leads stay in the shared pool.
+      const assigned = 0;
 
       console.log(`[Reactivate Retired] Reactivated ${retired.length} leads, assigned ${assigned} to agents.`);
       res.json({ ok: true, reactivated: retired.length, assigned });
@@ -4642,13 +4616,10 @@ function scheduleRedistribution() {
   scheduleNext();
 }
 
-// Run immediately on startup to clear any leads that accumulated overnight / on redeploy
-redistributeUnassignedLeads().catch((err) =>
-  console.error("[redistribution] Startup error:", err)
-);
-
-// Schedule daily 8am EDT run
-scheduleRedistribution();
+// v14.7 — PULL MODE ONLY. Auto-redistribution disabled.
+// Agents pull from the shared pool via /api/leads/my-next. No round-robin push.
+// (Startup redistribution + daily 8 AM redistribution both removed.)
+console.log("[redistribution] Auto-redistribution DISABLED (v14.7 pull mode).");
 
 // ─── WEEKLY RECRUITING FUNNEL EMAIL ──────────────────────────────────────────
 // Sends every Sunday at 7am EDT (11:00 UTC)

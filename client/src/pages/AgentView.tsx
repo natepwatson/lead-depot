@@ -2091,11 +2091,9 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
                     <h2 style={{
                       fontFamily: "'Cormorant Garamond','Georgia',serif",
                       fontSize: "2rem", fontWeight: 300, color: "#fff", marginBottom: 12,
-                    }}>{onBackToAdmin ? "No Leads Assigned" : "Queue Complete"}</h2>
+                    }}>Pool Ready</h2>
                     <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", lineHeight: 1.65 }}>
-                      {onBackToAdmin
-                        ? "Your admin account has no leads assigned to it as an agent. Leads are distributed to your agent team."
-                        : "You've worked through all your assigned leads. Check back soon for new assignments."}
+                      Tap Load Next Lead to grab the next lead from the shared pool.
                     </p>
                     {onBackToAdmin && (
                       <button onClick={onBackToAdmin} style={{

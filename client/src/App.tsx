@@ -37,15 +37,9 @@ function AppRoutes() {
       />
     );
   }
-  if (isAgent && !user.headshotUrl) {
-    return (
-      <HeadshotGate
-        userId={user.id}
-        userName={user.name}
-        onComplete={(url) => setHeadshot(url)}
-      />
-    );
-  }
+  // v14.7 — Headshot no longer blocks. Agents can work immediately;
+  // headshot upload is available from the Profile tab.
+  // (HeadshotGate kept in imports for future opt-in nag, but not rendered.)
 
   // v12.5 — Recruiting Depot is admin-only. Non-admin at #/recruiting → redirect.
   const onRecruiting = location.startsWith("/recruiting");

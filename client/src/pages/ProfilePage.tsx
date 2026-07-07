@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -52,6 +53,7 @@ interface AgentProfile {
 export default function ProfilePage({ onBack }: { onBack: () => void }) {
   const { user, logout, setHomeCounty } = useAuth();
   const { toast } = useToast();
+  const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Profile fields — initialised from user context (extended data fetched below)
@@ -369,7 +371,13 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
                       const res = await apiRequest("PATCH", `/api/agents/${user?.id}/home-county`, { homeCounty: county });
                       if (!res.ok) throw new Error("failed");
                       setHomeCounty(county);
-                      toast({ title: `Home county set to ${county}` });
+                      // v14.13 — Bug A fix: invalidate lead queries so the agent's next-lead
+                      // pull and pipeline reflect the new territory immediately (no manual refresh).
+                      qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+                      qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
+                      qc.invalidateQueries({ queryKey: ["/api/leads/my-pipeline", user?.id] });
+                      qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
+                      toast({ title: `Home county set to ${county}`, description: "Your lead queue has been refreshed." });
                     } catch {
                       setProfile(p => ({ ...p, homeCounty: prev }));
                       toast({ title: "Could not update home county", variant: "destructive" });

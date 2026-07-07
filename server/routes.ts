@@ -151,7 +151,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.12 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.13 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -210,7 +210,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.12 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.13 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -259,7 +259,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.12 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.13 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1034,14 +1034,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       batchId: `ms_${leadSourceId || Date.now()}`,
     }]);
 
-    if (agentCount > 0) {
-      const nextAgent = storage.getNextAgentInRotation("website_lead");
-      if (nextAgent) {
-        storage.updateLead(created.id, { assignedAgentId: nextAgent.id, status: "assigned" });
-        storage.updateRoundRobinState(nextAgent.id);
-      }
-      // If no website_lead-eligible agent found, lead stays unassigned (correct)
-    }
+    // v14.13 — PULL MODE: no round-robin auto-assign. Lead stays in pool;
+    // agents pull via /api/leads/my-next which respects home-county.
 
     res.json({ created: true, leadId: created.id, ownerName, address: fullAddress });
   });
@@ -1530,7 +1524,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           email,
           motivation,
           extraData: JSON.stringify(row),
-          status: agentCount > 0 ? "assigned" : "unassigned",
+          status: "unassigned",
           assignedAgentId: null,
           attemptCount: 0,
           uploadedAt: now,
@@ -1544,16 +1538,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       })
     );
 
-    // Auto assign via territory-aware round robin if agents exist
-    if (agentCount > 0) {
-      for (const lead of created) {
-        const nextAgent = storage.getNextAgentInRotation(leadType, (lead as any).territory || null);
-        if (nextAgent) {
-          storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
-          storage.updateRoundRobinState(nextAgent.id);
-        }
-      }
-    }
+    // v14.13 — PULL MODE: no round-robin push. CSV-uploaded leads land in
+    // the pool; agents pull via /api/leads/my-next which respects home-county.
 
     broadcast({ type: "activity_event", event: { type: "csv_uploaded", agentId: uploadedBy || null, agentName: "Admin", count: created.length, leadType, ts: new Date().toISOString() } });
     res.json({ created: created.length, disqualified, batchId });
@@ -3090,7 +3076,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.12 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.13 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -3336,7 +3322,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.12",
+      version: "v14.13",
       services: results,
     });
   });

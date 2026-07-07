@@ -151,7 +151,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.11 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.12 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -210,7 +210,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.11 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.12 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -259,7 +259,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.11 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.12 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1623,9 +1623,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const deadOutcomes = ["contacted_not_interested", "contacted_appointment"];
 
     if (deadOutcomes.includes(outcome)) {
-      // v14.10 — closed leads unassign from the agent so "My Leads" pipeline stays accurate.
+      // v14.12 — Appointments stay owned by the closer so they surface in the
+      // agent's "My Leads" pipeline. Not Interested still unassigns (dead lead, no pipeline entry).
       newStatus = outcome;
-      newAssignedId = null;
+      newAssignedId = outcome === "contacted_appointment" ? agentId : null;
 
     } else if (outcome === "recycled") {
       // v14.10 — mirror the /recycle endpoint: pool-only, no push, no counter increment here
@@ -1655,10 +1656,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
 
     } else if (outcome === "keep_in_touch") {
-      // KIT = connected, not ready now. FUB owns the long-term follow-up from here.
-      // Lead exits the active Lead Depot queue — same as Appointment.
+      // v14.12 — KIT stays owned by the closer so it appears in "My Leads" pipeline
+      // (60-day rolling window). FUB still owns the long-term nurture, but the closer
+      // needs to see it in Lead Depot until it drops out of the window.
       newStatus = "keep_in_touch";
-      newAssignedId = null; // unassign from agent — FUB takes over follow-up
+      newAssignedId = agentId;
 
     } else if (outcome === "callback_requested") {
       // Schedule callback — keep with same agent, store the requested date/time.
@@ -3088,7 +3090,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v11.77 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.12 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -3334,7 +3336,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.11",
+      version: "v14.12",
       services: results,
     });
   });

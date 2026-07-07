@@ -151,7 +151,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.9 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.10 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -210,7 +210,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.9 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.10 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -259,7 +259,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.9 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.10 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -317,6 +317,25 @@ function toApiLead(r: any): any {
 }
 
 export function registerRoutes(httpServer: ReturnType<typeof createServer>, app: Express) {
+
+  // ─── v14.10 — RETIRE-ON-DEPLOY SWEEP (one-time, runs on every boot) ──────
+  // Any active lead with attemptCount >= 6 flips to status='retired'. Applies
+  // the new 6-attempt cap retroactively so old high-attempt leads leave the pool.
+  // Idempotent: on subsequent boots there's nothing left to retire.
+  try {
+    const RETIRE_CAP = 6;
+    const result = rawDb.prepare(`
+      UPDATE leads
+         SET status = 'retired'
+       WHERE attempt_count >= ?
+         AND status NOT IN ('retired', 'contacted_appointment', 'contacted_not_interested', 'keep_in_touch', 'wrong_number')
+    `).run(RETIRE_CAP);
+    if (result.changes > 0) {
+      console.log(`[v14.10 retire-sweep] Retired ${result.changes} leads with attemptCount >= ${RETIRE_CAP}`);
+    }
+  } catch (err) {
+    console.error("[v14.10 retire-sweep] Failed:", err);
+  }
 
   // ─── AUTH ──────────────────────────────────────────────────────────────────
   // ─── SAFEGUARDS: MIDDLEWARE (v11.70) ──────────────────────────────────────
@@ -1575,9 +1594,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
             apptEmail, confirmedAddress, apptDate, apptTime, stage, intention } = req.body;
 
     // Whitelist valid outcomes — prevents garbage data from getting into the activity log
+    // v14.10 — added `recycled` so client can route Recycle through /outcome if needed;
+    // primary Recycle endpoint remains /api/leads/:id/recycle.
     const VALID_OUTCOMES = [
       "no_answer", "contacted_appointment", "keep_in_touch", "callback_requested",
       "contacted_not_interested", "wrong_number", "email_sent", "network_referral",
+      "recycled",
     ];
     if (!outcome || !VALID_OUTCOMES.includes(outcome)) {
       return res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_OUTCOMES.join(", ")}` });
@@ -1601,7 +1623,15 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const deadOutcomes = ["contacted_not_interested", "contacted_appointment"];
 
     if (deadOutcomes.includes(outcome)) {
+      // v14.10 — closed leads unassign from the agent so "My Leads" pipeline stays accurate.
       newStatus = outcome;
+      newAssignedId = null;
+
+    } else if (outcome === "recycled") {
+      // v14.10 — mirror the /recycle endpoint: pool-only, no push, no counter increment here
+      // (the standalone /recycle endpoint already handles activity + attemptCount).
+      newStatus = "unassigned";
+      newAssignedId = null;
 
     } else if (outcome === "no_answer") {
       // Mark the current phone as sleeping for today
@@ -1618,13 +1648,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         newPhones = [nextPhone, ...newPhones.filter(p => p !== nextPhone)];
         rawDb.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(nextPhone, leadId);
       } else {
-        // All numbers tried today — recycle to pool for tomorrow
+        // v14.10 — PULL MODE: all numbers tried today, return to shared pool.
+        // Next agent to tap Load Next Lead picks it up. No round-robin push.
         newStatus = "no_answer";
-        const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-        if (nextAgent) {
-          newAssignedId = nextAgent.id;
-          storage.updateRoundRobinState(nextAgent.id);
-        }
+        newAssignedId = null;
       }
 
     } else if (outcome === "keep_in_touch") {
@@ -1674,32 +1701,25 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         new Date().toISOString());
 
       if (remaining.length === 0) {
-        // All numbers confirmed bad — award points first, then delete lead + its history
+        // All numbers confirmed bad — award points first, then clear FK-referencing rows
+        // v14.10 — fix FK crash: also delete lead_locks row (previously only lead_activity was cleared)
         awardPoints(agentId, "wrong_number", leadId);
         rawDb.prepare(`DELETE FROM lead_activity WHERE lead_id = ?`).run(leadId);
+        rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
         storage.deleteLead(leadId);
         broadcast({ type: "lead_deleted", leadId });
         return res.json({ deleted: true, leadId, reason: "all_numbers_struck" });
       }
 
-      // Still has viable numbers — advance to next untried, recycle in pool
+      // v14.10 — PULL MODE: strike the number, keep viable numbers, return to shared pool.
       const nextViable = remaining.find(p => phoneStates[p] === "untried") ?? remaining[0];
       const reorderedPhones = [nextViable, ...phones.filter(p => p !== nextViable)];
-      // Update phone fields only — agent assignment handled exclusively by round-robin below
-      rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, status = 'no_answer' WHERE id = ?`).run(
+      rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, status = 'unassigned', assigned_agent_id = NULL WHERE id = ?`).run(
         nextViable,
         JSON.stringify(reorderedPhones),
         JSON.stringify(phoneStates),
         leadId
       );
-      // Round-robin assign to next eligible agent
-      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-      if (nextAgent) {
-        storage.updateLead(leadId, { assignedAgentId: nextAgent.id });
-        storage.updateRoundRobinState(nextAgent.id);
-      } else {
-        storage.updateLead(leadId, { assignedAgentId: null, status: "unassigned" });
-      }
       awardPoints(agentId, "wrong_number", leadId);
       broadcast({ type: "activity_event", event: { type: "wrong_number", agentId, leadId, agentName: storage.getAgentById(agentId)?.name || "Agent", address: lead.address } });
       broadcast({ type: "lead_updated", leadId });
@@ -3314,7 +3334,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.9",
+      version: "v14.10",
       services: results,
     });
   });

@@ -517,7 +517,7 @@ function LeadCard({ lead }: { lead: Lead }) {
   const outcomeMutation = useMutation({
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string }) =>
       apiRequest("POST", `/api/leads/${lead.id}/outcome`, { ...data, agentId: user?.id, lpmamab: lpmData }).then(r => r.json()),
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
       // Show success flash for 900ms, then load next lead
       const flash = OUTCOME_FLASH[variables.outcome] ?? { label: "Outcome Logged", color: "#c8aa5a" };
       setOutcomeFlash(flash);
@@ -525,6 +525,55 @@ function LeadCard({ lead }: { lead: Lead }) {
       if (variables.outcome === "contacted_appointment") {
         setShowConfetti(true);
       }
+
+      // v14.11 — Advance toast: make the phone advance visible.
+      // No Answer: if untried lines remain, server keeps same lead + advances active phone.
+      // If all tried, lead returns to pool — next lead loads.
+      // Wrong #: server always returns lead to pool (unless all struck → deleted).
+      if (variables.outcome === "no_answer" || variables.outcome === "wrong_number") {
+        const total = allPhones.length;
+        const dialed = variables.dialedPhone || activePhone;
+        const currentIdx = allPhones.findIndex(p => p === dialed);
+        const currentLineNum = currentIdx >= 0 ? currentIdx + 1 : 1;
+
+        // Compute remaining untried after this outcome
+        const projectedStates = { ...phoneStates };
+        if (variables.outcome === "no_answer" && dialed) projectedStates[dialed] = "no_answer_today";
+        if (variables.outcome === "wrong_number" && dialed) projectedStates[dialed] = "struck";
+        const untriedRemaining = allPhones.filter(p => (projectedStates[p] || "untried") === "untried");
+
+        if (variables.outcome === "no_answer") {
+          if (untriedRemaining.length > 0) {
+            const nextIdx = allPhones.findIndex(p => p === untriedRemaining[0]);
+            toast({
+              title: `No answer — line ${currentLineNum} rested`,
+              description: `Now dialing line ${nextIdx + 1} of ${total}.`,
+              duration: 3000,
+            });
+          } else {
+            toast({
+              title: "All numbers tried today",
+              description: "Lead returned to pool. Loading next lead…",
+              duration: 3000,
+            });
+          }
+        } else if (variables.outcome === "wrong_number") {
+          if (data && data.deleted) {
+            toast({
+              title: `Wrong # — line ${currentLineNum} struck`,
+              description: "All numbers dead — lead removed.",
+              duration: 3000,
+            });
+          } else {
+            toast({
+              title: `Wrong # — line ${currentLineNum} struck`,
+              description: "Lead returned to pool. Loading next lead…",
+              duration: 3000,
+            });
+          }
+        }
+      }
+
       setTimeout(() => {
         setOutcomeFlash(null);
         qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
@@ -698,47 +747,96 @@ function LeadCard({ lead }: { lead: Lead }) {
           </p>
         )}
 
+        {/* ── v14.11 — Line indicator ── */}
+        {allPhones.length > 0 && (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            marginBottom: 10, paddingBottom: 8,
+            borderBottom: "1px solid rgba(200,170,90,0.15)",
+          }}>
+            <span style={{
+              fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase",
+              color: "#c8aa5a", fontWeight: 700,
+            }}>
+              {allPhones.length === 1 ? "Single Line" : `Line ${Math.max(1, allPhones.findIndex(p => p === activePhone) + 1)} of ${allPhones.length}`}
+            </span>
+            <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em" }}>
+              {remainingCount}/{allPhones.length} viable
+              {struckCount > 0 ? ` · ${struckCount} struck` : ""}
+              {triedTodayCount > 0 ? ` · ${triedTodayCount} tried today` : ""}
+            </span>
+          </div>
+        )}
+
         {/* ── Contact row ── */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
-          {/* Multi-number phone display */}
-          <div style={{ flex: "1 1 auto", display: "flex", flexDirection: "column", gap: 6 }}>
-            {activePhone && (
-              <a href={`tel:${activePhone}`} style={{
-                display: "inline-flex", alignItems: "center", gap: 8,
-                padding: "13px 22px",
-                background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-                borderRadius: 8, textDecoration: "none",
-                fontSize: 15, fontWeight: 700, letterSpacing: "0.03em",
-                color: "#080808", justifyContent: "center", minHeight: 48,
-                boxShadow: "0 4px 16px rgba(200,170,90,0.3)",
-              }}>
-                <Phone size={15} /> {activePhone}
-              </a>
-            )}
-            {allPhones.length > 1 && (
-              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", paddingLeft: 2 }}>
-                {allPhones.map((p, i) => {
-                  const state = phoneStates[p] || "untried";
-                  const isActive = p === activePhone;
-                  const dotColor = state === "struck" ? "#6b7280" : state === "no_answer_today" ? "#f97316" : isActive ? "#c8aa5a" : "rgba(255,255,255,0.2)";
-                  const dotLabel = state === "struck" ? "✕" : state === "no_answer_today" ? "~" : `${i + 1}`;
-                  const title = state === "struck" ? `${p} — wrong # (struck)` : state === "no_answer_today" ? `${p} — tried today` : isActive ? `${p} — calling now` : `${p} — untried`;
-                  return (
-                    <span key={p} title={title} style={{
-                      display: "inline-flex", alignItems: "center", justifyContent: "center",
-                      width: 22, height: 22, borderRadius: "50%", fontSize: 10, fontWeight: 700,
-                      border: `1.5px solid ${dotColor}`, color: dotColor,
-                      background: isActive ? "rgba(200,170,90,0.15)" : "transparent", flexShrink: 0,
-                    }}>{dotLabel}</span>
-                  );
-                })}
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>
-                  {remainingCount}/{allPhones.length} viable
-                  {struckCount > 0 ? ` · ${struckCount} struck` : ""}
-                  {triedTodayCount > 0 ? ` · ${triedTodayCount} tried today` : ""}
-                </span>
-              </div>
-            )}
+          {/* v14.11 — Stacked phone list: only the active line is tappable (tel: link).
+              Other lines render as plain divs to prevent autopilot skip-clicking. */}
+          <div style={{ flex: "1 1 auto", display: "flex", flexDirection: "column", gap: 8 }}>
+            {allPhones.map((p, i) => {
+              const state = phoneStates[p] || "untried";
+              const isActive = p === activePhone;
+              const stateLabel = state === "struck" ? "WRONG #" : state === "no_answer_today" ? "NO ANSWER TODAY" : "UNTRIED";
+              const stateColor = state === "struck" ? "#6b7280" : state === "no_answer_today" ? "#f97316" : "rgba(200,170,90,0.7)";
+
+              if (isActive) {
+                // Active line — big, gold, tappable tel: link
+                return (
+                  <a key={p} href={`tel:${p}`} style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    gap: 4, padding: "18px 22px",
+                    background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+                    borderRadius: 12, textDecoration: "none",
+                    color: "#080808", minHeight: 76,
+                    border: "2px solid #e8c96a",
+                    boxShadow: "0 6px 24px rgba(200,170,90,0.4), 0 0 0 4px rgba(200,170,90,0.12)",
+                    position: "relative",
+                  }}>
+                    <span style={{
+                      fontSize: 9, letterSpacing: "0.24em", fontWeight: 800,
+                      color: "rgba(8,8,8,0.65)",
+                    }}>
+                      DIAL LINE {i + 1}
+                    </span>
+                    <span style={{
+                      fontSize: "clamp(1.5rem, 6.5vw, 1.9rem)", fontWeight: 800,
+                      letterSpacing: "0.02em", display: "flex", alignItems: "center", gap: 10,
+                      lineHeight: 1,
+                    }}>
+                      <Phone size={22} strokeWidth={2.5} /> {p}
+                    </span>
+                  </a>
+                );
+              }
+
+              // Inactive line — plain div, not tappable, dimmed
+              const isStruck = state === "struck";
+              return (
+                <div key={p} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "9px 14px",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 8, minHeight: 36,
+                  opacity: isStruck ? 0.35 : 0.55,
+                }}>
+                  <span style={{
+                    fontSize: 13, fontWeight: 500,
+                    color: "rgba(255,255,255,0.6)",
+                    textDecoration: isStruck ? "line-through" : "none",
+                    fontVariantNumeric: "tabular-nums",
+                  }}>
+                    Line {i + 1}: {p}
+                  </span>
+                  <span style={{
+                    fontSize: 9, letterSpacing: "0.14em", fontWeight: 700,
+                    color: stateColor,
+                  }}>
+                    {stateLabel}
+                  </span>
+                </div>
+              );
+            })}
           </div>
           {mailtoLink && (
             <a

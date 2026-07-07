@@ -430,10 +430,19 @@ function LeadCard({ lead }: { lead: Lead }) {
               description: "All numbers dead — lead removed.",
               duration: 3000,
             });
-          } else {
+          } else if (data && data.keptOnLead) {
+            // v14.15 — agent stays on the lead, advances to next viable phone.
+            const nextIdx = allPhones.findIndex(p => p === untriedRemaining[0]);
             toast({
               title: `Wrong # — line ${currentLineNum} struck`,
-              description: "Lead returned to pool. Loading next lead…",
+              description: `Now dialing line ${nextIdx + 1} of ${total}.`,
+              duration: 3000,
+            });
+          } else {
+            // No untried numbers left today — lead returns to pool.
+            toast({
+              title: `Wrong # — line ${currentLineNum} struck`,
+              description: "All viable numbers rested. Loading next lead…",
               duration: 3000,
             });
           }

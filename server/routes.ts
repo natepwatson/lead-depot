@@ -151,7 +151,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.14 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.15 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -210,7 +210,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.14 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.15 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -259,7 +259,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.14 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.15 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1630,16 +1630,22 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (deadOutcomes.includes(outcome)) {
       // v14.12 — Appointments stay owned by the closer so they surface in the
       // agent's "My Leads" pipeline. Not Interested still unassigns (dead lead, no pipeline entry).
+      // v14.15 — Release the lock in both cases so the agent's next Load Next call
+      // doesn't return this same lead. Appointments get filtered out by status anyway,
+      // but the lock row would still trip the `alreadyLocked` shortcut.
       newStatus = outcome;
       newAssignedId = outcome === "contacted_appointment" ? agentId : null;
+      rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
     } else if (outcome === "recycled" || outcome === "callback_requested") {
       // v14.14 — Callback fully retired. Recycle is the successor: one-tap unassign to pool,
       // no date, no coordination. `callback_requested` is treated identically to `recycled`
       // so any stale clients still submitting the old key don't misbehave.
+      // v14.15 — Release the lock so my-next doesn't hand this lead right back.
       newStatus = "unassigned";
       newAssignedId = null;
       newCallbackDate = null;
+      rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
     } else if (outcome === "no_answer") {
       // Mark the current phone as sleeping for today
@@ -1657,9 +1663,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         rawDb.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(nextPhone, leadId);
       } else {
         // v14.10 — PULL MODE: all numbers tried today, return to shared pool.
-        // Next agent to tap Load Next Lead picks it up. No round-robin push.
+        // v14.15 — Also release the lead_locks row so my-next doesn't hand this
+        // exhausted lead right back to the same agent on their next Load Next tap.
         newStatus = "no_answer";
         newAssignedId = null;
+        rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
       }
 
     } else if (outcome === "keep_in_touch") {
@@ -1717,19 +1725,43 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         return res.json({ deleted: true, leadId, reason: "all_numbers_struck" });
       }
 
-      // v14.10 — PULL MODE: strike the number, keep viable numbers, return to shared pool.
-      const nextViable = remaining.find(p => phoneStates[p] === "untried") ?? remaining[0];
+      // v14.15 — Wrong # advances phone but KEEPS the agent on the lead.
+      // Agent burns through all numbers on the spot in one sitting. Only when
+      // the LAST number is struck does the lead leave (handled above via delete).
+      // Between-line no-op on assignment prevents the my-next race that left
+      // agents stuck on an exhausted lead card (v14.14 bug, screenshot 2026-07-07).
+      const untriedNext = remaining.find(p => phoneStates[p] === "untried");
+      const nextViable = untriedNext ?? remaining[0];
       const reorderedPhones = [nextViable, ...phones.filter(p => p !== nextViable)];
-      rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, status = 'unassigned', assigned_agent_id = NULL WHERE id = ?`).run(
-        nextViable,
-        JSON.stringify(reorderedPhones),
-        JSON.stringify(phoneStates),
-        leadId
-      );
+
+      // If there are ANY untried numbers left, stay assigned and dial the next one.
+      // If every remaining number is "no_answer_today" (untriedNext is undefined),
+      // the agent has burned through everything they can dial today — return to pool
+      // so it can surface for someone else tomorrow, AND release the lock so the
+      // next my-next fetch doesn't hand this same lead back.
+      if (untriedNext) {
+        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, status = 'assigned', assigned_agent_id = ? WHERE id = ?`).run(
+          nextViable,
+          JSON.stringify(reorderedPhones),
+          JSON.stringify(phoneStates),
+          agentId,
+          leadId
+        );
+      } else {
+        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, status = 'unassigned', assigned_agent_id = NULL WHERE id = ?`).run(
+          nextViable,
+          JSON.stringify(reorderedPhones),
+          JSON.stringify(phoneStates),
+          leadId
+        );
+        // Release the lock so my-next doesn't hand back this exhausted lead
+        rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+      }
+
       awardPoints(agentId, "wrong_number", leadId);
       broadcast({ type: "activity_event", event: { type: "wrong_number", agentId, leadId, agentName: storage.getAgentById(agentId)?.name || "Agent", address: lead.address } });
       broadcast({ type: "lead_updated", leadId });
-      return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length });
+      return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length, keptOnLead: !!untriedNext });
     }
 
     // Update lead — persist phoneStates changes from no_answer handling
@@ -3094,7 +3126,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.14 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.15 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -3340,7 +3372,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.14",
+      version: "v14.15",
       services: results,
     });
   });

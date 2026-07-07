@@ -151,7 +151,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.13 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.14 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -210,7 +210,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.13 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.14 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -259,7 +259,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.13 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.14 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -335,6 +335,25 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   } catch (err) {
     console.error("[v14.10 retire-sweep] Failed:", err);
+  }
+
+  // ─── v14.14 — CALLBACK-RETIRE SWEEP (one-time, runs on every boot) ─────
+  // Callback outcome fully retired in v14.14. Any remaining `callback_requested`
+  // rows flip to `unassigned` (clear assigned agent + callback_date) so they
+  // rejoin the shared pool for anyone to pull. Idempotent: 0 rows after first boot.
+  try {
+    const cbResult = rawDb.prepare(`
+      UPDATE leads
+         SET status = 'unassigned',
+             assigned_agent_id = NULL,
+             callback_date = NULL
+       WHERE status = 'callback_requested'
+    `).run();
+    if (cbResult.changes > 0) {
+      console.log(`[v14.14 callback-retire] Migrated ${cbResult.changes} callback_requested leads to unassigned`);
+    }
+  } catch (err) {
+    console.error("[v14.14 callback-retire] Failed:", err);
   }
 
   // ─── AUTH ──────────────────────────────────────────────────────────────────
@@ -1614,11 +1633,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       newStatus = outcome;
       newAssignedId = outcome === "contacted_appointment" ? agentId : null;
 
-    } else if (outcome === "recycled") {
-      // v14.10 — mirror the /recycle endpoint: pool-only, no push, no counter increment here
-      // (the standalone /recycle endpoint already handles activity + attemptCount).
+    } else if (outcome === "recycled" || outcome === "callback_requested") {
+      // v14.14 — Callback fully retired. Recycle is the successor: one-tap unassign to pool,
+      // no date, no coordination. `callback_requested` is treated identically to `recycled`
+      // so any stale clients still submitting the old key don't misbehave.
       newStatus = "unassigned";
       newAssignedId = null;
+      newCallbackDate = null;
 
     } else if (outcome === "no_answer") {
       // Mark the current phone as sleeping for today
@@ -1648,14 +1669,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       newStatus = "keep_in_touch";
       newAssignedId = agentId;
 
-    } else if (outcome === "callback_requested") {
-      // Schedule callback — keep with same agent, store the requested date/time.
-      // The nightly redistribution (8am EDT) fires due callbacks to the next
-      // available agent if this agent is inactive, or leaves it with them if active.
-      newStatus = "callback_requested";
-      // Use the date provided by the UI; fall back to keeping the existing date if none
-      newCallbackDate = callbackDate || lead.callbackDate || null;
     }
+    // v14.14 — The old `callback_requested` branch that scheduled a date and kept the
+    // lead assigned to the agent has been removed. It's now handled above alongside
+    // `recycled` as an immediate unassign to pool.
+
 
     // Save LPMAMAB fields if provided
     const lpmamabUpdate = lpmamab ? {
@@ -3076,7 +3094,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.13 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.14 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -3322,7 +3340,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.13",
+      version: "v14.14",
       services: results,
     });
   });
@@ -4433,13 +4451,20 @@ async function sendDailyDigest() {
 }
 
 // Fires at 5:45 PM EDT = 21:45 UTC every day
-// ─── CALLBACK REDISTRIBUTION ─────────────────────────────────────────────────
-// Runs daily: finds callbacks due today whose agent is inactive, reassigns to an
-// active agent with a clear handoff note so they have full context immediately.
+// ─── CALLBACK REDISTRIBUTION (v14.14 — neutralized) ─────────────────────────
+// v14.14: Callback outcome retired. Recycle is the successor (immediate unassign,
+// no date, no coordination). This function is kept as a no-op so any legacy
+// callback_requested rows (should be zero on prod) don't accidentally get promoted.
 async function redistributeDueCallbacks() {
+  // Intentional no-op — Callback fully retired in v14.14.
+  // Any remaining `callback_requested` rows are migrated to `unassigned` at boot
+  // by the v14.14 callback-retire sweep. No scheduled promotion needed.
+  return;
+
+  // eslint-disable-next-line no-unreachable
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  // SQL: only fetch callback leads due today — avoids loading all leads (v11.70)
+  // Dead code kept for reference; unreachable due to early return above.
   const callbackLeads: any[] = rawDb.prepare(`
     SELECT l.id, l.lead_type as leadType, l.assigned_agent_id as assignedAgentId,
            l.callback_date as callbackDate,

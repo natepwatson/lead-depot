@@ -41,11 +41,11 @@ const LPMAMAB_FIELDS = [
 ] as const;
 
 // ─── Outcome configs ───────────────────────────────────────────────────────────
-// v14.6 — 6 outcomes in a 3×2 grid. Callback was replaced by Recycle in the same slot
+// v14.14 — 6 outcomes in a 3×2 grid. "Recycle" second slot: one confirm tap and the lead
 // (rush-seller / agent-fumble safety net that immediately unassigns the lead back to the pool).
 const OUTCOMES = [
   { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.12)",  border: "rgba(236,72,153,0.4)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.22)" },
-  { key: "callback_requested",      label: "Recycle",       icon: RefreshCw,     bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
+  { key: "recycled",                label: "Recycle",       icon: RefreshCw,     bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
   { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.12)",   border: "rgba(34,197,94,0.4)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.22)" },
   { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
   { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },
@@ -266,12 +266,12 @@ function ApptModal({
 }
 
 
-// ─── Callback Modal ──────────────────────────────────────────────────────────
-function CallbackModal({
+// ─── Recycle Confirm Sheet ─────────────────────────────────────────────────
+function RecycleModal({
   onClose, onSubmit, isPending,
 }: {
   onClose: () => void;
-  onSubmit: (data: { callbackDate: string; callbackTime: string }) => void;
+  onSubmit: () => void;
   isPending: boolean;
 }) {
   return (
@@ -299,7 +299,7 @@ function CallbackModal({
           This lead will be immediately returned to the shared pool. The next agent who taps Load Next Lead can pick it up — just like a fresh lead.
         </p>
         <button
-          onClick={() => onSubmit({ callbackDate: "", callbackTime: "" })}
+          onClick={onSubmit}
           disabled={isPending}
           style={{
             width: "100%", padding: "16px", borderRadius: 12, border: "none",
@@ -316,143 +316,9 @@ function CallbackModal({
   );
 }
 
-// ─── Recycle Button ──────────────────────────────────────────────────────────
-function RecycleButton({ lead, inGrid = false }: { lead: Lead; inGrid?: boolean }) {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const qc = useQueryClient();
-  const [confirming, setConfirming] = useState(false);
-  const [notes, setNotes] = useState("");
-
-  const recycleMutation = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", `/api/leads/${lead.id}/recycle`, {
-        agentId: user?.id,
-        notes: notes || "Lead recycled — returned to pool for reassignment.",
-      }).then(r => r.json()),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
-      qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
-      toast({
-        title: "Lead recycled",
-        description: data.reassignedTo
-          ? `Reassigned to ${data.reassignedTo}.`
-          : "Returned to pool.",
-      });
-      setConfirming(false);
-    },
-    onError: () => toast({ title: "Error recycling lead", variant: "destructive" }),
-  });
-
-  const inputStyle: React.CSSProperties = {
-    width: "100%", background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(239,68,68,0.3)",
-    padding: "10px 12px", borderRadius: 8,
-    fontFamily: "'Switzer','Inter',sans-serif", fontSize: 13,
-    color: "#fff", outline: "none",
-    boxSizing: "border-box" as const, marginTop: 10,
-    resize: "none" as const,
-  };
-
-  // In-grid mode: render just the button cell (no outer padding wrapper)
-  const triggerBtn = (
-    <button
-      onClick={() => setConfirming(true)}
-      style={{
-        display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-        padding: "14px 8px", width: "100%", height: "100%", minHeight: 70,
-        background: "rgba(239,68,68,0.06)",
-        border: "1px solid rgba(239,68,68,0.25)",
-        borderRadius: 10, cursor: "pointer",
-        transition: "all 0.18s ease",
-      }}
-      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(239,68,68,0.14)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(252,165,165,0.6)"; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(239,68,68,0.06)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(239,68,68,0.25)"; }}
-    >
-      <RefreshCw size={18} style={{ color: "rgba(252,165,165,0.8)" }} />
-      <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(252,165,165,0.8)", letterSpacing: "0.03em", textAlign: "center", lineHeight: 1.3 }}>Recycle</span>
-    </button>
-  );
-
-  return (
-    <>
-      {inGrid ? triggerBtn : (
-        <div style={{ padding: "0 20px 16px" }}>
-          <button
-            onClick={() => setConfirming(true)}
-            style={{
-              width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              padding: "13px", borderRadius: 10, border: "1px solid rgba(239,68,68,0.3)",
-              background: "rgba(239,68,68,0.06)", cursor: "pointer",
-              fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
-              color: "rgba(252,165,165,0.85)", transition: "all 0.18s",
-            }}
-          >
-            <RefreshCw size={14} /> Recycle Lead
-          </button>
-        </div>
-      )}
-
-      {/* Recycle confirm sheet */}
-      {confirming && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-          <div onClick={() => setConfirming(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.72)", backdropFilter: "blur(4px)" }} />
-          <div style={{
-            position: "relative", zIndex: 1,
-            background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)",
-            border: "1px solid rgba(239,68,68,0.3)", borderBottom: "none",
-            borderRadius: "20px 20px 0 0", padding: "28px 22px 48px",
-          }}>
-            <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 22px" }} />
-            <div style={{ marginBottom: 20 }}>
-              <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 24, fontWeight: 400, color: "#fff", margin: 0 }}>
-                Recycle Lead
-              </h2>
-              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginTop: 5, lineHeight: 1.55 }}>
-                This lead will be removed from your queue and reassigned to the next agent in rotation. The dial still counts toward your activity.
-              </p>
-            </div>
-            <div style={{ padding: "12px 16px", background: "rgba(200,170,90,0.07)", border: "1px solid rgba(200,170,90,0.2)", borderRadius: 10, marginBottom: 16 }}>
-              <p style={{ fontSize: 14, color: "#fff", margin: "0 0 2px", fontWeight: 600 }}>{lead.ownerName || "Unknown"}</p>
-              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: 0 }}>{lead.address}</p>
-            </div>
-            <label style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600 }}>
-              Reason (optional)
-            </label>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="e.g. Connected but they need a different approach…"
-              rows={2}
-              style={inputStyle}
-            />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 20 }}>
-              <button
-                onClick={() => setConfirming(false)}
-                style={{
-                  padding: "14px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.15)",
-                  background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)",
-                  fontSize: 14, fontWeight: 600, cursor: "pointer",
-                }}
-              >Cancel</button>
-              <button
-                onClick={() => recycleMutation.mutate()}
-                disabled={recycleMutation.isPending}
-                style={{
-                  padding: "14px", borderRadius: 10, border: "none",
-                  background: recycleMutation.isPending ? "rgba(239,68,68,0.3)" : "rgba(239,68,68,0.85)",
-                  color: "#fff", fontSize: 14, fontWeight: 700, cursor: recycleMutation.isPending ? "default" : "pointer",
-                }}
-              >
-                {recycleMutation.isPending ? "Recycling…" : "Confirm Recycle"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
+// v14.14 — The old standalone RecycleButton component was removed. Recycle is
+// now delivered exclusively through the outcome grid "Recycle" slot, which
+// opens RecycleModal and posts outcome="recycled" via outcomeMutation.
 
 // ─── Lead card ────────────────────────────────────────────────────────────────
 function LeadCard({ lead }: { lead: Lead }) {
@@ -463,7 +329,7 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [showScript, setShowScript] = useState(false);
   const [hoveredOutcome, setHoveredOutcome] = useState<string | null>(null);
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
-  const [pendingCallback, setPendingCallback] = useState(false);
+  const [pendingRecycle, setPendingRecycle] = useState(false);
   const [lpmOpen, setLpmOpen] = useState(false);
   const [outcomeFlash, setOutcomeFlash] = useState<{ label: string; color: string } | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -491,16 +357,16 @@ function LeadCard({ lead }: { lead: Lead }) {
     no_answer:                { label: "No Answer — Logged",      color: "rgb(253,224,71)" },
     contacted_not_interested: { label: "Not Interested — Logged", color: "rgb(252,165,165)" },
     wrong_number:             { label: "Wrong # — Logged",        color: "rgba(252,165,165,0.8)" },
-    callback_requested:       { label: "Recycled to Pool",         color: "#22d3ee" },
+    recycled:                 { label: "Recycled to Pool",         color: "#22d3ee" },
   };
 
-  // v14.0 — Callback is now handled via the /recycle endpoint (immediate unassign + reassign,
-  // same behavior as the Recycle Lead button). Rush-seller/agent-fumble safety net.
-  const recycleForCallback = useMutation({
+  // v14.14 — Recycle hits /api/leads/:id/recycle. One tap, no date, no strings.
+  // Lead unassigns to the shared pool; next agent pulls it via my-next.
+  const recycleMutation = useMutation({
     mutationFn: () =>
       apiRequest("POST", `/api/leads/${lead.id}/recycle`, {
         agentId: user?.id,
-        notes: notes || "Callback — recycled to pool for reassignment.",
+        notes: notes || "Recycled to pool for reassignment.",
       }).then(r => r.json()),
     onSuccess: () => {
       setOutcomeFlash({ label: "Recycled to Pool", color: "#22d3ee" });
@@ -602,18 +468,18 @@ function LeadCard({ lead }: { lead: Lead }) {
       setPendingOutcome(key as "contacted_appointment" | "keep_in_touch");
       return;
     }
-    if (key === "callback_requested") {
-      setPendingCallback(true);
+    if (key === "recycled") {
+      setPendingRecycle(true);
       return;
     }
     outcomeMutation.mutate({ outcome: key, notes, dialedPhone: activePhone });
   };
 
-  // v14.0 — Callback confirm triggers recycle (no date, no schedule). Lead unassigns
-  // + round-robins to next agent immediately — protects against rush sellers / fumbles.
-  const handleCallbackSubmit = (_data: { callbackDate: string; callbackTime: string }) => {
-    recycleForCallback.mutate();
-    setPendingCallback(false);
+  // v14.14 — Recycle confirm triggers immediate unassign to pool (no date, no schedule).
+  // Next agent pulls it via my-next (respects home-county).
+  const handleRecycleSubmit = () => {
+    recycleMutation.mutate();
+    setPendingRecycle(false);
   };
 
   const handleApptSubmit = (data: { apptEmail: string; confirmedAddress: string; apptDate: string; apptTime: string; stage: string; intention: string }) => {
@@ -1043,11 +909,11 @@ function LeadCard({ lead }: { lead: Lead }) {
         />
       )}
 
-      {/* Callback modal */}
-      {pendingCallback && (
-        <CallbackModal
-          onClose={() => setPendingCallback(false)}
-          onSubmit={handleCallbackSubmit}
+      {/* Recycle confirm sheet */}
+      {pendingRecycle && (
+        <RecycleModal
+          onClose={() => setPendingRecycle(false)}
+          onSubmit={handleRecycleSubmit}
           isPending={outcomeMutation.isPending}
         />
       )}

@@ -177,7 +177,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.25 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.28 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -236,7 +236,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.25 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.28 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -260,7 +260,7 @@ const FOLLOW_UP_TIMING_PHRASE: Record<string, string> = {
 };
 async function sendExpiredCredibilityEmail(opts: {
   leadId: number;
-  agentId?: number | null;   // v14.25 — needed to award points
+  agentId?: number | null;   // v14.28 — needed to award points
   ownerEmail: string;
   ownerFirstName: string;
   ownerPhone?: string;       // v14.27 — needed to push FUB note
@@ -299,37 +299,52 @@ async function sendExpiredCredibilityEmail(opts: {
   const agentPhone   = opts.agent.phone || "";
   const timingPhrase = FOLLOW_UP_TIMING_PHRASE[opts.followUpTiming] || "soon";
 
-  const subject = `Hey ${firstName} — nice talking earlier`;
-  const plainText = [
-    `Hey ${firstName} —`,
-    "",
-    `Really glad we got to chat about the house at ${casualAddress}. Sounded like the timing's not quite right yet, and honestly, that's the best kind of answer — you know where you stand.`,
-    "",
-    `Wanted to properly introduce myself since I skipped the formalities on the phone. I'm ${agentFirst} with the Brothers Group Real Estate Team at Momentum Realty. We work with a lot of folks in your spot — the first listing didn't land, life kept moving, and the house is just sitting there in the background. Nothing wrong with letting it sit. But when you're ready to actually think about it, we're the ones you want in the room.`,
-    "",
-    "No agenda on this email. Just wanted you to have a name and a face for the number that called.",
-    "",
-    `If you ever want a quick five-minute walk-through — no clipboard, no pitch, just an honest read on what your home would take to move — say the word. Otherwise I'll check back in ${timingPhrase} and see where you're at.`,
-    "",
-    ...(agentPhone ? [`Real quick — my direct line is ${agentPhone} if anything comes up before then.`, ""] : []),
-    "Talk soon,",
+  // v14.26 — Prefer editable DB template for Flow 2. Falls back to hardcoded copy if missing.
+  const _loadTpl = (globalThis as any).__leadDepotLoadEmailTemplate as ((k: string) => { subject: string; body: string } | null) | undefined;
+  const _render  = (globalThis as any).__leadDepotRenderTemplate as ((t: string, v: Record<string,string|undefined>) => string) | undefined;
+  const _tpl = _loadTpl ? _loadTpl("email_flow2") : null;
+  const _vars = {
+    ownerFirst: firstName,
+    ownerName:  firstName,
+    address:    casualAddress,
+    agentFirst,
     agentFull,
-    "Brothers Group Real Estate Team at Momentum Realty",
-    [agentPhone, agentEmail].filter(Boolean).join(" · "),
-  ].join("\n");
+    agentPhone: agentPhone || "",
+    agentEmail: agentEmail || "",
+    timing:     `in ${timingPhrase}`,
+  };
+  const subject = _tpl && _render
+    ? _render(_tpl.subject, _vars)
+    : `Hey ${firstName} \u2014 nice talking earlier`;
+  const plainText = _tpl && _render
+    ? _render(_tpl.body, _vars)
+    : [
+        `Hey ${firstName} \u2014`,
+        "",
+        `Really glad we got to chat about the house at ${casualAddress}. Sounded like the timing's not quite right yet, and honestly, that's the best kind of answer \u2014 you know where you stand.`,
+        "",
+        `Wanted to properly introduce myself since I skipped the formalities on the phone. I'm ${agentFirst} with the Brothers Group Real Estate Team at Momentum Realty. We work with a lot of folks in your spot \u2014 the first listing didn't land, life kept moving, and the house is just sitting there in the background. Nothing wrong with letting it sit. But when you're ready to actually think about it, we're the ones you want in the room.`,
+        "",
+        "No agenda on this email. Just wanted you to have a name and a face for the number that called.",
+        "",
+        `If you ever want a quick five-minute walk-through \u2014 no clipboard, no pitch, just an honest read on what your home would take to move \u2014 say the word. Otherwise I'll check back in ${timingPhrase} and see where you're at.`,
+        "",
+        ...(agentPhone ? [`Real quick \u2014 my direct line is ${agentPhone} if anything comes up before then.`, ""] : []),
+        "Talk soon,",
+        agentFull,
+        "Brothers Group Real Estate Team at Momentum Realty",
+        [agentPhone, agentEmail].filter(Boolean).join(" \u00b7 "),
+      ].join("\n");
 
+  // v14.26 — Render HTML from the plain-text body (paragraph per blank-separated block).
+  // This keeps the editable template as the single source of truth.
+  const _htmlBody = plainText
+    .split(/\n\s*\n/)
+    .map(p => `<p style="margin:0 0 18px">${p.trim().replace(/\n/g, "<br>").replace(/</g, "&lt;")}</p>`)
+    .join("\n  ");
   const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f7f5f0;font-family:Georgia,'Times New Roman',serif;color:#2a2620;font-size:16px;line-height:1.6">
 <div style="max-width:560px;margin:0 auto;padding:32px 24px">
-  <p style="margin:0 0 18px">Hey ${firstName} —</p>
-  <p style="margin:0 0 18px">Really glad we got to chat about the house at <strong>${casualAddress}</strong>. Sounded like the timing's not quite right yet, and honestly, that's the best kind of answer — you know where you stand.</p>
-  <p style="margin:0 0 18px">Wanted to properly introduce myself since I skipped the formalities on the phone. I'm ${agentFirst} with the <strong>Brothers Group Real Estate Team at Momentum Realty</strong>. We work with a lot of folks in your spot — the first listing didn't land, life kept moving, and the house is just sitting there in the background. Nothing wrong with letting it sit. But when you're ready to actually think about it, we're the ones you want in the room.</p>
-  <p style="margin:0 0 18px">No agenda on this email. Just wanted you to have a name and a face for the number that called.</p>
-  <p style="margin:0 0 18px">If you ever want a quick five-minute walk-through — no clipboard, no pitch, just an honest read on what your home would take to move — say the word. Otherwise I'll check back in ${timingPhrase} and see where you're at.</p>
-  ${agentPhone ? `<p style="margin:0 0 18px">Real quick — my direct line is <strong>${agentPhone}</strong> if anything comes up before then.</p>` : ""}
-  <p style="margin:24px 0 4px">Talk soon,</p>
-  <p style="margin:0;font-weight:700">${agentFull}</p>
-  <p style="margin:0;color:#5a5147;font-size:14px">Brothers Group Real Estate Team at Momentum Realty</p>
-  <p style="margin:2px 0 0;color:#7a6f60;font-size:13px">${[agentPhone, agentEmail].filter(Boolean).join(" · ")}</p>
+  ${_htmlBody}
 </div>
 </body></html>`;
 
@@ -343,13 +358,13 @@ async function sendExpiredCredibilityEmail(opts: {
       text:      plainText,
     } as any);
     // Log to activity so rate limit works next time + audit trail
-    // v14.25 — log agent_id so points/attribution work
+    // v14.28 — log agent_id so points/attribution work
     const nowIso = new Date().toISOString();
     rawDb.prepare(`
       INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
       VALUES (?, ?, 'email_sent', ?, NULL, ?)
     `).run(opts.leadId, opts.agentId || null, `expired-credibility sent to ${opts.ownerEmail} (follow-up: ${opts.followUpTiming})`, nowIso);
-    // v14.25 — Fix 2: award points for Flow 2 credibility email
+    // v14.28 — Fix 2: award points for Flow 2 credibility email
     if (opts.agentId) awardPoints(opts.agentId, "email_sent", opts.leadId);
     // v14.27 — push FUB note recording the send (subject + timestamp + preview)
     pushEmailNoteToFub({
@@ -368,6 +383,106 @@ async function sendExpiredCredibilityEmail(opts: {
 
 // ─── QUEUE DEPTH ALERT ───────────────────────────────────────────────────────────────
 // Fires when active seller lead queue drops to or below LOW_QUEUE_THRESHOLD per active agent
+
+// v14.27 — Flow 4: Appointment Warm Email.
+// Fires on contacted_appointment. Uses editable email_flow4 template. Respects 24h/lead cap.
+async function sendAppointmentWarmEmail(opts: {
+  leadId: number;
+  agentId?: number | null;
+  ownerEmail: string;
+  ownerFirstName: string;
+  ownerPhone?: string;
+  address: string;
+  apptDate?: string;
+  apptTime?: string;
+  agent: { name?: string; email?: string; phone?: string };
+}) {
+  if (!resend) { console.log("[ApptWarmEmail] skipped \u2014 no RESEND_API_KEY"); return; }
+  if (!opts.ownerEmail || !opts.ownerEmail.includes("@")) {
+    console.log(`[ApptWarmEmail] skipped lead ${opts.leadId} \u2014 no owner email`);
+    return;
+  }
+  // 24h/lead cap across all flows
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const recent = rawDb.prepare(`
+    SELECT id FROM lead_activity
+     WHERE lead_id = ?
+       AND outcome = 'email_sent'
+       AND created_at > ?
+     LIMIT 1
+  `).get(opts.leadId, dayAgo);
+  if (recent) {
+    console.log(`[ApptWarmEmail] skipped lead ${opts.leadId} \u2014 within 24h cap`);
+    return;
+  }
+
+  const firstName    = normalizeFirstName(opts.ownerFirstName) || "there";
+  const agentFull    = normalizeFullName(opts.agent.name) || "Your Brothers Group Real Estate Team agent";
+  const agentFirst   = normalizeFirstName(agentFull.split(/\s+/)[0]) || agentFull.split(/\s+/)[0];
+  const casualAddress = normalizeAddressCasual(opts.address) || opts.address;
+  const agentEmail   = opts.agent.email || "noreply@watsonbrothersgroup.com";
+  const agentPhone   = opts.agent.phone || "";
+
+  const _loadTpl = (globalThis as any).__leadDepotLoadEmailTemplate as ((k: string) => { subject: string; body: string } | null) | undefined;
+  const _render  = (globalThis as any).__leadDepotRenderTemplate as ((t: string, v: Record<string,string|undefined>) => string) | undefined;
+  const _tpl = _loadTpl ? _loadTpl("email_flow4") : null;
+  const _vars = {
+    ownerFirst: firstName,
+    ownerName:  firstName,
+    address:    casualAddress,
+    agentFirst,
+    agentFull,
+    agentPhone,
+    agentEmail,
+    apptDate:   opts.apptDate || "our confirmed date",
+    apptTime:   opts.apptTime || "our confirmed time",
+  };
+  const subject = _tpl && _render
+    ? _render(_tpl.subject, _vars)
+    : `Looking forward to meeting you, ${firstName}`;
+  const plainText = _tpl && _render
+    ? _render(_tpl.body, _vars)
+    : `Hey ${firstName} \u2014\n\nJust wanted to say thanks for setting up a time to meet about ${casualAddress}. Really looking forward to it.\n\nIf anything comes up before then, my direct line is ${agentPhone}.\n\nExcited to meet,\n${agentFull}`;
+
+  const htmlBody = plainText
+    .split(/\n\s*\n/)
+    .map(p => `<p style="margin:0 0 18px">${p.trim().replace(/\n/g, "<br>").replace(/</g, "&lt;")}</p>`)
+    .join("\n  ");
+  const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f7f5f0;font-family:Georgia,'Times New Roman',serif;color:#2a2620;font-size:16px;line-height:1.6">
+<div style="max-width:560px;margin:0 auto;padding:32px 24px">
+  ${htmlBody}
+</div>
+</body></html>`;
+
+  try {
+    await resend.emails.send({
+      from:      `${agentFull} <noreply@watsonbrothersgroup.com>`,
+      to:        [opts.ownerEmail],
+      reply_to:  agentEmail,
+      subject,
+      html,
+      text:      plainText,
+    } as any);
+    const nowIso = new Date().toISOString();
+    rawDb.prepare(`
+      INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
+      VALUES (?, ?, 'email_sent', ?, NULL, ?)
+    `).run(opts.leadId, opts.agentId || null, `appointment-warm sent to ${opts.ownerEmail}`, nowIso);
+    // No separate awardPoints \u2014 the contacted_appointment outcome awards 20 pts already.
+    pushEmailNoteToFub({
+      ownerPhone: opts.ownerPhone,
+      ownerName:  firstName,
+      subject,
+      sentAt:     nowIso,
+      preview:    plainText.slice(0, 260),
+      kind:       "Flow 4 \u2014 Appointment Warm (auto on appt set)",
+    }).catch(err => console.error("[FUB] Flow 4 note push failed:", err));
+    console.log(`[ApptWarmEmail] sent for lead ${opts.leadId} to ${opts.ownerEmail}`);
+  } catch (e: any) {
+    console.error(`[ApptWarmEmail] send failed for lead ${opts.leadId}:`, e.message);
+  }
+}
+
 const LOW_QUEUE_THRESHOLD = 5; // leads per active agent
 async function checkQueueDepthAlert(rawDb: any) {
   if (!resend) return;
@@ -403,7 +518,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.25 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.28 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -2101,7 +2216,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         if (targetEmail && targetEmail.includes("@")) {
           sendExpiredCredibilityEmail({
             leadId,
-            agentId,                                 // v14.25 — pass through for points
+            agentId,                                 // v14.28 — pass through for points
             ownerEmail: targetEmail,
             ownerFirstName,
             ownerPhone: (lead as any).phone || undefined,   // v14.27 — for FUB note
@@ -2128,6 +2243,27 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           apptTime:   apptTime || undefined,
           notes:      notes || undefined,
         }).catch(err => console.error("Appointment alert email failed:", err));
+
+        // v14.27 — Flow 4: send warm confirmation email to the seller (respects 24h cap)
+        const _apptTarget = (apptEmail || (lead as any).email || "").trim();
+        const _apptFirst = ((lead.ownerName || "").trim().split(/\s+/)[0]) || "";
+        if (_apptTarget && _apptTarget.includes("@")) {
+          sendAppointmentWarmEmail({
+            leadId,
+            agentId,
+            ownerEmail: _apptTarget,
+            ownerFirstName: _apptFirst,
+            ownerPhone: (lead as any).phone || undefined,
+            address: confirmedAddress || lead.address || "your property",
+            apptDate: apptDate || undefined,
+            apptTime: apptTime || undefined,
+            agent: {
+              name:  agent?.name || undefined,
+              email: (agent as any)?.email || undefined,
+              phone: (agent as any)?.phone || undefined,
+            },
+          }).catch(err => console.error("[ApptWarmEmail] top-level error:", err));
+        }
       }
     }
 
@@ -2269,7 +2405,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
 
   // ─── EMAIL SENT TRACKING ─────────────────────────────────────────────────
-  // v14.25 — Award email_sent points when Flow 1 mailto click is logged.
+  // v14.28 — Award email_sent points when Flow 1 mailto click is logged.
   // v14.27 — Enforces 1-email-per-lead-per-day cap (across all flows).
   app.post("/api/leads/:id/email-sent", (req, res) => {
     const leadId = parseInt(req.params.id);
@@ -2298,7 +2434,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       lpmamabSnapshot: null,
       createdAt: new Date().toISOString(),
     });
-    // v14.25 — Fix 1: award points for the manual Flow 1 email
+    // v14.28 — Fix 1: award points for the manual Flow 1 email
     if (agentId) awardPoints(parseInt(String(agentId)), "email_sent", leadId);
     res.json({ logged: true, points: 3 });
   });
@@ -2799,6 +2935,258 @@ bgre.com
 Note: Replace {ownerName} and {address} with lead details before sending.
 This template is for informational/outreach purposes only.`;
   initScript("email_outreach", emailOutreachTemplate);
+
+  // v14.26 — Editable email templates for the four email flows.
+  // Format: first non-blank line = Subject: <line>. Everything after = body.
+  // Placeholders: {ownerFirst}, {ownerName}, {address}, {agentFirst}, {agentFull}, {agentPhone}, {agentEmail}, {timing}, {apptDate}, {apptTime}
+  const emailFlow1Template = `Subject: Regarding your property at {address}
+
+Hi {ownerFirst},
+
+I wanted to reach out about your property at {address}. I specialize in helping homeowners in your area and I'd love to connect.
+
+Would you be available for a quick call?
+
+Best,
+{agentFull}
+Brothers Group Real Estate Team at Momentum Realty
+{agentPhone}`;
+  initScript("email_flow1", emailFlow1Template);
+
+  const emailFlow2Template = `Subject: Hey {ownerFirst} \u2014 nice talking earlier
+
+Hey {ownerFirst} \u2014
+
+Really glad we got to chat about the house at {address}. Sounded like the timing's not quite right yet, and honestly, that's the best kind of answer \u2014 you know where you stand.
+
+Wanted to properly introduce myself since I skipped the formalities on the phone. I'm {agentFirst} with the Brothers Group Real Estate Team at Momentum Realty. We work with a lot of folks in your spot \u2014 the first listing didn't land, life kept moving, and the house is just sitting there in the background. Nothing wrong with letting it sit. But when you're ready to actually think about it, we're the ones you want in the room.
+
+No agenda on this email. Just wanted you to have a name and a face for the number that called.
+
+If you ever want a quick five-minute walk-through \u2014 no clipboard, no pitch, just an honest read on what your home would take to move \u2014 say the word. Otherwise I'll check back {timing} and see where you're at.
+
+Real quick \u2014 my direct line is {agentPhone} if anything comes up before then.
+
+Talk soon,
+{agentFull}
+Brothers Group Real Estate Team at Momentum Realty
+{agentPhone} \u00b7 {agentEmail}`;
+  initScript("email_flow2", emailFlow2Template);
+
+  const emailFlow3Template = `Subject: Following up \u2014 {address}
+
+Hi {ownerFirst},
+
+I reached out a little while back about your property at {address} and wanted to try one more time before I stop cluttering your inbox.
+
+No pressure and no pitch \u2014 just an honest offer. If there's ever a moment where you want a quiet second opinion on what the home would take to move, or you just want to know what your neighbors are getting these days, I'm the person to ask.
+
+A quick reply of "not now" or "never" is totally fine and I'll respect it. Otherwise I'm here when the timing lines up.
+
+Appreciate your time either way,
+{agentFull}
+Brothers Group Real Estate Team at Momentum Realty
+{agentPhone} \u00b7 {agentEmail}`;
+  initScript("email_flow3", emailFlow3Template);
+
+  const emailFlow4Template = `Subject: Looking forward to meeting you, {ownerFirst}
+
+Hey {ownerFirst} \u2014
+
+Just wanted to say thanks for setting up a time to meet about {address}. Really looking forward to it.
+
+We're confirmed for {apptDate} at {apptTime}. I'll come prepared with a real read on your home \u2014 what buyers in your area are actually paying, what the last few sales tell us, and what we'd do to position yours to sell for the strongest possible number.
+
+No pressure, no clipboard theatrics. Just an honest conversation about your options.
+
+If anything comes up before then, my direct line is {agentPhone}. Otherwise, see you soon.
+
+Excited to meet,
+{agentFull}
+Brothers Group Real Estate Team at Momentum Realty
+{agentPhone} \u00b7 {agentEmail}`;
+  initScript("email_flow4", emailFlow4Template);
+
+  // v14.26 — Load an editable script template, splitting Subject: from body.
+  // Returns null if the script is missing (caller falls back to hardcoded copy).
+  function loadEmailTemplate(leadType: string): { subject: string; body: string } | null {
+    const row = rawDb.prepare("SELECT content FROM scripts WHERE lead_type = ?").get(leadType) as any;
+    if (!row?.content) return null;
+    const lines: string[] = String(row.content).split(/\r?\n/);
+    let subject = "";
+    let bodyStart = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const m = line.match(/^Subject:\s*(.*)$/i);
+      if (m) { subject = m[1]; bodyStart = i + 1; }
+      break;
+    }
+    // Skip blank lines after subject
+    while (bodyStart < lines.length && !lines[bodyStart].trim()) bodyStart++;
+    return { subject, body: lines.slice(bodyStart).join("\n").trim() };
+  }
+
+  // v14.26 — Interpolate {placeholder} tokens. Unknown/empty tokens become empty string.
+  function renderTemplate(tpl: string, vars: Record<string, string | undefined>): string {
+    return tpl.replace(/\{(\w+)\}/g, (_m, k) => (vars[k] ?? ""));
+  }
+
+  // Expose to module scope for use inside email senders
+  (globalThis as any).__leadDepotLoadEmailTemplate = loadEmailTemplate;
+  (globalThis as any).__leadDepotRenderTemplate = renderTemplate;
+
+  // v14.28 — Email status for a lead. Used to gate the manual Flow 3 button on the client.
+  //   flow1Sent            = any Flow 1 email_sent activity exists for this lead
+  //   contactedYet         = a contacted_* outcome exists — disqualifies Flow 3
+  //   emailedToday         = any email_sent activity in last 24h — daily cap active
+  //   flow3Eligible        = flow1Sent && !contactedYet && !emailedToday
+  //   secondAttemptBadge   = flow1Sent && !contactedYet (show badge even when cap active)
+  app.get("/api/leads/:id/email-status", (req, res) => {
+    const leadId = parseInt(req.params.id);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const flow1Row = rawDb.prepare(`
+      SELECT id FROM lead_activity
+       WHERE lead_id = ? AND outcome = 'email_sent'
+         AND (notes IS NULL OR notes LIKE '%flow1%' OR notes NOT LIKE '%flow3%')
+       LIMIT 1
+    `).get(leadId);
+    const contactedRow = rawDb.prepare(`
+      SELECT id FROM lead_activity
+       WHERE lead_id = ? AND outcome IN ('contacted_appointment','keep_in_touch','contacted_not_interested')
+       LIMIT 1
+    `).get(leadId);
+    const capRow = rawDb.prepare(`
+      SELECT id FROM lead_activity
+       WHERE lead_id = ? AND outcome = 'email_sent' AND created_at > ?
+       LIMIT 1
+    `).get(leadId, dayAgo);
+    const flow1Sent = !!flow1Row;
+    const contactedYet = !!contactedRow;
+    const emailedToday = !!capRow;
+    res.json({
+      flow1Sent,
+      contactedYet,
+      emailedToday,
+      flow3Eligible:      flow1Sent && !contactedYet && !emailedToday,
+      secondAttemptBadge: flow1Sent && !contactedYet,
+    });
+  });
+
+  // v14.28 — Flow 3: 2nd attempt email. Sends via Resend using email_flow3 template.
+  // Requires prior Flow 1 send AND no contact outcome AND daily cap not hit. Awards +5.
+  app.post("/api/leads/:id/email-flow3", async (req, res) => {
+    const leadId = parseInt(req.params.id);
+    const { agentId } = req.body;
+    const lead = storage.getLeadById(leadId) as any;
+    if (!lead) return res.status(404).json({ error: "Lead not found" });
+    if (!lead.email || !String(lead.email).includes("@")) {
+      return res.status(400).json({ error: "Lead has no email address" });
+    }
+
+    // Eligibility recheck server-side
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const flow1Row = rawDb.prepare(`
+      SELECT id FROM lead_activity WHERE lead_id = ? AND outcome = 'email_sent' LIMIT 1
+    `).get(leadId);
+    if (!flow1Row) return res.status(400).json({ error: "Cannot send 2nd attempt \u2014 no prior email on this lead" });
+    const contactedRow = rawDb.prepare(`
+      SELECT id FROM lead_activity WHERE lead_id = ? AND outcome IN ('contacted_appointment','keep_in_touch','contacted_not_interested') LIMIT 1
+    `).get(leadId);
+    if (contactedRow) return res.status(400).json({ error: "Cannot send 2nd attempt \u2014 lead already contacted" });
+    const capRow = rawDb.prepare(`
+      SELECT id FROM lead_activity WHERE lead_id = ? AND outcome = 'email_sent' AND created_at > ? LIMIT 1
+    `).get(leadId, dayAgo);
+    if (capRow) return res.status(429).json({ error: "Already emailed within last 24h", capped: true });
+
+    if (!resend) return res.status(503).json({ error: "Email service not configured" });
+
+    const agent = agentId ? storage.getAgentById(parseInt(String(agentId))) as any : null;
+    const ownerFirst = ((lead.ownerName || "").trim().split(/\s+/)[0] || "there");
+    const agentFull = agent?.name || "";
+    const agentFirst = (agentFull.trim().split(/\s+/)[0] || "");
+    const agentEmail = agent?.email || "noreply@watsonbrothersgroup.com";
+    const agentPhone = agent?.phone || "";
+    const tpl = loadEmailTemplate("email_flow3");
+    if (!tpl) return res.status(500).json({ error: "Flow 3 template missing" });
+    const vars = {
+      ownerFirst,
+      ownerName: lead.ownerName || "",
+      address:   lead.address || "",
+      agentFirst,
+      agentFull,
+      agentPhone,
+      agentEmail,
+    };
+    const subject = renderTemplate(tpl.subject, vars);
+    const plainText = renderTemplate(tpl.body, vars);
+    const htmlBody = plainText
+      .split(/\n\s*\n/)
+      .map(p => `<p style="margin:0 0 18px">${p.trim().replace(/\n/g, "<br>").replace(/</g, "&lt;")}</p>`)
+      .join("\n  ");
+    const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f7f5f0;font-family:Georgia,'Times New Roman',serif;color:#2a2620;font-size:16px;line-height:1.6"><div style="max-width:560px;margin:0 auto;padding:32px 24px">${htmlBody}</div></body></html>`;
+
+    try {
+      await resend.emails.send({
+        from:      `${agentFull || "Brothers Group"} <noreply@watsonbrothersgroup.com>`,
+        to:        [lead.email],
+        reply_to:  agentEmail,
+        subject,
+        html,
+        text:      plainText,
+      } as any);
+      const nowIso = new Date().toISOString();
+      rawDb.prepare(`
+        INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
+        VALUES (?, ?, 'email_sent', ?, NULL, ?)
+      `).run(leadId, agentId || null, `flow3-second-attempt sent to ${lead.email}`, nowIso);
+      if (agentId) awardPoints(parseInt(String(agentId)), "email_sent_value", leadId);
+      pushEmailNoteToFub({
+        ownerPhone: lead.phone || undefined,
+        ownerName:  ownerFirst,
+        subject,
+        sentAt:     nowIso,
+        preview:    plainText.slice(0, 260),
+        kind:       "Flow 3 \u2014 2nd Attempt (manual)",
+      }).catch(err => console.error("[FUB] Flow 3 note push failed:", err));
+      console.log(`[Flow3] sent for lead ${leadId} to ${lead.email} (agent ${agentId || "unknown"})`);
+      res.json({ sent: true, points: 5 });
+    } catch (e: any) {
+      console.error(`[Flow3] send failed for lead ${leadId}:`, e.message);
+      res.status(500).json({ error: "Send failed", detail: e.message });
+    }
+  });
+
+  // v14.26 — Public endpoint for the client to fetch a rendered mailto for Flow 1 or Flow 3.
+  // GET /api/leads/:id/email-template?flow=1&agentId=3
+  app.get("/api/leads/:id/email-template", (req, res) => {
+    const leadId = parseInt(req.params.id);
+    const flow = String(req.query.flow || "1");
+    const agentId = req.query.agentId ? parseInt(String(req.query.agentId)) : null;
+    const lead = storage.getLeadById(leadId);
+    if (!lead) return res.status(404).json({ error: "Lead not found" });
+    const agent = agentId ? storage.getAgentById(agentId) : null;
+    const key = flow === "3" ? "email_flow3" : "email_flow1";
+    const tpl = loadEmailTemplate(key);
+    if (!tpl) return res.status(404).json({ error: "Template not found" });
+    const ownerName = (lead as any).ownerName || "";
+    const ownerFirst = (ownerName.trim().split(/\s+/)[0] || "there");
+    const agentFull = agent?.name || "";
+    const agentFirst = (agentFull.trim().split(/\s+/)[0] || "");
+    const vars = {
+      ownerFirst,
+      ownerName,
+      address: (lead as any).address || "",
+      agentFirst,
+      agentFull,
+      agentPhone: (agent as any)?.phone || "",
+      agentEmail: (agent as any)?.email || "",
+    };
+    res.json({
+      subject: renderTemplate(tpl.subject, vars),
+      body:    renderTemplate(tpl.body, vars),
+    });
+  });
 
   app.get("/api/scripts/:type", (req, res) => {
     const leadType = req.params.type;
@@ -3351,7 +3739,7 @@ This template is for informational/outreach purposes only.`;
     const agentStatsMap: Record<number, any> = {};
     for (const r of agentStatsRows) agentStatsMap[r.agent_id] = r;
 
-    // v14.25 — pull points from agent_points table for unified leaderboard sort
+    // v14.28 — pull points from agent_points table for unified leaderboard sort
     const ptsSqlA = `SELECT agent_id, SUM(points) as total FROM agent_points WHERE scope = 'seller' ${resetAt ? "AND created_at >= ?" : ""} GROUP BY agent_id`;
     const ptsRowsA: any[] = rawDb.prepare(ptsSqlA).all(...(resetAt ? [resetAt] : []));
     const ptsMapA: Record<number, number> = {};
@@ -3380,7 +3768,7 @@ This template is for informational/outreach purposes only.`;
         },
       };
     });
-    // v14.25 — Unified sort: Appts → Points → Dials (appts are the #1 goal)
+    // v14.28 — Unified sort: Appts → Points → Dials (appts are the #1 goal)
     stats.sort((a, b) =>
       (b.appointmentsSet - a.appointmentsSet) ||
       (b.points - a.points) ||
@@ -3453,7 +3841,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.25 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.28 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -3699,7 +4087,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.25",
+      version: "v14.28",
       services: results,
     });
   });

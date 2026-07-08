@@ -11,8 +11,14 @@ import { ScrollText, Save, RotateCcw, Edit3 } from "lucide-react";
 // The former distressed / website_lead / fsbo / land / email_outreach scripts have
 // been retired to keep the Scripts admin tightly focused on what agents actually dial.
 const SCRIPT_TYPES = [
-  { key: "expired",   label: "Expired Listing Script",   accentColor: "#fdab43" },
-  { key: "absentee",  label: "Absentee Owner Script",    accentColor: "#c8aa5a" },
+  { key: "expired",     label: "Expired Listing Script",        accentColor: "#fdab43", group: "call" },
+  { key: "absentee",    label: "Absentee Owner Script",         accentColor: "#c8aa5a", group: "call" },
+  // v14.26 — Editable email templates. Format: first line "Subject: \u2026" then body.
+  // Placeholders: {ownerFirst} {ownerName} {address} {agentFirst} {agentFull} {agentPhone} {agentEmail} {timing} {apptDate} {apptTime}
+  { key: "email_flow1", label: "Flow 1 \u2014 Cold Email (mailto)",     accentColor: "#9ec5fe", group: "email" },
+  { key: "email_flow2", label: "Flow 2 \u2014 KIT Credibility (auto)",  accentColor: "#9ec5fe", group: "email" },
+  { key: "email_flow3", label: "Flow 3 \u2014 2nd Attempt (manual)",    accentColor: "#9ec5fe", group: "email" },
+  { key: "email_flow4", label: "Flow 4 \u2014 Appointment Warm (auto)", accentColor: "#9ec5fe", group: "email" },
 ] as const;
 
 type ScriptKey = typeof SCRIPT_TYPES[number]["key"];
@@ -184,7 +190,26 @@ export default function ScriptEditor() {
           Scripts appear on each agent's lead card during calls. Edit anytime — changes go live immediately across all active agent sessions.
         </p>
       </div>
-      {SCRIPT_TYPES.map(s => (
+      {SCRIPT_TYPES.filter(s => s.group === "call").map(s => (
+        <ScriptEditorPanel key={s.key} leadType={s.key} label={s.label} accentColor={s.accentColor} />
+      ))}
+
+      <div style={{ marginTop: 32 }}>
+        <h2 style={{
+          fontFamily: "'Cormorant Garamond','Georgia',serif",
+          fontSize: "1.3rem", fontWeight: 300, color: "#fff",
+          display: "flex", alignItems: "center", gap: 8, marginBottom: 4,
+        }}>
+          <ScrollText size={15} style={{ color: "rgba(158,197,254,0.7)" }} />
+          Email Templates
+        </h2>
+        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", letterSpacing: "0.02em", marginBottom: 12 }}>
+          Editable templates for all four email flows. First line must be <code style={{ color: "#9ec5fe" }}>Subject: …</code> — rest is the body.
+          Placeholders: <code style={{ color: "#c8aa5a" }}>{`{ownerFirst}`}</code> <code style={{ color: "#c8aa5a" }}>{`{address}`}</code> <code style={{ color: "#c8aa5a" }}>{`{agentFull}`}</code> <code style={{ color: "#c8aa5a" }}>{`{agentPhone}`}</code> <code style={{ color: "#c8aa5a" }}>{`{agentEmail}`}</code> <code style={{ color: "#c8aa5a" }}>{`{apptDate}`}</code> <code style={{ color: "#c8aa5a" }}>{`{apptTime}`}</code>
+        </p>
+      </div>
+
+      {SCRIPT_TYPES.filter(s => s.group === "email").map(s => (
         <ScriptEditorPanel key={s.key} leadType={s.key} label={s.label} accentColor={s.accentColor} />
       ))}
     </div>

@@ -165,6 +165,15 @@ function buildLpmamabNote(opts: {
     appointment?: string;
     buy?: string;
   };
+  // v14.20 — Buyer LPMAMA (only rendered when alsoBuying=true)
+  alsoBuying?: boolean;
+  buyerLpmama?: {
+    location?: string;
+    price?: string;
+    motivation?: string;
+    agent?: string;
+    mortgage?: string;
+  };
   apptDate?: string;
   apptTime?: string;
   stage?: string;
@@ -173,7 +182,7 @@ function buildLpmamabNote(opts: {
   apptEmail?: string;
   address?: string;
 }): string {
-  const { agentName, outcome, notes, lpmamab, apptDate, apptTime, stage, intention, confirmedAddress, apptEmail, address } = opts;
+  const { agentName, outcome, notes, lpmamab, alsoBuying, buyerLpmama, apptDate, apptTime, stage, intention, confirmedAddress, apptEmail, address } = opts;
 
   const outcomeLabel: Record<string, string> = {
     contacted_appointment:    "✅ APPOINTMENT SET",
@@ -203,6 +212,18 @@ function buildLpmamabNote(opts: {
     if (lpmamab.mortgage)    lines.push(`M — Mortgage:    ${lpmamab.mortgage}`);
     if (lpmamab.appointment) lines.push(`A — Appointment: ${lpmamab.appointment}`);
     if (lpmamab.buy)         lines.push(`B — Buyer:       ${lpmamab.buy}`);
+    lines.push(``);
+  }
+
+  // v14.20 — Buyer LPMAMA block (only when they said yes to also buying)
+  if (alsoBuying) {
+    lines.push(`── BUYER LPMAMA ────────────`);
+    lines.push(`Also buying: YES`);
+    if (buyerLpmama?.location)   lines.push(`B-L — Location:   ${buyerLpmama.location}`);
+    if (buyerLpmama?.price)      lines.push(`B-P — Price:      ${buyerLpmama.price}`);
+    if (buyerLpmama?.motivation) lines.push(`B-M — Motivation: ${buyerLpmama.motivation}`);
+    if (buyerLpmama?.agent)      lines.push(`B-A — Agent:      ${buyerLpmama.agent}`);
+    if (buyerLpmama?.mortgage)   lines.push(`B-M — Mortgage:   ${buyerLpmama.mortgage}`);
     lines.push(``);
   }
 
@@ -246,6 +267,13 @@ export interface FubOutcomePayload {
     lMortgage?: string;
     lAppointment?: string;
     lBuy?: string;
+    // v14.20 — Buyer LPMAMA
+    alsoBuying?: boolean;
+    bLocation?: string;
+    bPrice?: string;
+    bMotivation?: string;
+    bAgent?: string;
+    bMortgage?: string;
   };
   agent: {
     id: number;
@@ -262,6 +290,13 @@ export interface FubOutcomePayload {
     mortgage?: string;
     appointment?: string;
     buy?: string;
+    // v14.20 — Buyer LPMAMA (from AgentView payload)
+    alsoBuying?: boolean;
+    bLocation?: string;
+    bPrice?: string;
+    bMotivation?: string;
+    bAgent?: string;
+    bMortgage?: string;
   };
   apptDate?: string;
   apptTime?: string;
@@ -356,6 +391,15 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
       mortgage:    lead.lMortgage    || undefined,
       appointment: lead.lAppointment || undefined,
       buy:         lead.lBuy         || undefined,
+    },
+    // v14.20 — Buyer LPMAMA. Prefer live form payload; fall back to lead row.
+    alsoBuying: !!(lpmamab?.alsoBuying ?? lead.alsoBuying),
+    buyerLpmama: {
+      location:   (lpmamab?.bLocation)   || lead.bLocation   || undefined,
+      price:      (lpmamab?.bPrice)      || lead.bPrice      || undefined,
+      motivation: (lpmamab?.bMotivation) || lead.bMotivation || undefined,
+      agent:      (lpmamab?.bAgent)      || lead.bAgent      || undefined,
+      mortgage:   (lpmamab?.bMortgage)   || lead.bMortgage   || undefined,
     },
     apptDate,
     apptTime,

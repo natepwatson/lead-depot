@@ -68,7 +68,14 @@ export const leads = sqliteTable("leads", {
   lAgentHistory: text("l_agent_history"), // A - Agent (have they worked with an agent?)
   lMortgage: text("l_mortgage"),        // M - Mortgage (what do they owe?)
   lAppointment: text("l_appointment"),  // A - Appointment (are they available to meet?)
-  lBuy: text("l_buy"),                  // B - Buyer (do they want to buy after selling?)
+  lBuy: text("l_buy"),                  // B - Buyer (do they want to buy after selling?) [v14.20 — replaced in UI by alsoBuying toggle, kept for backfill]
+  // v14.20 — Buyer LPMAMA (only populated when alsoBuying=true)
+  alsoBuying: integer("also_buying").default(0),   // 0 = no, 1 = yes
+  bLocation: text("b_location"),        // B-L Location — where do they want to buy?
+  bPrice: text("b_price"),              // B-P Price — budget
+  bMotivation: text("b_motivation"),    // B-M Motivation — why buying?
+  bAgent: text("b_agent"),              // B-A Agent — working with anyone?
+  bMortgage: text("b_mortgage"),        // B-M Mortgage — pre-approved / cash?
   // Geographic fields (city/state/zip — from BatchLeads, CSV, or geocoding)
   city: text("city"),
   state: text("state"),

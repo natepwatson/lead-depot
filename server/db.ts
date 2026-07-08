@@ -73,6 +73,12 @@ if (!leadCols.includes("l_agent_history")) rawDb.prepare("ALTER TABLE leads ADD 
 if (!leadCols.includes("l_mortgage"))      rawDb.prepare("ALTER TABLE leads ADD COLUMN l_mortgage TEXT").run();
 if (!leadCols.includes("l_appointment"))   rawDb.prepare("ALTER TABLE leads ADD COLUMN l_appointment TEXT").run();
 if (!leadCols.includes("l_buy"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN l_buy TEXT").run();
+if (!leadCols.includes("also_buying"))     rawDb.prepare("ALTER TABLE leads ADD COLUMN also_buying INTEGER DEFAULT 0").run();
+if (!leadCols.includes("b_location"))      rawDb.prepare("ALTER TABLE leads ADD COLUMN b_location TEXT").run();
+if (!leadCols.includes("b_price"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN b_price TEXT").run();
+if (!leadCols.includes("b_motivation"))    rawDb.prepare("ALTER TABLE leads ADD COLUMN b_motivation TEXT").run();
+if (!leadCols.includes("b_agent"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN b_agent TEXT").run();
+if (!leadCols.includes("b_mortgage"))      rawDb.prepare("ALTER TABLE leads ADD COLUMN b_mortgage TEXT").run();
 if (!leadCols.includes("score"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN score INTEGER DEFAULT 0").run();
 if (!leadCols.includes("territory"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN territory TEXT").run();
 if (!leadCols.includes("source"))          rawDb.prepare("ALTER TABLE leads ADD COLUMN source TEXT DEFAULT 'csv_upload'").run();

@@ -30,15 +30,26 @@ function LogoIcon({ size = 28 }: { size?: number }) {
   );
 }
 
-// ─── LPMAMAB fields config ────────────────────────────────────────────────────
-const LPMAMAB_FIELDS = [
+// ─── LPMAMA fields config ─────────────────────────────────────────────────────
+// v14.20 — split into SELLER (6 fields, drops the buyer catch-all) and BUYER (5 fields,
+// only shown when the seller says they're also buying). The Buyer LPMAMA is the whole
+// point of the redesign: we can now give buyer-side service without cramming it into
+// a single text field.
+const SELLER_LPMAMA_FIELDS = [
   { key: "location",    label: "L — Location",    color: "#c8aa5a", hint: "Where do they want to go? Area preferences?",           leadField: "lLocation" },
   { key: "price",       label: "P — Price",       color: "#e2d5b0", hint: "What are they thinking price-wise? Ballpark only.",      leadField: "lPricePaid" },
   { key: "motivation",  label: "M — Motivation",  color: "#7ec8e3", hint: "Why are they selling? Divorce, downsizing, job move?",   leadField: "lMotivation" },
   { key: "agent",       label: "A — Agent",       color: "#a8d5a2", hint: "Are they working with an agent already?",                leadField: "lAgentHistory" },
   { key: "mortgage",    label: "M — Mortgage",    color: "#e2d5b0", hint: "Do they have a loan? Paid off? Roughly what's owed?",   leadField: "lMortgage" },
   { key: "appointment", label: "A — Appointment", color: "#c8aa5a", hint: "Are they open to a meeting? Any dates that work?",       leadField: "lAppointment" },
-  { key: "buyer",       label: "B — Buyer",       color: "#a8d5a2", hint: "Are they also buying after? What are they looking for?", leadField: "lBuy" },
+] as const;
+
+const BUYER_LPMAMA_FIELDS = [
+  { key: "bLocation",   label: "B-L — Location",   color: "#93c5fd", hint: "Where do they want to buy? Area / school district?",           leadField: "bLocation" },
+  { key: "bPrice",      label: "B-P — Price",      color: "#93c5fd", hint: "What's their budget? Comfortable price range?",                 leadField: "bPrice" },
+  { key: "bMotivation", label: "B-M — Motivation", color: "#93c5fd", hint: "Why buying? Upsizing, downsizing, first home, investment?",     leadField: "bMotivation" },
+  { key: "bAgent",      label: "B-A — Agent",      color: "#93c5fd", hint: "Working with a buyer's agent already? Signed anything?",        leadField: "bAgent" },
+  { key: "bMortgage",   label: "B-M — Mortgage",   color: "#93c5fd", hint: "Pre-approved? Cash? Need a lender referral?",                    leadField: "bMortgage" },
 ] as const;
 
 // ─── Outcome configs ───────────────────────────────────────────────────────────
@@ -381,20 +392,27 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [hoveredOutcome, setHoveredOutcome] = useState<string | null>(null);
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
   const [pendingRecycle, setPendingRecycle] = useState(false);
-  const [lpmOpen, setLpmOpen] = useState(false);
-  // v14.16 — Expired-only Tone Rules chevron. Default open on first render so agents see it.
-  const [toneOpen, setToneOpen] = useState(true);
+  // v14.20 — lpmOpen/toneOpen state removed. Seller LPMAMA is always visible;
+  // Tone Rules + Guardrails + Branch Cues moved to the Scripts admin page.
   const [outcomeFlash, setOutcomeFlash] = useState<{ label: string; color: string } | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [lpmData, setLpmData] = useState<Record<string, string>>({
+    // Seller LPMAMA
     location: lead.lLocation ?? "",
     price: lead.lPricePaid ?? "",
     motivation: lead.lMotivation ?? "",
     agent: lead.lAgentHistory ?? "",
     mortgage: lead.lMortgage ?? "",
     appointment: lead.lAppointment ?? "",
-    buyer: lead.lBuy ?? "",
+    // Buyer LPMAMA (v14.20)
+    bLocation:   (lead as any).bLocation   ?? "",
+    bPrice:      (lead as any).bPrice      ?? "",
+    bMotivation: (lead as any).bMotivation ?? "",
+    bAgent:      (lead as any).bAgent      ?? "",
+    bMortgage:   (lead as any).bMortgage   ?? "",
   });
+  // v14.20 — Also buying toggle. Unfolds Buyer LPMAMA when YES.
+  const [alsoBuying, setAlsoBuying] = useState<boolean>(!!(lead as any).alsoBuying);
 
   const extra = (() => { try { return JSON.parse(lead.extraData || "{}"); } catch { return {}; } })();
 
@@ -439,7 +457,13 @@ function LeadCard({ lead }: { lead: Lead }) {
 
   const outcomeMutation = useMutation({
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string; followUpTiming?: string }) =>
-      apiRequest("POST", `/api/leads/${lead.id}/outcome`, { ...data, agentId: user?.id, lpmamab: lpmData }).then(r => r.json()),
+      // v14.20 — include alsoBuying + Buyer LPMAMA inside lpmamab payload so
+      // server /outcome handler + pushOutcomeToFub both get the buyer context.
+      apiRequest("POST", `/api/leads/${lead.id}/outcome`, {
+        ...data,
+        agentId: user?.id,
+        lpmamab: { ...lpmData, alsoBuying },
+      }).then(r => r.json()),
     onSuccess: (data, variables) => {
       // Show success flash for 900ms, then load next lead
       const flash = OUTCOME_FLASH[variables.outcome] ?? { label: "Outcome Logged", color: "#c8aa5a" };
@@ -878,153 +902,48 @@ function LeadCard({ lead }: { lead: Lead }) {
 
       <GoldDivider />
 
-      {/* ── Script (inline) ── */}
-      <div style={{ borderTop: "1px solid rgba(200,170,90,0.15)", padding: "18px 20px 0" }}>
+      {/* v14.20 ── CALL SCRIPT (Tone Rules / Guardrails / Branch Cues moved to Scripts admin) ── */}
+      <div style={{ padding: "18px 20px 20px" }}>
         <SectionLabel>Call Script</SectionLabel>
         <pre style={{
-          fontSize: 12, color: "rgba(255,255,255,0.7)", whiteSpace: "pre-wrap", lineHeight: 1.7,
+          fontSize: 13, color: "rgba(255,255,255,0.78)", whiteSpace: "pre-wrap", lineHeight: 1.7,
           fontFamily: "'Switzer','Inter',sans-serif",
-          background: "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(200,170,90,0.15)", borderRadius: 8, padding: "14px",
-          maxHeight: 220, overflowY: "auto", marginBottom: 18,
+          background: "rgba(200,170,90,0.04)",
+          border: "1px solid rgba(200,170,90,0.22)", borderRadius: 10, padding: "16px 16px 14px",
+          maxHeight: 260, overflowY: "auto", margin: 0,
         }}>
           {script?.content || "No script saved for this lead type."}
         </pre>
       </div>
 
-      {/* v14.16 ── Expired-only Tone Rules + Guardrails + Branch cue cards ── */}
-      {lead.leadType === "expired" && (
-        <div style={{ padding: "0 20px 18px" }}>
-          {/* Tone Rules chevron (default open) */}
-          <button
-            onClick={() => setToneOpen(o => !o)}
-            style={{
-              width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-              background: "none", border: "none", cursor: "pointer", padding: 0,
-              marginBottom: toneOpen ? 10 : 0,
-            }}
-          >
-            <SectionLabel style={{ margin: 0 }}>Tone Rules</SectionLabel>
-            <ChevronDown size={14} style={{ color: "rgba(200,170,90,0.5)", transform: toneOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
-          </button>
-          {toneOpen && (
-            <ul style={{
-              margin: 0, padding: "10px 14px", listStyle: "none",
-              background: "rgba(200,170,90,0.05)", border: "1px solid rgba(200,170,90,0.18)",
-              borderRadius: 8, marginBottom: 14,
-              fontSize: 12, lineHeight: 1.65, color: "rgba(255,255,255,0.72)",
-            }}>
-              <li style={{ padding: "3px 0" }}>• Here for the easy yes's — not to force the no's.</li>
-              <li style={{ padding: "3px 0" }}>• No rush. Value their time.</li>
-              <li style={{ padding: "3px 0" }}>• Understand first. Guide, don't push.</li>
-              <li style={{ padding: "3px 0" }}>• Skip the company name in the opener — introduce yourself, then the house.</li>
-            </ul>
-          )}
-
-          {/* Agent Guardrails block — always visible */}
-          <div style={{
-            padding: "10px 14px", marginBottom: 14,
-            background: "rgba(220,80,80,0.06)", border: "1px solid rgba(220,80,80,0.22)",
-            borderRadius: 8,
-          }}>
-            <p style={{
-              margin: "0 0 6px", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase",
-              color: "rgba(240,120,120,0.85)", fontWeight: 700,
-            }}>Guardrails — do NOT</p>
-            <ul style={{ margin: 0, padding: 0, listStyle: "none", fontSize: 12, lineHeight: 1.6, color: "rgba(255,255,255,0.65)" }}>
-              <li style={{ padding: "2px 0" }}>✗ Sound rushed or create false urgency</li>
-              <li style={{ padding: "2px 0" }}>✗ Push for an appointment before you understand the situation</li>
-              <li style={{ padding: "2px 0" }}>✗ Lead with the company name or a hard pitch</li>
-              <li style={{ padding: "2px 0" }}>✗ Interrupt or overtalk after they answer</li>
-              <li style={{ padding: "2px 0" }}>✗ Make the seller feel trapped in the call</li>
-            </ul>
-          </div>
-
-          {/* Branch cue cards mini-grid */}
-          <p style={{
-            margin: "0 0 8px", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase",
-            color: "rgba(200,170,90,0.65)", fontWeight: 700,
-          }}>Branch Cues</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 4 }}>
-            <div style={{
-              padding: "10px 12px", background: "rgba(72,187,120,0.06)",
-              border: "1px solid rgba(72,187,120,0.28)", borderRadius: 8,
-            }}>
-              <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: "#68d391", letterSpacing: "0.05em" }}>NO PLAN YET → APPOINTMENT</p>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.55, fontStyle: "italic" }}>
-                “That's exactly why we should probably just swing by for five minutes — a quick walk-through and a free quote so you know your options.”
-              </p>
-            </div>
-            <div style={{
-              padding: "10px 12px", background: "rgba(147,197,253,0.06)",
-              border: "1px solid rgba(147,197,253,0.28)", borderRadius: 8,
-            }}>
-              <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.05em" }}>NOT READY, WARM → KEEP IN TOUCH</p>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.55, fontStyle: "italic" }}>
-                Ask for email + best time to check back. Don't push. “I'll send an intro so you have a name and a face — no pitch.”
-              </p>
-            </div>
-            <div style={{
-              padding: "10px 12px", background: "rgba(200,170,90,0.06)",
-              border: "1px solid rgba(200,170,90,0.28)", borderRadius: 8,
-            }}>
-              <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: "#c8aa5a", letterSpacing: "0.05em" }}>BUSY, NOT NEGATIVE → RECYCLE</p>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.55, fontStyle: "italic" }}>
-                Don't force the call. One tap on Recycle — lead goes back to the pool for a later attempt.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Notes ── */}
-      <div style={{ padding: "0 20px 18px" }}>
-        <SectionLabel>Call Notes</SectionLabel>
-        <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Enter call notes…"
-          className="min-h-[80px] text-sm leading-relaxed resize-none"
-          style={{
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(200,170,90,0.2)",
-            color: "rgba(255,255,255,0.85)",
-            fontFamily: "'Switzer','Inter',sans-serif",
-            borderRadius: 8,
-          }}
-        />
-      </div>
-
-      {/* ── LPMAMAB ── */}
-      <div style={{ padding: "0 20px 18px" }}>
-        <button
-          onClick={() => setLpmOpen(o => !o)}
-          style={{
-            width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-            background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: lpmOpen ? 14 : 0,
-          }}
-        >
-          <SectionLabel style={{ margin: 0 }}>LPMAMAB Notes</SectionLabel>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {Object.values(lpmData).some(v => v.trim()) && (
-              <span style={{ fontSize: 9, letterSpacing: "0.12em", color: "#c8aa5a", background: "rgba(200,170,90,0.12)", padding: "2px 7px", borderRadius: 99 }}>
+      {/* v14.20 ── SELLER LPMAMA (6 fields, always visible — no chevron) ── */}
+      <div style={{ padding: "0 20px 20px" }}>
+        <div style={{
+          background: "linear-gradient(180deg, rgba(200,170,90,0.06), rgba(200,170,90,0.02))",
+          border: "1px solid rgba(200,170,90,0.22)", borderRadius: 12,
+          padding: "14px 14px 12px",
+        }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+            <SectionLabel style={{ margin: 0 }}>Seller LPMAMA</SectionLabel>
+            {SELLER_LPMAMA_FIELDS.some(f => lpmData[f.key]?.trim()) && (
+              <span style={{ fontSize: 9, letterSpacing: "0.12em", color: "#c8aa5a", background: "rgba(200,170,90,0.14)", padding: "2px 8px", borderRadius: 99 }}>
                 FILLED
               </span>
             )}
-            <ChevronDown size={14} style={{ color: "rgba(200,170,90,0.5)", transform: lpmOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
           </div>
-        </button>
-        {lpmOpen && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {LPMAMAB_FIELDS.map(f => (
+            {SELLER_LPMAMA_FIELDS.map(f => (
               <div key={f.key}>
-                <label style={{ display: "block", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: f.color, fontWeight: 700, marginBottom: 5, opacity: 0.8 }}>{f.label}</label>
+                <label style={{ display: "block", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: f.color, fontWeight: 700, marginBottom: 5, opacity: 0.85 }}>{f.label}</label>
                 <input
                   value={lpmData[f.key] ?? ""}
                   onChange={e => setLpmData(d => ({ ...d, [f.key]: e.target.value }))}
                   placeholder={f.hint}
                   style={{
                     width: "100%",
-                    background: "rgba(255,255,255,0.04)",
-                    border: `1px solid ${lpmData[f.key]?.trim() ? f.color + "55" : "rgba(255,255,255,0.1)"}`,
-                    padding: "9px 12px", borderRadius: 7,
+                    background: "rgba(255,255,255,0.05)",
+                    border: `1px solid ${lpmData[f.key]?.trim() ? f.color + "66" : "rgba(255,255,255,0.10)"}`,
+                    padding: "10px 12px", borderRadius: 8,
                     color: "#fff", fontSize: 13,
                     fontFamily: "'Switzer','Inter',sans-serif",
                     outline: "none", boxSizing: "border-box" as const,
@@ -1033,19 +952,120 @@ function LeadCard({ lead }: { lead: Lead }) {
                 />
               </div>
             ))}
-            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", lineHeight: 1.5, margin: "4px 0 0" }}>
-              These are conversational notes — rough ballparks, not confirmed numbers. Real details get locked in at the appointment.
-            </p>
           </div>
-        )}
+        </div>
       </div>
 
-      <GoldDivider />
+      {/* v14.20 ── ALSO BUYING? Yes/No pill toggle ── */}
+      <div style={{ padding: "0 20px 18px" }}>
+        <div style={{
+          background: alsoBuying ? "rgba(59,130,246,0.08)" : "rgba(255,255,255,0.03)",
+          border: `1px solid ${alsoBuying ? "rgba(59,130,246,0.35)" : "rgba(255,255,255,0.10)"}`,
+          borderRadius: 12, padding: "14px 14px",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+          transition: "all 0.18s ease",
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.9)" }}>
+              Also buying?
+            </p>
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "rgba(255,255,255,0.5)", lineHeight: 1.4 }}>
+              If yes, we'll capture Buyer LPMAMA and give both sides service.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            {[
+              { key: false, label: "No",  activeBg: "rgba(148,163,184,0.20)", activeText: "rgb(226,232,240)", activeBorder: "rgba(148,163,184,0.5)" },
+              { key: true,  label: "Yes", activeBg: "rgba(59,130,246,0.22)",  activeText: "rgb(147,197,253)", activeBorder: "rgba(59,130,246,0.6)" },
+            ].map(opt => {
+              const active = alsoBuying === opt.key;
+              return (
+                <button key={String(opt.key)} onClick={() => setAlsoBuying(opt.key)}
+                  style={{
+                    minWidth: 60, minHeight: 40,
+                    background: active ? opt.activeBg : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${active ? opt.activeBorder : "rgba(255,255,255,0.10)"}`,
+                    color: active ? opt.activeText : "rgba(255,255,255,0.55)",
+                    borderRadius: 999, padding: "8px 16px",
+                    fontSize: 12, fontWeight: 700, letterSpacing: "0.06em",
+                    cursor: "pointer", transition: "all 0.15s ease",
+                  }}
+                >{opt.label}</button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
-      {/* ── Outcome buttons + Recycle (symmetrical 3×2 grid) ── */}
-      <div style={{ padding: "0 20px 24px" }}>
-        <SectionLabel>Log Outcome</SectionLabel>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
+      {/* v14.20 ── BUYER LPMAMA (conditional on alsoBuying === true) ── */}
+      {alsoBuying && (
+        <div style={{ padding: "0 20px 18px" }}>
+          <div style={{
+            background: "linear-gradient(180deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02))",
+            border: "1px solid rgba(59,130,246,0.28)", borderRadius: 12,
+            padding: "14px 14px 12px",
+          }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+              <p style={{ margin: 0, fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(147,197,253,0.85)", fontWeight: 600 }}>Buyer LPMAMA</p>
+              {BUYER_LPMAMA_FIELDS.some(f => lpmData[f.key]?.trim()) && (
+                <span style={{ fontSize: 9, letterSpacing: "0.12em", color: "#93c5fd", background: "rgba(59,130,246,0.18)", padding: "2px 8px", borderRadius: 99 }}>
+                  FILLED
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {BUYER_LPMAMA_FIELDS.map(f => (
+                <div key={f.key}>
+                  <label style={{ display: "block", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: f.color, fontWeight: 700, marginBottom: 5, opacity: 0.85 }}>{f.label}</label>
+                  <input
+                    value={lpmData[f.key] ?? ""}
+                    onChange={e => setLpmData(d => ({ ...d, [f.key]: e.target.value }))}
+                    placeholder={f.hint}
+                    style={{
+                      width: "100%",
+                      background: "rgba(255,255,255,0.05)",
+                      border: `1px solid ${lpmData[f.key]?.trim() ? f.color + "66" : "rgba(255,255,255,0.10)"}`,
+                      padding: "10px 12px", borderRadius: 8,
+                      color: "#fff", fontSize: 13,
+                      fontFamily: "'Switzer','Inter',sans-serif",
+                      outline: "none", boxSizing: "border-box" as const,
+                      transition: "border-color 0.15s",
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v14.20 ── CALL NOTES (last before outcomes) ── */}
+      <div style={{ padding: "0 20px 18px" }}>
+        <SectionLabel>Call Notes</SectionLabel>
+        <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth capturing…"
+          className="min-h-[90px] text-sm leading-relaxed resize-none"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(200,170,90,0.22)",
+            color: "rgba(255,255,255,0.9)",
+            fontFamily: "'Switzer','Inter',sans-serif",
+            borderRadius: 10, padding: "12px 14px",
+          }}
+        />
+      </div>
+
+      {/* v14.20 ── spacer so the sticky bottom bar never covers the last field ── */}
+      <div aria-hidden style={{ height: 176 }} />
+
+      {/* v14.20 ── STICKY OUTCOMES BAR (always visible, thumb reach) ── */}
+      <div style={{
+        position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 40,
+        background: "linear-gradient(180deg, rgba(10,14,22,0.75) 0%, rgba(10,14,22,0.96) 30%, rgba(10,14,22,0.98) 100%)",
+        backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+        borderTop: "1px solid rgba(200,170,90,0.22)",
+        padding: "10px 14px calc(10px + env(safe-area-inset-bottom, 0px))",
+      }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
           {OUTCOMES.map(o => {
             const Icon = o.icon;
             const isHovered = hoveredOutcome === o.key;
@@ -1053,17 +1073,17 @@ function LeadCard({ lead }: { lead: Lead }) {
               <button key={o.key} onClick={() => handleOutcome(o.key)} disabled={outcomeMutation.isPending}
                 onMouseEnter={() => setHoveredOutcome(o.key)} onMouseLeave={() => setHoveredOutcome(null)}
                 style={{
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-                  padding: "14px 8px",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
+                  padding: "9px 6px",
                   background: isHovered ? o.hoverBg : o.bg,
                   border: `1px solid ${isHovered ? o.text : o.border}`,
                   borderRadius: 10, cursor: "pointer",
-                  transition: "all 0.18s ease", minHeight: 70,
+                  transition: "all 0.18s ease", minHeight: 56,
                   opacity: outcomeMutation.isPending ? 0.6 : 1,
                 }}
               >
-                <Icon size={18} style={{ color: o.text }} />
-                <span style={{ fontSize: 10, fontWeight: 600, color: o.text, letterSpacing: "0.03em", textAlign: "center", lineHeight: 1.3 }}>{o.label}</span>
+                <Icon size={15} style={{ color: o.text }} />
+                <span style={{ fontSize: 10, fontWeight: 700, color: o.text, letterSpacing: "0.03em", textAlign: "center", lineHeight: 1.2 }}>{o.label}</span>
               </button>
             );
           })}

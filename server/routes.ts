@@ -177,7 +177,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.19 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.20 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -236,7 +236,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.19 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.20 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -388,7 +388,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.19 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.20 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -432,6 +432,12 @@ function toApiLead(r: any): any {
     lMortgage: r.l_mortgage,
     lAppointment: r.l_appointment,
     lBuy: r.l_buy,
+    alsoBuying: r.also_buying,
+    bLocation: r.b_location,
+    bPrice: r.b_price,
+    bMotivation: r.b_motivation,
+    bAgent: r.b_agent,
+    bMortgage: r.b_mortgage,
     uploadedAt: r.uploaded_at,
     uploadedBy: r.uploaded_by,
     batchId: r.batch_id,
@@ -1919,6 +1925,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
 
     // Save LPMAMAB fields if provided
+    // v14.20 — Buyer LPMAMA is stored on the lead when alsoBuying=true.
+    // The seller "buy" checkbox (lBuy) is retired in the UI but the column stays for backfill.
     const lpmamabUpdate = lpmamab ? {
       lLocation: lpmamab.location || lead.lLocation,
       lPricePaid: lpmamab.price || lead.lPricePaid,
@@ -1927,6 +1935,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       lMortgage: lpmamab.mortgage || lead.lMortgage,
       lAppointment: lpmamab.appointment || lead.lAppointment,
       lBuy: lpmamab.buy || lead.lBuy,
+      alsoBuying: (typeof lpmamab.alsoBuying === "boolean")
+        ? (lpmamab.alsoBuying ? 1 : 0)
+        : (lead.alsoBuying ?? 0),
+      bLocation:  lpmamab.bLocation  || lead.bLocation,
+      bPrice:     lpmamab.bPrice     || lead.bPrice,
+      bMotivation:lpmamab.bMotivation|| lead.bMotivation,
+      bAgent:     lpmamab.bAgent     || lead.bAgent,
+      bMortgage:  lpmamab.bMortgage  || lead.bMortgage,
     } : {};
 
     // Wrong number: strike this number; delete lead only if it was the last one
@@ -2116,6 +2132,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           lMortgage:      lead.lMortgage      || undefined,
           lAppointment:   lead.lAppointment   || undefined,
           lBuy:           lead.lBuy           || undefined,
+          // v14.20 — Buyer LPMAMA passthrough to FUB
+          alsoBuying:     !!(lpmamab?.alsoBuying ?? lead.alsoBuying),
+          bLocation:      (lpmamab?.bLocation)   || lead.bLocation   || undefined,
+          bPrice:         (lpmamab?.bPrice)      || lead.bPrice      || undefined,
+          bMotivation:    (lpmamab?.bMotivation) || lead.bMotivation || undefined,
+          bAgent:         (lpmamab?.bAgent)      || lead.bAgent      || undefined,
+          bMortgage:      (lpmamab?.bMortgage)   || lead.bMortgage   || undefined,
         },
         agent: {
           id:    fubAgent.id,
@@ -3628,7 +3651,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.19",
+      version: "v14.20",
       services: results,
     });
   });

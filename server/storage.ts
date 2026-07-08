@@ -68,6 +68,13 @@ try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_agent_history TEXT`); } catch 
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_mortgage TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_appointment TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_buy TEXT`); } catch {}
+// v14.20 — Buyer LPMAMA (only used when also_buying=1)
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN also_buying INTEGER DEFAULT 0`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_location TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_price TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_motivation TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_agent TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_mortgage TEXT`); } catch {}
 // lead_activity — lpmamab_snapshot column (v11.38)
 try { sqlite.exec(`ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT`); } catch {}
 
@@ -184,6 +191,12 @@ sqlite.exec(`
     l_mortgage TEXT,
     l_appointment TEXT,
     l_buy TEXT,
+    also_buying INTEGER DEFAULT 0,
+    b_location TEXT,
+    b_price TEXT,
+    b_motivation TEXT,
+    b_agent TEXT,
+    b_mortgage TEXT,
     uploaded_at TEXT NOT NULL DEFAULT '',
     uploaded_by INTEGER REFERENCES agents(id),
     batch_id TEXT,
@@ -377,6 +390,12 @@ export class Storage implements IStorage {
       lMortgage: r.l_mortgage,
       lAppointment: r.l_appointment,
       lBuy: r.l_buy,
+      alsoBuying: r.also_buying,
+      bLocation: r.b_location,
+      bPrice: r.b_price,
+      bMotivation: r.b_motivation,
+      bAgent: r.b_agent,
+      bMortgage: r.b_mortgage,
     }));
 
     return { rows: mapped, total: countRow?.n ?? 0 };

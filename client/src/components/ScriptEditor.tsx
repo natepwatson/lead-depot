@@ -7,13 +7,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollText, Save, RotateCcw, Edit3 } from "lucide-react";
 
+// v14.20 — Only two lead types run in production: Expired + Absentee.
+// The former distressed / website_lead / fsbo / land / email_outreach scripts have
+// been retired to keep the Scripts admin tightly focused on what agents actually dial.
 const SCRIPT_TYPES = [
-  { key: "expired",        label: "Expired Listing Script",     accentColor: "#fdab43" },
-  { key: "distressed",     label: "Distressed Property Script", accentColor: "#f87171" },
-  { key: "website_lead",   label: "Website Lead Script",        accentColor: "#93c5fd" },
-  { key: "fsbo",           label: "FSBO Script",                accentColor: "#c4b5fd" },
-  { key: "land",           label: "Land / Vacant Lot Script",   accentColor: "#6ee7b7" },
-  { key: "email_outreach", label: "Email Outreach Template",    accentColor: "#67e8f9" },
+  { key: "expired",   label: "Expired Listing Script",   accentColor: "#fdab43" },
+  { key: "absentee",  label: "Absentee Owner Script",    accentColor: "#c8aa5a" },
 ] as const;
 
 type ScriptKey = typeof SCRIPT_TYPES[number]["key"];

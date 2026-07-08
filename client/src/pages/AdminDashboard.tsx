@@ -17,11 +17,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  LogOut, Upload, Download, Users, BarChart3, BarChart2, List, Plus, Trash2,
+  LogOut, Upload, Download, Users, BarChart2, List, Plus, Trash2,
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
-  PhoneOff, PhoneMissed, Calendar, XCircle, CheckCircle2,
-  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, UserCheck, Heart, Map as MapIcon,
-  Clock, FileText, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings
+  PhoneMissed, Calendar, XCircle, CheckCircle2,
+  AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, Heart, Map as MapIcon,
+  Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 
@@ -1450,7 +1450,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.18
+              v14.19
             </p>
           </div>
         </div>
@@ -1507,7 +1507,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
       </header>
 
       <main style={{ padding: "20px 16px", maxWidth: 1200, margin: "0 auto" }}>
-        {/* v14.18 — Admin default landing = Leaderboard (leftmost). Leaderboard sub-tab defaults to Today (see lbTab state). */}
+        {/* v14.19 — Admin default landing = Leaderboard (leftmost). Leaderboard sub-tab defaults to Today (see lbTab state). */}
         <Tabs defaultValue="leaderboard">
           {/* ── Tab bar ──────────────────────────────────────────────────────── */}
           <TabsList style={{

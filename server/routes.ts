@@ -177,7 +177,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.23 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.24 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -236,7 +236,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.23 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.24 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -388,7 +388,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.23 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.24 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -3316,6 +3316,12 @@ This template is for informational/outreach purposes only.`;
     const agentStatsMap: Record<number, any> = {};
     for (const r of agentStatsRows) agentStatsMap[r.agent_id] = r;
 
+    // v14.24 — pull points from agent_points table for unified leaderboard sort
+    const ptsSqlA = `SELECT agent_id, SUM(points) as total FROM agent_points WHERE scope = 'seller' ${resetAt ? "AND created_at >= ?" : ""} GROUP BY agent_id`;
+    const ptsRowsA: any[] = rawDb.prepare(ptsSqlA).all(...(resetAt ? [resetAt] : []));
+    const ptsMapA: Record<number, number> = {};
+    for (const p of ptsRowsA) ptsMapA[p.agent_id] = p.total || 0;
+
     const stats = allAgents.map(agent => {
       const r = agentStatsMap[agent.id] || { total_all: 0, emails_sent: 0, appts: 0, no_answer: 0, kit: 0, not_int: 0 };
       const total = (r.total_all || 0) - (r.emails_sent || 0);
@@ -3331,6 +3337,7 @@ This template is for informational/outreach purposes only.`;
         totalAttempts: total,
         emailsSent: r.emails_sent || 0,
         contactRate: total > 0 ? Math.round((contacted / total) * 100) : 0,
+        points: ptsMapA[agent.id] || 0,
         outcomes: {
           contacted_appointment: r.appts || 0,
           no_answer: r.no_answer || 0,
@@ -3338,7 +3345,12 @@ This template is for informational/outreach purposes only.`;
         },
       };
     });
-    stats.sort((a, b) => b.appointmentsSet - a.appointmentsSet || b.totalAttempts - a.totalAttempts);
+    // v14.24 — Unified sort: Appts → Points → Dials (appts are the #1 goal)
+    stats.sort((a, b) =>
+      (b.appointmentsSet - a.appointmentsSet) ||
+      (b.points - a.points) ||
+      (b.totalAttempts - a.totalAttempts)
+    );
     res.json(stats);
   });
 
@@ -3406,7 +3418,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.23 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.24 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -3652,7 +3664,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.23",
+      version: "v14.24",
       services: results,
     });
   });

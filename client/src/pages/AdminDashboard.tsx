@@ -1450,7 +1450,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.23
+              v14.24
             </p>
           </div>
         </div>
@@ -1880,23 +1880,24 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               }}>
                 <div style={{ flex: 1, minWidth: 0 }} />
                 <div className="ld-lb-cols" style={{ display: "flex", gap: 20, textAlign: "center", alignItems: "center", flexShrink: 0 }}>
+                  {/* v14.24 — Unified column order: APPTS first & bold gold (the #1 goal), Points second, Dials third. Then supporting metrics. */}
                   {lbTab === "today" ? (
                     <>
+                      <div style={{ width: 54, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
+                      <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.07em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Appts</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
-                      <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.07em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                     </>
                   ) : (
                     <>
+                      <div style={{ width: 54, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
+                      <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.07em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Appts</div>
                       <div style={{ width: 52, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Conv%</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
-                      <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.07em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                     </>
                   )}
                 </div>
@@ -1914,12 +1915,16 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   No agents yet. Add agents in the Agents tab.
                 </div>
               ) : (() => {
-                // Sort: today → dials desc; weekly → appts desc then dials desc
-                const sorted = [...dualLb].sort((a, b) =>
-                  lbTab === "today"
-                    ? (b.today.dials - a.today.dials) || (b.today.appts - a.today.appts)
-                    : (b.weekly.appts - a.weekly.appts) || (b.weekly.dials - a.weekly.dials)
-                );
+                // v14.24 — UNIFIED SORT across Today + Weekly + Agent leaderboard:
+                // Appts → Points → Dials. Appts are the #1 goal; points break ties
+                // (points already weight appts 10× a dial), dials are the final tiebreaker.
+                const sorted = [...dualLb].sort((a, b) => {
+                  const sa = lbTab === "today" ? a.today : a.weekly;
+                  const sb = lbTab === "today" ? b.today : b.weekly;
+                  return (sb.appts - sa.appts) ||
+                         ((b.points || 0) - (a.points || 0)) ||
+                         (sb.dials - sa.dials);
+                });
                 return (
                   <div className="space-y-2">
                     {sorted.map((stat: any, idx: number) => {
@@ -2007,15 +2012,22 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             </div>
                           </div>
 
-                          {/* Stats columns */}
-                          <div className="ld-lb-cols" style={{ display: "flex", gap: 20, textAlign: "center", flexShrink: 0 }}>
+                          {/* Stats columns — v14.24: Appts hero (large gold), Points second, Dials third */}
+                          <div className="ld-lb-cols" style={{ display: "flex", gap: 20, textAlign: "center", alignItems: "center", flexShrink: 0 }}>
                             {lbTab === "today" ? (
                               <>
-                                <div style={{ width: 44 }}>
-                                  <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
+                                <div style={{ width: 54 }}>
+                                  <div style={{ fontSize: 24, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{s.appts}</div>
                                 </div>
                                 <div style={{ width: 44 }}>
-                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#86efac" }}>{s.appts}</div>
+                                  <div style={{
+                                    fontSize: 15, fontWeight: 700, color: "#c8aa5a",
+                                    background: "rgba(200,170,90,0.1)", borderRadius: 6,
+                                    padding: "2px 6px", display: "inline-block",
+                                  }}>{stat.points || 0}</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
                                 </div>
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#c4b5fd" }}>{s.kit}</div>
@@ -2026,6 +2038,12 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
                                 </div>
+                              </>
+                            ) : (
+                              <>
+                                <div style={{ width: 54 }}>
+                                  <div style={{ fontSize: 24, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{s.appts}</div>
+                                </div>
                                 <div style={{ width: 44 }}>
                                   <div style={{
                                     fontSize: 15, fontWeight: 700, color: "#c8aa5a",
@@ -2033,14 +2051,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                     padding: "2px 6px", display: "inline-block",
                                   }}>{stat.points || 0}</div>
                                 </div>
-                              </>
-                            ) : (
-                              <>
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
-                                </div>
-                                <div style={{ width: 44 }}>
-                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#86efac" }}>{s.appts}</div>
                                 </div>
                                 <div style={{ width: 52 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#67e8f9" }}>{s.convRate}%</div>

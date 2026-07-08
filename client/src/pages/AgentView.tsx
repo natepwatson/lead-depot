@@ -1203,6 +1203,7 @@ interface AgentStat {
   totalAttempts: number;
   emailsSent?: number;
   contactRate: number;
+  points?: number;                   // v14.24 — unified leaderboard metric
   outcomes: Record<string, number>;
 }
 
@@ -1402,7 +1403,20 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
   };
 
   const myStats = stats?.find(s => s.agent.id === user?.id);
-  const ranked  = stats ? [...stats].sort((a, b) => b.appointmentsSet - a.appointmentsSet || b.totalAttempts - a.totalAttempts) : [];
+  // v14.24 — UNIFIED SORT: Appts → Points → Dials. Matches admin leaderboard exactly.
+  // Appointments are the #1 goal; points break ties (they already weight appts 10× a dial),
+  // total dials are the final tiebreaker.
+  const ranked  = stats ? [...stats].sort((a, b) =>
+    (b.appointmentsSet - a.appointmentsSet) ||
+    ((b.points || 0) - (a.points || 0)) ||
+    (b.totalAttempts - a.totalAttempts)
+  ) : [];
+
+  // v14.24 — Gap-to-next-rank helper: show "X more appts to catch [Name]" on your own row
+  const myRankIdx = ranked.findIndex(s => s.agent.id === user?.id);
+  const rankAbove = myRankIdx > 0 ? ranked[myRankIdx - 1] : null;
+  const apptsGap  = rankAbove ? Math.max(0, rankAbove.appointmentsSet - (myStats?.appointmentsSet ?? 0)) : 0;
+  const pointsGap = rankAbove && apptsGap === 0 ? Math.max(0, (rankAbove.points || 0) - (myStats?.points || 0)) : 0;
 
   return (
     <div style={{ width: "100%", padding: "0 0 20px" }}>
@@ -1431,33 +1445,54 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
       )}
       {lookupOpen && <CallbackLookupModal onClose={() => setLookupOpen(false)} />}
 
-      {/* ── Personal stats ── */}
+      {/* ── Personal stats — v14.24: Appts hero (big), then Points, Dials, Emails ── */}
       {myStats && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 28 }}>
+        <>
+        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", gap: 8, marginBottom: apptsGap > 0 || pointsGap > 0 ? 10 : 28 }}>
           {[
-            { label: "Appts Set",   value: myStats.appointmentsSet },
-            { label: "Total Calls", value: myStats.totalAttempts },
-            { label: "Emails Sent", value: myStats.emailsSent ?? 0 },
-            { label: "Contact %",   value: `${myStats.contactRate}%` },
+            { label: "Appts Set",   value: myStats.appointmentsSet,      hero: true },
+            { label: "Points",      value: myStats.points ?? 0,           hero: false },
+            { label: "Total Calls", value: myStats.totalAttempts,         hero: false },
+            { label: "Emails",      value: myStats.emailsSent ?? 0,       hero: false },
           ].map(s => (
             <div key={s.label} style={{
-              padding: "14px 8px", textAlign: "center",
-              background: "linear-gradient(135deg, rgba(200,170,90,0.1) 0%, rgba(200,170,90,0.04) 100%)",
-              border: "1px solid rgba(200,170,90,0.28)",
+              padding: s.hero ? "18px 8px" : "14px 8px", textAlign: "center",
+              background: s.hero
+                ? "linear-gradient(135deg, rgba(200,170,90,0.22) 0%, rgba(200,170,90,0.08) 100%)"
+                : "linear-gradient(135deg, rgba(200,170,90,0.1) 0%, rgba(200,170,90,0.04) 100%)",
+              border: `1px solid ${s.hero ? "rgba(200,170,90,0.55)" : "rgba(200,170,90,0.28)"}`,
               borderRadius: 12,
-              boxShadow: "0 2px 12px rgba(200,170,90,0.08)",
+              boxShadow: s.hero ? "0 4px 18px rgba(200,170,90,0.18)" : "0 2px 12px rgba(200,170,90,0.08)",
             }}>
               <p style={{
-                fontSize: 26, fontWeight: 600, color: "#c8aa5a",
+                fontSize: s.hero ? 36 : 24, fontWeight: 700, color: "#c8aa5a",
                 fontFamily: "'Cormorant Garamond','Georgia',serif", lineHeight: 1,
               }}>{s.value}</p>
               <p style={{
                 fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase",
-                color: "rgba(255,255,255,0.45)", marginTop: 6,
+                color: s.hero ? "rgba(200,170,90,0.75)" : "rgba(255,255,255,0.45)",
+                marginTop: 8, fontWeight: s.hero ? 700 : 500,
               }}>{s.label}</p>
             </div>
           ))}
         </div>
+        {/* v14.24 — Gap-to-next-rank prompt: goal-focused, appts-first */}
+        {rankAbove && (apptsGap > 0 || pointsGap > 0) && (
+          <div style={{
+            marginBottom: 22,
+            padding: "10px 14px",
+            background: "rgba(200,170,90,0.06)",
+            border: "1px dashed rgba(200,170,90,0.3)",
+            borderRadius: 10,
+            fontSize: 12, color: "rgba(200,170,90,0.8)", textAlign: "center",
+            fontFamily: "'Switzer','Inter',sans-serif",
+          }}>
+            {apptsGap > 0
+              ? <><strong style={{ color: "#c8aa5a", fontSize: 13 }}>{apptsGap}</strong> more appt{apptsGap === 1 ? "" : "s"} to catch <strong>{rankAbove.agent.name}</strong></>
+              : <>Tied on appts — <strong style={{ color: "#c8aa5a", fontSize: 13 }}>{pointsGap}</strong> more point{pointsGap === 1 ? "" : "s"} to pass <strong>{rankAbove.agent.name}</strong></>}
+          </div>
+        )}
+        </>
       )}
 
       {/* ── Leaderboard ── */}
@@ -1545,18 +1580,23 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                       {s.agent.name}{isMe ? " (you)" : ""}
                     </p>
                   </div>
-                  <div style={{ display: "flex", gap: 14, flexShrink: 0 }}>
-                    <div style={{ textAlign: "right" }}>
-                      <p style={{ fontSize: 17, fontWeight: 700, color: "#c8aa5a", lineHeight: 1 }}>{s.appointmentsSet}</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 2 }}>APPTS</p>
+                  {/* v14.24 — Column order matches admin: APPTS (hero) → PTS → CALLS → EMAILS */}
+                  <div style={{ display: "flex", gap: 14, flexShrink: 0, alignItems: "center" }}>
+                    <div style={{ textAlign: "right", minWidth: 40 }}>
+                      <p style={{ fontSize: 22, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{s.appointmentsSet}</p>
+                      <p style={{ fontSize: 9, color: "rgba(200,170,90,0.65)", letterSpacing: "0.12em", marginTop: 3, fontWeight: 700 }}>APPTS</p>
                     </div>
-                    <div style={{ textAlign: "right" }}>
-                      <p style={{ fontSize: 17, fontWeight: 600, color: "rgba(255,255,255,0.7)", lineHeight: 1 }}>{s.totalAttempts}</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 2 }}>CALLS</p>
+                    <div style={{ textAlign: "right", minWidth: 34 }}>
+                      <p style={{ fontSize: 15, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, background: "rgba(200,170,90,0.1)", borderRadius: 6, padding: "2px 6px", display: "inline-block" }}>{s.points ?? 0}</p>
+                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 3 }}>PTS</p>
                     </div>
-                    <div style={{ textAlign: "right" }}>
-                      <p style={{ fontSize: 17, fontWeight: 600, color: "rgba(147,197,253,0.85)", lineHeight: 1 }}>{s.emailsSent ?? 0}</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 2 }}>EMAILS</p>
+                    <div style={{ textAlign: "right", minWidth: 30 }}>
+                      <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.7)", lineHeight: 1 }}>{s.totalAttempts}</p>
+                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 3 }}>CALLS</p>
+                    </div>
+                    <div style={{ textAlign: "right", minWidth: 30 }}>
+                      <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(147,197,253,0.85)", lineHeight: 1 }}>{s.emailsSent ?? 0}</p>
+                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 3 }}>EMAILS</p>
                     </div>
                   </div>
                 </div>

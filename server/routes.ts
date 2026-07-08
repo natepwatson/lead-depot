@@ -6,7 +6,7 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, fubCreateAgentRecruit } from "./fub";
+import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub } from "./fub";
 import { runBatchLeadsPipeline } from "./batchleads";
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
 import multer from "multer";
@@ -177,7 +177,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.24 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.25 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -236,7 +236,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.24 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.25 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -260,8 +260,10 @@ const FOLLOW_UP_TIMING_PHRASE: Record<string, string> = {
 };
 async function sendExpiredCredibilityEmail(opts: {
   leadId: number;
+  agentId?: number | null;   // v14.25 — needed to award points
   ownerEmail: string;
   ownerFirstName: string;
+  ownerPhone?: string;       // v14.27 — needed to push FUB note
   address: string;
   followUpTiming: string;
   agent: { name?: string; email?: string; phone?: string };
@@ -341,11 +343,24 @@ async function sendExpiredCredibilityEmail(opts: {
       text:      plainText,
     } as any);
     // Log to activity so rate limit works next time + audit trail
+    // v14.25 — log agent_id so points/attribution work
+    const nowIso = new Date().toISOString();
     rawDb.prepare(`
       INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
-      VALUES (?, NULL, 'email_sent', ?, NULL, ?)
-    `).run(opts.leadId, `expired-credibility sent to ${opts.ownerEmail} (follow-up: ${opts.followUpTiming})`, new Date().toISOString());
-    console.log(`[CredibilityEmail] sent for lead ${opts.leadId} to ${opts.ownerEmail}`);
+      VALUES (?, ?, 'email_sent', ?, NULL, ?)
+    `).run(opts.leadId, opts.agentId || null, `expired-credibility sent to ${opts.ownerEmail} (follow-up: ${opts.followUpTiming})`, nowIso);
+    // v14.25 — Fix 2: award points for Flow 2 credibility email
+    if (opts.agentId) awardPoints(opts.agentId, "email_sent", opts.leadId);
+    // v14.27 — push FUB note recording the send (subject + timestamp + preview)
+    pushEmailNoteToFub({
+      ownerPhone: opts.ownerPhone,
+      ownerName:  `${opts.ownerFirstName}`,
+      subject,
+      sentAt:     nowIso,
+      preview:    plainText.slice(0, 260),
+      kind:       "Flow 2 \u2014 Expired Credibility (auto on KIT)",
+    }).catch(err => console.error("[FUB] Flow 2 note push failed:", err));
+    console.log(`[CredibilityEmail] sent for lead ${opts.leadId} to ${opts.ownerEmail} (agent ${opts.agentId || "unknown"})`);
   } catch (e: any) {
     console.error(`[CredibilityEmail] send failed for lead ${opts.leadId}:`, e.message);
   }
@@ -388,7 +403,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.24 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.25 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -2086,8 +2101,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         if (targetEmail && targetEmail.includes("@")) {
           sendExpiredCredibilityEmail({
             leadId,
+            agentId,                                 // v14.25 — pass through for points
             ownerEmail: targetEmail,
             ownerFirstName,
+            ownerPhone: (lead as any).phone || undefined,   // v14.27 — for FUB note
             address: confirmedAddress || lead.address || "your property",
             followUpTiming: followUpTiming || "few_weeks",
             agent: {
@@ -2252,20 +2269,38 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
 
   // ─── EMAIL SENT TRACKING ─────────────────────────────────────────────────
+  // v14.25 — Award email_sent points when Flow 1 mailto click is logged.
+  // v14.27 — Enforces 1-email-per-lead-per-day cap (across all flows).
   app.post("/api/leads/:id/email-sent", (req, res) => {
     const leadId = parseInt(req.params.id);
     const { agentId } = req.body;
     const lead = storage.getLeadById(leadId);
     if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+    // v14.27 — 1 email per lead per day cap
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const recent = rawDb.prepare(`
+      SELECT id FROM lead_activity
+       WHERE lead_id = ?
+         AND outcome = 'email_sent'
+         AND created_at > ?
+       LIMIT 1
+    `).get(leadId, dayAgo);
+    if (recent) {
+      return res.status(429).json({ error: "Already emailed within last 24h", capped: true });
+    }
+
     storage.createLeadActivity({
       leadId,
       agentId: agentId || null,
       outcome: "email_sent",
-      notes: null,
+      notes: "flow1-manual-mailto",
       lpmamabSnapshot: null,
       createdAt: new Date().toISOString(),
     });
-    res.json({ logged: true });
+    // v14.25 — Fix 1: award points for the manual Flow 1 email
+    if (agentId) awardPoints(parseInt(String(agentId)), "email_sent", leadId);
+    res.json({ logged: true, points: 3 });
   });
 
   // ─── ADMIN: PER-AGENT STATS ───────────────────────────────────────────────
@@ -3316,7 +3351,7 @@ This template is for informational/outreach purposes only.`;
     const agentStatsMap: Record<number, any> = {};
     for (const r of agentStatsRows) agentStatsMap[r.agent_id] = r;
 
-    // v14.24 — pull points from agent_points table for unified leaderboard sort
+    // v14.25 — pull points from agent_points table for unified leaderboard sort
     const ptsSqlA = `SELECT agent_id, SUM(points) as total FROM agent_points WHERE scope = 'seller' ${resetAt ? "AND created_at >= ?" : ""} GROUP BY agent_id`;
     const ptsRowsA: any[] = rawDb.prepare(ptsSqlA).all(...(resetAt ? [resetAt] : []));
     const ptsMapA: Record<number, number> = {};
@@ -3345,7 +3380,7 @@ This template is for informational/outreach purposes only.`;
         },
       };
     });
-    // v14.24 — Unified sort: Appts → Points → Dials (appts are the #1 goal)
+    // v14.25 — Unified sort: Appts → Points → Dials (appts are the #1 goal)
     stats.sort((a, b) =>
       (b.appointmentsSet - a.appointmentsSet) ||
       (b.points - a.points) ||
@@ -3418,7 +3453,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.24 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.25 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -3664,7 +3699,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.24",
+      version: "v14.25",
       services: results,
     });
   });

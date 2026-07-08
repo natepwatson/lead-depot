@@ -29,6 +29,54 @@ function fubAuth(): string {
   return "Basic " + Buffer.from(FUB_API_KEY + ":").toString("base64");
 }
 
+// v14.27 — Push a note to a FUB contact recording that an email was sent from Lead Depot.
+// Used by Flow 2 (auto credibility), Flow 3 (2nd attempt), and Flow 4 (appointment warm).
+export async function pushEmailNoteToFub(opts: {
+  ownerPhone?: string;
+  ownerName?: string;
+  subject: string;
+  sentAt: string;      // ISO timestamp
+  preview: string;     // first ~260 chars of plain-text body
+  kind: string;        // e.g. "Flow 2 \u2014 Expired Credibility"
+}): Promise<void> {
+  if (!FUB_API_KEY) return;
+  if (!opts.ownerPhone && !opts.ownerName) {
+    console.warn("[FUB] pushEmailNoteToFub \u2014 no phone or name to resolve contact");
+    return;
+  }
+
+  // Resolve personId via phone (preferred) then name
+  let personId: number | undefined;
+  if (opts.ownerPhone) {
+    const r = await fubRequest("GET", `/people?query=${encodeURIComponent(opts.ownerPhone)}&limit=1`);
+    personId = r.data?.people?.[0]?.id;
+  }
+  if (!personId && opts.ownerName) {
+    const r = await fubRequest("GET", `/people?query=${encodeURIComponent(opts.ownerName)}&limit=1`);
+    personId = r.data?.people?.[0]?.id;
+  }
+  if (!personId) {
+    console.warn(`[FUB] pushEmailNoteToFub \u2014 could not resolve contact for ${opts.ownerName || opts.ownerPhone}`);
+    return;
+  }
+
+  const when = new Date(opts.sentAt).toLocaleString("en-US", { timeZone: "America/New_York", timeZoneName: "short" });
+  const body = [
+    `\uD83D\uDCE7 Email sent from Lead Depot`,
+    ``,
+    `Type:    ${opts.kind}`,
+    `Sent:    ${when}`,
+    `Subject: ${opts.subject}`,
+    ``,
+    `\u2500\u2500 Preview \u2500\u2500`,
+    opts.preview,
+  ].join("\n");
+
+  const r = await fubRequest("POST", "/notes", { personId, body, isHtml: false });
+  if (r.ok) console.log(`[FUB] Email note posted to contact ${personId} (${opts.kind})`);
+  else console.error("[FUB] Failed to post email note:", r.data);
+}
+
 async function fubRequest(
   method: string,
   path: string,

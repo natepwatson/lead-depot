@@ -1,6 +1,6 @@
 /**
  * Follow Up Boss API Integration — Lead Depot
- * Watson Brothers Group / Brothers Group at Momentum Realty
+ * Brothers Group Real Estate Team at Momentum Realty
  *
  * Key rule: ALWAYS use POST /v1/events to send leads — never POST /v1/people.
  * /v1/events triggers Lead Flow, Action Plans, agent assignment, and deduplication.
@@ -223,7 +223,7 @@ function buildLpmamabNote(opts: {
     lines.push(``);
   }
 
-  lines.push(`Source: Lead Depot — Watson Brothers Group`);
+  lines.push(`Source: Lead Depot — Brothers Group Real Estate Team at Momentum Realty`);
   lines.push(`Property: ${address || "—"}`);
 
   return lines.join("\n");
@@ -443,7 +443,7 @@ export async function fubCreateAgentRecruit(data: AgentRecruitPayload): Promise<
     data.referredByName  ? `Referred by: ${data.referredByName}` : "",
     ``,
     data.applicantNotes  ? `── APPLICANT NOTES ──────────\n${data.applicantNotes}\n` : "",
-    `Source: Lead Depot Recruiting — Watson Brothers Group`,
+    `Source: Lead Depot Recruiting — Brothers Group Real Estate Team at Momentum Realty`,
   ].filter(l => l !== "");
 
   const eventPayload: any = {

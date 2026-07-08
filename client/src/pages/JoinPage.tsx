@@ -153,7 +153,7 @@ export default function JoinPage() {
           Your Split Just Got Better.
         </h1>
         <p style={{ fontSize: 15, color: "rgba(255,255,255,0.45)", maxWidth: 360, margin: "0 auto 24px", lineHeight: 1.6 }}>
-          50/50 split. 7 open territories. Real lead flow. Join Watson Brothers Group at Momentum Realty.
+          50/50 split. 7 open territories. Real lead flow. Join the Brothers Group Real Estate Team at Momentum Realty.
         </p>
 
         {/* Trust strip */}

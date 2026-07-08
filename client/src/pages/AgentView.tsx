@@ -41,15 +41,23 @@ const LPMAMAB_FIELDS = [
 ] as const;
 
 // ─── Outcome configs ───────────────────────────────────────────────────────────
-// v14.14 — 6 outcomes in a 3×2 grid. "Recycle" second slot: one confirm tap and the lead
-// (rush-seller / agent-fumble safety net that immediately unassigns the lead back to the pool).
+// v14.16 — 9 outcomes in a 3×3 grid.
+// Row 1 (fast, per-line):     No Answer      · Wrong #        · Disconnected
+// Row 2 (decision, lead-lvl): Not Interested · Recycle        · Listed
+// Row 3 (wins):               Appt Set       · Keep in Touch  · Left VM
 const OUTCOMES = [
-  { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.12)",  border: "rgba(236,72,153,0.4)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.22)" },
-  { key: "recycled",                label: "Recycle",       icon: RefreshCw,     bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
-  { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.12)",   border: "rgba(34,197,94,0.4)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.22)" },
+  // Row 1 — fast per-line taps
   { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
-  { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },
   { key: "wrong_number",            label: "Wrong #",       icon: AlertTriangle, bg: "rgba(239,68,68,0.08)",   border: "rgba(239,68,68,0.25)",   text: "rgba(252,165,165,0.8)", hoverBg: "rgba(239,68,68,0.15)" },
+  { key: "disconnected",            label: "Disconnected",  icon: PhoneOff,      bg: "rgba(148,163,184,0.10)", border: "rgba(148,163,184,0.35)", text: "rgb(203,213,225)",      hoverBg: "rgba(148,163,184,0.20)" },
+  // Row 2 — decision, lead-level
+  { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },
+  { key: "recycled",                label: "Recycle",       icon: RefreshCw,     bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
+  { key: "listed",                  label: "Listed",        icon: Home,          bg: "rgba(139,92,246,0.12)",  border: "rgba(139,92,246,0.4)",   text: "rgb(196,181,253)",      hoverBg: "rgba(139,92,246,0.22)" },
+  // Row 3 — wins
+  { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.12)",   border: "rgba(34,197,94,0.4)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.22)" },
+  { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.12)",  border: "rgba(236,72,153,0.4)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.22)" },
+  { key: "left_voicemail",          label: "Left VM",       icon: Voicemail,     bg: "rgba(59,130,246,0.12)",  border: "rgba(59,130,246,0.4)",   text: "rgb(147,197,253)",      hoverBg: "rgba(59,130,246,0.22)" },
 ] as const;
 
 // ─── Gold divider ─────────────────────────────────────────────────────────────
@@ -87,6 +95,14 @@ const INTENTIONS = [
   { key: "rental_later",label: "Rental Later" },
 ] as const;
 
+// v14.16 — KIT follow-up timing options (4 pill picker)
+const FOLLOW_UP_TIMING_OPTIONS = [
+  { key: "a_few_days",  label: "A few days" },
+  { key: "few_weeks",   label: "2–3 weeks" },
+  { key: "few_months",  label: "2–3 months" },
+  { key: "six_months",  label: "6 months+ · No rush" },
+] as const;
+
 function ApptModal({
   lead, outcome, onClose, onSubmit, isPending,
 }: {
@@ -96,10 +112,12 @@ function ApptModal({
   onSubmit: (data: {
     apptEmail: string; confirmedAddress: string;
     apptDate: string; apptTime: string; stage: string; intention: string;
+    followUpTiming?: string;
   }) => void;
   isPending: boolean;
 }) {
   const isAppt = outcome === "contacted_appointment";
+  const isKit = outcome === "keep_in_touch";
   const [apptEmail, setApptEmail] = React.useState(lead.email || "");
   const [addressConfirmed, setAddressConfirmed] = React.useState(true);
   const [altAddress, setAltAddress] = React.useState("");
@@ -107,6 +125,8 @@ function ApptModal({
   const [apptTime, setApptTime] = React.useState("");
   const [stage, setStage] = React.useState<string>("Hot Prospect");
   const [intentions, setIntentions] = React.useState<string[]>([]);
+  // v14.16 — 4-option follow-up timing picker (KIT only)
+  const [followUpTiming, setFollowUpTiming] = React.useState<string>("few_weeks");
 
   const toggleIntention = (key: string) => {
     setIntentions(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
@@ -116,6 +136,7 @@ function ApptModal({
   const canSubmit = apptEmail.trim() &&
     (addressConfirmed || altAddress.trim()) &&
     (!isAppt || (apptDate && apptTime)) &&
+    (!isKit || followUpTiming) &&
     stage && intentions.length > 0;
 
   const sourceLabel: Record<string, string> = {
@@ -198,6 +219,35 @@ function ApptModal({
               </div>
             </div>
           )}
+          {/* v14.16 — KIT follow-up timing (4 pill picker) */}
+          {isKit && (
+            <div>
+              <label style={labelStyle}>Follow up in <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, letterSpacing: 0, textTransform: "none" }}>(pick one)</span></label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {FOLLOW_UP_TIMING_OPTIONS.map(o => {
+                  const selected = followUpTiming === o.key;
+                  return (
+                    <button
+                      key={o.key}
+                      type="button"
+                      onClick={() => setFollowUpTiming(o.key)}
+                      style={{
+                        padding: "12px 8px", borderRadius: 9, border: "1px solid",
+                        fontSize: 12, fontWeight: 600, cursor: "pointer",
+                        transition: "all 0.15s", textAlign: "center",
+                        borderColor: selected ? "#c8aa5a" : "rgba(255,255,255,0.12)",
+                        background: selected ? "rgba(200,170,90,0.18)" : "rgba(255,255,255,0.04)",
+                        color: selected ? "#c8aa5a" : "rgba(255,255,255,0.5)",
+                      }}
+                    >{o.label}</button>
+                  );
+                })}
+              </div>
+              <p style={{ margin: "8px 0 0", fontSize: 11, color: "rgba(255,255,255,0.35)", letterSpacing: "0.02em" }}>
+                We'll send them a warm intro email today and file this lead in your pipeline.
+              </p>
+            </div>
+          )}
           <div>
             <label style={labelStyle}>Stage</label>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
@@ -248,7 +298,7 @@ function ApptModal({
           </div>
         </div>
         <button
-          onClick={() => onSubmit({ apptEmail, confirmedAddress, apptDate, apptTime, stage, intention: intentions.map(k => INTENTIONS.find(i => i.key === k)?.label || k).join(" + ") })}
+          onClick={() => onSubmit({ apptEmail, confirmedAddress, apptDate, apptTime, stage, intention: intentions.map(k => INTENTIONS.find(i => i.key === k)?.label || k).join(" + "), followUpTiming: isKit ? followUpTiming : undefined })}
           disabled={!canSubmit || isPending}
           style={{
             marginTop: 28, width: "100%", padding: "16px", borderRadius: 12, border: "none",
@@ -331,6 +381,8 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
   const [pendingRecycle, setPendingRecycle] = useState(false);
   const [lpmOpen, setLpmOpen] = useState(false);
+  // v14.16 — Expired-only Tone Rules chevron. Default open on first render so agents see it.
+  const [toneOpen, setToneOpen] = useState(true);
   const [outcomeFlash, setOutcomeFlash] = useState<{ label: string; color: string } | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [lpmData, setLpmData] = useState<Record<string, string>>({
@@ -358,6 +410,10 @@ function LeadCard({ lead }: { lead: Lead }) {
     contacted_not_interested: { label: "Not Interested — Logged", color: "rgb(252,165,165)" },
     wrong_number:             { label: "Wrong # — Logged",        color: "rgba(252,165,165,0.8)" },
     recycled:                 { label: "Recycled to Pool",         color: "#22d3ee" },
+    // v14.16 — 9-outcome grid additions
+    disconnected:             { label: "Disconnected — Logged",    color: "rgb(203,213,225)" },
+    listed:                   { label: "Listed — Closed Out",      color: "rgb(196,181,253)" },
+    left_voicemail:           { label: "Voicemail — Logged",       color: "rgb(147,197,253)" },
   };
 
   // v14.14 — Recycle hits /api/leads/:id/recycle. One tap, no date, no strings.
@@ -381,7 +437,7 @@ function LeadCard({ lead }: { lead: Lead }) {
   });
 
   const outcomeMutation = useMutation({
-    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string }) =>
+    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string; followUpTiming?: string }) =>
       apiRequest("POST", `/api/leads/${lead.id}/outcome`, { ...data, agentId: user?.id, lpmamab: lpmData }).then(r => r.json()),
     onSuccess: (data, variables) => {
       // Show success flash for 900ms, then load next lead
@@ -396,7 +452,12 @@ function LeadCard({ lead }: { lead: Lead }) {
       // No Answer: if untried lines remain, server keeps same lead + advances active phone.
       // If all tried, lead returns to pool — next lead loads.
       // Wrong #: server always returns lead to pool (unless all struck → deleted).
-      if (variables.outcome === "no_answer" || variables.outcome === "wrong_number") {
+      if (
+        variables.outcome === "no_answer" ||
+        variables.outcome === "wrong_number" ||
+        variables.outcome === "disconnected" ||
+        variables.outcome === "left_voicemail"
+      ) {
         const total = allPhones.length;
         const dialed = variables.dialedPhone || activePhone;
         const currentIdx = allPhones.findIndex(p => p === dialed);
@@ -404,8 +465,10 @@ function LeadCard({ lead }: { lead: Lead }) {
 
         // Compute remaining untried after this outcome
         const projectedStates = { ...phoneStates };
-        if (variables.outcome === "no_answer" && dialed) projectedStates[dialed] = "no_answer_today";
-        if (variables.outcome === "wrong_number" && dialed) projectedStates[dialed] = "struck";
+        if (variables.outcome === "no_answer" && dialed)      projectedStates[dialed] = "no_answer_today";
+        if (variables.outcome === "wrong_number" && dialed)   projectedStates[dialed] = "struck";
+        if (variables.outcome === "disconnected" && dialed)   projectedStates[dialed] = "struck";
+        if (variables.outcome === "left_voicemail" && dialed) projectedStates[dialed] = "no_answer_today";
         const untriedRemaining = allPhones.filter(p => (projectedStates[p] || "untried") === "untried");
 
         if (variables.outcome === "no_answer") {
@@ -423,26 +486,40 @@ function LeadCard({ lead }: { lead: Lead }) {
               duration: 3000,
             });
           }
-        } else if (variables.outcome === "wrong_number") {
+        } else if (variables.outcome === "wrong_number" || variables.outcome === "disconnected") {
+          const label = variables.outcome === "disconnected" ? "Disconnected" : "Wrong #";
           if (data && data.deleted) {
             toast({
-              title: `Wrong # — line ${currentLineNum} struck`,
+              title: `${label} — line ${currentLineNum} struck`,
               description: "All numbers dead — lead removed.",
               duration: 3000,
             });
           } else if (data && data.keptOnLead) {
-            // v14.15 — agent stays on the lead, advances to next viable phone.
             const nextIdx = allPhones.findIndex(p => p === untriedRemaining[0]);
             toast({
-              title: `Wrong # — line ${currentLineNum} struck`,
+              title: `${label} — line ${currentLineNum} struck`,
               description: `Now dialing line ${nextIdx + 1} of ${total}.`,
               duration: 3000,
             });
           } else {
-            // No untried numbers left today — lead returns to pool.
             toast({
-              title: `Wrong # — line ${currentLineNum} struck`,
+              title: `${label} — line ${currentLineNum} struck`,
               description: "All viable numbers rested. Loading next lead…",
+              duration: 3000,
+            });
+          }
+        } else if (variables.outcome === "left_voicemail") {
+          if (untriedRemaining.length > 0) {
+            const nextIdx = allPhones.findIndex(p => p === untriedRemaining[0]);
+            toast({
+              title: `Voicemail — line ${currentLineNum} logged`,
+              description: `Now dialing line ${nextIdx + 1} of ${total}.`,
+              duration: 3000,
+            });
+          } else {
+            toast({
+              title: "Voicemail logged",
+              description: "All lines contacted today. Loading next lead…",
               duration: 3000,
             });
           }
@@ -491,7 +568,7 @@ function LeadCard({ lead }: { lead: Lead }) {
     setPendingRecycle(false);
   };
 
-  const handleApptSubmit = (data: { apptEmail: string; confirmedAddress: string; apptDate: string; apptTime: string; stage: string; intention: string }) => {
+  const handleApptSubmit = (data: { apptEmail: string; confirmedAddress: string; apptDate: string; apptTime: string; stage: string; intention: string; followUpTiming?: string }) => {
     if (!pendingOutcome) return;
     outcomeMutation.mutate({
       outcome: pendingOutcome,
@@ -503,7 +580,7 @@ function LeadCard({ lead }: { lead: Lead }) {
 
   const zillow = lead.address ? `https://www.zillow.com/homes/${encodeURIComponent(lead.address)}_rb/` : null;
   const emailSubject = encodeURIComponent(`Regarding your property at ${lead.address}`);
-  const emailBody = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nBrothers Group Real Estate at Momentum Realty`);
+  const emailBody = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nBrothers Group Real Estate Team at Momentum Realty`);
   const mailtoLink = lead.email ? `mailto:${lead.email}?subject=${emailSubject}&body=${emailBody}` : null;
 
   const typeLabel: Record<string, string> = {
@@ -814,6 +891,91 @@ function LeadCard({ lead }: { lead: Lead }) {
         </pre>
       </div>
 
+      {/* v14.16 ── Expired-only Tone Rules + Guardrails + Branch cue cards ── */}
+      {lead.leadType === "expired" && (
+        <div style={{ padding: "0 20px 18px" }}>
+          {/* Tone Rules chevron (default open) */}
+          <button
+            onClick={() => setToneOpen(o => !o)}
+            style={{
+              width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+              background: "none", border: "none", cursor: "pointer", padding: 0,
+              marginBottom: toneOpen ? 10 : 0,
+            }}
+          >
+            <SectionLabel style={{ margin: 0 }}>Tone Rules</SectionLabel>
+            <ChevronDown size={14} style={{ color: "rgba(200,170,90,0.5)", transform: toneOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+          </button>
+          {toneOpen && (
+            <ul style={{
+              margin: 0, padding: "10px 14px", listStyle: "none",
+              background: "rgba(200,170,90,0.05)", border: "1px solid rgba(200,170,90,0.18)",
+              borderRadius: 8, marginBottom: 14,
+              fontSize: 12, lineHeight: 1.65, color: "rgba(255,255,255,0.72)",
+            }}>
+              <li style={{ padding: "3px 0" }}>• Here for the easy yes's — not to force the no's.</li>
+              <li style={{ padding: "3px 0" }}>• No rush. Value their time.</li>
+              <li style={{ padding: "3px 0" }}>• Understand first. Guide, don't push.</li>
+              <li style={{ padding: "3px 0" }}>• Skip the company name in the opener — introduce yourself, then the house.</li>
+            </ul>
+          )}
+
+          {/* Agent Guardrails block — always visible */}
+          <div style={{
+            padding: "10px 14px", marginBottom: 14,
+            background: "rgba(220,80,80,0.06)", border: "1px solid rgba(220,80,80,0.22)",
+            borderRadius: 8,
+          }}>
+            <p style={{
+              margin: "0 0 6px", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase",
+              color: "rgba(240,120,120,0.85)", fontWeight: 700,
+            }}>Guardrails — do NOT</p>
+            <ul style={{ margin: 0, padding: 0, listStyle: "none", fontSize: 12, lineHeight: 1.6, color: "rgba(255,255,255,0.65)" }}>
+              <li style={{ padding: "2px 0" }}>✗ Sound rushed or create false urgency</li>
+              <li style={{ padding: "2px 0" }}>✗ Push for an appointment before you understand the situation</li>
+              <li style={{ padding: "2px 0" }}>✗ Lead with the company name or a hard pitch</li>
+              <li style={{ padding: "2px 0" }}>✗ Interrupt or overtalk after they answer</li>
+              <li style={{ padding: "2px 0" }}>✗ Make the seller feel trapped in the call</li>
+            </ul>
+          </div>
+
+          {/* Branch cue cards mini-grid */}
+          <p style={{
+            margin: "0 0 8px", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase",
+            color: "rgba(200,170,90,0.65)", fontWeight: 700,
+          }}>Branch Cues</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 4 }}>
+            <div style={{
+              padding: "10px 12px", background: "rgba(72,187,120,0.06)",
+              border: "1px solid rgba(72,187,120,0.28)", borderRadius: 8,
+            }}>
+              <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: "#68d391", letterSpacing: "0.05em" }}>NO PLAN YET → APPOINTMENT</p>
+              <p style={{ margin: "4px 0 0", fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.55, fontStyle: "italic" }}>
+                “That's exactly why we should probably just swing by for five minutes — a quick walk-through and a free quote so you know your options.”
+              </p>
+            </div>
+            <div style={{
+              padding: "10px 12px", background: "rgba(147,197,253,0.06)",
+              border: "1px solid rgba(147,197,253,0.28)", borderRadius: 8,
+            }}>
+              <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.05em" }}>NOT READY, WARM → KEEP IN TOUCH</p>
+              <p style={{ margin: "4px 0 0", fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.55, fontStyle: "italic" }}>
+                Ask for email + best time to check back. Don't push. “I'll send an intro so you have a name and a face — no pitch.”
+              </p>
+            </div>
+            <div style={{
+              padding: "10px 12px", background: "rgba(200,170,90,0.06)",
+              border: "1px solid rgba(200,170,90,0.28)", borderRadius: 8,
+            }}>
+              <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: "#c8aa5a", letterSpacing: "0.05em" }}>BUSY, NOT NEGATIVE → RECYCLE</p>
+              <p style={{ margin: "4px 0 0", fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.55, fontStyle: "italic" }}>
+                Don't force the call. One tap on Recycle — lead goes back to the pool for a later attempt.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Notes ── */}
       <div style={{ padding: "0 20px 18px" }}>
         <SectionLabel>Call Notes</SectionLabel>
@@ -940,6 +1102,134 @@ interface AgentStat {
   outcomes: Record<string, number>;
 }
 
+// v14.16 — "Who called me?" modal. Agent types last 4 digits, gets back matching leads with owner/address/agent-of-record.
+function CallbackLookupModal({ onClose }: { onClose: () => void }) {
+  const [last4, setLast4] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const shouldFetch = submitted && /^\d{4}$/.test(last4);
+  const { data, isLoading, isError } = useQuery<any>({
+    queryKey: ["/api/leads/callback-lookup", last4],
+    queryFn: () => apiRequest("GET", `/api/leads/callback-lookup?last4=${last4}`).then(r => r.json()),
+    enabled: shouldFetch,
+    staleTime: 0,
+  });
+
+  const results: any[] = Array.isArray(data?.results) ? data.results : [];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)",
+        display: "flex", alignItems: "flex-start", justifyContent: "center",
+        zIndex: 100, padding: "60px 16px 16px",
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: "100%", maxWidth: 460,
+          background: "#0a0a0a", border: "1px solid rgba(200,170,90,0.25)",
+          borderRadius: 14, padding: 20, color: "#fff",
+          maxHeight: "calc(100vh - 80px)", overflowY: "auto",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <h3 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.35rem", fontWeight: 400, letterSpacing: "0.02em" }}>
+            Who called me?
+          </h3>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 20 }}>×</button>
+        </div>
+        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 14, lineHeight: 1.5 }}>
+          Enter the <b style={{ color: "#c8aa5a" }}>last 4 digits</b> of the number that just called you. We'll look up any matching lead in your depot.
+        </p>
+
+        <form
+          onSubmit={e => { e.preventDefault(); if (/^\d{4}$/.test(last4)) setSubmitted(true); }}
+          style={{ display: "flex", gap: 8, marginBottom: 16 }}
+        >
+          <input
+            inputMode="numeric"
+            pattern="\d{4}"
+            maxLength={4}
+            value={last4}
+            onChange={e => { setLast4(e.target.value.replace(/\D/g, "").slice(0, 4)); setSubmitted(false); }}
+            placeholder="1234"
+            autoFocus
+            style={{
+              flex: 1, padding: "12px 14px", fontSize: 16, letterSpacing: "0.3em",
+              background: "rgba(255,255,255,0.05)", color: "#fff",
+              border: "1px solid rgba(200,170,90,0.25)", borderRadius: 8, textAlign: "center", fontWeight: 600,
+            }}
+          />
+          <button
+            type="submit"
+            disabled={!/^\d{4}$/.test(last4)}
+            style={{
+              padding: "0 18px", fontSize: 13, fontWeight: 700,
+              background: /^\d{4}$/.test(last4) ? "#c8aa5a" : "rgba(200,170,90,0.3)",
+              color: "#0a0a0a", border: "none", borderRadius: 8,
+              cursor: /^\d{4}$/.test(last4) ? "pointer" : "not-allowed",
+            }}
+          >
+            Look up
+          </button>
+        </form>
+
+        {shouldFetch && isLoading && (
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", textAlign: "center", padding: 20 }}>Searching…</p>
+        )}
+        {shouldFetch && isError && (
+          <p style={{ fontSize: 12, color: "rgb(252,165,165)", textAlign: "center", padding: 20 }}>Lookup failed. Try again.</p>
+        )}
+        {shouldFetch && !isLoading && !isError && results.length === 0 && (
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", textAlign: "center", padding: 20, lineHeight: 1.5 }}>
+            No lead in your depot with a phone ending in <b>{last4}</b>.<br />It's probably a personal call.
+          </p>
+        )}
+        {shouldFetch && results.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {results.map((r: any) => (
+              <div
+                key={r.leadId}
+                style={{
+                  padding: 12,
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(200,170,90,0.18)",
+                  borderRadius: 10,
+                }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", marginBottom: 3 }}>
+                  {r.ownerName || "Unknown"}
+                </div>
+                {r.address && (
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", marginBottom: 5 }}>
+                    {r.address}{r.city ? `, ${r.city}` : ""}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: "rgba(200,170,90,0.75)", letterSpacing: "0.03em", textTransform: "uppercase", marginBottom: 4 }}>
+                  {r.phone}
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", lineHeight: 1.4 }}>
+                  {r.assignedAgentName
+                    ? <>Assigned to <b style={{ color: "#c8aa5a" }}>{r.assignedAgentName}</b>. </>
+                    : <>Currently in the shared pool. </>}
+                  {r.lastOutcome && (
+                    <>Last touch: <b style={{ color: "rgba(255,255,255,0.75)" }}>{r.lastOutcome}</b>
+                    {r.lastOutcomeAt ? ` — ${new Date(r.lastOutcomeAt).toLocaleString()}` : ""}
+                    {r.lastOutcomeByAgent ? ` by ${r.lastOutcomeByAgent}` : ""}.</>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -951,6 +1241,9 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
   const [netAddr, setNetAddr]   = useState("");
   const [netNotes, setNetNotes] = useState("");
   const [netSending, setNetSending] = useState(false);
+
+  // v14.16 — Callback Lookup ("Who called me?") state
+  const [lookupOpen, setLookupOpen] = useState(false);
 
   // v12.5 — recruiting depot pulls its own isolated leaderboard (agent_lead_activity),
   // seller depot pulls the seller-side leaderboard (lead_activity). Zero cross-bleed.
@@ -1009,6 +1302,30 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
 
   return (
     <div style={{ width: "100%", padding: "0 0 20px" }}>
+
+      {/* v14.16 — "Who called me?" quick-lookup button (visible on Dashboard for fast access from a lead callback) */}
+      {mode === "seller" && (
+        <div style={{ padding: "0 20px 14px" }}>
+          <button
+            onClick={() => setLookupOpen(true)}
+            style={{
+              width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+              gap: 8, padding: "12px 14px",
+              background: "rgba(200,170,90,0.10)",
+              border: "1px solid rgba(200,170,90,0.35)",
+              borderRadius: 10, color: "#c8aa5a",
+              fontSize: 13, fontWeight: 600, letterSpacing: "0.04em",
+              cursor: "pointer", transition: "background 0.15s ease",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = "rgba(200,170,90,0.18)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "rgba(200,170,90,0.10)")}
+          >
+            <PhoneCall size={14} />
+            Who called me?
+          </button>
+        </div>
+      )}
+      {lookupOpen && <CallbackLookupModal onClose={() => setLookupOpen(false)} />}
 
       {/* ── Personal stats ── */}
       {myStats && (

@@ -5,6 +5,7 @@
 import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { EXPIRED_SCRIPT_V14_16 } from "./expired-script";
 
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
 const BetterSQLite3 = require("better-sqlite3");
@@ -439,6 +440,40 @@ rawDb.prepare(`
   UPDATE leads SET status = 'unassigned', assigned_agent_id = NULL
   WHERE status = 'assigned' AND assigned_agent_id IS NOT NULL
 `).run();
+
+// ─── v14.16 — follow_up_timing column on leads ────────────────────────────────
+// KIT modal captures a 4-option follow-up window (a_few_days / few_weeks /
+// few_months / six_months). Used by credibility email + agent's My Leads
+// window filter. Safe to re-run — ALTER TABLE ignored if column exists.
+const leadColsV1416 = rawDb.prepare("PRAGMA table_info(leads)").all().map((c: any) => c.name);
+if (!leadColsV1416.includes("follow_up_timing")) rawDb.prepare("ALTER TABLE leads ADD COLUMN follow_up_timing TEXT").run();
+
+// ─── v14.16 — dead_lines JSON column on leads ─────────────────────────────────
+// Wrong # and Disconnected outcomes mark a single phone line dead without
+// killing the whole lead. dead_lines is a JSON array of the phone numbers
+// (E.164 or normalized digits) that should be skipped in future dial rotation.
+// The lead itself only fully exits the pool when ALL phones are dead OR the
+// agent explicitly Lists / Not Interested / Appt Set / KIT the lead.
+if (!leadColsV1416.includes("dead_lines")) rawDb.prepare("ALTER TABLE leads ADD COLUMN dead_lines TEXT DEFAULT '[]'").run();
+// Ensure any legacy NULLs become empty JSON arrays so downstream JSON.parse
+// never explodes on exhaustion checks. Safe to re-run.
+rawDb.prepare("UPDATE leads SET dead_lines = '[]' WHERE dead_lines IS NULL OR dead_lines = ''").run();
+
+// ─── v14.16 — Expired script seed/upsert ─────────────────────────────────────
+// The scripts table is versioned via server code, not the database. On every
+// boot we upsert the current Expired script content so a redeploy is enough
+// to update it. Other lead_type scripts (fsbo, land, etc.) are managed via the
+// admin PATCH /api/scripts/:type endpoint and are not touched here.
+try {
+  rawDb.prepare(`
+    INSERT INTO scripts (lead_type, content, updated_at)
+    VALUES ('expired', ?, ?)
+    ON CONFLICT(lead_type) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at
+  `).run(EXPIRED_SCRIPT_V14_16, new Date().toISOString());
+  console.log("[db] v14.16 Expired script seeded into scripts table");
+} catch (e: any) {
+  console.error("[db] Expired script seed failed:", e.message);
+}
 
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");

@@ -1450,7 +1450,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.15
+              v14.16
             </p>
           </div>
         </div>
@@ -1507,7 +1507,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
       </header>
 
       <main style={{ padding: "20px 16px", maxWidth: 1200, margin: "0 auto" }}>
-        <Tabs defaultValue="admin">
+        {/* v14.16 — Admin default landing = Leaderboard (leftmost). Leaderboard sub-tab defaults to Today (see lbTab state). */}
+        <Tabs defaultValue="leaderboard">
           {/* ── Tab bar ──────────────────────────────────────────────────────── */}
           <TabsList style={{
             background: "rgba(255,255,255,0.03)",
@@ -1516,8 +1517,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
             display: "flex", flexWrap: "wrap", gap: 2,
           }}>
             {[
-              { value: "admin",       icon: Shield,      label: "Admin" },
               { value: "leaderboard", icon: Trophy,     label: "Leaderboard" },
+              { value: "admin",       icon: Shield,      label: "Admin" },
               { value: "pipeline",    icon: Layers,      label: "Pipeline" },
               { value: "leads",       icon: List,        label: "All Leads" },
               { value: "map",         icon: MapIcon,     label: "Map View" },
@@ -2450,7 +2451,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               ? `https://www.zillow.com/homes/${encodeURIComponent(lead.address + (leadCity ? ", " + leadCity : ""))}_rb/`
               : null;
             const subject = encodeURIComponent(`Regarding your property at ${lead.address}`);
-            const body = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nBrothers Group Real Estate at Momentum Realty`);
+            const body = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nBrothers Group Real Estate Team at Momentum Realty`);
             const mailtoLink = lead.email ? `mailto:${lead.email}?subject=${subject}&body=${body}` : null;
             return (
               <div style={{

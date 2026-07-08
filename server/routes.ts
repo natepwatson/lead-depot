@@ -12,13 +12,31 @@ import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-impor
 import multer from "multer";
 import { runDbprPipeline } from "./dbpr-pipeline";
 import { getTerritoryForZip, TERRITORIES as TERRITORY_META } from "./territories";
+import { normalizeFirstName, normalizeFullName, normalizeAddressCasual } from "./normalize";
 import fs from "node:fs";
 import path from "node:path";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-// ─── POINTS HELPER (v11.40) ───────────────────────────────────────────────────
-// Scoring: Appointment=10, KIT=3, WrongNumber=+2 (list cleanup reward), Referral=5, any other dial=1
+// ─── POINTS HELPER (v14.16 ladder) ───────────────────────────────────────────
+// Total points = base dial (2) + outcome-specific points. Each outcome key below
+// is the FULL award for that outcome (dial base already folded in). Referral is
+// a separate reward (no dial base) because it's a networking event, not a call.
+//
+//   Referral                 25  (networking win — no dial)
+//   Appt Set                 20
+//   Keep In Touch            15
+//   Not Interested            8
+//   Listed                    8
+//   Value email (Stage 2)     5   (v14.17 email system)
+//   Recycle                   4
+//   Left VM                   4
+//   Wrong #                   3
+//   Disconnected              3
+//   No Answer                 3
+//   Cold email (Stage 1)      3   (v14.17 email system)
+//   Any other dial (base)     2
+//
 // v12.5 — scoped: "seller" (default, existing seller-side call flow) or
 // "recruiting" (agent-recruiting depot). Leaderboards + hard resets filter by
 // scope so the two systems stay fully isolated.
@@ -30,13 +48,21 @@ function awardPoints(
 ) {
   if (!agentId) return;
   const pts: Record<string, number> = {
-    contacted_appointment: 10,
-    keep_in_touch: 3,
-    wrong_number: 2,
-    network_referral: 5,
-    // all other outcomes = 1 dial point
+    network_referral:          25,
+    contacted_appointment:     20,
+    keep_in_touch:             15,
+    contacted_not_interested:   8,
+    listed:                     8,
+    email_sent_value:           5,   // v14.17 Stage 2 email
+    recycled:                   4,
+    left_voicemail:             4,
+    wrong_number:               3,
+    disconnected:               3,
+    no_answer:                  3,
+    email_sent:                 3,   // v14.17 Stage 1 email (aka cold outreach)
+    // any other outcome falls back to base dial (2)
   };
-  const points = pts[outcome] ?? 1;
+  const points = pts[outcome] ?? 2;
   const reason = outcome;
   rawDb.prepare(
     `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?)`
@@ -151,7 +177,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.15 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.16 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -210,7 +236,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.15 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.16 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -222,13 +248,116 @@ async function sendAppointmentAlert(opts: {
   });
 }
 
-// ─── QUEUE DEPTH ALERT ──────────────────────────────────────────────────────────────────────
+// ─── EXPIRED CREDIBILITY EMAIL (v14.16) ───────────────────────────────────────────
+// Fires immediately on Expired KIT save. Sends a warm intro email to the seller
+// from the agent (Reply-To = agent.email). Rate-limited to once per lead per
+// 60 days via lead_activity ('email_sent' with notes containing 'expired-credibility').
+const FOLLOW_UP_TIMING_PHRASE: Record<string, string> = {
+  a_few_days:  "in a few days",
+  few_weeks:   "in 2–3 weeks",
+  few_months:  "in 2–3 months",
+  six_months:  "in about six months — no rush",
+};
+async function sendExpiredCredibilityEmail(opts: {
+  leadId: number;
+  ownerEmail: string;
+  ownerFirstName: string;
+  address: string;
+  followUpTiming: string;
+  agent: { name?: string; email?: string; phone?: string };
+}) {
+  if (!resend) { console.log("[CredibilityEmail] skipped — no RESEND_API_KEY"); return; }
+  if (!opts.ownerEmail || !opts.ownerEmail.includes("@")) {
+    console.log(`[CredibilityEmail] skipped lead ${opts.leadId} — no owner email`);
+    return;
+  }
+
+  // 60-day rate limit — do NOT re-send if we've already sent one for this lead
+  const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+  const recent = rawDb.prepare(`
+    SELECT id FROM lead_activity
+     WHERE lead_id = ?
+       AND outcome = 'email_sent'
+       AND notes LIKE '%expired-credibility%'
+       AND created_at > ?
+     LIMIT 1
+  `).get(opts.leadId, cutoff);
+  if (recent) {
+    console.log(`[CredibilityEmail] skipped lead ${opts.leadId} — sent within last 60 days`);
+    return;
+  }
+
+  // v14.16 — normalize owner + agent names, and use casual address in email body
+  // so it reads like a human wrote it (no ALL CAPS names, no "SE / Apt 3B" suffixes).
+  const firstName    = normalizeFirstName(opts.ownerFirstName) || "there";
+  const agentFull    = normalizeFullName(opts.agent.name) || "Your Brothers Group Real Estate Team agent";
+  const agentFirst   = normalizeFirstName(agentFull.split(/\s+/)[0]) || agentFull.split(/\s+/)[0];
+  const casualAddress = normalizeAddressCasual(opts.address) || opts.address;
+  const agentEmail   = opts.agent.email || "noreply@watsonbrothersgroup.com";
+  const agentPhone   = opts.agent.phone || "";
+  const timingPhrase = FOLLOW_UP_TIMING_PHRASE[opts.followUpTiming] || "soon";
+
+  const subject = `Hey ${firstName} — nice talking earlier`;
+  const plainText = [
+    `Hey ${firstName} —`,
+    "",
+    `Really glad we got to chat about the house at ${casualAddress}. Sounded like the timing's not quite right yet, and honestly, that's the best kind of answer — you know where you stand.`,
+    "",
+    `Wanted to properly introduce myself since I skipped the formalities on the phone. I'm ${agentFirst} with the Brothers Group Real Estate Team at Momentum Realty. We work with a lot of folks in your spot — the first listing didn't land, life kept moving, and the house is just sitting there in the background. Nothing wrong with letting it sit. But when you're ready to actually think about it, we're the ones you want in the room.`,
+    "",
+    "No agenda on this email. Just wanted you to have a name and a face for the number that called.",
+    "",
+    `If you ever want a quick five-minute walk-through — no clipboard, no pitch, just an honest read on what your home would take to move — say the word. Otherwise I'll check back in ${timingPhrase} and see where you're at.`,
+    "",
+    ...(agentPhone ? [`Real quick — my direct line is ${agentPhone} if anything comes up before then.`, ""] : []),
+    "Talk soon,",
+    agentFull,
+    "Brothers Group Real Estate Team at Momentum Realty",
+    [agentPhone, agentEmail].filter(Boolean).join(" · "),
+  ].join("\n");
+
+  const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f7f5f0;font-family:Georgia,'Times New Roman',serif;color:#2a2620;font-size:16px;line-height:1.6">
+<div style="max-width:560px;margin:0 auto;padding:32px 24px">
+  <p style="margin:0 0 18px">Hey ${firstName} —</p>
+  <p style="margin:0 0 18px">Really glad we got to chat about the house at <strong>${casualAddress}</strong>. Sounded like the timing's not quite right yet, and honestly, that's the best kind of answer — you know where you stand.</p>
+  <p style="margin:0 0 18px">Wanted to properly introduce myself since I skipped the formalities on the phone. I'm ${agentFirst} with the <strong>Brothers Group Real Estate Team at Momentum Realty</strong>. We work with a lot of folks in your spot — the first listing didn't land, life kept moving, and the house is just sitting there in the background. Nothing wrong with letting it sit. But when you're ready to actually think about it, we're the ones you want in the room.</p>
+  <p style="margin:0 0 18px">No agenda on this email. Just wanted you to have a name and a face for the number that called.</p>
+  <p style="margin:0 0 18px">If you ever want a quick five-minute walk-through — no clipboard, no pitch, just an honest read on what your home would take to move — say the word. Otherwise I'll check back in ${timingPhrase} and see where you're at.</p>
+  ${agentPhone ? `<p style="margin:0 0 18px">Real quick — my direct line is <strong>${agentPhone}</strong> if anything comes up before then.</p>` : ""}
+  <p style="margin:24px 0 4px">Talk soon,</p>
+  <p style="margin:0;font-weight:700">${agentFull}</p>
+  <p style="margin:0;color:#5a5147;font-size:14px">Brothers Group Real Estate Team at Momentum Realty</p>
+  <p style="margin:2px 0 0;color:#7a6f60;font-size:13px">${[agentPhone, agentEmail].filter(Boolean).join(" · ")}</p>
+</div>
+</body></html>`;
+
+  try {
+    await resend.emails.send({
+      from:      `${agentFull} <noreply@watsonbrothersgroup.com>`,
+      to:        [opts.ownerEmail],
+      reply_to:  agentEmail,
+      subject,
+      html,
+      text:      plainText,
+    } as any);
+    // Log to activity so rate limit works next time + audit trail
+    rawDb.prepare(`
+      INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
+      VALUES (?, NULL, 'email_sent', ?, NULL, ?)
+    `).run(opts.leadId, `expired-credibility sent to ${opts.ownerEmail} (follow-up: ${opts.followUpTiming})`, new Date().toISOString());
+    console.log(`[CredibilityEmail] sent for lead ${opts.leadId} to ${opts.ownerEmail}`);
+  } catch (e: any) {
+    console.error(`[CredibilityEmail] send failed for lead ${opts.leadId}:`, e.message);
+  }
+}
+
+// ─── QUEUE DEPTH ALERT ───────────────────────────────────────────────────────────────
 // Fires when active seller lead queue drops to or below LOW_QUEUE_THRESHOLD per active agent
 const LOW_QUEUE_THRESHOLD = 5; // leads per active agent
 async function checkQueueDepthAlert(rawDb: any) {
   if (!resend) return;
   try {
-    const activeLeads = (rawDb.prepare(`SELECT COUNT(*) as n FROM leads WHERE status NOT IN ('retired','contacted_not_interested','contacted_appointment','keep_in_touch','wrong_number')`).get() as any)?.n ?? 0;
+    const activeLeads = (rawDb.prepare(`SELECT COUNT(*) as n FROM leads WHERE status NOT IN ('retired','contacted_not_interested','contacted_appointment','keep_in_touch','wrong_number','listed')`).get() as any)?.n ?? 0;
     const activeAgents = (rawDb.prepare(`SELECT COUNT(*) as n FROM agents WHERE is_active = 1 AND receive_leads = 1 AND lead_flow_on = 1`).get() as any)?.n ?? 1;
     const perAgent = Math.floor(activeLeads / Math.max(activeAgents, 1));
     if (perAgent > LOW_QUEUE_THRESHOLD) return; // queue is healthy
@@ -259,7 +388,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.15 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.16 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -328,7 +457,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       UPDATE leads
          SET status = 'retired'
        WHERE attempt_count >= ?
-         AND status NOT IN ('retired', 'contacted_appointment', 'contacted_not_interested', 'keep_in_touch', 'wrong_number')
+         AND status NOT IN ('retired', 'contacted_appointment', 'contacted_not_interested', 'keep_in_touch', 'wrong_number', 'listed')
     `).run(RETIRE_CAP);
     if (result.changes > 0) {
       console.log(`[v14.10 retire-sweep] Retired ${result.changes} leads with attemptCount >= ${RETIRE_CAP}`);
@@ -907,7 +1036,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   app.post("/api/admin/redistribute-unseen", (req, res) => {
     try {
       // SQL: LEFT JOIN to exclude leads with any activity — single query (v11.70)
-      const SKIP = ["contacted_not_interested", "contacted_appointment", "keep_in_touch", "callback_requested", "wrong_number"];
+      const SKIP = ["contacted_not_interested", "contacted_appointment", "keep_in_touch", "callback_requested", "wrong_number", "listed"];
       const skipPlaceholders = SKIP.map(() => "?").join(",");
       const unseen: any[] = rawDb.prepare(
         `SELECT l.id, l.lead_type as leadType FROM leads l
@@ -1564,6 +1693,92 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ created: created.length, disqualified, batchId });
   });
 
+  // ─── v14.16 — CALLBACK LOOKUP ────────────────────────────────────────────
+  // Agent gets a call from an unknown number and needs to know who's on the
+  // other end. Look up any lead by the last-4 of any phone number attached to
+  // that lead. Returns matches with the last outcome + agent that touched them.
+  //
+  // IMPORTANT: this route MUST live above `/api/leads/:id` so express doesn't
+  // route "callback-lookup" as a numeric id.
+  app.get("/api/leads/callback-lookup", (req, res) => {
+    try {
+      const raw = String(req.query.last4 || "").replace(/\D/g, "");
+      if (raw.length < 4) {
+        return res.status(400).json({ error: "Last 4 digits required", results: [] });
+      }
+      const last4 = raw.slice(-4);
+
+      // Match on primary `phone` column OR any digit in the `phones` JSON array.
+      // Use LIKE '%XXXX' on the raw digits so formatting (dashes, parens, +1) doesn't matter.
+      // We normalize phone digits inside SQL with REPLACE chains — simpler than pulling
+      // every lead into memory.
+      const stripSql = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone,''),'-',''),'(',''),')',''),' ',''),'.',''),'+','')`;
+      const stripPhonesSql = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phones,''),'-',''),'(',''),')',''),' ',''),'.',''),'+','')`;
+      const like = `%${last4}%`;
+
+      const rows: any[] = rawDb.prepare(`
+        SELECT id, owner_name, address, city, state, phone, phones, status,
+               assigned_agent_id, follow_up_timing, lead_type, uploaded_at
+          FROM leads
+         WHERE ${stripSql}        LIKE ?
+            OR ${stripPhonesSql} LIKE ?
+         ORDER BY uploaded_at DESC
+         LIMIT 25
+      `).all(like, like);
+
+      // For each match, verify the last-4 actually lines up with a phone tail
+      // (avoids false-positives where 1234 appears mid-number like 555-1234-999).
+      const filtered = rows.filter(r => {
+        const stripped = (s: string) => String(s || "").replace(/\D/g, "");
+        const primary = stripped(r.phone);
+        let phonesArr: string[] = [];
+        try { phonesArr = JSON.parse(r.phones || "[]").map(stripped); } catch { phonesArr = []; }
+        const allPhones = [primary, ...phonesArr].filter(Boolean);
+        return allPhones.some(p => p.endsWith(last4));
+      });
+
+      // Enrich with last activity (outcome + agent + timestamp) for each match
+      const results = filtered.map(r => {
+        const lastAct: any = rawDb.prepare(`
+          SELECT la.outcome, la.notes, la.created_at, a.name AS agent_name
+            FROM lead_activity la
+            LEFT JOIN agents a ON a.id = la.agent_id
+           WHERE la.lead_id = ?
+           ORDER BY la.created_at DESC
+           LIMIT 1
+        `).get(r.id) || {};
+        const assignedAgent: any = r.assigned_agent_id
+          ? rawDb.prepare(`SELECT name FROM agents WHERE id = ?`).get(r.assigned_agent_id) || {}
+          : {};
+        let phonesArr: string[] = [];
+        try { phonesArr = JSON.parse(r.phones || "[]"); } catch {}
+        return {
+          leadId: r.id,
+          ownerName: r.owner_name || null,
+          address: r.address || null,
+          city: r.city || null,
+          state: r.state || null,
+          phone: r.phone || null,
+          phones: phonesArr,
+          status: r.status || null,
+          leadType: r.lead_type || null,
+          followUpTiming: r.follow_up_timing || null,
+          assignedAgentId: r.assigned_agent_id || null,
+          assignedAgentName: assignedAgent.name || null,
+          lastOutcome: lastAct.outcome || null,
+          lastOutcomeAt: lastAct.created_at || null,
+          lastOutcomeByAgent: lastAct.agent_name || null,
+          lastOutcomeNotes: lastAct.notes || null,
+        };
+      });
+
+      res.json({ last4, count: results.length, results });
+    } catch (e: any) {
+      console.error("[callback-lookup] failed:", e.message);
+      res.status(500).json({ error: "Callback lookup failed", details: e.message, results: [] });
+    }
+  });
+
   app.get("/api/leads/:id", (req, res) => {
     const lead = storage.getLeadById(parseInt(req.params.id));
     if (!lead) return res.status(404).json({ error: "Lead not found" });
@@ -1596,15 +1811,19 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (isNaN(leadId)) return res.status(400).json({ error: "Invalid lead id" });
 
     const { agentId, outcome, notes, lpmamab, callbackDate,
-            apptEmail, confirmedAddress, apptDate, apptTime, stage, intention } = req.body;
+            apptEmail, confirmedAddress, apptDate, apptTime, stage, intention,
+            followUpTiming } = req.body; // v14.16 — KIT follow-up timing
 
     // Whitelist valid outcomes — prevents garbage data from getting into the activity log
     // v14.10 — added `recycled` so client can route Recycle through /outcome if needed;
     // primary Recycle endpoint remains /api/leads/:id/recycle.
+    // v14.16 — 3×3 outcome grid additions: `listed`, `disconnected`, `left_voicemail`,
+    // plus `email_sent_value` for the Stage-2 value email (v14.17). Every route below
+    // handles its own exhaustion — no code path can leave a lead in a stuck state.
     const VALID_OUTCOMES = [
       "no_answer", "contacted_appointment", "keep_in_touch", "callback_requested",
       "contacted_not_interested", "wrong_number", "email_sent", "network_referral",
-      "recycled",
+      "recycled", "listed", "disconnected", "left_voicemail", "email_sent_value",
     ];
     if (!outcome || !VALID_OUTCOMES.includes(outcome)) {
       return res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_OUTCOMES.join(", ")}` });
@@ -1630,7 +1849,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (deadOutcomes.includes(outcome)) {
       // v14.12 — Appointments stay owned by the closer so they surface in the
       // agent's "My Leads" pipeline. Not Interested still unassigns (dead lead, no pipeline entry).
-      // v14.15 — Release the lock in both cases so the agent's next Load Next call
+      // v14.16 — Release the lock in both cases so the agent's next Load Next call
       // doesn't return this same lead. Appointments get filtered out by status anyway,
       // but the lock row would still trip the `alreadyLocked` shortcut.
       newStatus = outcome;
@@ -1641,7 +1860,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // v14.14 — Callback fully retired. Recycle is the successor: one-tap unassign to pool,
       // no date, no coordination. `callback_requested` is treated identically to `recycled`
       // so any stale clients still submitting the old key don't misbehave.
-      // v14.15 — Release the lock so my-next doesn't hand this lead right back.
+      // v14.16 — Release the lock so my-next doesn't hand this lead right back.
       newStatus = "unassigned";
       newAssignedId = null;
       newCallbackDate = null;
@@ -1663,7 +1882,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         rawDb.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(nextPhone, leadId);
       } else {
         // v14.10 — PULL MODE: all numbers tried today, return to shared pool.
-        // v14.15 — Also release the lead_locks row so my-next doesn't hand this
+        // v14.16 — Also release the lead_locks row so my-next doesn't hand this
         // exhausted lead right back to the same agent on their next Load Next tap.
         newStatus = "no_answer";
         newAssignedId = null;
@@ -1674,9 +1893,109 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // v14.12 — KIT stays owned by the closer so it appears in "My Leads" pipeline
       // (60-day rolling window). FUB still owns the long-term nurture, but the closer
       // needs to see it in Lead Depot until it drops out of the window.
+      // v14.16 — Release the lock so my-next doesn't hand this same lead back.
       newStatus = "keep_in_touch";
       newAssignedId = agentId;
+      rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
+      // v14.16 — Persist the follow-up timing selection so the agent's My Leads
+      // pipeline can filter/segment KIT leads by follow-up window.
+      if (followUpTiming) {
+        try {
+          rawDb.prepare(`UPDATE leads SET follow_up_timing = ? WHERE id = ?`).run(followUpTiming, leadId);
+        } catch (e: any) {
+          console.error("[KIT] follow_up_timing persist failed:", e.message);
+        }
+      }
+
+    } else if (outcome === "listed") {
+      // v14.16 — Listed = seller told us they've relisted with another agent.
+      // Full lead kill: mark status='listed', unassign, release lock so my-next
+      // never surfaces this lead again. Historical activity stays for the record.
+      newStatus = "listed";
+      newAssignedId = null;
+      rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+
+    } else if (outcome === "disconnected") {
+      // v14.16 — Disconnected line = per-line cleanup, NOT a full lead kill.
+      // Behaviorally identical to Wrong # but semantically different (bad number,
+      // not wrong person). We mark the dialed phone as struck in phone_states AND
+      // add it to dead_lines JSON. If any untried number remains, agent advances
+      // on the same lead; if every line is dead, we release + delete the lead
+      // (same exhaustion path as Wrong #).
+      const dialedPhone = req.body.dialedPhone || lead.phone || "";
+      const phones: string[] = lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []);
+      const phoneStates: Record<string, string> = lead.phoneStates ? JSON.parse(lead.phoneStates) : {};
+      let deadLines: string[] = [];
+      try { deadLines = JSON.parse((lead as any).deadLines || (lead as any).dead_lines || "[]"); } catch {}
+
+      if (dialedPhone) {
+        phoneStates[dialedPhone] = "struck";
+        if (!deadLines.includes(dialedPhone)) deadLines.push(dialedPhone);
+      }
+
+      // Log activity ourselves (matches Wrong # pattern) BEFORE deletion path
+      rawDb.prepare(`
+        INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
+        VALUES (?, ?, 'disconnected', ?, NULL, ?)
+      `).run(leadId, agentId || null,
+        notes || (dialedPhone ? `Disconnected: ${dialedPhone} marked dead.` : null),
+        new Date().toISOString());
+
+      const remaining = phones.filter(p => phoneStates[p] !== "struck");
+      if (remaining.length === 0) {
+        // All lines dead — exhaustion path. Award points, clear FKs, delete lead.
+        awardPoints(agentId, "disconnected", leadId);
+        rawDb.prepare(`DELETE FROM lead_activity WHERE lead_id = ?`).run(leadId);
+        rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+        storage.deleteLead(leadId);
+        broadcast({ type: "lead_deleted", leadId });
+        return res.json({ deleted: true, leadId, reason: "all_lines_disconnected" });
+      }
+
+      // Otherwise advance to next viable line, keep agent on the lead
+      const untriedNext = remaining.find(p => phoneStates[p] === "untried");
+      const nextViable  = untriedNext ?? remaining[0];
+      const reorderedPhones = [nextViable, ...phones.filter(p => p !== nextViable)];
+      if (untriedNext) {
+        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, dead_lines = ?, status = 'assigned', assigned_agent_id = ? WHERE id = ?`).run(
+          nextViable, JSON.stringify(reorderedPhones), JSON.stringify(phoneStates),
+          JSON.stringify(deadLines), agentId, leadId
+        );
+      } else {
+        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, dead_lines = ?, status = 'unassigned', assigned_agent_id = NULL WHERE id = ?`).run(
+          nextViable, JSON.stringify(reorderedPhones), JSON.stringify(phoneStates),
+          JSON.stringify(deadLines), leadId
+        );
+        rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+      }
+      awardPoints(agentId, "disconnected", leadId);
+      broadcast({ type: "activity_event", event: { type: "disconnected", agentId, leadId, agentName: storage.getAgentById(agentId)?.name || "Agent", address: lead.address } });
+      broadcast({ type: "lead_updated", leadId });
+      return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length, keptOnLead: !!untriedNext });
+
+    } else if (outcome === "left_voicemail") {
+      // v14.16 — Left VM = log outcome on this line, treat like a no-answer for
+      // rotation purposes (line goes "no_answer_today", agent advances to next
+      // untried line if available). Lead itself stays alive and rotates through
+      // the 6-call cap set by the retire-sweep. If no untried numbers remain,
+      // return the lead to the pool so it surfaces for someone tomorrow.
+      const currentPhone = req.body.dialedPhone || lead.phone || "";
+      if (currentPhone && newPhoneStates[currentPhone] !== undefined) {
+        newPhoneStates[currentPhone] = "no_answer_today";
+      }
+      const nextPhone = getNextViablePhone(newPhoneStates, newPhones);
+      if (nextPhone) {
+        newStatus = "assigned";
+        newAssignedId = agentId;
+        newPhones = [nextPhone, ...newPhones.filter(p => p !== nextPhone)];
+        rawDb.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(nextPhone, leadId);
+      } else {
+        // All lines tried today — return to pool, release lock
+        newStatus = "no_answer";
+        newAssignedId = null;
+        rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+      }
     }
     // v14.14 — The old `callback_requested` branch that scheduled a date and kept the
     // lead assigned to the agent has been removed. It's now handled above alongside
@@ -1725,7 +2044,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         return res.json({ deleted: true, leadId, reason: "all_numbers_struck" });
       }
 
-      // v14.15 — Wrong # advances phone but KEEPS the agent on the lead.
+      // v14.16 — Wrong # advances phone but KEEPS the agent on the lead.
       // Agent burns through all numbers on the spot in one sitting. Only when
       // the LAST number is struck does the lead leave (handled above via delete).
       // Between-line no-op on assignment prevents the my-next race that left
@@ -1825,6 +2144,27 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         apptTime:         apptTime || undefined,
         apptEmail:        apptEmail || undefined,
       }).catch(err => console.error("CRM report email failed:", err));
+
+      // v14.16 ── Expired KIT Credibility Email ──────────────────────────────────
+      // Only fire for Expired lead KIT saves. Rate-limited to once per 60 days per lead.
+      if (outcome === "keep_in_touch" && lead.leadType === "expired") {
+        const targetEmail = (apptEmail || (lead as any).email || "").trim();
+        const ownerFirstName = ((lead.ownerName || "").trim().split(/\s+/)[0]) || "";
+        if (targetEmail && targetEmail.includes("@")) {
+          sendExpiredCredibilityEmail({
+            leadId,
+            ownerEmail: targetEmail,
+            ownerFirstName,
+            address: confirmedAddress || lead.address || "your property",
+            followUpTiming: followUpTiming || "few_weeks",
+            agent: {
+              name:  agent?.name || undefined,
+              email: (agent as any)?.email || undefined,
+              phone: (agent as any)?.phone || undefined,
+            },
+          }).catch(err => console.error("[CredibilityEmail] top-level error:", err));
+        }
+      }
 
       // ── Appointment Alert — instant ping to Alex/Nate for appt outcomes only
       if (outcome === "contacted_appointment") {
@@ -2476,7 +2816,7 @@ Would you be open to a brief call this week?
 
 Best regards,
 [YOUR NAME]
-Brothers Group Real Estate at Momentum Realty
+Brothers Group Real Estate Team at Momentum Realty
 [YOUR PHONE]
 bgre.com
 
@@ -3126,7 +3466,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.15 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.16 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -3372,7 +3712,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.15",
+      version: "v14.16",
       services: results,
     });
   });

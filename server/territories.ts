@@ -55,7 +55,7 @@ export const TERRITORIES: Record<string, {
     zipcodes: ["32259", "32260", "32033", "32145"],
     notes: "St. Johns County remainder (not covered by Ponte Vedra/Nocatee/St. Aug)."
   },
-  // v14.0 — Clay County removed. Watson Brothers Group focuses on Nassau/Duval/St. Johns.
+  // v14.0 — Clay County removed. Brothers Group Real Estate Team focuses on Nassau/Duval/St. Johns.
 };
 
 // Flat lookup: zip → territory key (for scoring/assignment)

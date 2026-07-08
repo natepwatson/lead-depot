@@ -1450,7 +1450,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.17
+              v14.18
             </p>
           </div>
         </div>
@@ -1507,7 +1507,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
       </header>
 
       <main style={{ padding: "20px 16px", maxWidth: 1200, margin: "0 auto" }}>
-        {/* v14.17 — Admin default landing = Leaderboard (leftmost). Leaderboard sub-tab defaults to Today (see lbTab state). */}
+        {/* v14.18 — Admin default landing = Leaderboard (leftmost). Leaderboard sub-tab defaults to Today (see lbTab state). */}
         <Tabs defaultValue="leaderboard">
           {/* ── Tab bar ──────────────────────────────────────────────────────── */}
           <TabsList style={{

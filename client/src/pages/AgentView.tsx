@@ -7,11 +7,12 @@ import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Phone, PhoneMissed, XCircle,
+  Phone, PhoneMissed, PhoneOff, XCircle,
   CheckCircle2, AlertTriangle, MapPin, Mail, LogOut,
   TrendingUp, ChevronLeft, ScrollText, ChevronDown,
   ChevronUp, Trophy, Users, Send, UserPlus, Heart,
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
+  Home, Voicemail,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import TutorialModal from "../components/TutorialModal";

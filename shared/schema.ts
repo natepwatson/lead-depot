@@ -89,6 +89,7 @@ export const leads = sqliteTable("leads", {
   assessedValue: integer("assessed_value"),     // Land $75K+ filter
   listPrice: integer("list_price"),             // Expired/FSBO $500K+ filter
   yearPurchased: integer("year_purchased"),     // Land 5yr+ ownership filter
+  lastSalePrice: integer("last_sale_price"),    // v14.22 — from BatchLeads Last Sale Price, for equity calc
   county: text("county"),                       // Raw location — map view + county filter
   lat: real("lat"),                             // Map view pin
   lng: real("lng"),                             // Map view pin

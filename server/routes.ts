@@ -177,7 +177,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.21 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.22 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -236,7 +236,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.21 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.22 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -388,7 +388,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.21 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.22 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -446,6 +446,7 @@ function toApiLead(r: any): any {
     source: r.source,
     listPrice: r.list_price,
     assessedValue: r.assessed_value,
+    lastSalePrice: r.last_sale_price,
     lotSizeAcres: r.lot_size_acres,
     yearPurchased: r.year_purchased,
   };
@@ -3405,7 +3406,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.18 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.22 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -3651,7 +3652,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.21",
+      version: "v14.22",
       services: results,
     });
   });
@@ -4234,6 +4235,58 @@ This template is for informational/outreach purposes only.`;
     } catch (err: any) {
       console.error("[BatchLeads CSV] Import error:", err);
       res.status(500).json({ error: err.message, stack: err.stack });
+    }
+  });
+
+  // v14.22 — Recompute scores for existing leads using the unified scorer.
+  // Safe to call repeatedly; only touches `score` column.
+  app.post("/api/admin/backfill-scores", async (_req: any, res: any) => {
+    try {
+      const { computeUnifiedScore } = await import("../shared/scoring");
+      const rows = rawDb.prepare(`
+        SELECT id, phones, email, list_price, assessed_value, lot_size_acres,
+               year_purchased, lead_type, source, score
+        FROM leads
+      `).all() as any[];
+      const upd = rawDb.prepare(`UPDATE leads SET score = ? WHERE id = ?`);
+      let updated = 0;
+      const distribution: Record<string, number> = { hot: 0, warm: 0, cool: 0, cold: 0 };
+      const tx = rawDb.transaction(() => {
+        for (const l of rows) {
+          let phoneCount = 0;
+          try {
+            const arr = l.phones ? JSON.parse(l.phones) : [];
+            phoneCount = Array.isArray(arr) ? arr.length : 0;
+          } catch { phoneCount = 0; }
+          // BatchLeads legacy: some rows have score 45/65/85 from the old scoreCategoryToNumber.
+          // Convert those back into a sourceRating hint so we don't drop it.
+          let sourceRating: "high" | "medium" | "low" | null = null;
+          if (l.source === "batchleads_csv") {
+            if (l.score === 85) sourceRating = "high";
+            else if (l.score === 65) sourceRating = "medium";
+            else if (l.score === 45) sourceRating = "low";
+          }
+          const { score } = computeUnifiedScore({
+            phoneCount,
+            hasEmail: !!(l.email && String(l.email).trim()),
+            listPrice: l.list_price,
+            assessedValue: l.assessed_value,
+            yearPurchased: l.year_purchased,
+            lotSizeAcres: l.lot_size_acres,
+            sourceRating,
+            leadType: l.lead_type,
+          });
+          upd.run(score, l.id);
+          updated++;
+          const bucket = score >= 80 ? "hot" : score >= 65 ? "warm" : score >= 50 ? "cool" : "cold";
+          distribution[bucket]++;
+        }
+      });
+      tx();
+      res.json({ ok: true, updated, distribution });
+    } catch (err: any) {
+      console.error("[backfill-scores] error:", err);
+      res.status(500).json({ error: err.message });
     }
   });
 

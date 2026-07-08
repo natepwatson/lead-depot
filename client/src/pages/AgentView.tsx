@@ -383,6 +383,85 @@ function RecycleModal({
 // opens RecycleModal and posts outcome="recycled" via outcomeMutation.
 
 // ─── Lead card ────────────────────────────────────────────────────────────────
+// v14.22 IntelStrip — pills under the address (list price, AVM delta, years owned, equity, score)
+// Palette per Alex spec: strong-green / muted-green / yellow / red only. No grey.
+function IntelPill({ tone, children }: { tone: "g" | "g2" | "y" | "r"; children: React.ReactNode }) {
+  const palette = {
+    g:  { bg: "rgba(34,197,94,0.18)",  bd: "rgba(34,197,94,0.45)",  fg: "#4ade80" },
+    g2: { bg: "rgba(34,197,94,0.09)",  bd: "rgba(34,197,94,0.25)",  fg: "#86efac" },
+    y:  { bg: "rgba(234,179,8,0.16)",  bd: "rgba(234,179,8,0.42)",  fg: "#fde047" },
+    r:  { bg: "rgba(239,68,68,0.16)",  bd: "rgba(239,68,68,0.42)",  fg: "#fca5a5" },
+  }[tone];
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      padding: "3px 9px", borderRadius: 999,
+      background: palette.bg, border: `1px solid ${palette.bd}`,
+      color: palette.fg, fontSize: 11, fontWeight: 600,
+      letterSpacing: "0.02em", whiteSpace: "nowrap",
+    }}>{children}</span>
+  );
+}
+
+function IntelStrip({ lead }: { lead: any }) {
+  const pills: React.ReactNode[] = [];
+  const fmt = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+  if (lead.listPrice && lead.listPrice > 0) {
+    pills.push(<IntelPill key="lp" tone="g2">Listed {fmt(lead.listPrice)}</IntelPill>);
+  }
+
+  if (lead.assessedValue && lead.assessedValue > 0 && lead.listPrice && lead.listPrice > 0) {
+    const delta = ((lead.assessedValue - lead.listPrice) / lead.listPrice) * 100;
+    const pct = Math.round(delta);
+    let tone: "g" | "g2" | "y" | "r" = "g2";
+    if (delta <= -3) tone = "g";
+    else if (delta > -3 && delta < 3) tone = "y";
+    else if (delta >= 10) tone = "r";
+    else tone = "g2";
+    const sign = pct > 0 ? "+" : "";
+    pills.push(<IntelPill key="avm" tone={tone}>AVM {fmt(lead.assessedValue)} ({sign}{pct}%)</IntelPill>);
+  } else if (lead.assessedValue && lead.assessedValue > 0) {
+    pills.push(<IntelPill key="avm" tone="g2">AVM {fmt(lead.assessedValue)}</IntelPill>);
+  }
+
+  if (lead.yearPurchased && lead.yearPurchased > 1900) {
+    const yrs = new Date().getFullYear() - lead.yearPurchased;
+    let tone: "g" | "g2" | "y" | "r" = "g2";
+    if (yrs >= 10) tone = "g";
+    else if (yrs >= 5) tone = "y";
+    else if (yrs >= 2) tone = "g2";
+    else tone = "r";
+    pills.push(<IntelPill key="yr" tone={tone}>{yrs}yr owned</IntelPill>);
+  }
+
+  if (lead.listPrice && lead.listPrice > 0 && lead.lastSalePrice && lead.lastSalePrice > 0) {
+    const equityPct = Math.round(((lead.listPrice - lead.lastSalePrice) / lead.listPrice) * 100);
+    if (equityPct >= 100) {
+      pills.push(<IntelPill key="eq" tone="g">Free &amp; Clear</IntelPill>);
+    } else if (equityPct >= 50) {
+      pills.push(<IntelPill key="eq" tone="g">High Equity ~{equityPct}%</IntelPill>);
+    } else if (equityPct >= 25) {
+      pills.push(<IntelPill key="eq" tone="y">Some Equity ~{equityPct}%</IntelPill>);
+    }
+  }
+
+  if (typeof lead.score === "number" && lead.score > 0) {
+    let tone: "g" | "g2" | "y" | "r" = "g2";
+    if (lead.score >= 65) tone = "g";
+    else if (lead.score >= 50) tone = "g2";
+    else tone = "g2";
+    pills.push(<IntelPill key="sc" tone={tone}>Score {lead.score}</IntelPill>);
+  }
+
+  if (pills.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+      {pills}
+    </div>
+  );
+}
+
 function LeadCard({ lead }: { lead: Lead }) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -717,12 +796,15 @@ function LeadCard({ lead }: { lead: Lead }) {
           <p style={{
             fontSize: 13, color: "rgba(255,255,255,0.6)",
             display: "flex", alignItems: "flex-start", gap: 6,
-            marginBottom: 18, lineHeight: 1.4,
+            marginBottom: 12, lineHeight: 1.4,
           }}>
             <MapPin size={13} style={{ marginTop: 1, flexShrink: 0, color: "#c8aa5a" }} />
             {lead.address}
           </p>
         )}
+
+        {/* ── v14.22 — Intel strip (pills under address) ── */}
+        <IntelStrip lead={lead as any} />
 
         {/* ── v14.11 — Line indicator ── */}
         {allPhones.length > 0 && (
@@ -745,110 +827,111 @@ function LeadCard({ lead }: { lead: Lead }) {
           </div>
         )}
 
-        {/* ── Contact row ── */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
-          {/* v14.11 — Stacked phone list: only the active line is tappable (tel: link).
-              Other lines render as plain divs to prevent autopilot skip-clicking. */}
-          <div style={{ flex: "1 1 auto", display: "flex", flexDirection: "column", gap: 8 }}>
-            {allPhones.map((p, i) => {
-              const state = phoneStates[p] || "untried";
-              const isActive = p === activePhone;
-              const stateLabel = state === "struck" ? "WRONG #" : state === "no_answer_today" ? "NO ANSWER TODAY" : "UNTRIED";
-              const stateColor = state === "struck" ? "#6b7280" : state === "no_answer_today" ? "#f97316" : "rgba(200,170,90,0.7)";
-
-              if (isActive) {
-                // Active line — big, gold, tappable tel: link
-                return (
-                  <a key={p} href={`tel:${p}`} style={{
-                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                    gap: 4, padding: "18px 22px",
-                    background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-                    borderRadius: 12, textDecoration: "none",
-                    color: "#080808", minHeight: 76,
-                    border: "2px solid #e8c96a",
-                    boxShadow: "0 6px 24px rgba(200,170,90,0.4), 0 0 0 4px rgba(200,170,90,0.12)",
-                    position: "relative",
-                  }}>
-                    <span style={{
-                      fontSize: 9, letterSpacing: "0.24em", fontWeight: 800,
-                      color: "rgba(8,8,8,0.65)",
-                    }}>
-                      DIAL LINE {i + 1}
-                    </span>
-                    <span style={{
-                      fontSize: "clamp(1.5rem, 6.5vw, 1.9rem)", fontWeight: 800,
-                      letterSpacing: "0.02em", display: "flex", alignItems: "center", gap: 10,
-                      lineHeight: 1,
-                    }}>
-                      <Phone size={22} strokeWidth={2.5} /> {p}
-                    </span>
-                  </a>
-                );
-              }
-
-              // Inactive line — plain div, not tappable, dimmed
-              const isStruck = state === "struck";
-              return (
-                <div key={p} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "9px 14px",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: 8, minHeight: 36,
-                  opacity: isStruck ? 0.35 : 0.55,
+        {/* ── v14.22 — Stacked phone lines (INACTIVE lines on top, active DIAL button at bottom) ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+          {/* Inactive lines first (thumb-reach: keep the big Dial button at the bottom of the stack) */}
+          {allPhones.map((p, i) => {
+            if (p === activePhone) return null;
+            const state = phoneStates[p] || "untried";
+            const isStruck = state === "struck";
+            const stateLabel = state === "struck" ? "WRONG #" : state === "no_answer_today" ? "NO ANSWER TODAY" : "UNTRIED";
+            const stateColor = state === "struck" ? "#6b7280" : state === "no_answer_today" ? "#f97316" : "rgba(200,170,90,0.7)";
+            return (
+              <div key={p} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "9px 14px",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 8, minHeight: 36,
+                opacity: isStruck ? 0.35 : 0.55,
+              }}>
+                <span style={{
+                  fontSize: 13, fontWeight: 500,
+                  color: "rgba(255,255,255,0.6)",
+                  textDecoration: isStruck ? "line-through" : "none",
+                  fontVariantNumeric: "tabular-nums",
                 }}>
-                  <span style={{
-                    fontSize: 13, fontWeight: 500,
-                    color: "rgba(255,255,255,0.6)",
-                    textDecoration: isStruck ? "line-through" : "none",
-                    fontVariantNumeric: "tabular-nums",
-                  }}>
-                    Line {i + 1}: {p}
-                  </span>
-                  <span style={{
-                    fontSize: 9, letterSpacing: "0.14em", fontWeight: 700,
-                    color: stateColor,
-                  }}>
-                    {stateLabel}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          {mailtoLink && (
-            <a
-              href={mailtoLink}
-              onClick={() => {
-                // Log email sent activity
-                fetch(`/api/leads/${lead.id}/email-sent`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ agentId: user?.id }),
-                }).catch(() => {});
-              }}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "13px 18px",
-                background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.18)",
-                borderRadius: 8, textDecoration: "none",
-                fontSize: 13, color: "rgba(255,255,255,0.7)", minHeight: 48,
-              }}
-            >
-              <Mail size={14} /> Email
-            </a>
-          )}
-          {zillow && (
-            <a href={zillow} target="_blank" rel="noopener noreferrer" style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "13px 18px",
-              background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)",
-              borderRadius: 8, textDecoration: "none",
-              fontSize: 13, color: "rgba(147,197,253,0.9)", minHeight: 48,
-            }}>
-              <TrendingUp size={13} /> Zillow
-            </a>
-          )}
+                  Line {i + 1}: {p}
+                </span>
+                <span style={{
+                  fontSize: 9, letterSpacing: "0.14em", fontWeight: 700,
+                  color: stateColor,
+                }}>
+                  {stateLabel}
+                </span>
+              </div>
+            );
+          })}
+          {/* Big gold Dial button for the active line — anchored at the bottom of the stack */}
+          {activePhone && (() => {
+            const activeIdx = allPhones.findIndex(p => p === activePhone);
+            return (
+              <a href={`tel:${activePhone}`} style={{
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                gap: 4, padding: "18px 22px",
+                background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+                borderRadius: 12, textDecoration: "none",
+                color: "#080808", minHeight: 76,
+                border: "2px solid #e8c96a",
+                boxShadow: "0 6px 24px rgba(200,170,90,0.4), 0 0 0 4px rgba(200,170,90,0.12)",
+              }}>
+                <span style={{
+                  fontSize: 9, letterSpacing: "0.24em", fontWeight: 800,
+                  color: "rgba(8,8,8,0.65)",
+                }}>
+                  DIAL LINE {activeIdx + 1}
+                </span>
+                <span style={{
+                  fontSize: "clamp(1.5rem, 6.5vw, 1.9rem)", fontWeight: 800,
+                  letterSpacing: "0.02em", display: "flex", alignItems: "center", gap: 10,
+                  lineHeight: 1,
+                }}>
+                  <Phone size={22} strokeWidth={2.5} /> {activePhone}
+                </span>
+              </a>
+            );
+          })()}
         </div>
+
+        {/* v14.22 — Email + Zillow strip (outside the phone stack, below the Dial button) */}
+        {(mailtoLink || zillow) && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+            {mailtoLink && (
+              <a
+                href={mailtoLink}
+                onClick={() => {
+                  fetch(`/api/leads/${lead.id}/email-sent`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ agentId: user?.id }),
+                  }).catch(() => {});
+                }}
+                style={{
+                  flex: 1,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  padding: "13px 18px",
+                  background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.18)",
+                  borderRadius: 8, textDecoration: "none",
+                  fontSize: 13, color: "rgba(255,255,255,0.7)", minHeight: 48,
+                }}
+              >
+                <Mail size={14} /> Email Owner
+              </a>
+            )}
+            {zillow && (
+              <a href={zillow} target="_blank" rel="noopener noreferrer" style={{
+                flex: 1,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                padding: "13px 18px",
+                background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)",
+                borderRadius: 8, textDecoration: "none",
+                fontSize: 13, color: "rgba(147,197,253,0.9)", minHeight: 48,
+              }}>
+                <TrendingUp size={13} /> Zillow
+              </a>
+            )}
+          </div>
+        )}
 
         {/* ── Motivation ── */}
         {lead.motivation && (

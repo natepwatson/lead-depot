@@ -424,6 +424,7 @@ if (!leadColsV138.includes("lot_size_acres"))       rawDb.prepare("ALTER TABLE l
 if (!leadColsV138.includes("assessed_value"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN assessed_value INTEGER").run();
 if (!leadColsV138.includes("list_price"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN list_price INTEGER").run();
 if (!leadColsV138.includes("year_purchased"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN year_purchased INTEGER").run();
+if (!leadColsV138.includes("last_sale_price"))      rawDb.prepare("ALTER TABLE leads ADD COLUMN last_sale_price INTEGER").run(); // v14.22 — equity calc
 if (!leadColsV138.includes("county"))               rawDb.prepare("ALTER TABLE leads ADD COLUMN county TEXT").run();
 if (!leadColsV138.includes("lat"))                  rawDb.prepare("ALTER TABLE leads ADD COLUMN lat REAL").run();
 if (!leadColsV138.includes("lng"))                  rawDb.prepare("ALTER TABLE leads ADD COLUMN lng REAL").run();

@@ -16,6 +16,7 @@
 //   Lot Size, LandvoiceContact1..4FirstName/LastName/Phone/DNC, LandvoiceOwnerEmail
 
 import * as XLSX from "xlsx";
+import { computeUnifiedScore } from "../shared/scoring";
 
 interface ImportRow {
   ownerName: string;
@@ -31,6 +32,7 @@ interface ImportRow {
   leadType: "expired" | "absentee";
   score: number;              // 0-100
   listPrice: number | null;
+  lastSalePrice: number | null;
   assessedValue: number | null;
   lotSizeAcres: number | null;
   yearPurchased: number | null;
@@ -136,9 +138,21 @@ function parseLandVoiceRow(r: any): ImportRow | null {
 
   const email = String(r["Email"] || r["LandvoiceOwnerEmail"] || "").trim();
   const listPrice = toNum(r["Price"]);
-  // LandVoice doesn't give assessed value, use list price as a placeholder.
+  // LandVoice doesn't give assessed value or last sale price directly.
   const assessedValue = null;
+  const lastSalePrice = null;
   const lotSizeAcres = toNum(r["Lot Size"]);
+
+  const unified = computeUnifiedScore({
+    phoneCount: allPhones.length,
+    hasEmail: !!email,
+    listPrice,
+    assessedValue,
+    yearPurchased: null,
+    lotSizeAcres,
+    sourceRating: null,
+    leadType: "expired",
+  });
 
   return {
     ownerName,
@@ -152,8 +166,9 @@ function parseLandVoiceRow(r: any): ImportRow | null {
     allPhones,
     phoneStates,
     leadType: "expired",  // LandVoice = expired only
-    score: 70,             // reasonable default (BatchLeads Medium/High range)
+    score: unified.score,
     listPrice,
+    lastSalePrice,
     assessedValue,
     lotSizeAcres,
     yearPurchased: null,
@@ -219,6 +234,7 @@ export function parseBatchLeadsFile(buffer: Buffer): ImportRow[] {
     const email = String(r["Email"] || "").trim();
     const listPrice = toNum(r["Mls Listing Amount"]);
     const assessedValue = toNum(r["Estimated Value"]) || toNum(r["Total Assessed Value"]);
+    const lastSalePrice = toNum(r["Last Sale Price"]);
     const lotSizeSqFt = toNum(r["Lot Size Square Feet"]);
     const lotSizeAcres = lotSizeSqFt !== null ? Math.round((lotSizeSqFt / 43560) * 100) / 100 : null;
 
@@ -228,7 +244,21 @@ export function parseBatchLeadsFile(buffer: Buffer): ImportRow[] {
     const yearMatch = saleDate.match(/\d{4}/);
     if (yearMatch) yearPurchased = Number(yearMatch[0]);
 
-    const score = scoreCategoryToNumber(r["Batchrank Score Category"]);
+    // Map BatchLeads "Batchrank Score Category" → sourceRating for the unified scorer.
+    const cat = String(r["Batchrank Score Category"] || "").toLowerCase();
+    const sourceRating: "high" | "medium" | "low" | null =
+      cat === "high" ? "high" : cat === "medium" ? "medium" : cat === "low" ? "low" : null;
+
+    const unified = computeUnifiedScore({
+      phoneCount: allPhones.length,
+      hasEmail: !!email,
+      listPrice,
+      assessedValue,
+      yearPurchased,
+      lotSizeAcres,
+      sourceRating,
+      leadType,
+    });
 
     out.push({
       ownerName,
@@ -242,8 +272,9 @@ export function parseBatchLeadsFile(buffer: Buffer): ImportRow[] {
       allPhones,
       phoneStates,
       leadType,
-      score,
+      score: unified.score,
       listPrice,
+      lastSalePrice,
       assessedValue,
       lotSizeAcres,
       yearPurchased,
@@ -280,9 +311,9 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
       owner_name, address, city, state, zip, county,
       phone, phones, phone_states, email,
       lead_type, status, score,
-      list_price, assessed_value, lot_size_acres, year_purchased,
+      list_price, assessed_value, last_sale_price, lot_size_acres, year_purchased,
       source, batch_id, uploaded_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, ?, ?, ?, 'batchleads_csv', ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, ?, ?, ?, ?, 'batchleads_csv', ?, datetime('now'))
   `);
 
   const batchId = `batchleads_csv_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}`;
@@ -302,7 +333,7 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
         r.ownerName, r.address, r.city, r.state, r.zip, r.county,
         r.phone, JSON.stringify(r.allPhones), JSON.stringify(r.phoneStates), r.email,
         r.leadType, r.score,
-        r.listPrice, r.assessedValue, r.lotSizeAcres, r.yearPurchased,
+        r.listPrice, r.assessedValue, r.lastSalePrice, r.lotSizeAcres, r.yearPurchased,
         batchId,
       );
       if (result.changes > 0) {

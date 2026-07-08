@@ -163,7 +163,22 @@ const headshotMap: Record<string, string> = {
   "Denise Jacobs":    "denise-jacobs",
   "Nate Watson":      "nate-watson",
   "Alex Watson":      "alex-watson",
+  "Noah Tomlinson":   "noah-tomlinson",  // v14.17
 };
+
+// v14.17 — One-shot reactivation: Noah was auto-deactivated by the boot sweep
+// (v11.54) because his slug wasn't in headshotMap yet. Now that he's mapped, flip him
+// back on so he receives leads again. Idempotent — only affects id=6 if still off.
+try {
+  rawDb.prepare(`
+    UPDATE agents
+       SET is_active = 1, lead_flow_on = 1
+     WHERE name = 'Noah Tomlinson'
+       AND (is_active = 0 OR lead_flow_on = 0)
+  `).run();
+} catch (e) {
+  console.error("[v14.17 noah-reactivate] Failed:", e);
+}
 
 // In production: save to Railway persistent volume (/app/data/headshots/)
 // In dev: save alongside the build in dist/public/headshots/

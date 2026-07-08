@@ -18,7 +18,7 @@ import path from "node:path";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-// ─── POINTS HELPER (v14.16 ladder) ───────────────────────────────────────────
+// ─── POINTS HELPER (v14.17 ladder) ───────────────────────────────────────────
 // Total points = base dial (2) + outcome-specific points. Each outcome key below
 // is the FULL award for that outcome (dial base already folded in). Referral is
 // a separate reward (no dial base) because it's a networking event, not a call.
@@ -177,7 +177,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.16 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.17 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -236,7 +236,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.16 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.17 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -248,7 +248,7 @@ async function sendAppointmentAlert(opts: {
   });
 }
 
-// ─── EXPIRED CREDIBILITY EMAIL (v14.16) ───────────────────────────────────────────
+// ─── EXPIRED CREDIBILITY EMAIL (v14.17) ───────────────────────────────────────────
 // Fires immediately on Expired KIT save. Sends a warm intro email to the seller
 // from the agent (Reply-To = agent.email). Rate-limited to once per lead per
 // 60 days via lead_activity ('email_sent' with notes containing 'expired-credibility').
@@ -287,7 +287,7 @@ async function sendExpiredCredibilityEmail(opts: {
     return;
   }
 
-  // v14.16 — normalize owner + agent names, and use casual address in email body
+  // v14.17 — normalize owner + agent names, and use casual address in email body
   // so it reads like a human wrote it (no ALL CAPS names, no "SE / Apt 3B" suffixes).
   const firstName    = normalizeFirstName(opts.ownerFirstName) || "there";
   const agentFull    = normalizeFullName(opts.agent.name) || "Your Brothers Group Real Estate Team agent";
@@ -388,7 +388,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.16 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.17 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1693,7 +1693,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ created: created.length, disqualified, batchId });
   });
 
-  // ─── v14.16 — CALLBACK LOOKUP ────────────────────────────────────────────
+  // ─── v14.17 — CALLBACK LOOKUP ────────────────────────────────────────────
   // Agent gets a call from an unknown number and needs to know who's on the
   // other end. Look up any lead by the last-4 of any phone number attached to
   // that lead. Returns matches with the last outcome + agent that touched them.
@@ -1812,12 +1812,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     const { agentId, outcome, notes, lpmamab, callbackDate,
             apptEmail, confirmedAddress, apptDate, apptTime, stage, intention,
-            followUpTiming } = req.body; // v14.16 — KIT follow-up timing
+            followUpTiming } = req.body; // v14.17 — KIT follow-up timing
 
     // Whitelist valid outcomes — prevents garbage data from getting into the activity log
     // v14.10 — added `recycled` so client can route Recycle through /outcome if needed;
     // primary Recycle endpoint remains /api/leads/:id/recycle.
-    // v14.16 — 3×3 outcome grid additions: `listed`, `disconnected`, `left_voicemail`,
+    // v14.17 — 3×3 outcome grid additions: `listed`, `disconnected`, `left_voicemail`,
     // plus `email_sent_value` for the Stage-2 value email (v14.17). Every route below
     // handles its own exhaustion — no code path can leave a lead in a stuck state.
     const VALID_OUTCOMES = [
@@ -1849,7 +1849,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (deadOutcomes.includes(outcome)) {
       // v14.12 — Appointments stay owned by the closer so they surface in the
       // agent's "My Leads" pipeline. Not Interested still unassigns (dead lead, no pipeline entry).
-      // v14.16 — Release the lock in both cases so the agent's next Load Next call
+      // v14.17 — Release the lock in both cases so the agent's next Load Next call
       // doesn't return this same lead. Appointments get filtered out by status anyway,
       // but the lock row would still trip the `alreadyLocked` shortcut.
       newStatus = outcome;
@@ -1860,7 +1860,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // v14.14 — Callback fully retired. Recycle is the successor: one-tap unassign to pool,
       // no date, no coordination. `callback_requested` is treated identically to `recycled`
       // so any stale clients still submitting the old key don't misbehave.
-      // v14.16 — Release the lock so my-next doesn't hand this lead right back.
+      // v14.17 — Release the lock so my-next doesn't hand this lead right back.
       newStatus = "unassigned";
       newAssignedId = null;
       newCallbackDate = null;
@@ -1882,7 +1882,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         rawDb.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(nextPhone, leadId);
       } else {
         // v14.10 — PULL MODE: all numbers tried today, return to shared pool.
-        // v14.16 — Also release the lead_locks row so my-next doesn't hand this
+        // v14.17 — Also release the lead_locks row so my-next doesn't hand this
         // exhausted lead right back to the same agent on their next Load Next tap.
         newStatus = "no_answer";
         newAssignedId = null;
@@ -1893,12 +1893,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // v14.12 — KIT stays owned by the closer so it appears in "My Leads" pipeline
       // (60-day rolling window). FUB still owns the long-term nurture, but the closer
       // needs to see it in Lead Depot until it drops out of the window.
-      // v14.16 — Release the lock so my-next doesn't hand this same lead back.
+      // v14.17 — Release the lock so my-next doesn't hand this same lead back.
       newStatus = "keep_in_touch";
       newAssignedId = agentId;
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
-      // v14.16 — Persist the follow-up timing selection so the agent's My Leads
+      // v14.17 — Persist the follow-up timing selection so the agent's My Leads
       // pipeline can filter/segment KIT leads by follow-up window.
       if (followUpTiming) {
         try {
@@ -1909,7 +1909,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
 
     } else if (outcome === "listed") {
-      // v14.16 — Listed = seller told us they've relisted with another agent.
+      // v14.17 — Listed = seller told us they've relisted with another agent.
       // Full lead kill: mark status='listed', unassign, release lock so my-next
       // never surfaces this lead again. Historical activity stays for the record.
       newStatus = "listed";
@@ -1917,7 +1917,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
     } else if (outcome === "disconnected") {
-      // v14.16 — Disconnected line = per-line cleanup, NOT a full lead kill.
+      // v14.17 — Disconnected line = per-line cleanup, NOT a full lead kill.
       // Behaviorally identical to Wrong # but semantically different (bad number,
       // not wrong person). We mark the dialed phone as struck in phone_states AND
       // add it to dead_lines JSON. If any untried number remains, agent advances
@@ -1975,7 +1975,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length, keptOnLead: !!untriedNext });
 
     } else if (outcome === "left_voicemail") {
-      // v14.16 — Left VM = log outcome on this line, treat like a no-answer for
+      // v14.17 — Left VM = log outcome on this line, treat like a no-answer for
       // rotation purposes (line goes "no_answer_today", agent advances to next
       // untried line if available). Lead itself stays alive and rotates through
       // the 6-call cap set by the retire-sweep. If no untried numbers remain,
@@ -2044,7 +2044,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         return res.json({ deleted: true, leadId, reason: "all_numbers_struck" });
       }
 
-      // v14.16 — Wrong # advances phone but KEEPS the agent on the lead.
+      // v14.17 — Wrong # advances phone but KEEPS the agent on the lead.
       // Agent burns through all numbers on the spot in one sitting. Only when
       // the LAST number is struck does the lead leave (handled above via delete).
       // Between-line no-op on assignment prevents the my-next race that left
@@ -2145,7 +2145,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         apptEmail:        apptEmail || undefined,
       }).catch(err => console.error("CRM report email failed:", err));
 
-      // v14.16 ── Expired KIT Credibility Email ──────────────────────────────────
+      // v14.17 ── Expired KIT Credibility Email ──────────────────────────────────
       // Only fire for Expired lead KIT saves. Rate-limited to once per 60 days per lead.
       if (outcome === "keep_in_touch" && lead.leadType === "expired") {
         const targetEmail = (apptEmail || (lead as any).email || "").trim();
@@ -3466,7 +3466,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.16 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.17 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -3712,7 +3712,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.16",
+      version: "v14.17",
       services: results,
     });
   });

@@ -7,13 +7,13 @@ import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence } from "./fub";
-import { runBatchLeadsPipeline } from "./batchleads";
+// v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
 import multer from "multer";
 import { runDbprPipeline } from "./dbpr-pipeline";
 import { getTerritoryForZip, TERRITORIES as TERRITORY_META } from "./territories";
 import { normalizeFirstName, normalizeFullName, normalizeAddressCasual } from "./normalize";
-import * as landvoice from "./landvoice";
+// v14.46 — LandVoice OAuth module removed. LandVoice exports come in via CSV upload only.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -292,7 +292,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.45 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.46 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -351,7 +351,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.45 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.46 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -632,10 +632,10 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:15px;color:#f0f0f0;margin:0 0 16px">
       The active seller lead queue has dropped to <strong style="color:#fbbf24">${activeLeads} leads</strong> across ${activeAgents} active agents (~${perAgent} per agent).
     </p>
-    <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
+    <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.45 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.46 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -752,7 +752,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Cron trigger routes are exempt (they run server-side with no session).
   const CRON_EXEMPT_PATHS = [
     "/api/admin/stale-lead-audit",
-    "/api/admin/batchleads-run",
     "/api/admin/dbpr-run",
     "/api/admin/missed-appointments",
   ];
@@ -4405,7 +4404,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.45",
+      version: "v14.46",
       services: results,
     });
   });
@@ -4936,32 +4935,8 @@ Brothers Group Real Estate Team at Momentum Realty
     }
   });
 
-    // ─── BATCHLEADS PIPELINE TRIGGER ──────────────────────────────────────────────
-  // Called by daily 6am cron. Also callable manually by admins.
-  // Pulls leads saved to BatchLeads lists, scrubs, scores, and distributes.
-  app.post("/api/admin/batchleads-run",
-    (req: any, res: any, next: any) => pipelineGuard("batchleads", req, res, next),
-    async (req: any, res) => {
-    try {
-      console.log("[BatchLeads] Manual/cron trigger received");
-      const stats = await runBatchLeadsPipeline(rawDb);
-
-      // v14.7 — PULL MODE: new BatchLeads stay in the shared pool.
-      // Agents pull via Load Next Lead. No round-robin push.
-      const assigned = 0;
-
-      res.json({
-        ok: true,
-        ...stats,
-        assigned,
-        message: `BatchLeads pipeline complete. ${stats.priority + stats.standard} leads inserted, ${assigned} assigned via round-robin.`,
-      });
-    } catch (err: any) {
-      console.error("[BatchLeads] Pipeline error:", err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
+  // v14.46 — BATCHLEADS AUTO-PIPELINE REMOVED.
+  // Seller intake is CSV-only now. See /api/admin/import-batchleads-csv below.
 
 
   // ─── BATCHLEADS CSV/XLSX IMPORT (v14.4) ────────────────────────────────────
@@ -5208,75 +5183,9 @@ Brothers Group Real Estate Team at Momentum Realty
   };
   app.get("/api/admin/dbpr-stats", dbprStatsHandler);
 
-  // ─── LandVoice OAuth + Connection (v14.45 Intake v2 Phase 1) ────────────────
-  // Admin flow: paste client_id/client_secret → click Connect → LandVoice redirects
-  // back to /oauth-callback with authorization code → we exchange for tokens and store.
-  // The refresh_token is durable; access_token auto-refreshes ~1h before expiry.
+  // v14.46 — LandVoice OAuth routes removed. LandVoice data flows in via CSV upload
+  // (see /api/admin/import-batchleads-csv — the parser auto-detects LandVoice CSVs).
 
-  // In-memory state store for OAuth CSRF protection (10-min TTL). Small volume; no need
-  // for a table. Restart clears — user just clicks Connect again.
-  const lvStates: Map<string, number> = new Map();
-
-  app.get("/api/admin/landvoice/status", (_req: any, res) => {
-    try { res.json(landvoice.getConnectionStatus()); }
-    catch (err: any) { res.status(500).json({ error: err.message }); }
-  });
-
-  app.post("/api/admin/landvoice/save-credentials", (req: any, res) => {
-    try {
-      const { clientId, clientSecret } = req.body || {};
-      if (!clientId || !clientSecret) return res.status(400).json({ error: "clientId and clientSecret required" });
-      const id = landvoice.saveInitialCreds(String(clientId).trim(), String(clientSecret).trim());
-      res.json({ ok: true, id });
-    } catch (err: any) {
-      console.error("[LandVoice] save-credentials error:", err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.get("/api/admin/landvoice/connect-init", (_req: any, res) => {
-    try {
-      const state = randomBytes(16).toString("hex");
-      lvStates.set(state, Date.now());
-      // Purge expired states (>10 min old)
-      const cutoff = Date.now() - 10 * 60 * 1000;
-      for (const [k, ts] of lvStates.entries()) if (ts < cutoff) lvStates.delete(k);
-      const authorizeUrl = landvoice.getAuthorizeUrl(state);
-      res.json({ authorizeUrl });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  });
-
-  app.get("/api/admin/landvoice/oauth-callback", async (req: any, res) => {
-    try {
-      const { code, state, error, error_description } = req.query || {};
-      if (error) {
-        return res.status(400).send(`<html><body style="font-family:sans-serif;padding:40px;background:#080808;color:#eaeaea"><h2 style="color:#c8aa5a">LandVoice Connection Failed</h2><p>${error}: ${error_description || ""}</p><p><a href="/" style="color:#c8aa5a">Return to app</a></p></body></html>`);
-      }
-      if (!code) return res.status(400).send("Missing authorization code");
-      if (!state || !lvStates.has(String(state))) {
-        return res.status(400).send(`<html><body style="font-family:sans-serif;padding:40px;background:#080808;color:#eaeaea"><h2 style="color:#c8aa5a">Invalid state parameter</h2><p>Try connecting again from Admin.</p><p><a href="/" style="color:#c8aa5a">Return to app</a></p></body></html>`);
-      }
-      lvStates.delete(String(state));
-      await landvoice.exchangeCodeForTokens(String(code));
-      res.send(`<html><body style="font-family:sans-serif;padding:40px;background:#080808;color:#eaeaea;text-align:center"><h2 style="color:#c8aa5a">✓ LandVoice Connected</h2><p>You can close this window and return to Lead Depot.</p><script>setTimeout(function(){window.location.href='/';}, 2000);</script></body></html>`);
-    } catch (err: any) {
-      console.error("[LandVoice] oauth-callback error:", err);
-      res.status(500).send(`<html><body style="font-family:sans-serif;padding:40px;background:#080808;color:#eaeaea"><h2 style="color:#c8aa5a">OAuth Exchange Failed</h2><pre>${(err.message || "unknown").slice(0, 500)}</pre><p><a href="/" style="color:#c8aa5a">Return to app</a></p></body></html>`);
-    }
-  });
-
-  app.post("/api/admin/landvoice/disconnect", (_req: any, res) => {
-    try { landvoice.disconnect(); res.json({ ok: true }); }
-    catch (err: any) { res.status(500).json({ error: err.message }); }
-  });
-
-  // Diagnostic: verify tokens work by calling /Oauth/Me
-  app.get("/api/admin/landvoice/whoami", async (_req: any, res) => {
-    try { const me = await landvoice.whoAmI(); res.json(me); }
-    catch (err: any) { res.status(500).json({ error: err.message }); }
-  });
 
   // ─── REACTIVATE RETIRED LEADS (admin) ───────────────────────────────────────
   // v13.2 — Go-live helper: takes every lead currently in 'retired' status,
@@ -6091,58 +6000,4 @@ function scheduleStaleLockReleaser() {
 }
 scheduleStaleLockReleaser();
 
-// ─── v14.41 — BATCHLEADS DAILY AUTO-PIPELINE ─────────────────────────────
-// Fires runBatchLeadsPipeline() every day at 6:00 AM EDT (10:00 UTC).
-// Comments have promised this since v14.1 — finally wired in v14.41 alongside
-// the per-run cap raise (Expired 2500 / Absentee 1500). Prior behavior was
-// manual-only via POST /api/admin/batchleads-run.
-//
-// Scheduling: uses setTimeout to hit the next 10:00 UTC boundary, then chains
-// setTimeout on 24h cadence. Survives daylight saving in EDT because we anchor
-// to 10:00 UTC (fixed offset) rather than 06:00 local. In EST (winter), this
-// fires at 5am local — acceptable trade-off vs. importing a timezone lib.
-function scheduleBatchLeadsPipeline() {
-  const TARGET_HOUR_UTC = 10; // 10:00 UTC = 06:00 EDT / 05:00 EST
-  const TARGET_MIN_UTC = 0;
-
-  function msUntilNextFire(): number {
-    const now = new Date();
-    const target = new Date(Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-      TARGET_HOUR_UTC,
-      TARGET_MIN_UTC,
-      0, 0
-    ));
-    if (target.getTime() <= now.getTime()) {
-      target.setUTCDate(target.getUTCDate() + 1);
-    }
-    return target.getTime() - now.getTime();
-  }
-
-  function scheduleNext() {
-    const delay = msUntilNextFire();
-    const nextFire = new Date(Date.now() + delay).toISOString();
-    console.log(`[BatchLeads] Auto-pipeline scheduled to fire at ${nextFire} (in ${Math.round(delay / 1000 / 60)} min)`);
-    setTimeout(async () => {
-      try {
-        console.log("[BatchLeads] Auto-pipeline firing (daily 6am EDT / 10 UTC)");
-        const stats = await runBatchLeadsPipeline(rawDb);
-        console.log(`[BatchLeads] Auto-pipeline complete: fetched=${stats.fetched} filtered=${stats.filtered} priority=${stats.priority} standard=${stats.standard}`);
-      } catch (err: any) {
-        console.error("[BatchLeads] Auto-pipeline error:", err?.message || err);
-      } finally {
-        scheduleNext();
-      }
-    }, delay);
-  }
-  scheduleNext();
-}
-// v14.42 — PAUSED pending BatchLeads support reply on /property 400 + list_name bug.
-// The daily 6am pipeline is a silent no-op today (matchedLists always empty due to
-// list.name vs list.list_name field mismatch, and /property returns 400 for every payload).
-// Re-enable by uncommenting the bootstrap call below once BatchLeads confirms the correct
-// endpoint / field shape. See BUGLIST.md + LEAD_INTAKE_SPEC.md v14.42 findings.
-// scheduleBatchLeadsPipeline();
-console.log("[BatchLeads] Auto-pipeline PAUSED (v14.42) — awaiting support reply. Manual POST /api/admin/batchleads-run still available.");
+// v14.46 — BatchLeads auto-pipeline scheduler removed. CSV upload is the sole seller intake path.

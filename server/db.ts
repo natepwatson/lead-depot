@@ -107,49 +107,10 @@ if (!leadCols.includes("recycle_cooldown_until")) rawDb.prepare("ALTER TABLE lea
 // Wrong # + Disconnected don't touch this (they immediately strike the line).
 if (!leadCols.includes("phone_attempts")) rawDb.prepare("ALTER TABLE leads ADD COLUMN phone_attempts TEXT").run();
 
-// ─── LandVoice Intake v2 columns (v14.45) ─────────────────────────────────────
-// Native fields from LandVoice API v2 ExpiredLead / FsboLead / PreForeclosureLead schemas.
-// See: https://api2.landvoice.com/swagger/v2/swagger.json
-// `source_id` is LandVoice's numeric id; unique per endpoint. `landvoice_status` is
-// their {Expired, Canceled, Withdrawn, Active, Sold} enum — Active/Sold means dead lead.
-if (!leadCols.includes("source_id"))          rawDb.prepare("ALTER TABLE leads ADD COLUMN source_id TEXT").run();
-if (!leadCols.includes("landvoice_status"))   rawDb.prepare("ALTER TABLE leads ADD COLUMN landvoice_status TEXT").run();
-if (!leadCols.includes("status_date"))        rawDb.prepare("ALTER TABLE leads ADD COLUMN status_date TEXT").run();
-if (!leadCols.includes("list_date"))          rawDb.prepare("ALTER TABLE leads ADD COLUMN list_date TEXT").run();
-if (!leadCols.includes("list_price"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN list_price REAL").run();
-if (!leadCols.includes("days_on_market"))     rawDb.prepare("ALTER TABLE leads ADD COLUMN days_on_market INTEGER").run();
-if (!leadCols.includes("beds"))               rawDb.prepare("ALTER TABLE leads ADD COLUMN beds INTEGER").run();
-if (!leadCols.includes("baths"))              rawDb.prepare("ALTER TABLE leads ADD COLUMN baths REAL").run();
-if (!leadCols.includes("square_feet"))        rawDb.prepare("ALTER TABLE leads ADD COLUMN square_feet INTEGER").run();
-if (!leadCols.includes("lot_size"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN lot_size REAL").run();
-if (!leadCols.includes("year_built"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN year_built INTEGER").run();
-if (!leadCols.includes("property_type"))      rawDb.prepare("ALTER TABLE leads ADD COLUMN property_type TEXT").run();
-if (!leadCols.includes("list_agent"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN list_agent TEXT").run();
-if (!leadCols.includes("list_agent_company")) rawDb.prepare("ALTER TABLE leads ADD COLUMN list_agent_company TEXT").run();
-if (!leadCols.includes("agent_remarks"))      rawDb.prepare("ALTER TABLE leads ADD COLUMN agent_remarks TEXT").run();
-if (!leadCols.includes("property_description")) rawDb.prepare("ALTER TABLE leads ADD COLUMN property_description TEXT").run();
-if (!leadCols.includes("county"))             rawDb.prepare("ALTER TABLE leads ADD COLUMN county TEXT").run();
-// PreForeclosure-only fields (null for Expired/FSBO/Absentee)
-if (!leadCols.includes("assessed_value"))     rawDb.prepare("ALTER TABLE leads ADD COLUMN assessed_value REAL").run();
-if (!leadCols.includes("loan_amount"))        rawDb.prepare("ALTER TABLE leads ADD COLUMN loan_amount REAL").run();
-if (!leadCols.includes("mortgage_holder"))    rawDb.prepare("ALTER TABLE leads ADD COLUMN mortgage_holder TEXT").run();
-if (!leadCols.includes("delinquent_amount"))  rawDb.prepare("ALTER TABLE leads ADD COLUMN delinquent_amount REAL").run();
-// Rollups from contactsInfo[] for fast filtering/sorting
-if (!leadCols.includes("owner_occupied_any"))  rawDb.prepare("ALTER TABLE leads ADD COLUMN owner_occupied_any INTEGER").run();
-if (!leadCols.includes("company_owned_any"))   rawDb.prepare("ALTER TABLE leads ADD COLUMN company_owned_any INTEGER").run();
-if (!leadCols.includes("wireless_phone_count")) rawDb.prepare("ALTER TABLE leads ADD COLUMN wireless_phone_count INTEGER DEFAULT 0").run();
-if (!leadCols.includes("landline_phone_count")) rawDb.prepare("ALTER TABLE leads ADD COLUMN landline_phone_count INTEGER DEFAULT 0").run();
-if (!leadCols.includes("email_count"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN email_count INTEGER DEFAULT 0").run();
-if (!leadCols.includes("hot_score"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN hot_score INTEGER DEFAULT 0").run();
-if (!leadCols.includes("heat_bucket"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN heat_bucket TEXT").run();
-if (!leadCols.includes("data_genie_enriched_at")) rawDb.prepare("ALTER TABLE leads ADD COLUMN data_genie_enriched_at TEXT").run();
-if (!leadCols.includes("landvoice_last_synced_at")) rawDb.prepare("ALTER TABLE leads ADD COLUMN landvoice_last_synced_at TEXT").run();
-if (!leadCols.includes("landvoice_raw_json"))  rawDb.prepare("ALTER TABLE leads ADD COLUMN landvoice_raw_json TEXT").run();
-
-// Index on (source, source_id) for fast dedupe on ingest
-try { rawDb.prepare("CREATE INDEX IF NOT EXISTS idx_leads_source_id ON leads(source, source_id)").run(); } catch {}
-try { rawDb.prepare("CREATE INDEX IF NOT EXISTS idx_leads_hot_score ON leads(hot_score DESC)").run(); } catch {}
-try { rawDb.prepare("CREATE INDEX IF NOT EXISTS idx_leads_heat_bucket ON leads(heat_bucket)").run(); } catch {}
+// v14.46 — LandVoice Intake v2 columns removed. LandVoice ingest now flows through the
+// CSV import path only (server/batchleads-csv-import.ts), which writes to legacy columns.
+// Existing prod DBs may still have these columns dormant; SQLite doesn't drop them.
+// Fresh installs will simply not create them.
 
 // ─── lead_activity — lpmamab_snapshot column (v11.38) ────────────────────────
 const actCols = rawDb.prepare("PRAGMA table_info(lead_activity)").all().map((c: any) => c.name);
@@ -205,72 +166,8 @@ if (!existingTables.includes('app_settings')) rawDb.exec(`CREATE TABLE IF NOT EX
   id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, value TEXT NOT NULL
 )`);
 
-// ─── LandVoice Intake v2 tables (v14.45) ──────────────────────────────────────────────
-// OAuth credentials, raw ingest staging, per-phone contact records, Data Genie usage.
-// See LandVoice API v2 Swagger for canonical field names.
-if (!existingTables.includes('landvoice_credentials')) rawDb.exec(`CREATE TABLE IF NOT EXISTS landvoice_credentials (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  client_id TEXT NOT NULL,
-  client_secret TEXT NOT NULL,
-  refresh_token TEXT,
-  access_token TEXT,
-  access_token_expires_at TEXT,
-  connected_at TEXT NOT NULL DEFAULT '',
-  last_refresh_at TEXT,
-  last_error TEXT,
-  is_active INTEGER NOT NULL DEFAULT 1
-)`);
-
-if (!existingTables.includes('landvoice_raw_ingest')) rawDb.exec(`CREATE TABLE IF NOT EXISTS landvoice_raw_ingest (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  endpoint TEXT NOT NULL,
-  source_id TEXT NOT NULL,
-  pulled_at TEXT NOT NULL,
-  raw_json TEXT NOT NULL,
-  processed_at TEXT,
-  processing_error TEXT,
-  lead_id INTEGER
-)`);
-try { rawDb.prepare("CREATE INDEX IF NOT EXISTS idx_lv_raw_endpoint_source ON landvoice_raw_ingest(endpoint, source_id)").run(); } catch {}
-try { rawDb.prepare("CREATE INDEX IF NOT EXISTS idx_lv_raw_pulled_at ON landvoice_raw_ingest(pulled_at DESC)").run(); } catch {}
-
-if (!existingTables.includes('lead_contacts')) rawDb.exec(`CREATE TABLE IF NOT EXISTS lead_contacts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  lead_id INTEGER NOT NULL,
-  source TEXT NOT NULL,
-  full_name TEXT,
-  first_name TEXT,
-  middle_name TEXT,
-  last_name TEXT,
-  phone TEXT,
-  phone_type TEXT,
-  phone_carrier TEXT,
-  phone_dnc INTEGER,
-  email TEXT,
-  owner_occupied INTEGER,
-  company_owned INTEGER,
-  mailing_address TEXT,
-  mailing_city TEXT,
-  mailing_state TEXT,
-  mailing_zip TEXT,
-  added_at TEXT NOT NULL DEFAULT ''
-)`);
-try { rawDb.prepare("CREATE INDEX IF NOT EXISTS idx_lead_contacts_lead ON lead_contacts(lead_id)").run(); } catch {}
-try { rawDb.prepare("CREATE INDEX IF NOT EXISTS idx_lead_contacts_phone ON lead_contacts(phone)").run(); } catch {}
-
-if (!existingTables.includes('data_genie_lookups')) rawDb.exec(`CREATE TABLE IF NOT EXISTS data_genie_lookups (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  lead_id INTEGER,
-  requested_by INTEGER,
-  requested_at TEXT NOT NULL DEFAULT '',
-  request_json TEXT,
-  response_json TEXT,
-  cost_credits INTEGER DEFAULT 1,
-  hit INTEGER NOT NULL DEFAULT 0,
-  error TEXT
-)`);
-try { rawDb.prepare("CREATE INDEX IF NOT EXISTS idx_dg_lookups_lead ON data_genie_lookups(lead_id)").run(); } catch {}
-try { rawDb.prepare("CREATE INDEX IF NOT EXISTS idx_dg_lookups_at ON data_genie_lookups(requested_at DESC)").run(); } catch {}
+// v14.46 — LandVoice Intake v2 tables removed (landvoice_credentials, landvoice_raw_ingest,
+// lead_contacts, data_genie_lookups). CSV upload is the sole seller intake path.
 
 // Seed territories
 const TERRITORIES = [

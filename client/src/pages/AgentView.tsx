@@ -152,8 +152,7 @@ function ApptModal({
     stage && intentions.length > 0;
 
   const sourceLabel: Record<string, string> = {
-    expired: "Expired Listing", distressed: "Distressed Property",
-    website_lead: "Website / Network Lead", fsbo: "FSBO", land: "Land Lead",
+    expired: "Expired Listing", absentee: "Absentee Owner", network: "Network / Inbound",
   };
 
   const inputStyle: React.CSSProperties = {
@@ -730,8 +729,7 @@ function LeadCard({ lead }: { lead: Lead }) {
     : null;
 
   const typeLabel: Record<string, string> = {
-    expired: "Expired", distressed: "Distressed", website_lead: "Website",
-    fsbo: "FSBO", land: "Land",
+    expired: "Expired", absentee: "Absentee", network: "Network",
   };
 
   return (
@@ -1794,8 +1792,7 @@ interface PipelineData {
 }
 
 const SOURCE_LABEL: Record<string, string> = {
-  expired: "Expired", distressed: "Distressed", website_lead: "Website/Network",
-  fsbo: "FSBO", land: "Land",
+  expired: "Expired", absentee: "Absentee", network: "Network",
 };
 
 function PipelineCard({ lead, type }: { lead: PipelineLead; type: "callback" | "kit" | "appt" }) {

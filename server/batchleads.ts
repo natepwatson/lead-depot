@@ -172,7 +172,7 @@ export interface BatchRawLead {
   priceReductions?: number;
   ownerOccupied?: boolean;
   absenteeOutOfState?: boolean;
-  leadType: string;              // v13.8.3: "expired" | "fsbo" | "land" | "absentee"
+  leadType: string;              // v14.31: "expired" | "absentee" | "network"
   sourceId: string;              // BatchLeads address ID for dedup
   isFsbo?: boolean;
   hasActiveListing?: boolean;
@@ -417,8 +417,8 @@ export function filterBatchLead(
     }
   }
 
-  // v14.1 — Land filter removed. Reject any land/FSBO leads that slip through.
-  if (raw.leadType === "land" || raw.leadType === "fsbo") {
+  // v14.31 — only expired + absentee are BatchLeads-eligible. Reject anything else defensively.
+  if (raw.leadType !== "expired" && raw.leadType !== "absentee") {
     return { pass: false, reason: `disabled_lead_type (${raw.leadType})` };
   }
 

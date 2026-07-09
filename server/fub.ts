@@ -120,7 +120,7 @@ async function fubRequest(
 function outcomeToFubType(outcome: string, leadType: string): string {
   if (outcome === "contacted_appointment") return "Property Inquiry";
   if (outcome === "keep_in_touch") return "General Inquiry";
-  if (leadType === "website_lead") return "Registration";
+  if (leadType === "network") return "Registration";
   return "General Inquiry";
 }
 
@@ -152,11 +152,9 @@ function buildTags(leadType: string, outcome: string, source?: string, intention
 
   // Lead type → FUB source-style tag
   const typeMap: Record<string, string> = {
-    expired:      "expired-listing",
-    distressed:   "distressed",
-    website_lead: "website-lead",
-    fsbo:         "fsbo",
-    land:         "land",
+    expired:  "expired-listing",
+    absentee: "absentee-owner",
+    network:  "network-lead",
   };
   if (typeMap[leadType]) tags.push(typeMap[leadType]);
 

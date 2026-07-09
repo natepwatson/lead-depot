@@ -157,10 +157,8 @@
 
 /* Lead type badges */
 .type-expired        { @apply bg-zinc-500/10 text-zinc-300 border border-zinc-500/20; }
-.type-distressed     { @apply bg-orange-500/10 text-orange-300 border border-orange-500/20; }
-.type-website_lead   { @apply bg-yellow-500/10 text-yellow-200 border border-yellow-500/20; }
-.type-fsbo           { @apply bg-violet-500/10 text-violet-300 border border-violet-500/20; }
-.type-land           { @apply bg-emerald-500/10 text-emerald-300 border border-emerald-500/20; }
+.type-absentee       { @apply bg-emerald-500/10 text-emerald-300 border border-emerald-500/20; }
+.type-network        { @apply bg-yellow-500/10 text-yellow-200 border border-yellow-500/20; }
 
 /* Gold glow animation for active lead card */
 @keyframes pulse-gold {

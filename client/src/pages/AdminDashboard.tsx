@@ -50,7 +50,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function TypeBadge({ type }: { type: string }) {
   const labels: Record<string, string> = {
-    expired: "Expired", distressed: "Distressed", website_lead: "Website Lead", fsbo: "FSBO", land: "Land",
+    expired: "Expired", absentee: "Absentee", network: "Network",
   };
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium type-${type}`}>{labels[type] || type}</span>;
 }
@@ -841,7 +841,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [uploading, setUploading] = useState(false);
   const [uploadRowCount, setUploadRowCount] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [uploadType, setUploadType] = useState<"expired" | "distressed" | "website_lead" | "fsbo" | "land">("expired");
+  const [uploadType, setUploadType] = useState<"expired" | "absentee">("expired");
   // Agent recruiting state
   const agentLeadFileRef = useRef<HTMLInputElement>(null);
   const [agentLeadDragOver, setAgentLeadDragOver] = useState(false);
@@ -873,8 +873,6 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     staleTime: 30_000,
     enabled: recruitingSubTab === "leaderboard",
   });
-  const [websiteLeadForm, setWebsiteLeadForm] = useState({ firstName: "", lastName: "", email: "", phone: "", address: "", city: "", state: "FL", zip: "", county: "", propertyType: "", reasonForSelling: "", estimatedValue: "", timeframe: "" });
-  const [submittingWebsiteLead, setSubmittingWebsiteLead] = useState(false);
   const [newAgent, setNewAgent] = useState({ name: "", email: "", role: "agent" });
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<any | null>(null);
@@ -1216,7 +1214,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
-      const typeLabels: Record<string,string> = { expired:"Expired Listings", distressed:"Distressed", website_lead:"Website Lead", fsbo:"FSBO", land:"Land" };
+      const typeLabels: Record<string,string> = { expired:"Expired Listings", absentee:"Absentee Owners" };
       const disqNote = data.disqualified > 0 ? ` ${data.disqualified} skipped (missing name or phone).` : "";
       toast({ title: `${data.created} leads uploaded`, description: `Distributed via round-robin as ${typeLabels[uploadType] || uploadType}.${disqNote}` });
       setUploadRowCount(null);
@@ -1329,44 +1327,6 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     window.open("/api/export/activity", "_blank");
   };
 
-  const handleSubmitWebsiteLead = async () => {
-    const { firstName, lastName, phone, address } = websiteLeadForm;
-    if (!firstName || !lastName || !phone || !address) {
-      toast({ title: "Missing fields", description: "First name, last name, phone, and address are required.", variant: "destructive" });
-      return;
-    }
-    setSubmittingWebsiteLead(true);
-    try {
-      const ownerName = `${firstName} ${lastName}`.trim();
-      const fullAddress = [address, websiteLeadForm.city, websiteLeadForm.state, websiteLeadForm.zip].filter(Boolean).join(", ");
-      const extraData = JSON.stringify({
-        county: websiteLeadForm.county,
-        propertyType: websiteLeadForm.propertyType,
-        reasonForSelling: websiteLeadForm.reasonForSelling,
-        estimatedValue: websiteLeadForm.estimatedValue,
-        timeframe: websiteLeadForm.timeframe,
-      });
-      const batchId = `website_${Date.now()}`;
-      const res = await apiRequest("POST", "/api/leads/upload", {
-        leads: [{ address: fullAddress, ownerName, phone: websiteLeadForm.phone, email: websiteLeadForm.email, motivation: websiteLeadForm.reasonForSelling, extraData }],
-        leadType: "website_lead",
-        uploadedBy: user?.id,
-        batchId,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to submit lead");
-      toast({ title: "Website lead added", description: `${ownerName} — ${fullAddress} assigned via round-robin.` });
-      setWebsiteLeadForm({ firstName: "", lastName: "", email: "", phone: "", address: "", city: "", state: "FL", zip: "", county: "", propertyType: "", reasonForSelling: "", estimatedValue: "", timeframe: "" });
-      qc.invalidateQueries({ queryKey: ["/api/leads"] });
-      qc.invalidateQueries({ queryKey: ["/api/leads/stats"] });
-      qc.invalidateQueries({ queryKey: ["/api/admin/pipeline"] });
-      qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setSubmittingWebsiteLead(false);
-    }
-  };
 
   const allLeads: any[] = pipeline?.leads || [];
   const filteredLeads = allLeads.filter(l => {
@@ -1450,7 +1410,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.30
+              v14.31
             </p>
           </div>
         </div>
@@ -2586,10 +2546,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   <div className="flex flex-wrap gap-2">
                     {([
                       { key: "expired", label: "Expired" },
-                      { key: "distressed", label: "Distressed" },
-                      { key: "website_lead", label: "Website Lead" },
-                      { key: "fsbo", label: "FSBO" },
-                      { key: "land", label: "Land" },
+                      { key: "absentee", label: "Absentee" },
                     ] as const).map(({ key, label }) => (
                       <button key={key} onClick={() => setUploadType(key)}
                         style={{
@@ -2609,45 +2566,6 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   </div>
                 </div>
 
-                {uploadType === "website_lead" ? (
-                  <div className="space-y-4">
-                    <p className="text-sm text-muted-foreground">Enter the details from the MotivatedSellers.com email. The lead will be assigned to the next agent in rotation.</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">First Name *</Label><Input value={websiteLeadForm.firstName} onChange={e => setWebsiteLeadForm(p => ({...p, firstName: e.target.value}))} className="bg-secondary border-border" placeholder="Brad" data-testid="input-wl-first-name" /></div>
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">Last Name *</Label><Input value={websiteLeadForm.lastName} onChange={e => setWebsiteLeadForm(p => ({...p, lastName: e.target.value}))} className="bg-secondary border-border" placeholder="Wintch" data-testid="input-wl-last-name" /></div>
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">Phone *</Label><Input value={websiteLeadForm.phone} onChange={e => setWebsiteLeadForm(p => ({...p, phone: e.target.value}))} className="bg-secondary border-border" placeholder="7028840784" data-testid="input-wl-phone" /></div>
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">Email</Label><Input value={websiteLeadForm.email} onChange={e => setWebsiteLeadForm(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="brad@gmail.com" data-testid="input-wl-email" /></div>
-                    </div>
-                    <div className="space-y-1"><Label className="text-xs text-foreground/70">Property Address *</Label><Input value={websiteLeadForm.address} onChange={e => setWebsiteLeadForm(p => ({...p, address: e.target.value}))} className="bg-secondary border-border" placeholder="77019 Hardwood Ct" data-testid="input-wl-address" /></div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">City</Label><Input value={websiteLeadForm.city} onChange={e => setWebsiteLeadForm(p => ({...p, city: e.target.value}))} className="bg-secondary border-border" placeholder="Yulee" data-testid="input-wl-city" /></div>
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">State</Label><Input value={websiteLeadForm.state} onChange={e => setWebsiteLeadForm(p => ({...p, state: e.target.value}))} className="bg-secondary border-border" placeholder="FL" data-testid="input-wl-state" /></div>
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">Zip</Label><Input value={websiteLeadForm.zip} onChange={e => setWebsiteLeadForm(p => ({...p, zip: e.target.value}))} className="bg-secondary border-border" placeholder="32097" data-testid="input-wl-zip" /></div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">County</Label><Input value={websiteLeadForm.county} onChange={e => setWebsiteLeadForm(p => ({...p, county: e.target.value}))} className="bg-secondary border-border" placeholder="NASSAU" data-testid="input-wl-county" /></div>
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">Property Type</Label><Input value={websiteLeadForm.propertyType} onChange={e => setWebsiteLeadForm(p => ({...p, propertyType: e.target.value}))} className="bg-secondary border-border" placeholder="Single Family" data-testid="input-wl-property-type" /></div>
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">Estimated Value</Label><Input value={websiteLeadForm.estimatedValue} onChange={e => setWebsiteLeadForm(p => ({...p, estimatedValue: e.target.value}))} className="bg-secondary border-border" placeholder="413500" data-testid="input-wl-value" /></div>
-                      <div className="space-y-1"><Label className="text-xs text-foreground/70">Timeframe</Label><Input value={websiteLeadForm.timeframe} onChange={e => setWebsiteLeadForm(p => ({...p, timeframe: e.target.value}))} className="bg-secondary border-border" placeholder="1-3 months" data-testid="input-wl-timeframe" /></div>
-                    </div>
-                    <div className="space-y-1"><Label className="text-xs text-foreground/70">Reason for Selling</Label><Input value={websiteLeadForm.reasonForSelling} onChange={e => setWebsiteLeadForm(p => ({...p, reasonForSelling: e.target.value}))} className="bg-secondary border-border" placeholder="Enter reason for selling…" data-testid="input-wl-reason" /></div>
-                    <button
-                      onClick={handleSubmitWebsiteLead}
-                      disabled={submittingWebsiteLead}
-                      style={{
-                        width: "100%", padding: "14px",
-                        background: submittingWebsiteLead ? "rgba(200,170,90,0.3)" : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-                        border: "none", borderRadius: 6,
-                        fontSize: 12, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase",
-                        color: "#080808", cursor: submittingWebsiteLead ? "not-allowed" : "pointer",
-                      }}
-                      data-testid="button-submit-website-lead"
-                    >
-                      {submittingWebsiteLead ? "Submitting…" : "Add Website Lead & Assign"}
-                    </button>
-                  </div>
-                ) : (
-                  <>
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <Label className="text-sm text-foreground/80">CSV File</Label>
@@ -2695,8 +2613,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                         <span className="text-muted-foreground/40">All other columns preserved</span>
                       </div>
                     </div>
-                  </>
-                )}
+
               </div>
             </div>
           </TabsContent>

@@ -189,10 +189,8 @@ function escapeHtml(s: string): string {
 // Source label map
 const SOURCE_LABELS: Record<string, string> = {
   expired: "Expired Listing",
-  distressed: "Distressed Property",
-  website_lead: "Website / Network Lead",
-  fsbo: "FSBO",
-  land: "Land Lead",
+  absentee: "Absentee Owner",
+  network: "Network / Inbound Lead",
 };
 
 async function sendCrmReport(opts: {
@@ -293,7 +291,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.30 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.31 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -352,7 +350,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.30 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.31 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -636,7 +634,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.30 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.31 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1422,7 +1420,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     // Always start unassigned — assignment happens after creation to avoid assigned+null state
     const [created] = storage.createLeadsFromBatch([{
-      leadType: "website_lead",
+      leadType: "network",
       address: fullAddress,
       ownerName,
       phone: phone || "",
@@ -1830,7 +1828,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       });
     }
     // Safeguard: validate leadType is a known value
-    const VALID_LEAD_TYPES = ["expired", "fsbo", "pre_foreclosure", "distressed", "vacant", "land", "website_lead", "network", "other"];
+    const VALID_LEAD_TYPES = ["expired", "absentee", "network"];
     if (!VALID_LEAD_TYPES.includes(leadType)) {
       return res.status(400).json({ error: `Unknown lead type: ${leadType}` });
     }
@@ -1841,7 +1839,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const agentCount = allA.filter(a => {
       if (!a.isActive || !a.leadFlowOn) return false;
       if (a.role === "admin" && !a.receiveLeads) return false;
-      if (leadType === "website_lead" && !a.receiveWebsiteLeads) return false;
       return true;
     }).length;
 
@@ -2968,202 +2965,8 @@ If not ready:
 
 ─────────────────────────────────────────────────`;
 
-  const websiteLeadScript = `WEBSITE LEAD SCRIPT
-─────────────────────────────────────────────────
-LEAD SOURCE: MotivatedSellers.com — Inbound Seller Inquiry
-TYPE: Motivated Seller (they reached out to us)
-
-─────────────────────────────────────────────────
-OPENING
-
-"Hi, is this [First Name]? Hey [First Name], this is [Your Name] calling from Brothers Group at Momentum Realty. I'm reaching out because you submitted your property at [Address] through our website — I just wanted to follow up and see how we can help. Is now an okay time?"
-
-─────────────────────────────────────────────────
-IF GOOD TIME → TRANSITION
-
-"Great. So I see your home is at [Address] in [City] — [Property Type], estimated around $[Value]. I just want to make sure I understand your situation so I can point you in the right direction."
-
-─────────────────────────────────────────────────
-GATHER — LPMAMAB
-
-  L — Location:
-    "Are you currently living in the home, or is it a rental / vacant?"
-
-  P — Price:
-    "I see the estimated value came in around $[Estimated Value] — does that feel accurate to you? What were you hoping to walk away with?"
-
-  M — Motivation:
-    "You mentioned [Reason for Selling] — can you tell me a little more about what's driving the timeline?"
-    (If blank: "What's the main reason you're looking to sell?")
-
-  A — Agent:
-    "Have you spoken with any other agents or companies about selling?"
-
-  M — Mortgage:
-    "Is there currently a mortgage on the property, or do you own it free and clear?"
-
-  A — Appointment:
-    "It sounds like we should connect in person — I'd love to come take a look at the property and put together some real numbers for you. Would [Day] or [Day] work better?"
-
-  B — Buyer:
-    "Once this sells, are you planning to buy something else, or are you done for now?"
-
-─────────────────────────────────────────────────
-TIMEFRAME CHECK
-
-"You put down [Timeframe] — is that still accurate? Are you flexible, or is there a hard deadline driving that?"
-
-─────────────────────────────────────────────────
-OBJECTION HANDLERS
-
-If "I'm just exploring options":
-  → "Totally understand — that's exactly what this call is for. No pressure at all. I just want to make sure you have accurate information so you can make the best decision for your situation."
-
-If "I already have an agent":
-  → "No problem. Are you under contract with them, or just in conversation? We work with a lot of sellers who are still weighing their options."
-
-If "What can you get me for it?":
-  → "That's the most important question — I don't want to give you a number without seeing it. That's why I'd love to come by. It won't take long and I'll have real comps in hand."
-
-─────────────────────────────────────────────────
-CLOSE
-
-If appointment set:
-  "Perfect — I'll lock that in and send you a confirmation. I'll also pull some comparable sales so we come prepared. Looking forward to it."
-
-If not ready:
-  "No worries at all. When would be a better time to reconnect? I want to make sure you have everything you need when you're ready to move forward."
-
-─────────────────────────────────────────────────`;
-
-  const distressedScript = `DISTRESSED PROPERTY SCRIPT
-Brothers Group at Momentum Realty
-─────────────────────────────────────────────────
-
-OPENING
-"Hi, is this [Owner Name]? This is [YOUR NAME] with The Brothers Group at Momentum Realty. I specialize in helping homeowners in difficult or time-sensitive situations — and I came across your property at [ADDRESS]. I just wanted to reach out and see if there's anything I could help with. Is now an okay time?"
-
-─────────────────────────────────────────────────
-COMMON OBJECTIONS
-
-If they ask "How did you get my information?"
-  → "We track properties in this area closely — sometimes homes show signs that the owner might be weighing options. I'm not here to pressure you, just to let you know we have options and can move quickly if needed."
-
-If they say "I'm handling it myself"
-  → "I respect that. Can I ask — what direction are you leaning right now? Sometimes having a real estate professional in your corner can open up options you didn't know were there."
-
-If they say "I'm not interested"
-  → "That's okay. Would it be alright if I at least shared what your home might be worth in today's market? No strings attached."
-
-─────────────────────────────────────────────────
-GATHER — LPMAMAB
-
-  L — Location:    "Where are you hoping to be after this is resolved?"
-  P — Price:       "Do you have a sense of what the home might be worth right now?"
-  M — Motivation:  "What's the main challenge you're facing with the property?"
-  A — Agent:       "Have you spoken with an agent or attorney about this yet?"
-  M — Mortgage:    "Is there still a mortgage on the property, and do you know roughly what's owed?"
-  A — Appointment: "Would it make sense for me to come out, take a look, and put together some options for you? I can usually do that within 24-48 hours."
-  B — Buyer:         "After this situation is resolved — will you be looking to buy somewhere else?"
-
-─────────────────────────────────────────────────
-CLOSE
-
-If appointment set:
-  "We'll be in touch to confirm. We work fast and treat every situation with care."
-
-If not ready:
-  "Completely understand. Let me send you our info so you have it when you're ready. May I follow up in [X days]?"
-─────────────────────────────────────────────────`;
-
-  const fsboScript = `FOR SALE BY OWNER (FSBO) SCRIPT
-Brothers Group at Momentum Realty
-─────────────────────────────────────────────────
-
-OPENING
-"Hi, is this [Owner Name]? Hey [Name] — I'm [YOUR NAME] with The Brothers Group at Momentum Realty. I saw your home at [ADDRESS] listed for sale by owner. I'm not calling to convince you to list with an agent — I actually work with a lot of buyers and wanted to see if I could bring one of them through. Would you be open to that?"
-
-(If yes) → Great. Then naturally move into LPMAMAB.
-(If "I'm only selling direct") → "Totally respect that. Out of curiosity, how long have you been on the market? Are you getting much traffic?"
-
-─────────────────────────────────────────────────
-COMMON OBJECTIONS
-
-If they say "I don't want to pay commission"
-  → "That makes total sense. If I bring you a buyer, my commission comes from the buyer side — it doesn't have to cost you anything. Can I share how that typically works?"
-
-If they say "We have a buyer already"
-  → "Perfect! How far along are you? If that falls through, I work with multiple backup buyers and can move fast."
-
-If they say "I'm handling it myself"
-  → "Respect that. How long have you been trying? We have a lot of buyer inquiries we send to FSBO homes. If the traffic hasn't been there, we can change that fast."
-
-─────────────────────────────────────────────────
-GATHER — LPMAMAB
-
-  L — Location:    "Where are you planning to go once this sells?"
-  P — Price:       "What are you listed at? Is that firm, or do you have some flexibility?"
-  M — Motivation:  "What's pushing you to sell right now?"
-  A — Agent:       "Have you worked with an agent before, or is this your first time going at it solo?"
-  M — Mortgage:    "Do you owe anything on the property currently?"
-  A — Appointment: "Can I swing by to see it in person? Sometimes just walking through helps me match it to the right buyer faster. What does [Day] look like?"
-  B — Buyer:         "After this closes — will you be buying your next place or moving on?"
-
-─────────────────────────────────────────────────
-CLOSE
-
-If appointment set:
-  "Great — I'll send a quick email with my info and what to expect. We'll keep it brief and make it worth your time."
-
-If not ready:
-  "No pressure. Mind if I send over a quick market report for your area? And I'll check back in [X weeks] — deal?"
-─────────────────────────────────────────────────`;
-
-  const landScript = `LAND / VACANT LOT SCRIPT
-Brothers Group at Momentum Realty
-─────────────────────────────────────────────────
-
-OPENING
-"Hi, is this [Owner Name]? Hey — this is [YOUR NAME] with The Brothers Group at Momentum Realty. I came across your parcel at [ADDRESS/PARCEL ID] in [CITY/COUNTY]. We've been getting a lot of inquiries from buyers looking for land in that area, and I wanted to reach out to see if you'd ever considered selling. Is now a good time?"
-
-─────────────────────────────────────────────────
-COMMON OBJECTIONS
-
-If they say "I'm not interested in selling"
-  → "Totally understand. Would you be open to knowing what it might be worth right now? The land market in this area has moved a lot."
-
-If they say "What would I get for it?"
-  → "Great question — it really depends on the acreage, utilities available, and zoning. Can I get a few quick details from you so I can put together a number?"
-
-If they say "I bought it as an investment"
-  → "Smart move. Has it appreciated the way you hoped? We work with builders and developers who pay strong prices for the right parcels right now."
-
-─────────────────────────────────────────────────
-GATHER — LPMAMAB
-
-  L — Location:    "Are you local, or do you own this parcel from out of the area?"
-  P — Price:       "Do you have a number in mind, or are you open to hearing what the market supports?"
-  M — Motivation:  "What was the original plan for the land? Has that changed?"
-  A — Agent:       "Have you worked with a real estate agent on land before?"
-  M — Mortgage:    "Is there any debt on the parcel, or do you own it free and clear?"
-  A — Appointment: "I'd love to put together a land analysis and bring it to you. Could we schedule a quick call this week?"
-  B — Buyer:         "If you do sell — would you be looking to reinvest in another property?"
-
-─────────────────────────────────────────────────
-CLOSE
-
-If appointment set:
-  "Great — I'll pull the comps and reach out to confirm. We work with land all the time and can give you an honest picture of what it's worth."
-
-If not ready:
-  "No rush. Would it be okay if I sent you a quick overview of recent land sales nearby? And I'll check in with you in [X weeks]."
-─────────────────────────────────────────────────`;
 
   initScript("expired", expiredScript);
-  initScript("distressed", distressedScript);
-  initScript("website_lead", websiteLeadScript);
-  initScript("fsbo", fsboScript);
-  initScript("land", landScript);
 
   const emailOutreachTemplate = `Subject: Regarding Your Property at {address}
 
@@ -4112,7 +3915,7 @@ Brothers Group Real Estate Team at Momentum Realty
     });
     const submitterAgentId = submittedBy ? parseInt(String(submittedBy)) : null;
     const [created] = storage.createLeadsFromBatch([{
-      leadType: "website_lead",
+      leadType: "network",
       address: address || "",
       ownerName,
       phone,
@@ -4162,7 +3965,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.30 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.31 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4408,7 +4211,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.30",
+      version: "v14.31",
       services: results,
     });
   });

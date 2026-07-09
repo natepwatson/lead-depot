@@ -45,7 +45,7 @@ export type Agent = typeof agents.$inferSelect;
 export const leads = sqliteTable("leads", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   // Lead type
-  leadType: text("lead_type").notNull(), // "expired" | "distressed" | "website_lead" | "fsbo" | "land"
+  leadType: text("lead_type").notNull(), // v14.31: "expired" | "absentee" | "network"
   // Core fields
   address: text("address").notNull(),
   ownerName: text("owner_name"),

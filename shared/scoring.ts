@@ -35,7 +35,7 @@ export interface ScoringInput {
   withdrawDaysAgo?: number | null;    // fresh withdrawal = hot lead
 
   // Lead type context — expired/absentee weight differently for us.
-  leadType?: "expired" | "absentee" | "distressed" | "website_lead" | "fsbo" | "land" | string | null;
+  leadType?: "expired" | "absentee" | "network" | string | null;
 }
 
 export interface ScoringResult {
@@ -102,7 +102,7 @@ export function computeUnifiedScore(input: ScoringInput): ScoringResult {
   // ── Lead-type multipliers (Brothers Group priority order) ────────
   if (input.leadType === "expired") { s += 3; reasons.push("Expired priority (+3)"); }
   else if (input.leadType === "absentee") { s += 1; reasons.push("Absentee (+1)"); }
-  else if (input.leadType === "website_lead") { s += 5; reasons.push("Inbound web lead (+5)"); }
+  else if (input.leadType === "network") { s += 5; reasons.push("Network / inbound lead (+5)"); }
 
   // Clamp 0..100
   s = Math.max(0, Math.min(100, Math.round(s)));

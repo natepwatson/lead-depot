@@ -1290,6 +1290,82 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Redistribute ALL unseen/untouched leads (no activity logged yet) regardless of assignment.
   // Use when adding a new agent — redistributes every lead no agent has interacted with yet
   // so the new agent and all others get an even share immediately.
+  // v14.42 DIAGNOSTIC (TEMPORARY — remove after email question resolved)
+  // GET /api/admin/batchleads-diag?secret=<INGEST_SECRET>
+  // Hits BatchLeads /lists then /property once for the first Lead-Depot list,
+  // returns raw JSON of the first 3 properties so we can see if email is present.
+  app.get("/api/admin/batchleads-diag", async (req, res) => {
+    try {
+      const providedSecret = String(req.query.secret || "");
+      const INGEST_SECRET = process.env.INGEST_SECRET || "ms-ingest-2026";
+      if (providedSecret !== INGEST_SECRET) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const BATCHLEADS_API_KEY = process.env.BATCHLEADS_API_KEY || "";
+      const BATCHLEADS_BASE = "https://app.batchleads.io/api/v1";
+      if (!BATCHLEADS_API_KEY) return res.status(500).json({ error: "No BATCHLEADS_API_KEY" });
+
+      // 1) List all lists, find first Lead Depot list.
+      const listsResp = await fetch(`${BATCHLEADS_BASE}/lists`, {
+        method: "POST",
+        headers: {
+          "api-key": BATCHLEADS_API_KEY,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({ page: 1, per_page: 100 }),
+      });
+      const listsData: any = await listsResp.json();
+      const allLists = listsData.data || listsData.lists || listsData.results || [];
+      const ldList = allLists.find((l: any) =>
+        String(l.name || "").toLowerCase().startsWith("lead depot -")
+      );
+      if (!ldList) {
+        return res.json({ error: "No Lead Depot list found", sample_list: allLists[0] || null });
+      }
+
+      // 2) Fetch page 1 (3 properties) from that list.
+      const propResp = await fetch(`${BATCHLEADS_BASE}/property`, {
+        method: "POST",
+        headers: {
+          "api-key": BATCHLEADS_API_KEY,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
+          list_ids: [ldList.id],
+          page: 1,
+          per_page: 3,
+          sort_by: "lead_score",
+          sort_type: "desc",
+        }),
+      });
+      const propData: any = await propResp.json();
+
+      // 3) Look for anything email-shaped in the response.
+      const emailShapedKeys = new Set<string>();
+      const walk = (obj: any, path = "") => {
+        if (!obj || typeof obj !== "object") return;
+        for (const [k, v] of Object.entries(obj)) {
+          if (/mail/i.test(k)) emailShapedKeys.add(path ? `${path}.${k}` : k);
+          if (v && typeof v === "object") walk(v, path ? `${path}.${k}` : k);
+        }
+      };
+      walk(propData);
+
+      return res.json({
+        list_used: { id: ldList.id, name: ldList.name },
+        top_level_keys: Object.keys(propData || {}),
+        email_shaped_keys: Array.from(emailShapedKeys),
+        raw_response: propData,
+      });
+    } catch (err: any) {
+      console.error("[batchleads-diag] Error:", err);
+      return res.status(500).json({ error: String(err?.message || err) });
+    }
+  });
+
   app.post("/api/admin/redistribute-unseen", (req, res) => {
     try {
       // SQL: LEFT JOIN to exclude leads with any activity — single query (v11.70)

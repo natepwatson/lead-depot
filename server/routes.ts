@@ -1324,10 +1324,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       );
       if (!ldList) {
         return res.json({
-          error: "No Lead Depot list found",
+          error: "No Lead Depot list found (or no .name field)",
           total_lists_returned: allLists.length,
-          list_names_seen: allLists.slice(0, 10).map((l: any) => l.name),
-          raw_lists_top_keys: Object.keys(listsData || {}),
+          raw_first_list: allLists[0] || null,
+          raw_all_lists: allLists,
         });
       }
 

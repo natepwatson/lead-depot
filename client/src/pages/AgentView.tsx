@@ -1822,245 +1822,12 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
 }
 
 
-// ─── My Leads Tab ─────────────────────────────────────────────────────────────
-interface PipelineLead extends Lead {
-  lastNote: string | null;
-  activityCount: number;
-  emailCount: number;
-}
+// ─── My Leads Tab (removed v14.38) ─────────────────────────────────────────
+// KIT is a FUB commitment — long-term nurture lives in Follow Up Boss
+// workflows, not Lead Depot. Callback outcome was retired in v14.14.
+// Nav shrank from 5 tabs to 4 (Dashboard / Dial / Refer / Profile).
+// Pipeline interfaces, PipelineCard, and MyLeadsTab removed — see git history.
 
-interface PipelineData {
-  callbacks: PipelineLead[];
-  kitLeads: PipelineLead[];
-  appointments: PipelineLead[];
-}
-
-const SOURCE_LABEL: Record<string, string> = {
-  expired: "Expired", absentee: "Absentee", network: "Network",
-};
-
-function PipelineCard({ lead, type }: { lead: PipelineLead; type: "callback" | "kit" | "appt" }) {
-  const isCallback = type === "callback";
-  const isAppt = type === "appt";
-  const accent = isCallback ? "rgb(103,232,249)" : isAppt ? "rgb(134,239,172)" : "rgb(249,168,212)";
-  const accentBg = isCallback ? "rgba(34,211,238,0.08)" : isAppt ? "rgba(34,197,94,0.08)" : "rgba(236,72,153,0.08)";
-  const accentBorder = isCallback ? "rgba(34,211,238,0.25)" : isAppt ? "rgba(34,197,94,0.25)" : "rgba(236,72,153,0.25)";
-
-  const callbackDt = lead.callbackDate ? (() => {
-    const d = new Date(lead.callbackDate);
-    if (isNaN(d.getTime())) return lead.callbackDate;
-    return d.toLocaleString("en-US", {
-      weekday: "short", month: "short", day: "numeric",
-      hour: "numeric", minute: "2-digit", hour12: true,
-      timeZone: "America/New_York",
-    });
-  })() : null;
-
-  const isPast = lead.callbackDate
-    ? lead.callbackDate <= new Date().toISOString().slice(0, 10)
-    : false;
-
-  return (
-    <div style={{
-      background: "linear-gradient(135deg, rgba(20,20,20,0.98) 0%, rgba(12,12,12,0.98) 100%)",
-      border: `1px solid ${accentBorder}`,
-      borderRadius: 14, overflow: "hidden",
-      boxShadow: "0 2px 16px rgba(0,0,0,0.4)",
-    }}>
-      {/* Header bar */}
-      <div style={{
-        background: accentBg, borderBottom: `1px solid ${accentBorder}`,
-        padding: "10px 16px",
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {isCallback
-            ? <Clock size={13} style={{ color: accent }} />
-            : isAppt
-              ? <CheckCircle2 size={13} style={{ color: accent }} />
-              : <Star size={13} style={{ color: accent }} />}
-          <span style={{ fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: accent, fontWeight: 700 }}>
-            {isCallback ? "Callback" : isAppt ? "Appointment Set" : "Keep in Touch"}
-          </span>
-        </div>
-        <span style={{
-          fontSize: 10, color: "rgba(255,255,255,0.35)",
-          background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "3px 8px",
-        }}>
-          {SOURCE_LABEL[lead.leadType] || lead.leadType}
-        </span>
-      </div>
-
-      {/* Body */}
-      <div style={{ padding: "14px 16px" }}>
-        <p style={{
-          fontFamily: "'Cormorant Garamond','Georgia',serif",
-          fontSize: 18, fontWeight: 400, color: "#fff", margin: "0 0 2px",
-        }}>{lead.ownerName || "Unknown"}</p>
-        {lead.address && (
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: "0 0 12px", display: "flex", alignItems: "center", gap: 5 }}>
-            <MapPin size={11} /> {lead.address}
-          </p>
-        )}
-
-        {/* Contact row */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          {lead.phone && (
-            <a href={`tel:${lead.phone}`} style={{
-              display: "flex", alignItems: "center", gap: 5, fontSize: 12,
-              color: "rgba(255,255,255,0.7)", textDecoration: "none",
-              background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-              borderRadius: 8, padding: "6px 10px",
-            }}>
-              <PhoneCall size={12} style={{ color: "#c8aa5a" }} /> {lead.phone}
-            </a>
-          )}
-          {lead.email && (
-            <a href={`mailto:${lead.email}`} style={{
-              display: "flex", alignItems: "center", gap: 5, fontSize: 12,
-              color: "rgba(255,255,255,0.7)", textDecoration: "none",
-              background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
-              borderRadius: 8, padding: "6px 10px",
-            }}>
-              <Mail size={12} style={{ color: "#c8aa5a" }} /> Email
-            </a>
-          )}
-        </div>
-
-        {/* Callback date */}
-        {isCallback && callbackDt && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 7,
-            padding: "8px 12px", borderRadius: 8, marginBottom: 10,
-            background: isPast ? "rgba(239,68,68,0.1)" : "rgba(34,211,238,0.07)",
-            border: `1px solid ${isPast ? "rgba(239,68,68,0.3)" : "rgba(34,211,238,0.2)"}`,
-          }}>
-            <Calendar size={13} style={{ color: isPast ? "#f87171" : accent, flexShrink: 0 }} />
-            <span style={{ fontSize: 12, color: isPast ? "#f87171" : accent, fontWeight: 600 }}>
-              {isPast ? "OVERDUE — " : ""}{callbackDt}
-            </span>
-          </div>
-        )}
-
-        {/* Last note */}
-        {lead.lastNote && (
-          <div style={{
-            padding: "8px 12px", borderRadius: 8, marginBottom: 10,
-            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
-          }}>
-            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: 0, lineHeight: 1.5, fontStyle: "italic" }}>
-              "{lead.lastNote}"
-            </p>
-          </div>
-        )}
-
-        {/* Stats row */}
-        <div style={{ display: "flex", gap: 8 }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", display: "flex", alignItems: "center", gap: 4 }}>
-            <Phone size={10} /> {lead.activityCount} call{lead.activityCount !== 1 ? "s" : ""}
-          </div>
-          {lead.emailCount > 0 && (
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", display: "flex", alignItems: "center", gap: 4 }}>
-              <Mail size={10} /> {lead.emailCount} email{lead.emailCount !== 1 ? "s" : ""}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MyLeadsTab() {
-  const { user } = useAuth();
-
-  const { data, isLoading, refetch } = useQuery<PipelineData>({
-    queryKey: ["/api/leads/my-pipeline", user?.id],
-    queryFn: () => apiRequest("GET", `/api/leads/my-pipeline/${user?.id}`).then(r => r.json()),
-    refetchInterval: 60000,
-    enabled: !!user?.id,
-  });
-
-  // v14.0 — My Leads shows only Appts + Keep in Touch. Callbacks are gone
-  // (Callback = immediate recycle to pool; no longer stays with the agent).
-  const kitLeads     = data?.kitLeads     || [];
-  const appointments = data?.appointments || [];
-  const total = kitLeads.length + appointments.length;
-
-  if (isLoading) return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "8px 0" }}>
-      {[1,2,3].map(i => <div key={i} style={{ height: 140, borderRadius: 14, background: "rgba(255,255,255,0.04)" }} />)}
-    </div>
-  );
-
-  return (
-    <div style={{ padding: "0 0 24px" }}>
-
-      {/* ── Summary bar (v14.0: Appts + Connected only) ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 24 }}>
-        <div style={{
-          padding: "14px 8px", textAlign: "center", borderRadius: 12,
-          background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.22)",
-        }}>
-          <p style={{ fontSize: 26, fontWeight: 600, color: "rgb(134,239,172)", fontFamily: "'Cormorant Garamond','Georgia',serif", lineHeight: 1, margin: 0 }}>
-            {appointments.length}
-          </p>
-          <p style={{ fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginTop: 6 }}>
-            Appts
-          </p>
-        </div>
-        <div style={{
-          padding: "14px 8px", textAlign: "center", borderRadius: 12,
-          background: "rgba(236,72,153,0.08)", border: "1px solid rgba(236,72,153,0.22)",
-        }}>
-          <p style={{ fontSize: 26, fontWeight: 600, color: "rgb(249,168,212)", fontFamily: "'Cormorant Garamond','Georgia',serif", lineHeight: 1, margin: 0 }}>
-            {kitLeads.length}
-          </p>
-          <p style={{ fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginTop: 6 }}>
-            Connected
-          </p>
-        </div>
-      </div>
-
-      {total === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 24px" }}>
-          <Briefcase size={36} style={{ color: "rgba(200,170,90,0.3)", margin: "0 auto 16px" }} />
-          <p style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.4rem", fontWeight: 300, color: "rgba(255,255,255,0.6)", marginBottom: 8 }}>
-            Your pipeline is empty
-          </p>
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.3)", lineHeight: 1.6 }}>
-            Appointments and keep-in-touch leads appear here for 60 days.
-          </p>
-        </div>
-      ) : (
-        <>
-          {/* ── Appointments ── */}
-          {appointments.length > 0 && (
-            <div style={{ marginBottom: 28 }}>
-              <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(134,239,172,0.7)", marginBottom: 12, fontWeight: 600 }}>
-                Appointments Set
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {appointments.map(l => <PipelineCard key={l.id} lead={l} type="appt" />)}
-              </div>
-            </div>
-          )}
-
-          {/* ── Keep in Touch ── */}
-          {kitLeads.length > 0 && (
-            <div>
-              <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(249,168,212,0.7)", marginBottom: 12, fontWeight: 600 }}>
-                Connected Leads
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {kitLeads.map(l => <PipelineCard key={l.id} lead={l} type="kit" />)}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
 
 // ─── Referral Tab ─────────────────────────────────────────────────────────────
 function ReferralTab() {
@@ -2189,11 +1956,11 @@ const inputStyle: React.CSSProperties = {
 };
 
 // ─── Nav tabs ─────────────────────────────────────────────────────────────────
-type Tab = "leads" | "leaderboard" | "refer" | "my-leads" | "profile";
+// v14.38 — "my-leads" tab removed. KIT lives in FUB.
+type Tab = "leads" | "leaderboard" | "refer" | "profile";
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "leaderboard", label: "Dashboard", icon: Trophy },
   { id: "leads",       label: "Dial",      icon: Phone },
-  { id: "my-leads",    label: "My Leads",  icon: Briefcase },
   { id: "refer",       label: "Refer",     icon: UserPlus },
   { id: "profile",     label: "Profile",   icon: UserCircle2 },
 ];
@@ -2697,7 +2464,6 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
           </div>
         )}
 
-        {tab === "my-leads" && <MyLeadsTab />}
         {tab === "refer" && <ReferralTab />}
         {tab === "profile" && <ProfilePage onBack={() => setTab("leaderboard")} />}
       </main>

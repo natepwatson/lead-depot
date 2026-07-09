@@ -140,34 +140,8 @@ const SLIDES: Slide[] = [
       </div>
     ),
   },
-  {
-    icon: <Briefcase size={26} style={{ color: GOLD }} />,
-    title: "My Leads",
-    body: (
-      <div>
-        <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 1.7, marginBottom: 16 }}>
-          A full list of every lead currently assigned to you — including leads you've already called today.
-        </p>
-        <div style={CARD}>
-          <p style={SECTION_TITLE}>Use My Leads to</p>
-          {[
-            "Review notes you've added on past calls.",
-            "See all phone numbers on a lead.",
-            "Check the lead source (expired, distressed, website, etc.).",
-            "Find a lead you remember by name.",
-          ].map(t => (
-            <div key={t} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "flex-start" }}>
-              <span style={{ color: GOLD, fontSize: 14, lineHeight: 1 }}>·</span>
-              <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, lineHeight: 1.55 }}>{t}</span>
-            </div>
-          ))}
-        </div>
-        <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, lineHeight: 1.6 }}>
-          The Dial tab always shows the next-best lead in queue order. My Leads gives you the full picture.
-        </p>
-      </div>
-    ),
-  },
+  // v14.38 — "My Leads" tutorial card removed with the tab itself.
+  // KIT is a FUB commitment; agents look in Follow Up Boss for long-term nurture.
   {
     icon: <UserPlus size={26} style={{ color: GOLD }} />,
     title: "Network Leads (Refer)",

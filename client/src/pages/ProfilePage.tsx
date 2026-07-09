@@ -375,7 +375,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
                       // pull and pipeline reflect the new territory immediately (no manual refresh).
                       qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
                       qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
-                      qc.invalidateQueries({ queryKey: ["/api/leads/my-pipeline", user?.id] });
+                      // v14.38 — my-pipeline endpoint removed. KIT lives in FUB.
                       qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
                       toast({ title: `Home county set to ${county}`, description: "Your lead queue has been refreshed." });
                     } catch {

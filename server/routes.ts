@@ -1296,9 +1296,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // returns raw JSON of the first 3 properties so we can see if email is present.
   app.get("/api/admin/batchleads-diag", async (req, res) => {
     try {
+      // Hardcoded one-shot token — endpoint is removed after diagnostic runs.
       const providedSecret = String(req.query.secret || "");
-      const INGEST_SECRET = process.env.INGEST_SECRET || "ms-ingest-2026";
-      if (providedSecret !== INGEST_SECRET) {
+      if (providedSecret !== "v1442-diag-b3e9k71m") {
         return res.status(401).json({ error: "Unauthorized" });
       }
 

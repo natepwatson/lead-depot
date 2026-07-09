@@ -1319,8 +1319,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
       const listsData: any = await listsResp.json();
       const allLists = listsData.data || listsData.lists || listsData.results || [];
-      // Real BatchLeads shape uses `list_name`, not `name` — our pipeline had this wrong.
+      // Prefer Expired-Duval as the diagnostic target (highest volume).
+      const wantSlug = String(req.query.list || "expired - duval").toLowerCase();
       const ldList = allLists.find((l: any) => {
+        const nm = String(l.list_name || l.name || "").toLowerCase();
+        return nm.startsWith("lead depot -") && nm.includes(wantSlug);
+      }) || allLists.find((l: any) => {
         const nm = String(l.list_name || l.name || "").toLowerCase();
         return nm.startsWith("lead depot -");
       });
@@ -1333,23 +1337,30 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         });
       }
 
-      // 2) Fetch page 1 (3 properties) from that list.
-      const propResp = await fetch(`${BATCHLEADS_BASE}/property`, {
-        method: "POST",
-        headers: {
-          "api-key": BATCHLEADS_API_KEY,
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-        body: JSON.stringify({
-          list_ids: [ldList.id],
-          page: 1,
-          per_page: 3,
-          sort_by: "lead_score",
-          sort_type: "desc",
-        }),
-      });
-      const propData: any = await propResp.json();
+      // 2) Fetch page 1 (3 properties) from that list — try a few payload variants.
+      const bodyVariants: any[] = [
+        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: "desc" },
+        { list_ids: [ldList.id], page: 1, per_page: 3 },
+        { list_id: ldList.id, page: 1, per_page: 3 },
+      ];
+      const attempts: any[] = [];
+      let propData: any = null;
+      for (const body of bodyVariants) {
+        const propResp = await fetch(`${BATCHLEADS_BASE}/property`, {
+          method: "POST",
+          headers: {
+            "api-key": BATCHLEADS_API_KEY,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+        const parsed: any = await propResp.json().catch(() => ({}));
+        const arr = parsed?.data || parsed?.properties || parsed?.results || [];
+        attempts.push({ body_sent: body, http_status: propResp.status, top_keys: Object.keys(parsed || {}), errors: parsed?.errors, code: parsed?.code, count: Array.isArray(arr) ? arr.length : 0 });
+        if (Array.isArray(arr) && arr.length > 0) { propData = parsed; break; }
+      }
+      if (!propData) propData = { attempts };
 
       // 3) Look for anything email-shaped in the response.
       const emailShapedKeys = new Set<string>();
@@ -1366,6 +1377,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         list_used: { id: ldList.id, name: ldList.list_name || ldList.name },
         top_level_keys: Object.keys(propData || {}),
         email_shaped_keys: Array.from(emailShapedKeys),
+        attempts,
         raw_response: propData,
       });
     } catch (err: any) {

@@ -15,10 +15,13 @@ const SCRIPT_TYPES = [
   { key: "absentee",    label: "Absentee Owner Script",         accentColor: "#c8aa5a", group: "call" },
   // v14.26 — Editable email templates. Format: first line "Subject: \u2026" then body.
   // Placeholders: {ownerFirst} {ownerName} {address} {agentFirst} {agentFull} {agentPhone} {agentEmail} {timing} {apptDate} {apptTime}
-  { key: "email_flow1", label: "Flow 1 \u2014 Cold Intro (mailto)",             accentColor: "#9ec5fe", group: "email" },
-  { key: "email_flow3", label: "Flow 2 \u2014 Value Stack (2nd attempt, manual)", accentColor: "#9ec5fe", group: "email" },
-  { key: "email_flow2", label: "Flow 3 \u2014 Welcome to the Family (KIT auto)",  accentColor: "#9ec5fe", group: "email" },
-  { key: "email_flow4", label: "Flow 4 \u2014 Appointment Confirmed (auto)",      accentColor: "#9ec5fe", group: "email" },
+  { key: "email_flow1", label: "Flow 1 \u2014 Expired Cold Intro (mailto)",             accentColor: "#9ec5fe", group: "email" },
+  { key: "email_flow3", label: "Flow 2 \u2014 Expired Value Stack (2nd attempt, manual)", accentColor: "#9ec5fe", group: "email" },
+  { key: "email_flow2", label: "Flow 3 \u2014 Thank You / KIT (auto, both types)",       accentColor: "#9ec5fe", group: "email" },
+  { key: "email_flow4", label: "Flow 4 \u2014 Appointment Confirmed (auto, both types)",  accentColor: "#9ec5fe", group: "email" },
+  // v14.33 \u2014 Absentee cold outreach pair (Flow 5 mailto \u2192 Flow 6 manual server-sent).
+  { key: "email_flow5", label: "Flow 5 \u2014 Absentee Cold Intro (mailto)",             accentColor: "#c8aa5a", group: "email" },
+  { key: "email_flow6", label: "Flow 6 \u2014 Absentee Value Stack (2nd attempt, manual)", accentColor: "#c8aa5a", group: "email" },
 ] as const;
 
 type ScriptKey = typeof SCRIPT_TYPES[number]["key"];

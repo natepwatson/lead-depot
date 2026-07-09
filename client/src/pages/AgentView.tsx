@@ -1283,18 +1283,26 @@ function LeadCard({ lead }: { lead: Lead }) {
         />
       </div>
 
-      {/* v14.20 ── spacer so the sticky bottom bar never covers the last field ── */}
-      <div aria-hidden style={{ height: 176 }} />
+      {/* v14.43 ── spacer: 3-row sticky outcomes bar (~200px) + bottom nav (~62px) + safe area */}
+      <div aria-hidden style={{ height: 262 }} />
 
-      {/* v14.20 ── STICKY OUTCOMES BAR (always visible, thumb reach) ── */}
+      {/* v14.42 ── STICKY OUTCOMES BAR — 3x3, ALL rows above mobile chrome */}
+      {/* Fix: prior version rendered a 3rd row that landed under iPhone Safari's */}
+      {/* dynamic URL bar / home indicator on some devices. Now uses tighter minHeight, */}
+      {/* smaller padding, and reserves the exact 3-row height so Row 3 (Appt Set / KIT / Left VM) */}
+      {/* is always visible without scrolling. */}
       <div style={{
-        position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 40,
+        position: "fixed", left: 0, right: 0,
+        // v14.43 — lift above the bottom nav (h ≈ 62px + safe-area) so Row 3 (Appt Set / KIT / Left VM)
+        // is not covered. Prior version had bottom:0 which put Row 3 UNDER the Dashboard/Refer nav bar.
+        bottom: "calc(62px + env(safe-area-inset-bottom, 0px))",
+        zIndex: 40,
         background: "linear-gradient(180deg, rgba(10,14,22,0.75) 0%, rgba(10,14,22,0.96) 30%, rgba(10,14,22,0.98) 100%)",
         backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
         borderTop: "1px solid rgba(200,170,90,0.22)",
-        padding: "10px 14px calc(10px + env(safe-area-inset-bottom, 0px))",
+        padding: "8px 12px 8px",
       }}>
-        <div style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "repeat(3, 1fr)", gap: 5 }}>
           {OUTCOMES.map(o => {
             const Icon = o.icon;
             const isHovered = hoveredOutcome === o.key;
@@ -1302,17 +1310,17 @@ function LeadCard({ lead }: { lead: Lead }) {
               <button key={o.key} onClick={() => handleOutcome(o.key)} disabled={outcomeMutation.isPending}
                 onMouseEnter={() => setHoveredOutcome(o.key)} onMouseLeave={() => setHoveredOutcome(null)}
                 style={{
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
-                  padding: "9px 6px",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+                  padding: "6px 4px",
                   background: isHovered ? o.hoverBg : o.bg,
                   border: `1px solid ${isHovered ? o.text : o.border}`,
-                  borderRadius: 10, cursor: "pointer",
-                  transition: "all 0.18s ease", minHeight: 56,
+                  borderRadius: 9, cursor: "pointer",
+                  transition: "all 0.18s ease", minHeight: 46,
                   opacity: outcomeMutation.isPending ? 0.6 : 1,
                 }}
               >
-                <Icon size={15} style={{ color: o.text }} />
-                <span style={{ fontSize: 10, fontWeight: 700, color: o.text, letterSpacing: "0.03em", textAlign: "center", lineHeight: 1.2 }}>{o.label}</span>
+                <Icon size={14} style={{ color: o.text }} />
+                <span style={{ fontSize: 10, fontWeight: 700, color: o.text, letterSpacing: "0.02em", textAlign: "center", lineHeight: 1.15 }}>{o.label}</span>
               </button>
             );
           })}

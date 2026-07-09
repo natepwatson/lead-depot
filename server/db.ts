@@ -98,6 +98,9 @@ if (!leadCols.includes("uploaded_at"))      rawDb.prepare("ALTER TABLE leads ADD
 if (!leadCols.includes("uploaded_by"))      rawDb.prepare("ALTER TABLE leads ADD COLUMN uploaded_by INTEGER").run();
 if (!leadCols.includes("batch_id"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN batch_id TEXT").run();
 
+// ─── Recycle cooldown (v14.39) — unified 14d on-ice timer for Expired + Absentee ─
+if (!leadCols.includes("recycle_cooldown_until")) rawDb.prepare("ALTER TABLE leads ADD COLUMN recycle_cooldown_until INTEGER").run();
+
 // ─── lead_activity — lpmamab_snapshot column (v11.38) ────────────────────────
 const actCols = rawDb.prepare("PRAGMA table_info(lead_activity)").all().map((c: any) => c.name);
 if (!actCols.includes("lpmamab_snapshot"))  rawDb.prepare("ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT").run();

@@ -291,7 +291,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.38 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.39 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -350,7 +350,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.38 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.39 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -634,7 +634,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.38 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.39 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -695,6 +695,8 @@ function toApiLead(r: any): any {
     lastSalePrice: r.last_sale_price,
     lotSizeAcres: r.lot_size_acres,
     yearPurchased: r.year_purchased,
+    // v14.39 — unified 14d Recycle cooldown (Expired + Absentee)
+    recycleCooldownUntil: r.recycle_cooldown_until,
   };
 }
 
@@ -1321,6 +1323,21 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
+  // v14.39 — THAW: manually clear a lead's Recycle cooldown so it's eligible again immediately.
+  // POST /api/admin/leads/:id/clear-cooldown
+  //   Admin-only override for the 14d on-ice timer set by the Recycle outcome.
+  //   Idempotent — clears the timer whether or not one was set.
+  app.post("/api/admin/leads/:id/clear-cooldown", (req, res) => {
+    const leadId = parseInt(req.params.id);
+    if (!leadId || isNaN(leadId)) return res.status(400).json({ error: "Invalid lead id" });
+    const result = rawDb.prepare(
+      `UPDATE leads SET recycle_cooldown_until = NULL WHERE id = ?`
+    ).run(leadId);
+    if (result.changes === 0) return res.status(404).json({ error: "Lead not found" });
+    broadcast({ type: "leads_updated" });
+    res.json({ ok: true, leadId, cooldownCleared: true });
+  });
+
   // Toggle admin as lead receiver
   app.patch("/api/agents/:id/receive-leads", (req, res) => {
     const id = parseInt(req.params.id);
@@ -1737,6 +1754,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const TYPE_ORDER = ["expired", "absentee"];
 
     // Helper: pull next unassigned+unlocked lead matching WHERE. Sorted score DESC.
+    // v14.39 — excludes leads under active Recycle cooldown ("on ice"). Applies uniformly
+    // to Expired + Absentee. Grandfathered rows have recycle_cooldown_until = NULL and pass.
+    const nowMs = Date.now();
     const pullPool = (leadType: string, countyClause: string, countyParams: any[]): any => {
       return rawDb.prepare(`
         SELECT l.* FROM leads l
@@ -1744,10 +1764,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         WHERE l.lead_type = ?
           AND l.status = 'unassigned'
           AND lk.lead_id IS NULL
+          AND (l.recycle_cooldown_until IS NULL OR l.recycle_cooldown_until <= ?)
           ${countyClause}
         ORDER BY l.score DESC, l.uploaded_at ASC, l.id ASC
         LIMIT 1
-      `).get(leadType, ...countyParams);
+      `).get(leadType, nowMs, ...countyParams);
     };
 
     let next: any = null;
@@ -2092,9 +2113,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // no date, no coordination. `callback_requested` is treated identically to `recycled`
       // so any stale clients still submitting the old key don't misbehave.
       // v14.18 — Release the lock so my-next doesn't hand this lead right back.
+      // v14.39 — Unified 14d cooldown for Expired + Absentee. Lead goes "on ice" —
+      // hidden from every agent's my-next queue until the cooldown expires.
       newStatus = "unassigned";
       newAssignedId = null;
       newCallbackDate = null;
+      const COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
+      const cooldownUntil = Date.now() + COOLDOWN_MS;
+      rawDb.prepare(`UPDATE leads SET recycle_cooldown_until = ? WHERE id = ?`).run(cooldownUntil, leadId);
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
     } else if (outcome === "no_answer") {
@@ -4059,7 +4085,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.38 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.39 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4305,7 +4331,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.38",
+      version: "v14.39",
       services: results,
     });
   });
@@ -5321,22 +5347,31 @@ async function sendDailyDigest() {
   }
 
   // ── Redistributed leads today ─────────────────────────────────────────────
+  // v14.39 — Recycled leads carry a 14d cooldown. Show ❄ + release date so admins know
+  // when the lead is eligible again. Uses the lead's current recycle_cooldown_until.
   const redistributedActs = activities.filter((a: any) => a.outcome === "recycled" && a.agent_id === null);
+  const fmtReleaseDate = (ms: number | null | undefined): string => {
+    if (!ms) return "";
+    const d = new Date(ms);
+    const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", timeZone: "America/New_York" };
+    return d.toLocaleDateString("en-US", opts);
+  };
   const redistributedSection = redistributedActs.length > 0 ? `
     <div style="padding:20px 24px 0">
-      <div style="font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:700;margin-bottom:10px">Redistributed Leads (${redistributedActs.length})</div>
+      <div style="font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:700;margin-bottom:10px">Recycled — On Ice (${redistributedActs.length})</div>
       <table style="width:100%;border-collapse:collapse;background:rgba(255,255,255,0.02);border-radius:8px;overflow:hidden">
         <tbody>${redistributedActs.map((act: any) => {
           const lead = allLeadsRaw.find((l: any) => l.id === act.lead_id);
           const newAgent = lead?.assigned_agent_id ? agentNameMap[lead.assigned_agent_id] : "Unassigned";
           const name = lead ? (lead.owner_name || `${lead.first_name || ""} ${lead.last_name || ""}`.trim()) : "Unknown";
+          const releaseDate = fmtReleaseDate(lead?.recycle_cooldown_until);
           return `<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
             <td style="padding:10px 14px;vertical-align:top">
-              <div style="font-size:13px;font-weight:600;color:#f0f0f0">${name}</div>
+              <div style="font-size:13px;font-weight:600;color:#f0f0f0">❄ ${name}</div>
               <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:2px">${lead?.phone || "—"} · ${lead?.address || "—"}</div>
               <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px;font-style:italic">${act.notes || ""}</div>
             </td>
-            <td style="padding:10px 14px;font-size:12px;color:rgba(255,255,255,0.5);white-space:nowrap;vertical-align:top">Now: ${newAgent}</td>
+            <td style="padding:10px 14px;font-size:12px;color:#67e8f9;white-space:nowrap;vertical-align:top">${releaseDate ? "On ice — " + releaseDate : "Now: " + newAgent}</td>
           </tr>`;
         }).join("")}</tbody>
       </table>

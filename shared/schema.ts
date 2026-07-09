@@ -100,6 +100,9 @@ export const leads = sqliteTable("leads", {
   // Multi-number dialing
   phones: text("phones"),       // JSON array: ["9041234567", "9047654321", ...]
   phoneStates: text("phone_states"), // JSON object: {"9041234567": "untried" | "no_answer_today" | "struck"}
+  // v14.39 — Recycle cooldown. Unix ms timestamp. NULL = eligible. Set to now+14d when any agent taps Recycle.
+  // Applies uniformly to Expired + Absentee. my-next filters out leads where recycle_cooldown_until > now.
+  recycleCooldownUntil: integer("recycle_cooldown_until"),
 });
 
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true });

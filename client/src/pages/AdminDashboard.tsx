@@ -21,7 +21,7 @@ import {
   Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneMissed, Calendar, XCircle, CheckCircle2,
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, Heart, Map as MapIcon,
-  Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings
+  Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 
@@ -53,6 +53,35 @@ function TypeBadge({ type }: { type: string }) {
     expired: "Expired", absentee: "Absentee", network: "Network",
   };
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium type-${type}`}>{labels[type] || type}</span>;
+}
+
+// v14.39 — Recycle cooldown pill. Renders when lead is under active 14d on-ice timer.
+// Shows release date (e.g. "On ice — Jul 23"). Click to Thaw (admin override).
+function CooldownPill({ until, onThaw, compact = false }: { until?: number | null; onThaw?: () => void; compact?: boolean }) {
+  if (!until || until <= Date.now()) return null;
+  const releaseDate = new Date(until).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", timeZone: "America/New_York",
+  });
+  const label = compact ? `❄ ${releaseDate}` : `On ice — ${releaseDate}`;
+  const style: React.CSSProperties = {
+    display: "inline-flex", alignItems: "center", gap: 4,
+    fontSize: compact ? 10 : 11, padding: compact ? "1px 6px" : "2px 8px",
+    borderRadius: 999, fontWeight: 600,
+    background: "rgba(103,232,249,0.08)", border: "1px solid rgba(103,232,249,0.25)",
+    color: "#67e8f9", cursor: onThaw ? "pointer" : "default",
+    whiteSpace: "nowrap",
+  };
+  const handleClick = (e: React.MouseEvent) => {
+    if (!onThaw) return;
+    e.stopPropagation();
+    if (confirm("Thaw this lead? It will be eligible for pull immediately.")) onThaw();
+  };
+  return (
+    <span style={style} onClick={handleClick} title={onThaw ? "Click to Thaw (clear cooldown now)" : label}>
+      <Snowflake size={compact ? 10 : 11} strokeWidth={2.5} />
+      {label}
+    </span>
+  );
 }
 
 function StatCard({ label, value, sub, accent }: { label: string; value: number | string; sub?: string; accent?: string }) {
@@ -323,6 +352,7 @@ function AgentDrilldown({ agentId, agentName, onClose }: { agentId: number; agen
                           <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                             <TypeBadge type={lead.leadType} />
                             <StatusBadge status={lead.status} />
+                            <CooldownPill until={lead.recycleCooldownUntil} compact />
                             {lead.attemptCount > 0 && (
                               <span className="text-xs text-muted-foreground">{lead.attemptCount} attempt{lead.attemptCount !== 1 ? "s" : ""}</span>
                             )}
@@ -1410,7 +1440,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.38
+              v14.39
             </p>
           </div>
         </div>
@@ -2247,6 +2277,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                               <TypeBadge type={lead.leadType} />
                               <StatusBadge status={lead.status} />
+                              <CooldownPill until={lead.recycleCooldownUntil} compact />
                               {lead.attemptCount > 0 && <span className="text-xs text-muted-foreground">{lead.attemptCount}×</span>}
                             </div>
                             <p className="text-sm font-medium text-foreground truncate">{lead.ownerName || "—"}</p>
@@ -2352,6 +2383,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             <div className="flex items-center gap-1.5 flex-wrap mb-1">
                               <TypeBadge type={lead.leadType} />
                               <StatusBadge status={lead.status} />
+                              <CooldownPill until={lead.recycleCooldownUntil} compact />
                               {lead.attemptCount > 0 && <span className="text-xs text-muted-foreground">{lead.attemptCount} attempt{lead.attemptCount !== 1 ? "s" : ""}</span>}
                               {lead.score > 0 && (
                                 <span title={`Lead score: ${lead.score}`} style={{
@@ -2440,9 +2472,19 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                 }} onClick={e => e.stopPropagation()}>
                   <div className="flex items-start justify-between mb-3">
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                         <TypeBadge type={lead.leadType} />
                         <StatusBadge status={lead.status} />
+                        <CooldownPill until={lead.recycleCooldownUntil} onThaw={async () => {
+                          try {
+                            await apiRequest("POST", `/api/admin/leads/${lead.id}/clear-cooldown`, {});
+                            toast({ title: "Thawed", description: "Lead is eligible again." });
+                            qc.invalidateQueries({ queryKey: ["/api/leads"] });
+                            setSelectedLead(null);
+                          } catch (err: any) {
+                            toast({ title: "Failed to thaw", description: String(err?.message || err), variant: "destructive" });
+                          }
+                        }} />
                       </div>
                       <p style={{
                         fontFamily: "'Cormorant Garamond','Georgia',serif",

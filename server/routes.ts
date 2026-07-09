@@ -754,6 +754,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     "/api/admin/batchleads-run",
     "/api/admin/dbpr-run",
     "/api/admin/missed-appointments",
+    "/api/admin/batchleads-diag", // v14.42 TEMP diagnostic — secret-gated internally
   ];
   app.use("/api/admin", (req: any, res: any, next: any) => {
     const fullPath = req.baseUrl + req.path;

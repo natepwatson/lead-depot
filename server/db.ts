@@ -186,6 +186,27 @@ try {
   console.error("[v14.17 noah-reactivate] Failed:", e);
 }
 
+// v14.29.4 — Full removal of Luis Marquez (agent id=5) from Lead Depot.
+// Alex confirmed: delete from DB entirely, leave FUB record alone.
+// Safe: verified 0 leads currently assigned to id=5. Any dependent rows
+// (agent_points, lead_activity, agent_leads, lead_locks) get cleaned up.
+// Idempotent — subsequent boots find no matching row and no-op.
+try {
+  const luis = rawDb.prepare("SELECT id FROM agents WHERE name = 'Luis Marquez' OR email = 'luis.sellsjax@gmail.com'").get() as { id: number } | undefined;
+  if (luis) {
+    // Safety net: if any leads still point at Luis, return them to the pool first.
+    rawDb.prepare("UPDATE leads SET status = 'unassigned', assigned_agent_id = NULL, callback_date = NULL WHERE assigned_agent_id = ?").run(luis.id);
+    // Clean up any related rows in tables that reference agents.id
+    for (const tbl of ["agent_points", "lead_activity", "agent_leads", "lead_locks", "agent_recruiting_stats", "agent_daily_stats"]) {
+      try { rawDb.prepare(`DELETE FROM ${tbl} WHERE agent_id = ?`).run(luis.id); } catch {}
+    }
+    rawDb.prepare("DELETE FROM agents WHERE id = ?").run(luis.id);
+    console.log(`[v14.29.4 luis-delete] Removed agent id=${luis.id} (Luis Marquez) and dependent rows.`);
+  }
+} catch (e) {
+  console.error("[v14.29.4 luis-delete] Failed:", e);
+}
+
 // In production: save to Railway persistent volume (/app/data/headshots/)
 // In dev: save alongside the build in dist/public/headshots/
 const isProduction = process.env.NODE_ENV === "production";

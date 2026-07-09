@@ -245,8 +245,9 @@ export function scoreBatchLead(raw: BatchRawLead): ScoredBatchLead {
   // ── Owner occupied
   if (raw.ownerOccupied) { score += 2; breakdown.push("+2 owner-occupied"); }
 
-  // ── Absentee out of state (motivated seller signal)
-  if (raw.absenteeOutOfState) { score += 1; breakdown.push("+1 absentee out-of-state"); }
+  // v14.36 — Removed duplicate absentee out-of-state scoring. The absentee block above (line 233)
+  // already awards +3 for absenteeOutOfState. Previous line here added another +1, giving OOS
+  // absentees +4 instead of the intended +3. Single-source-of-truth now lives in the absentee block.
 
   // ── Mobile phone confirmed
   if (raw.phoneTypes && raw.phoneTypes.some(t => t === "mobile" || t === "2")) {

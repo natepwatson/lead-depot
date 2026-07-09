@@ -1338,29 +1338,30 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
 
       // 2) Fetch page 1 (3 properties) from that list — try a few payload variants.
-      const bodyVariants: any[] = [
-        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: "desc" },
-        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: "asc" },
-        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "created_at", sort_type: "desc" },
-        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "updated_at", sort_type: "desc" },
-        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "id", sort_type: "desc" },
-        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: -1 },
+      const endpointVariants: { url: string; body: any }[] = [
+        { url: `${BATCHLEADS_BASE}/property`, body: { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: "desc" } },
+        { url: `${BATCHLEADS_BASE}/property/search`, body: { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: "desc" } },
+        { url: `${BATCHLEADS_BASE}/property/list`, body: { list_id: ldList.id, page: 1, per_page: 3 } },
+        { url: `${BATCHLEADS_BASE}/list/${ldList.id}/property`, body: { page: 1, per_page: 3, sort_by: "lead_score", sort_type: "desc" } },
+        { url: `${BATCHLEADS_BASE}/lists/${ldList.id}/properties`, body: null },
+        { url: `${BATCHLEADS_BASE}/lists/${ldList.id}/records`, body: null },
+        { url: `${BATCHLEADS_BASE}/lists/${ldList.id}`, body: null },
       ];
       const attempts: any[] = [];
       let propData: any = null;
-      for (const body of bodyVariants) {
-        const propResp = await fetch(`${BATCHLEADS_BASE}/property`, {
-          method: "POST",
+      for (const v of endpointVariants) {
+        const propResp = await fetch(v.url, {
+          method: v.body ? "POST" : "GET",
           headers: {
             "api-key": BATCHLEADS_API_KEY,
             "Content-Type": "application/json",
             "Accept": "application/json",
           },
-          body: JSON.stringify(body),
-        });
+          body: v.body ? JSON.stringify(v.body) : undefined,
+        }).catch((e: any) => ({ ok: false, status: 0, text: async () => String(e), json: async () => ({ fetch_error: String(e) }) } as any));
         const parsed: any = await propResp.json().catch(() => ({}));
-        const arr = parsed?.data || parsed?.properties || parsed?.results || [];
-        attempts.push({ body_sent: body, http_status: propResp.status, top_keys: Object.keys(parsed || {}), errors: parsed?.errors, message: parsed?.message, code: parsed?.code, status_field: parsed?.status, count: Array.isArray(arr) ? arr.length : 0 });
+        const arr = parsed?.data || parsed?.properties || parsed?.results || parsed?.data?.data || [];
+        attempts.push({ url: v.url, method: v.body ? "POST" : "GET", body_sent: v.body, http_status: propResp.status, top_keys: Object.keys(parsed || {}), errors: parsed?.errors, message: parsed?.message, code: parsed?.code, status_field: parsed?.status, count: Array.isArray(arr) ? arr.length : (parsed?.data?.data && Array.isArray(parsed.data.data) ? parsed.data.data.length : 0) });
         if (Array.isArray(arr) && arr.length > 0) { propData = parsed; break; }
       }
       if (!propData) propData = { attempts };

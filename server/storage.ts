@@ -624,7 +624,7 @@ if (!nateExists) {
 const realAgents = [
   { name: "Bronson Sarmento", email: "brbzsa@gmail.com" },
   { name: "Cory Deroin",      email: "corylderoin@gmail.com" },
-  { name: "Luis Marquez",     email: "luis.sellsjax@gmail.com" },
+  // v14.29.1 — Luis Marquez removed as default entry agent per Alex.
   { name: "Noah Tomlinson",   email: "noahtomlinson.re@gmail.com" },
   { name: "Gabriel Duran",    email: "gabrielduran.realtor@gmail.com" },
   { name: "Vonda Jewell",     email: "diamondjewell0712@gmail.com" },

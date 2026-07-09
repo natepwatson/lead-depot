@@ -11,6 +11,7 @@ import AccountSetupPage from "./pages/AccountSetupPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import HeadshotGate from "./components/ld/HeadshotGate";
 import HomeCountyGate from "./components/ld/HomeCountyGate";
+import WatsonEmailNudge from "./components/ld/WatsonEmailNudge";
 import NotFound from "./pages/not-found";
 import JoinPage from "./pages/JoinPage";
 import { useEffect, useState } from "react";
@@ -52,11 +53,20 @@ function AppRoutes() {
     return <AgentView mode="recruiting" initialTab="leads" onBackToAdmin={() => navigate("/", { replace: true })} />;
   }
 
+  // v14.29.1 — Non-admin agents whose email isn't @watsonbrothersgroup.com
+  // see a dismissible per-session nudge to get their team email provisioned.
+  const showEmailNudge = isAgent;
+
   if (user.role === "admin" && adminViewingLeads) {
     return <AgentView mode="seller" onBackToAdmin={() => setAdminViewingLeads(false)} initialTab="leads" />;
   }
   if (user.role === "admin") return <AdminDashboard onWorkMyLeads={() => setAdminViewingLeads(true)} />;
-  return <AgentView mode="seller" />;
+  return (
+    <>
+      <AgentView mode="seller" />
+      {showEmailNudge && <WatsonEmailNudge userEmail={user.email} userName={user.name} />}
+    </>
+  );
 }
 
 export default function App() {

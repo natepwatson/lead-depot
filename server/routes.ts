@@ -70,6 +70,122 @@ function awardPoints(
 }
 
 
+// v14.29.1 — Shared branded email shell for Flows 2, 3, 4.
+// Wraps plain-text template body in a client-facing HTML shell with the agent's
+// headshot, name, phone, email, and Brothers Group Real Estate signature card.
+// Falls back to text signature when headshot URL is missing.
+function renderBrandedEmail(opts: {
+  bodyText: string;                 // plain text body (already placeholder-rendered)
+  agentName: string;                // "Alex Watson"
+  agentTitle?: string;              // e.g. "Realtor · Brothers Group Real Estate"
+  agentPhone?: string;
+  agentEmail?: string;
+  agentHeadshotUrl?: string | null; // relative or absolute
+  publicHost?: string;              // e.g. https://depot.watsonbrothersgroup.com
+}): string {
+  const host = (opts.publicHost || process.env.APP_URL || "https://depot.watsonbrothersgroup.com").replace(/\/$/, "");
+  let headshotAbs: string | null = null;
+  if (opts.agentHeadshotUrl) {
+    headshotAbs = opts.agentHeadshotUrl.startsWith("http")
+      ? opts.agentHeadshotUrl
+      : `${host}${opts.agentHeadshotUrl.startsWith("/") ? "" : "/"}${opts.agentHeadshotUrl}`;
+  }
+  const title = opts.agentTitle || "Brothers Group Real Estate Team · Momentum Realty";
+
+  // Strip any trailing signature the template already includes, so we don't render two.
+  // Templates end with lines like:
+  //   — {agentFull}
+  //   Brothers Group Real Estate Team at Momentum Realty
+  //   {agentPhone} · {agentEmail}
+  // We keep the body up through the last conversational paragraph, then append our own signature.
+  const bodyLines = opts.bodyText.split("\n");
+  // Find the last "— <name>" line (em dash sign-off) and truncate there
+  let cutIdx = -1;
+  for (let i = bodyLines.length - 1; i >= 0; i--) {
+    if (/^\s*[\u2014-]\s*\S+/.test(bodyLines[i])) { cutIdx = i; break; }
+  }
+  const bodyOnly = cutIdx >= 0 ? bodyLines.slice(0, cutIdx).join("\n").replace(/\s+$/,"") : opts.bodyText;
+
+  // Build paragraphs from bodyOnly, preserving bullet blocks and website link lines
+  const paragraphs = bodyOnly.split(/\n\s*\n/).map(block => {
+    const lines = block.split("\n");
+    // Bullet list (lines starting with •)
+    if (lines.every(l => l.trim().startsWith("•") || !l.trim())) {
+      const items = lines.filter(l => l.trim().startsWith("•"))
+        .map(l => `<li style="margin:6px 0;color:#2a2620">${escapeHtml(l.replace(/^\s*•\s*/,""))}</li>`).join("");
+      return `<ul style="margin:0 0 18px 0;padding-left:22px;list-style:disc">${items}</ul>`;
+    }
+    // Link block (lines like "Website → brothersgroup.realestate")
+    if (lines.every(l => /brothersgroup\.realestate/.test(l) || !l.trim())) {
+      const rows = lines.filter(l => l.trim()).map(l => {
+        const linked = escapeHtml(l).replace(/(brothersgroup\.realestate[/\w\-]*)/g, m => `<a href="https://${m}" style="color:#8a6a20;text-decoration:none;border-bottom:1px solid rgba(138,106,32,0.4)">${m}</a>`);
+        return `<div style="margin:4px 0;font-size:15px">${linked}</div>`;
+      }).join("");
+      return `<div style="margin:0 0 18px 0;padding:14px 16px;background:#faf8f3;border-left:3px solid #c8aa5a;border-radius:2px">${rows}</div>`;
+    }
+    // Default paragraph
+    return `<p style="margin:0 0 16px 0">${escapeHtml(block).replace(/\n/g,"<br>")}</p>`;
+  }).join("\n");
+
+  // Signature card
+  const initials = opts.agentName.split(/\s+/).map(w => w[0]).join("").slice(0,2).toUpperCase();
+  const avatarHtml = headshotAbs
+    ? `<img src="${headshotAbs}" width="72" height="72" alt="${escapeHtml(opts.agentName)}" style="display:block;width:72px;height:72px;border-radius:50%;object-fit:cover;border:2px solid #c8aa5a"/>`
+    : `<div style="width:72px;height:72px;border-radius:50%;background:#1a1a1a;border:2px solid #c8aa5a;display:table-cell;text-align:center;vertical-align:middle;color:#c8aa5a;font-family:Georgia,serif;font-size:26px">${initials}</div>`;
+  const phoneRow = opts.agentPhone ? `<div style="font-size:13px;color:#2a2620;margin-top:2px">${escapeHtml(opts.agentPhone)}</div>` : "";
+  const emailRow = opts.agentEmail ? `<div style="font-size:13px;color:#2a2620"><a href="mailto:${escapeHtml(opts.agentEmail)}" style="color:#8a6a20;text-decoration:none">${escapeHtml(opts.agentEmail)}</a></div>` : "";
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#efece5;font-family:Georgia,'Times New Roman',serif;color:#2a2620;font-size:16px;line-height:1.65">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#efece5;padding:24px 0">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="width:600px;max-width:600px;background:#ffffff;border:1px solid #e5e2dc;border-radius:8px;overflow:hidden">
+
+        <!-- Header wordmark -->
+        <tr><td style="background:#0f0f0f;padding:20px 32px;border-bottom:3px solid #c8aa5a">
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:19px;color:#c8aa5a;letter-spacing:.06em">Brothers Group Real Estate</div>
+          <div style="font-size:11px;color:#a8a8a5;letter-spacing:.16em;text-transform:uppercase;margin-top:4px">Momentum Realty · Northeast Florida</div>
+        </td></tr>
+
+        <!-- Body -->
+        <tr><td style="padding:28px 32px 12px 32px;font-size:16px;line-height:1.65;color:#2a2620">
+          ${paragraphs}
+        </td></tr>
+
+        <!-- Signature card -->
+        <tr><td style="padding:8px 32px 28px 32px">
+          <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;border-top:1px solid #eae6de;padding-top:20px">
+            <tr>
+              <td width="88" valign="top" style="padding-right:16px">${avatarHtml}</td>
+              <td valign="middle">
+                <div style="font-family:Georgia,'Times New Roman',serif;font-size:18px;color:#1a1a1a;letter-spacing:.01em">${escapeHtml(opts.agentName)}</div>
+                <div style="font-size:12px;color:#797876;letter-spacing:.06em;text-transform:uppercase;margin:3px 0 6px 0">${escapeHtml(title)}</div>
+                ${phoneRow}
+                ${emailRow}
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+
+        <!-- Footer strip -->
+        <tr><td style="background:#faf8f3;padding:14px 32px;border-top:1px solid #eae6de;font-size:11px;color:#797876;letter-spacing:.04em">
+          <a href="https://brothersgroup.realestate" style="color:#8a6a20;text-decoration:none;margin-right:14px">brothersgroup.realestate</a>
+          <a href="https://brothersgroup.realestate/our-agents" style="color:#8a6a20;text-decoration:none;margin-right:14px">Meet the team</a>
+          <a href="https://brothersgroup.realestate/reviews" style="color:#8a6a20;text-decoration:none">Reviews</a>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+}
+
+function escapeHtml(s: string): string {
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
 // Source label map
 const SOURCE_LABELS: Record<string, string> = {
   expired: "Expired Listing",
@@ -177,7 +293,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.29 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.29.1 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -236,7 +352,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.29 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.29.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -336,22 +452,22 @@ async function sendExpiredCredibilityEmail(opts: {
         [agentPhone, agentEmail].filter(Boolean).join(" \u00b7 "),
       ].join("\n");
 
-  // v14.26 — Render HTML from the plain-text body (paragraph per blank-separated block).
-  // This keeps the editable template as the single source of truth.
-  const _htmlBody = plainText
-    .split(/\n\s*\n/)
-    .map(p => `<p style="margin:0 0 18px">${p.trim().replace(/\n/g, "<br>").replace(/</g, "&lt;")}</p>`)
-    .join("\n  ");
-  const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f7f5f0;font-family:Georgia,'Times New Roman',serif;color:#2a2620;font-size:16px;line-height:1.6">
-<div style="max-width:560px;margin:0 auto;padding:32px 24px">
-  ${_htmlBody}
-</div>
-</body></html>`;
+  // v14.29.1 — Branded HTML shell with agent headshot signature card.
+  const _agent = opts.agentId ? (storage.getAgentById(opts.agentId) as any) : null;
+  const html = renderBrandedEmail({
+    bodyText: plainText,
+    agentName: agentFull,
+    agentPhone,
+    agentEmail,
+    agentHeadshotUrl: _agent?.headshotUrl || null,
+  });
 
   try {
     await resend.emails.send({
-      from:      `${agentFull} <noreply@watsonbrothersgroup.com>`,
+      from:      `${agentFull} <${agentEmail || "noreply@watsonbrothersgroup.com"}>`,
       to:        [opts.ownerEmail],
+      cc:        ["alex@watsonbrothersgroup.com"],
+      bcc:       agentEmail ? [agentEmail] : undefined,
       reply_to:  agentEmail,
       subject,
       html,
@@ -444,20 +560,22 @@ async function sendAppointmentWarmEmail(opts: {
     ? _render(_tpl.body, _vars)
     : `Hey ${firstName} \u2014\n\nJust wanted to say thanks for setting up a time to meet about ${casualAddress}. Really looking forward to it.\n\nIf anything comes up before then, my direct line is ${agentPhone}.\n\nExcited to meet,\n${agentFull}`;
 
-  const htmlBody = plainText
-    .split(/\n\s*\n/)
-    .map(p => `<p style="margin:0 0 18px">${p.trim().replace(/\n/g, "<br>").replace(/</g, "&lt;")}</p>`)
-    .join("\n  ");
-  const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f7f5f0;font-family:Georgia,'Times New Roman',serif;color:#2a2620;font-size:16px;line-height:1.6">
-<div style="max-width:560px;margin:0 auto;padding:32px 24px">
-  ${htmlBody}
-</div>
-</body></html>`;
+  // v14.29.1 — Branded HTML shell with agent headshot signature card.
+  const _agent4 = opts.agentId ? (storage.getAgentById(opts.agentId) as any) : null;
+  const html = renderBrandedEmail({
+    bodyText: plainText,
+    agentName: agentFull,
+    agentPhone,
+    agentEmail,
+    agentHeadshotUrl: _agent4?.headshotUrl || null,
+  });
 
   try {
     await resend.emails.send({
-      from:      `${agentFull} <noreply@watsonbrothersgroup.com>`,
+      from:      `${agentFull} <${agentEmail || "noreply@watsonbrothersgroup.com"}>`,
       to:        [opts.ownerEmail],
+      cc:        ["alex@watsonbrothersgroup.com"],
+      bcc:       agentEmail ? [agentEmail] : undefined,
       reply_to:  agentEmail,
       subject,
       html,
@@ -518,7 +636,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.29 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.29.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -3260,16 +3378,21 @@ Brothers Group Real Estate Team at Momentum Realty
     };
     const subject = renderTemplate(tpl.subject, vars);
     const plainText = renderTemplate(tpl.body, vars);
-    const htmlBody = plainText
-      .split(/\n\s*\n/)
-      .map(p => `<p style="margin:0 0 18px">${p.trim().replace(/\n/g, "<br>").replace(/</g, "&lt;")}</p>`)
-      .join("\n  ");
-    const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f7f5f0;font-family:Georgia,'Times New Roman',serif;color:#2a2620;font-size:16px;line-height:1.6"><div style="max-width:560px;margin:0 auto;padding:32px 24px">${htmlBody}</div></body></html>`;
+    // v14.29.1 — Branded HTML shell with agent headshot signature card.
+    const html = renderBrandedEmail({
+      bodyText: plainText,
+      agentName: agentFull || "Brothers Group",
+      agentPhone,
+      agentEmail,
+      agentHeadshotUrl: agent?.headshotUrl || null,
+    });
 
     try {
       await resend.emails.send({
-        from:      `${agentFull || "Brothers Group"} <noreply@watsonbrothersgroup.com>`,
+        from:      `${agentFull || "Brothers Group"} <${agentEmail || "noreply@watsonbrothersgroup.com"}>`,
         to:        [lead.email],
+        cc:        ["alex@watsonbrothersgroup.com"],
+        bcc:       agentEmail ? [agentEmail] : undefined,
         reply_to:  agentEmail,
         subject,
         html,
@@ -3981,7 +4104,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.29 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.29.1 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4227,7 +4350,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.29",
+      version: "v14.29.1",
       services: results,
     });
   });

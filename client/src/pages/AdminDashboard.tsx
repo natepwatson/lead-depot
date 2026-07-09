@@ -1450,7 +1450,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.28
+              v14.29
             </p>
           </div>
         </div>
@@ -1880,7 +1880,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               }}>
                 <div style={{ flex: 1, minWidth: 0 }} />
                 <div className="ld-lb-cols" style={{ display: "flex", gap: 20, textAlign: "center", alignItems: "center", flexShrink: 0 }}>
-                  {/* v14.28 — Unified column order: APPTS first & bold gold (the #1 goal), Points second, Dials third. Then supporting metrics. */}
+                  {/* v14.29 — Unified column order: APPTS first & bold gold (the #1 goal), Points second, Dials third. Then supporting metrics. */}
                   {lbTab === "today" ? (
                     <>
                       <div style={{ width: 54, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
@@ -1915,7 +1915,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   No agents yet. Add agents in the Agents tab.
                 </div>
               ) : (() => {
-                // v14.28 — UNIFIED SORT across Today + Weekly + Agent leaderboard:
+                // v14.29 — UNIFIED SORT across Today + Weekly + Agent leaderboard:
                 // Appts → Points → Dials. Appts are the #1 goal; points break ties
                 // (points already weight appts 10× a dial), dials are the final tiebreaker.
                 const sorted = [...dualLb].sort((a, b) => {
@@ -2012,7 +2012,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             </div>
                           </div>
 
-                          {/* Stats columns — v14.28: Appts hero (large gold), Points second, Dials third */}
+                          {/* Stats columns — v14.29: Appts hero (large gold), Points second, Dials third */}
                           <div className="ld-lb-cols" style={{ display: "flex", gap: 20, textAlign: "center", alignItems: "center", flexShrink: 0 }}>
                             {lbTab === "today" ? (
                               <>

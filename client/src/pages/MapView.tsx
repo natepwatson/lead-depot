@@ -54,6 +54,9 @@ export default function MapView() {
   const [lfReady, setLfReady] = useState(false);
   const [filter, setFilter]  = useState("all");
   const [err, setErr]        = useState("");
+  const [totalCount, setTotalCount] = useState(0);
+  const [capped, setCapped] = useState(false);
+  const [cappedAt, setCappedAt] = useState(500);
 
   // Load Leaflet JS
   useEffect(() => {
@@ -64,7 +67,18 @@ export default function MapView() {
   useEffect(() => {
     fetch("/api/leads/map")
       .then(r => r.json())
-      .then((d: MapLead[]) => { setLeads(d); setLoading(false); })
+      .then((d: any) => {
+        // v14.29: server now returns { leads, totalCount, cappedAt, capped }
+        if (Array.isArray(d)) {
+          setLeads(d); // backward-compat if older server
+        } else {
+          setLeads(d.leads || []);
+          setTotalCount(d.totalCount || 0);
+          setCapped(!!d.capped);
+          setCappedAt(d.cappedAt || 500);
+        }
+        setLoading(false);
+      })
       .catch(() => { setErr("Failed to load leads."); setLoading(false); });
   }, []);
 
@@ -147,6 +161,25 @@ export default function MapView() {
           );
         })}
       </div>
+
+      {/* v14.29: Cap banner — only shown when server capped the result set */}
+      {capped && !loading && (
+        <div style={{
+          padding: "8px 12px",
+          background: "rgba(232,175,52,0.08)",
+          border: "1px solid rgba(232,175,52,0.25)",
+          borderRadius: 6,
+          fontSize: 11,
+          color: "#e8af34",
+          letterSpacing: "0.04em",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}>
+          <span style={{ opacity: 0.9 }}>⚠</span>
+          <span>Showing {cappedAt} of {totalCount} leads (most recent). Zoom in or filter by status to explore. Viewport-based rendering ships in v14.30.</span>
+        </div>
+      )}
 
       {/* Map container */}
       <div style={{ height: "calc(100vh - 320px)", minHeight: 440, position: "relative", borderRadius: 10, overflow: "hidden", border: "1px solid rgba(200,170,90,0.15)" }}>

@@ -177,7 +177,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.28 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.29 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -236,7 +236,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.28 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.29 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -260,7 +260,7 @@ const FOLLOW_UP_TIMING_PHRASE: Record<string, string> = {
 };
 async function sendExpiredCredibilityEmail(opts: {
   leadId: number;
-  agentId?: number | null;   // v14.28 — needed to award points
+  agentId?: number | null;   // v14.29 — needed to award points
   ownerEmail: string;
   ownerFirstName: string;
   ownerPhone?: string;       // v14.27 — needed to push FUB note
@@ -358,13 +358,13 @@ async function sendExpiredCredibilityEmail(opts: {
       text:      plainText,
     } as any);
     // Log to activity so rate limit works next time + audit trail
-    // v14.28 — log agent_id so points/attribution work
+    // v14.29 — log agent_id so points/attribution work
     const nowIso = new Date().toISOString();
     rawDb.prepare(`
       INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
       VALUES (?, ?, 'email_sent', ?, NULL, ?)
     `).run(opts.leadId, opts.agentId || null, `expired-credibility sent to ${opts.ownerEmail} (follow-up: ${opts.followUpTiming})`, nowIso);
-    // v14.28 — Fix 2: award points for Flow 2 credibility email
+    // v14.29 — Fix 2: award points for Flow 2 credibility email
     if (opts.agentId) awardPoints(opts.agentId, "email_sent", opts.leadId);
     // v14.27 — push FUB note recording the send (subject + timestamp + preview)
     pushEmailNoteToFub({
@@ -518,7 +518,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.28 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.29 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1430,11 +1430,15 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   app.get("/api/leads/map", async (req, res) => {
     // SQL: only fetch location columns needed for map — avoids full lead deserialization (v11.70)
+    // v14.29: cap at 500 most-recent leads to keep response < 2s. Viewport rebuild lands v14.30.
+    const MAP_CAP = 500;
+    const totalRow: any = rawDb.prepare(`SELECT COUNT(*) as c FROM leads`).get();
+    const totalCount = totalRow?.c ?? 0;
     const all: any[] = rawDb.prepare(
       `SELECT id, address, owner_name as ownerName, status, lead_type as leadType,
               city, state, zip, extra_data as extraData
-       FROM leads ORDER BY uploaded_at DESC`
-    ).all();
+       FROM leads ORDER BY uploaded_at DESC LIMIT ?`
+    ).all(MAP_CAP);
 
     // Parse address components from each lead
     const mapLeads = all.map((l: any) => {
@@ -1495,11 +1499,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
 
     // Build final response — only include leads with coords
-    const result = mapLeads
+    const leads = mapLeads
       .map(l => ({ ...l, ...(coordMap.get(l.id) ?? {}) }))
       .filter((l: any) => l.lat !== undefined);
 
-    res.json(result);
+    // v14.29: return metadata so client can show 'Showing X of Y' banner
+    res.json({ leads, totalCount, cappedAt: MAP_CAP, capped: totalCount > MAP_CAP });
   });
 
   app.get("/api/leads/stats", (req, res) => {
@@ -2216,7 +2221,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         if (targetEmail && targetEmail.includes("@")) {
           sendExpiredCredibilityEmail({
             leadId,
-            agentId,                                 // v14.28 — pass through for points
+            agentId,                                 // v14.29 — pass through for points
             ownerEmail: targetEmail,
             ownerFirstName,
             ownerPhone: (lead as any).phone || undefined,   // v14.27 — for FUB note
@@ -2405,7 +2410,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
 
   // ─── EMAIL SENT TRACKING ─────────────────────────────────────────────────
-  // v14.28 — Award email_sent points when Flow 1 mailto click is logged.
+  // v14.29 — Award email_sent points when Flow 1 mailto click is logged.
   // v14.27 — Enforces 1-email-per-lead-per-day cap (across all flows).
   app.post("/api/leads/:id/email-sent", (req, res) => {
     const leadId = parseInt(req.params.id);
@@ -2434,7 +2439,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       lpmamabSnapshot: null,
       createdAt: new Date().toISOString(),
     });
-    // v14.28 — Fix 1: award points for the manual Flow 1 email
+    // v14.29 — Fix 1: award points for the manual Flow 1 email
     if (agentId) awardPoints(parseInt(String(agentId)), "email_sent", leadId);
     res.json({ logged: true, points: 3 });
   });
@@ -2628,48 +2633,117 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   };
 
-  const expiredScript = `EXPIRED LISTING SCRIPT
-Brothers Group at Momentum Realty
+  // v14.29 — Full rewrite in Alex's voice. Guardrails moved above Mindset.
+  const expiredScript = `EXPIRED LISTING SCRIPT — v14.29
+Brothers Group Real Estate Team at Momentum Realty
 ─────────────────────────────────────────────────
 
+AGENT GUARDRAILS — do NOT
+
+  ✗ Sound rushed or read-y
+  ✗ Announce you're "not pitching" (that IS pitching)
+  ✗ Lead with the company name
+  ✗ Push for an appointment before you understand the situation
+  ✗ Interrupt or talk over the seller
+  ✗ Use words like "quote," "consultation," "reach out"
+  ✗ Make it about you or the team — make it about their house
+  ✗ Fill silence — let them think
+
+─────────────────────────────────────────────────
+
+MINDSET (read before you dial — not spoken)
+  • We're here for the easy yes's — not to force the no's.
+  • They already had one agent fail them. Don't be the second
+    version of that person.
+  • Understand first. We win by knowing the market better,
+    not by talking more.
+
+─────────────────────────────────────────────────
 OPENING
-"Hi, this is [YOUR NAME] from The Brothers Group Real Estate Team. I was looking at [ADDRESS] here in [CITY] — it looks like the home was for sale but came off the market. What happened there? Did it sell?"
+
+  "Hey [First Name] — it's [Agent First Name]. I'm calling
+   about the house at [Address]. Did I catch you okay?"
 
 ─────────────────────────────────────────────────
-COMMON OBJECTIONS
+CALL FLOW
 
-If they ask "Who is this again?"
-  → "Great question — my name is [NAME], I'm with The Brothers Group at Momentum Realty. We're one of the top producing teams in Northeast Florida. We keep a close eye on everything happening in this market."
+  1. IDENTITY + PERMISSION
+     Confirm it's them. Confirm they can talk.
 
-If they ask "Why are you calling?"
-  → "We work with a lot of active buyers right now, and this home caught our attention. We'd love to be able to show it — but I also wanted to see if you were still thinking about selling."
+  2. WHAT HAPPENED
+     "So I saw it was on the market and then it came off —
+      what happened there?"
 
-If they say "We're not in a rush" or "We just took it down for now"
-  → "Totally understandable. A lot of sellers do that. Can I ask — what would need to change for you to move forward?"
+  3. WHAT WAS THE PLAN
+     "And if it had sold, where were you headed?"
 
-─────────────────────────────────────────────────
-ABOUT US (when they're open — keep it brief)
-"I'm [NAME] — my partner and I run The Brothers Group here in [CITY]. We've been recognized as a top 1% producing team and top team in Northeast Florida, JBJ Award winners, and we have an office right on the island. We sell homes fast and at strong prices — but more importantly, we take care of our clients the right way."
+  4. IS THE MOVE REAL
+     Listen. Ask follow-ups. You're figuring out if there's a
+     real life reason to move, or if they were just seeing
+     what the market would do.
 
-─────────────────────────────────────────────────
-GATHER — LPMAMAB (let them talk, ask one at a time)
+  5. TIMELINE (only after you know the move is real)
+     "When were you thinking that would actually happen?"
 
-  L — Location:     "Where are you planning to go after you sell?"
-  P — Price:        "What were you listed at? What do you need to net to make the move work?"
-  M — Motivation:   "What's driving the move — job, family, lifestyle change?"
-  A — Agent:        "Were you working with an agent? What do you feel could have gone better?"
-  M — Mortgage:     "Do you have a sense of what you owe on the property right now?"
-  A — Appointment:  "I'd love to come by and walk through what we'd do differently. What does [DAY] or [DAY] look like for a quick 20-minute visit?"
-  B — Buyer:          "Once you sell — will you be buying something here or in your destination?"
+  6. BRANCH → based on motivation
 
 ─────────────────────────────────────────────────
-CLOSE
+COMPANY NAME REVEAL (delayed)
 
-If appointment set:
-  "Perfect — we'll send you a calendar invite and a quick email with our team info and what to expect. We're looking forward to it."
+Only when they ask, or after real rapport:
+  "I'm [Full Name] with the Brothers Group Real Estate Team
+   at Momentum Realty — we're a local team here in [City]."
 
-If not ready yet:
-  "I completely understand. Can I at least send you our info so you know who we are when you're ready? And would it be okay if I checked back in [X weeks]?"
+─────────────────────────────────────────────────
+BRANCH A — REAL MOVE, NO PLAN → APPOINTMENT
+
+Frame: You know something they don't. Show them.
+
+  "Here's the honest read — most expireds don't fail because
+   of the house. They fail because of how it was priced and
+   marketed. If you stack the cards right, the market comes
+   to you instead of you chasing it."
+
+  "It's a no-obligation 5-minute walk-through. I'll show you
+   what we'd do differently and what the numbers actually
+   look like right now. If it makes sense, we move. If not,
+   at least you know where you stand."
+
+BRANCH B — NOT READY, TONE WARM → KEEP IN TOUCH
+
+  "Totally fair. When you get closer, the pricing window
+   matters more than most people realize — I'd rather you
+   have someone tracking that for you than figure it out
+   on your own."
+
+  Ask: "What's the best email for you?"
+  Ask: "When should I check back in?"
+
+  Send the intro email. Don't announce it, don't apologize
+  for it, don't call it "just a quick note." Just send it.
+
+BRANCH C — BUSY, NOT HOSTILE → RECYCLE
+
+  "Got it — I'll catch you another time."
+
+  One tap Recycle. Move on.
+
+BRANCH D — CLEARLY NOT INTERESTED → NOT INTERESTED
+
+  "Understood. Best of luck with the house."
+
+  End it. Respect it.
+
+─────────────────────────────────────────────────
+WHY US (only if they ask — never volunteered)
+
+  "26+ years of combined real estate experience. Top 1% of
+   teams in NE Florida. RealProducers Top 500. Jacksonville
+   Business Journal ranked team. Hundreds of five-star
+   reviews. We also bring construction and roofing expertise
+   from years in the industry — so when we walk your house
+   we can tell you what actually matters before it lists,
+   what doesn't, and what buyers and inspectors will flag."
 
 ─────────────────────────────────────────────────`;
 
@@ -2939,73 +3013,139 @@ This template is for informational/outreach purposes only.`;
   // v14.26 — Editable email templates for the four email flows.
   // Format: first non-blank line = Subject: <line>. Everything after = body.
   // Placeholders: {ownerFirst}, {ownerName}, {address}, {agentFirst}, {agentFull}, {agentPhone}, {agentEmail}, {timing}, {apptDate}, {apptTime}
-  const emailFlow1Template = `Subject: Regarding your property at {address}
+  // v14.29 — All 4 email templates rewritten in Alex's voice.
+  // NOTE ON KEY MAPPING:
+  //   email_flow1 = Cold Intro (mailto)                    — Flow 1 in user journey
+  //   email_flow3 = Value Stack (2nd attempt, manual)      — Flow 2 in user journey (fires on manual button)
+  //   email_flow2 = Welcome to the Family (KIT auto)       — Flow 3 in user journey (fires on KIT outcome)
+  //   email_flow4 = Appointment Confirmed (auto)           — Flow 4 in user journey (fires on appt set)
+  //
+  // Keys stay the same to preserve existing trigger wiring. Only content swapped for temporal order.
+
+  // Flow 1 — Cold Intro (mailto, first touch before contact)
+  const emailFlow1Template = `Subject: About the house at {address}
 
 Hi {ownerFirst},
 
-I wanted to reach out about your property at {address}. I specialize in helping homeowners in your area and I'd love to connect.
+{agentFirst} here \u2014 I called earlier about {address}. Figured I'd drop a note in case email's easier.
 
-Would you be available for a quick call?
+If you're still thinking about selling, I'd like to show you what the house would actually move for right now, and what we'd do differently than the last listing. Five minutes, no obligation.
 
-Best,
-{agentFull}
-Brothers Group Real Estate Team at Momentum Realty
-{agentPhone}`;
+{agentPhone} if easier.
+
+\u2014 {agentFull}
+Brothers Group Real Estate Team at Momentum Realty`;
   initScript("email_flow1", emailFlow1Template);
 
-  const emailFlow2Template = `Subject: Hey {ownerFirst} \u2014 nice talking earlier
+  // Flow 2 (in user journey) — stored under key email_flow2 = WELCOME TO THE FAMILY, fires on KIT outcome (auto)
+  const emailFlow2Template = `Subject: Welcome to the family, {ownerFirst}
 
-Hey {ownerFirst} \u2014
+Hey {ownerFirst},
 
-Really glad we got to chat about the house at {address}. Sounded like the timing's not quite right yet, and honestly, that's the best kind of answer \u2014 you know where you stand.
+Great talking earlier. Looking forward to working together in the future. We're here when you need us.
 
-Wanted to properly introduce myself since I skipped the formalities on the phone. I'm {agentFirst} with the Brothers Group Real Estate Team at Momentum Realty. We work with a lot of folks in your spot \u2014 the first listing didn't land, life kept moving, and the house is just sitting there in the background. Nothing wrong with letting it sit. But when you're ready to actually think about it, we're the ones you want in the room.
+A little about the team you're now working with:
 
-No agenda on this email. Just wanted you to have a name and a face for the number that called.
+  \u2022 26+ years of combined real estate experience
+  \u2022 Top 1% of teams in all of NE Florida
+  \u2022 RealProducers Top 500
+  \u2022 Jacksonville Business Journal ranked team
+  \u2022 Hundreds of five-star reviews across the platforms
 
-If you ever want a quick five-minute walk-through \u2014 no clipboard, no pitch, just an honest read on what your home would take to move \u2014 say the word. Otherwise I'll check back {timing} and see where you're at.
+Get to know us a little better:
 
-Real quick \u2014 my direct line is {agentPhone} if anything comes up before then.
+  Website \u2192 brothersgroup.realestate
+  Meet the team \u2192 brothersgroup.realestate/our-agents
+  Reviews \u2192 brothersgroup.realestate/reviews
 
-Talk soon,
-{agentFull}
+You'll hear from us whenever something interesting comes up in your market \u2014 we don't spam.
+
+Let us know any questions we can help with, whether it's for you or a friend or family member who needs a hand.
+
+\u2014 {agentFull}
 Brothers Group Real Estate Team at Momentum Realty
 {agentPhone} \u00b7 {agentEmail}`;
   initScript("email_flow2", emailFlow2Template);
 
-  const emailFlow3Template = `Subject: Following up \u2014 {address}
+  // Flow 3 (in user journey) — stored under key email_flow3 = VALUE STACK, fires on manual 2nd-attempt button
+  const emailFlow3Template = `Subject: A thought on {address}
 
 Hi {ownerFirst},
 
-I reached out a little while back about your property at {address} and wanted to try one more time before I stop cluttering your inbox.
+{agentFirst} \u2014 following up on {address}.
 
-No pressure and no pitch \u2014 just an honest offer. If there's ever a moment where you want a quiet second opinion on what the home would take to move, or you just want to know what your neighbors are getting these days, I'm the person to ask.
+Quick note on how we work. When we take on a listing, we build the price around real market demand and market the house the way it should be marketed. Stack the cards right and the market comes to you \u2014 you stay in control of the sale.
 
-A quick reply of "not now" or "never" is totally fine and I'll respect it. Otherwise I'm here when the timing lines up.
+We also bring construction and roofing expertise from years in the industry, so we can walk a house and tell you what actually needs to be addressed before it lists, what doesn't, and what buyers and inspectors will flag. Usually saves money on repairs and protects the sale price when negotiations start.
 
-Appreciate your time either way,
-{agentFull}
+Local, born and raised, hundreds of five-star reviews \u2192 brothersgroup.realestate/reviews
+
+If you want to see what that looks like for {address} \u2014 no obligation, five-minute walk-through \u2014 {agentPhone} or reply here.
+
+\u2014 {agentFull}
 Brothers Group Real Estate Team at Momentum Realty
 {agentPhone} \u00b7 {agentEmail}`;
   initScript("email_flow3", emailFlow3Template);
 
-  const emailFlow4Template = `Subject: Looking forward to meeting you, {ownerFirst}
+  // Flow 4 (in user journey) — Appointment Confirmed, fires on contacted_appointment outcome (auto)
+  const emailFlow4Template = `Subject: {apptDate} at {apptTime} \u2014 {address}
 
-Hey {ownerFirst} \u2014
+Hey {ownerFirst},
 
-Just wanted to say thanks for setting up a time to meet about {address}. Really looking forward to it.
+Great connecting today. We're looking forward to meeting you and taking a look at {address}.
 
-We're confirmed for {apptDate} at {apptTime}. I'll come prepared with a real read on your home \u2014 what buyers in your area are actually paying, what the last few sales tell us, and what we'd do to position yours to sell for the strongest possible number.
+Confirmed for {apptDate} at {apptTime}.
 
-No pressure, no clipboard theatrics. Just an honest conversation about your options.
+Here's what we'll bring to the walk-through:
 
-If anything comes up before then, my direct line is {agentPhone}. Otherwise, see you soon.
+  \u2022 A real read on your home \u2014 recent comps, what buyers in your area are actually paying, and how we'd price and market it to sell for the strongest possible number.
+  \u2022 Our construction and roofing expertise from years in the industry \u2014 we'll walk the house with you and flag what actually matters before it lists, what doesn't, and what buyers and inspectors will notice. Usually saves money on repairs and protects the sale price in negotiation.
 
-Excited to meet,
-{agentFull}
+A little about the team you're now working with:
+
+  \u2022 26+ years of combined real estate experience
+  \u2022 Top 1% of teams in all of NE Florida
+  \u2022 RealProducers Top 500
+  \u2022 Jacksonville Business Journal ranked team
+  \u2022 Hundreds of five-star reviews across the platforms
+
+Get to know us a little more before we meet:
+
+  Website \u2192 brothersgroup.realestate
+  Meet the team \u2192 brothersgroup.realestate/our-agents
+  Reviews \u2192 brothersgroup.realestate/reviews
+
+Any questions before then, we're a call or text away at {agentPhone}. And if you know a friend or family member who could use a hand with real estate, we're here for them too.
+
+See you {apptDate}.
+
+\u2014 {agentFull}
 Brothers Group Real Estate Team at Momentum Realty
 {agentPhone} \u00b7 {agentEmail}`;
   initScript("email_flow4", emailFlow4Template);
+
+  // v14.29 — Force-update all templates on boot so prod DB rows get the new content.
+  // initScript() above only inserts if missing. This block updates existing rows to match code.
+  try {
+    const forceUpdate = rawDb.prepare("UPDATE scripts SET content = ?, updated_at = ? WHERE lead_type = ?");
+    const nowIso = new Date().toISOString();
+    forceUpdate.run(expiredScript, nowIso, "expired");
+    forceUpdate.run(emailFlow1Template, nowIso, "email_flow1");
+    forceUpdate.run(emailFlow2Template, nowIso, "email_flow2");
+    forceUpdate.run(emailFlow3Template, nowIso, "email_flow3");
+    forceUpdate.run(emailFlow4Template, nowIso, "email_flow4");
+    console.log("[v14.29] Force-updated expired script + 4 email templates to new voice");
+  } catch (e: any) {
+    console.error("[v14.29] Failed to force-update scripts:", e.message);
+  }
+
+  // v14.29 — Delete test lead id=4859 (AUDIT Network Test placeholder)
+  try {
+    const deleteRes = rawDb.prepare("DELETE FROM leads WHERE id = 4859 AND (owner_name LIKE '%AUDIT%' OR address LIKE '%Audit Network%')").run();
+    if (deleteRes.changes > 0) console.log(`[v14.29] Deleted test lead id=4859 (${deleteRes.changes} row)`);
+  } catch (e: any) {
+    console.error("[v14.29] Failed to delete test lead 4859:", e.message);
+  }
 
   // v14.26 — Load an editable script template, splitting Subject: from body.
   // Returns null if the script is missing (caller falls back to hardcoded copy).
@@ -3036,7 +3176,7 @@ Brothers Group Real Estate Team at Momentum Realty
   (globalThis as any).__leadDepotLoadEmailTemplate = loadEmailTemplate;
   (globalThis as any).__leadDepotRenderTemplate = renderTemplate;
 
-  // v14.28 — Email status for a lead. Used to gate the manual Flow 3 button on the client.
+  // v14.29 — Email status for a lead. Used to gate the manual Flow 3 button on the client.
   //   flow1Sent            = any Flow 1 email_sent activity exists for this lead
   //   contactedYet         = a contacted_* outcome exists — disqualifies Flow 3
   //   emailedToday         = any email_sent activity in last 24h — daily cap active
@@ -3073,7 +3213,7 @@ Brothers Group Real Estate Team at Momentum Realty
     });
   });
 
-  // v14.28 — Flow 3: 2nd attempt email. Sends via Resend using email_flow3 template.
+  // v14.29 — Flow 3: 2nd attempt email. Sends via Resend using email_flow3 template.
   // Requires prior Flow 1 send AND no contact outcome AND daily cap not hit. Awards +5.
   app.post("/api/leads/:id/email-flow3", async (req, res) => {
     const leadId = parseInt(req.params.id);
@@ -3739,7 +3879,7 @@ Brothers Group Real Estate Team at Momentum Realty
     const agentStatsMap: Record<number, any> = {};
     for (const r of agentStatsRows) agentStatsMap[r.agent_id] = r;
 
-    // v14.28 — pull points from agent_points table for unified leaderboard sort
+    // v14.29 — pull points from agent_points table for unified leaderboard sort
     const ptsSqlA = `SELECT agent_id, SUM(points) as total FROM agent_points WHERE scope = 'seller' ${resetAt ? "AND created_at >= ?" : ""} GROUP BY agent_id`;
     const ptsRowsA: any[] = rawDb.prepare(ptsSqlA).all(...(resetAt ? [resetAt] : []));
     const ptsMapA: Record<number, number> = {};
@@ -3768,7 +3908,7 @@ Brothers Group Real Estate Team at Momentum Realty
         },
       };
     });
-    // v14.28 — Unified sort: Appts → Points → Dials (appts are the #1 goal)
+    // v14.29 — Unified sort: Appts → Points → Dials (appts are the #1 goal)
     stats.sort((a, b) =>
       (b.appointmentsSet - a.appointmentsSet) ||
       (b.points - a.points) ||
@@ -3841,7 +3981,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.28 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.29 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4087,7 +4227,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.28",
+      version: "v14.29",
       services: results,
     });
   });

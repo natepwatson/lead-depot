@@ -14,7 +14,6 @@ import HomeCountyGate from "./components/ld/HomeCountyGate";
 import WatsonEmailNudge from "./components/ld/WatsonEmailNudge";
 import NotFound from "./pages/not-found";
 import JoinPage from "./pages/JoinPage";
-import FastTrackPage from "./pages/FastTrackPage";
 import { useEffect, useState } from "react";
 
 function AppRoutes() {
@@ -78,7 +77,6 @@ export default function App() {
           <Switch>
             {/* Public recruiting form — no auth required */}
             <Route path="/join" component={JoinPage} />
-            <Route path="/join/fast-track" component={FastTrackPage} />
             {/* Account setup — no auth required, token-gated */}
             <Route path="/setup/:token" component={AccountSetupPage} />
             {/* Password reset — no auth required, token-gated */}

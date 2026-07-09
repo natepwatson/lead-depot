@@ -4,7 +4,6 @@
  * Luxury dark gold, mobile-first, all 14 fields + honeypot
  */
 import { useState } from "react";
-import { Link } from "wouter";
 
 const API_BASE = ""; // same origin
 
@@ -179,20 +178,6 @@ export default function JoinPage() {
             </div>
           ))}
         </div>
-
-        {/* Fast Track link */}
-        <Link href="/join/fast-track" style={{
-          display: "inline-flex", alignItems: "center", gap: 8,
-          padding: "11px 20px", marginBottom: 32,
-          background: "rgba(200,170,90,0.06)",
-          border: "1px solid rgba(200,170,90,0.3)",
-          borderRadius: 999,
-          fontSize: 12, fontWeight: 600, letterSpacing: "0.14em",
-          textTransform: "uppercase", color: "#c8aa5a",
-          textDecoration: "none",
-        }}>
-          How we put you on the fast track <span aria-hidden="true">→</span>
-        </Link>
       </header>
 
       {/* Form */}

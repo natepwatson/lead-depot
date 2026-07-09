@@ -67,6 +67,12 @@ async function buildAll() {
     console.log("copied public/join.html → dist/public/join.html");
   }
 
+  // join-fast-track.html — /join/fast-track playbook subpage
+  if (existsSync("public/join-fast-track.html")) {
+    await copyFile("public/join-fast-track.html", "dist/public/join-fast-track.html");
+    console.log("copied public/join-fast-track.html → dist/public/join-fast-track.html");
+  }
+
   // agent headshots — slug-named jpg files served at /headshots/
   const headshotSrc = "public/headshots";
   const headshotDst = "dist/public/headshots";

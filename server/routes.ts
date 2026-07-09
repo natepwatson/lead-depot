@@ -1340,8 +1340,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // 2) Fetch page 1 (3 properties) from that list — try a few payload variants.
       const bodyVariants: any[] = [
         { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: "desc" },
-        { list_ids: [ldList.id], page: 1, per_page: 3 },
-        { list_id: ldList.id, page: 1, per_page: 3 },
+        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: "asc" },
+        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "created_at", sort_type: "desc" },
+        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "updated_at", sort_type: "desc" },
+        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "id", sort_type: "desc" },
+        { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: -1 },
       ];
       const attempts: any[] = [];
       let propData: any = null;
@@ -1357,7 +1360,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         });
         const parsed: any = await propResp.json().catch(() => ({}));
         const arr = parsed?.data || parsed?.properties || parsed?.results || [];
-        attempts.push({ body_sent: body, http_status: propResp.status, top_keys: Object.keys(parsed || {}), errors: parsed?.errors, code: parsed?.code, count: Array.isArray(arr) ? arr.length : 0 });
+        attempts.push({ body_sent: body, http_status: propResp.status, top_keys: Object.keys(parsed || {}), errors: parsed?.errors, message: parsed?.message, code: parsed?.code, status_field: parsed?.status, count: Array.isArray(arr) ? arr.length : 0 });
         if (Array.isArray(arr) && arr.length > 0) { propData = parsed; break; }
       }
       if (!propData) propData = { attempts };

@@ -1198,6 +1198,32 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     },
   });
 
+  // v14.47 — admin can edit any agent's email inline. Uses existing PATCH /api/agents/:id
+  // allowlist (already includes "email"). Simple prompt-based UX — no modal needed for a
+  // rarely-used admin fix. Lowercase-normalizes on submit to match login lookup.
+  const handleEditAgentEmail = useCallback((agent: { id: number; name: string; email: string }) => {
+    const next = window.prompt(`Edit email for ${agent.name}:`, agent.email || "");
+    if (next === null) return; // cancelled
+    const trimmed = next.trim().toLowerCase();
+    if (!trimmed) {
+      toast({ title: "Email required", description: "Email cannot be blank.", variant: "destructive" });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      toast({ title: "Invalid email", description: `"${trimmed}" is not a valid email address.`, variant: "destructive" });
+      return;
+    }
+    if (trimmed === (agent.email || "").toLowerCase()) return; // no-op
+    apiRequest("PATCH", `/api/agents/${agent.id}`, { email: trimmed })
+      .then(r => r.json())
+      .then(() => {
+        toast({ title: "Email updated", description: `${agent.name} → ${trimmed}` });
+        qc.invalidateQueries({ queryKey: ["/api/agents"] });
+      })
+      .catch((err: any) => {
+        toast({ title: "Update failed", description: err?.message || "Could not update email", variant: "destructive" });
+      });
+  }, [qc, toast]);
 
   const redistributeUnseenMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/admin/redistribute-unseen").then(r => r.json()),
@@ -1441,7 +1467,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.46
+              v14.47
             </p>
           </div>
         </div>
@@ -3271,7 +3297,20 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                             })()}
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-foreground">{agent.name}</p>
-                              <p className="text-xs text-muted-foreground">{agent.email}</p>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <p className="text-xs text-muted-foreground" style={{ margin: 0 }}>{agent.email}</p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditAgentEmail({ id: agent.id, name: agent.name, email: agent.email })}
+                                  title="Edit email"
+                                  data-testid={`button-edit-email-${agent.id}`}
+                                  style={{
+                                    background: "transparent", border: "none", padding: 0,
+                                    cursor: "pointer", color: "rgba(200,170,90,0.55)",
+                                    fontSize: 11, lineHeight: 1,
+                                  }}
+                                >✎</button>
+                              </div>
                               {/* v14.0 — Territory pickers removed. Home County is the only location control. */}
                               <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
                                 {/* v13.9 — Home County picker (drives lead-serving order) */}
@@ -3395,7 +3434,20 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                               })()}
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-foreground/70">{agent.name}</p>
-                                <p className="text-xs text-muted-foreground">{agent.email}</p>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <p className="text-xs text-muted-foreground" style={{ margin: 0 }}>{agent.email}</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditAgentEmail({ id: agent.id, name: agent.name, email: agent.email })}
+                                    title="Edit email"
+                                    data-testid={`button-edit-email-${agent.id}`}
+                                    style={{
+                                      background: "transparent", border: "none", padding: 0,
+                                      cursor: "pointer", color: "rgba(200,170,90,0.55)",
+                                      fontSize: 11, lineHeight: 1,
+                                    }}
+                                  >✎</button>
+                                </div>
                               </div>
                               <div className="flex items-center gap-3">
                                 {flowOffOnly ? (

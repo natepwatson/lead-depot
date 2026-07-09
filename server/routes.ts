@@ -292,7 +292,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.46 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.47 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -300,7 +300,7 @@ async function sendCrmReport(opts: {
 
   await resend.emails.send({
     from:    "Lead Depot <noreply@watsonbrothersgroup.com>",
-    to:      ["Denise@watsonbrothersgroup.com"],
+    to:      ["denise@watsonbrothersgroup.com"],
     cc:      ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
     subject,
     html,
@@ -351,7 +351,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.46 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.47 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -635,7 +635,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.46 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.47 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -4135,7 +4135,7 @@ Brothers Group Real Estate Team at Momentum Realty
       const tdR = "padding:8px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
       resend.emails.send({
         from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-        to:   ["Denise@watsonbrothersgroup.com"],
+        to:   ["denise@watsonbrothersgroup.com"],
         cc:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
         subject: `\uD83E\uDD1D Network Lead Submitted \u2014 ${ownerName} | ${address || "No address"}`,
         html: `
@@ -4404,7 +4404,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.46",
+      version: "v14.47",
       services: results,
     });
   });

@@ -13,6 +13,7 @@ import multer from "multer";
 import { runDbprPipeline } from "./dbpr-pipeline";
 import { getTerritoryForZip, TERRITORIES as TERRITORY_META } from "./territories";
 import { normalizeFirstName, normalizeFullName, normalizeAddressCasual } from "./normalize";
+import * as landvoice from "./landvoice";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -291,7 +292,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.44 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.45 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -350,7 +351,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.44 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.45 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -634,7 +635,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.44 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.45 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -2112,18 +2113,28 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
     } else if (outcome === "recycled" || outcome === "callback_requested") {
-      // v14.14 — Callback fully retired. Recycle is the successor: one-tap unassign to pool,
-      // no date, no coordination. `callback_requested` is treated identically to `recycled`
-      // so any stale clients still submitting the old key don't misbehave.
+      // v14.14 — Callback retired. Recycle is the successor: one-tap unassign to pool.
+      // v14.45 — `callback_requested` still accepted for stale clients but treated as recycled.
+      //          NETWORK ORPHAN FIX: Network leads have no shared pool (TYPE_ORDER excludes
+      //          "network"), so recycling would strand them. Instead, restore assignment to
+      //          the original submitter (uploaded_by) — they stay owned by the referrer.
+      //          Cooldown is skipped for network leads (referrer-owned, not pool leads).
       // v14.18 — Release the lock so my-next doesn't hand this lead right back.
-      // v14.39 — Unified 14d cooldown for Expired + Absentee. Lead goes "on ice" —
-      // hidden from every agent's my-next queue until the cooldown expires.
-      newStatus = "unassigned";
-      newAssignedId = null;
-      newCallbackDate = null;
-      const COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
-      const cooldownUntil = Date.now() + COOLDOWN_MS;
-      rawDb.prepare(`UPDATE leads SET recycle_cooldown_until = ? WHERE id = ?`).run(cooldownUntil, leadId);
+      // v14.39 — Unified 14d cooldown for Expired + Absentee "on ice" behavior.
+      const isNetwork = lead.leadType === "network";
+      const referrerId = (lead as any).uploadedBy || (lead as any).uploaded_by || null;
+      if (isNetwork && referrerId) {
+        newStatus = "assigned";
+        newAssignedId = referrerId;
+        newCallbackDate = null;
+      } else {
+        newStatus = "unassigned";
+        newAssignedId = null;
+        newCallbackDate = null;
+        const COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
+        const cooldownUntil = Date.now() + COOLDOWN_MS;
+        rawDb.prepare(`UPDATE leads SET recycle_cooldown_until = ? WHERE id = ?`).run(cooldownUntil, leadId);
+      }
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
     } else if (outcome === "no_answer") {
@@ -5196,6 +5207,76 @@ Brothers Group Real Estate Team at Momentum Realty
     }
   };
   app.get("/api/admin/dbpr-stats", dbprStatsHandler);
+
+  // ─── LandVoice OAuth + Connection (v14.45 Intake v2 Phase 1) ────────────────
+  // Admin flow: paste client_id/client_secret → click Connect → LandVoice redirects
+  // back to /oauth-callback with authorization code → we exchange for tokens and store.
+  // The refresh_token is durable; access_token auto-refreshes ~1h before expiry.
+
+  // In-memory state store for OAuth CSRF protection (10-min TTL). Small volume; no need
+  // for a table. Restart clears — user just clicks Connect again.
+  const lvStates: Map<string, number> = new Map();
+
+  app.get("/api/admin/landvoice/status", (_req: any, res) => {
+    try { res.json(landvoice.getConnectionStatus()); }
+    catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post("/api/admin/landvoice/save-credentials", (req: any, res) => {
+    try {
+      const { clientId, clientSecret } = req.body || {};
+      if (!clientId || !clientSecret) return res.status(400).json({ error: "clientId and clientSecret required" });
+      const id = landvoice.saveInitialCreds(String(clientId).trim(), String(clientSecret).trim());
+      res.json({ ok: true, id });
+    } catch (err: any) {
+      console.error("[LandVoice] save-credentials error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/admin/landvoice/connect-init", (_req: any, res) => {
+    try {
+      const state = randomBytes(16).toString("hex");
+      lvStates.set(state, Date.now());
+      // Purge expired states (>10 min old)
+      const cutoff = Date.now() - 10 * 60 * 1000;
+      for (const [k, ts] of lvStates.entries()) if (ts < cutoff) lvStates.delete(k);
+      const authorizeUrl = landvoice.getAuthorizeUrl(state);
+      res.json({ authorizeUrl });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/admin/landvoice/oauth-callback", async (req: any, res) => {
+    try {
+      const { code, state, error, error_description } = req.query || {};
+      if (error) {
+        return res.status(400).send(`<html><body style="font-family:sans-serif;padding:40px;background:#080808;color:#eaeaea"><h2 style="color:#c8aa5a">LandVoice Connection Failed</h2><p>${error}: ${error_description || ""}</p><p><a href="/" style="color:#c8aa5a">Return to app</a></p></body></html>`);
+      }
+      if (!code) return res.status(400).send("Missing authorization code");
+      if (!state || !lvStates.has(String(state))) {
+        return res.status(400).send(`<html><body style="font-family:sans-serif;padding:40px;background:#080808;color:#eaeaea"><h2 style="color:#c8aa5a">Invalid state parameter</h2><p>Try connecting again from Admin.</p><p><a href="/" style="color:#c8aa5a">Return to app</a></p></body></html>`);
+      }
+      lvStates.delete(String(state));
+      await landvoice.exchangeCodeForTokens(String(code));
+      res.send(`<html><body style="font-family:sans-serif;padding:40px;background:#080808;color:#eaeaea;text-align:center"><h2 style="color:#c8aa5a">✓ LandVoice Connected</h2><p>You can close this window and return to Lead Depot.</p><script>setTimeout(function(){window.location.href='/';}, 2000);</script></body></html>`);
+    } catch (err: any) {
+      console.error("[LandVoice] oauth-callback error:", err);
+      res.status(500).send(`<html><body style="font-family:sans-serif;padding:40px;background:#080808;color:#eaeaea"><h2 style="color:#c8aa5a">OAuth Exchange Failed</h2><pre>${(err.message || "unknown").slice(0, 500)}</pre><p><a href="/" style="color:#c8aa5a">Return to app</a></p></body></html>`);
+    }
+  });
+
+  app.post("/api/admin/landvoice/disconnect", (_req: any, res) => {
+    try { landvoice.disconnect(); res.json({ ok: true }); }
+    catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Diagnostic: verify tokens work by calling /Oauth/Me
+  app.get("/api/admin/landvoice/whoami", async (_req: any, res) => {
+    try { const me = await landvoice.whoAmI(); res.json(me); }
+    catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
 
   // ─── REACTIVATE RETIRED LEADS (admin) ───────────────────────────────────────
   // v13.2 — Go-live helper: takes every lead currently in 'retired' status,

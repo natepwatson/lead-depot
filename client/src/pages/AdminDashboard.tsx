@@ -886,6 +886,54 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [recruitingLbPeriod, setRecruitingLbPeriod] = useState<"today" | "week" | "allTime">("week");
   const [dbprRunning, setDbprRunning] = useState(false);
   const [dbprResult, setDbprResult] = useState<any>(null);
+  // ─── LandVoice OAuth state (v14.45 Intake v2) ────────────────────────────
+  const [lvClientId, setLvClientId] = useState("");
+  const [lvClientSecret, setLvClientSecret] = useState("");
+  const [lvBusy, setLvBusy] = useState(false);
+  const [lvError, setLvError] = useState<string | null>(null);
+  const lvStatusQuery = useQuery({
+    queryKey: ["/api/admin/landvoice/status"],
+    queryFn: () => apiRequest("GET", "/api/admin/landvoice/status").then(r => r.json()),
+    refetchInterval: 30_000,
+  });
+  const lvStatus = lvStatusQuery.data as any;
+  const saveLvCreds = useCallback(async () => {
+    setLvError(null); setLvBusy(true);
+    try {
+      const r = await apiRequest("POST", "/api/admin/landvoice/save-credentials", { clientId: lvClientId.trim(), clientSecret: lvClientSecret.trim() });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Save failed");
+      setLvClientId(""); setLvClientSecret("");
+      lvStatusQuery.refetch();
+    } catch (e: any) { setLvError(e.message); }
+    finally { setLvBusy(false); }
+  }, [lvClientId, lvClientSecret]);
+  const startLvConnect = useCallback(async () => {
+    setLvError(null); setLvBusy(true);
+    try {
+      const r = await apiRequest("GET", "/api/admin/landvoice/connect-init");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Init failed");
+      window.open(j.authorizeUrl, "landvoice_oauth", "width=560,height=760");
+    } catch (e: any) { setLvError(e.message); }
+    finally { setLvBusy(false); }
+  }, []);
+  const disconnectLv = useCallback(async () => {
+    if (!confirm("Disconnect LandVoice? Polling will stop until you reconnect.")) return;
+    setLvBusy(true);
+    try { await apiRequest("POST", "/api/admin/landvoice/disconnect", {}); lvStatusQuery.refetch(); }
+    finally { setLvBusy(false); }
+  }, []);
+  const testLvWhoami = useCallback(async () => {
+    setLvError(null); setLvBusy(true);
+    try {
+      const r = await apiRequest("GET", "/api/admin/landvoice/whoami");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "whoami failed");
+      alert("LandVoice /Oauth/Me: " + JSON.stringify(j, null, 2));
+    } catch (e: any) { setLvError(e.message); }
+    finally { setLvBusy(false); }
+  }, []);
   const dbprStatsQuery = useQuery({
     queryKey: ["/api/admin/dbpr-stats"],
     queryFn: () => apiRequest("GET", "/api/admin/dbpr-stats").then(r => r.json()),
@@ -1440,7 +1488,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.44
+              v14.45
             </p>
           </div>
         </div>
@@ -1600,6 +1648,51 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   border: "1px solid rgba(239,68,68,0.4)",
                 }}
               >⚠ Hard Reset Seller</button>
+            </div>
+
+            {/* v14.45 — LandVoice Intake v2: OAuth Connect card. Alex pastes client_id/secret
+                from LandVoice support, saves, then clicks Connect to complete 3-legged OAuth. */}
+            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(200,170,90,0.22)", borderRadius: 12, padding: 16, marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.75)", fontWeight: 700, margin: 0 }}>LandVoice Intake v2</p>
+                <span style={{
+                  fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700,
+                  padding: "4px 10px", borderRadius: 999,
+                  background: lvStatus?.connected ? "rgba(79,184,163,0.15)" : "rgba(239,68,68,0.12)",
+                  color: lvStatus?.connected ? "#4fb8a3" : "#ef4444",
+                  border: `1px solid ${lvStatus?.connected ? "rgba(79,184,163,0.35)" : "rgba(239,68,68,0.35)"}`,
+                }}>{lvStatus?.connected ? "● Connected" : lvStatus ? "○ Not Connected" : "…"}</span>
+              </div>
+              {lvStatus?.connected ? (
+                <div style={{ fontSize: 12, color: "rgba(234,234,234,0.65)", lineHeight: 1.6 }}>
+                  <div>Client ID: <code style={{ color: "#c8aa5a" }}>…{lvStatus.client_id_last4}</code></div>
+                  <div>Connected: {lvStatus.connected_at ? new Date(lvStatus.connected_at).toLocaleString() : "—"}</div>
+                  <div>Last refresh: {lvStatus.last_refresh_at ? new Date(lvStatus.last_refresh_at).toLocaleString() : "never"}</div>
+                  {lvStatus.last_error ? <div style={{ color: "#ef4444", marginTop: 4 }}>Last error: {lvStatus.last_error}</div> : null}
+                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                    <button onClick={testLvWhoami} disabled={lvBusy} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", padding: "7px 14px", borderRadius: 6, border: "1px solid rgba(200,170,90,0.4)", cursor: lvBusy ? "wait" : "pointer", background: "rgba(200,170,90,0.08)", color: "#c8aa5a" }}>Test /Oauth/Me</button>
+                    <button onClick={disconnectLv} disabled={lvBusy} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", padding: "7px 14px", borderRadius: 6, cursor: lvBusy ? "wait" : "pointer", background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.4)" }}>Disconnect</button>
+                  </div>
+                </div>
+              ) : lvStatus && lvStatus.client_id_last4 ? (
+                <div>
+                  <div style={{ fontSize: 12, color: "rgba(234,234,234,0.65)", marginBottom: 10 }}>Credentials saved (ends …{lvStatus.client_id_last4}). Click Connect to complete OAuth.</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={startLvConnect} disabled={lvBusy} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 16px", borderRadius: 6, border: "1px solid rgba(200,170,90,0.5)", cursor: lvBusy ? "wait" : "pointer", background: "#c8aa5a", color: "#080808" }}>{lvBusy ? "…" : "Connect LandVoice"}</button>
+                    <button onClick={disconnectLv} disabled={lvBusy} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 16px", borderRadius: 6, cursor: lvBusy ? "wait" : "pointer", background: "transparent", color: "rgba(234,234,234,0.55)", border: "1px solid rgba(255,255,255,0.14)" }}>Reset</button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 12, color: "rgba(234,234,234,0.55)", marginBottom: 10 }}>Paste your LandVoice API credentials (from LandVoice support: 801-845-4383). One-time setup.</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                    <input type="text" placeholder="client_id" value={lvClientId} onChange={e => setLvClientId(e.target.value)} style={{ fontSize: 12, padding: "8px 10px", borderRadius: 6, background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.12)", color: "#eaeaea", fontFamily: "monospace" }} />
+                    <input type="password" placeholder="client_secret" value={lvClientSecret} onChange={e => setLvClientSecret(e.target.value)} style={{ fontSize: 12, padding: "8px 10px", borderRadius: 6, background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.12)", color: "#eaeaea", fontFamily: "monospace" }} />
+                  </div>
+                  <button onClick={saveLvCreds} disabled={lvBusy || !lvClientId || !lvClientSecret} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 16px", borderRadius: 6, border: "1px solid rgba(200,170,90,0.5)", cursor: (lvBusy || !lvClientId || !lvClientSecret) ? "not-allowed" : "pointer", background: "rgba(200,170,90,0.15)", color: "#c8aa5a", opacity: (!lvClientId || !lvClientSecret) ? 0.5 : 1 }}>Save credentials</button>
+                </div>
+              )}
+              {lvError ? <div style={{ marginTop: 10, fontSize: 11, color: "#ef4444" }}>Error: {lvError}</div> : null}
             </div>
 
             {/* v14.0 — Territory Management panel removed. Leads flow county-first via Home County. */}

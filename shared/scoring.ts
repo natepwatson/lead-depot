@@ -101,7 +101,7 @@ export function computeUnifiedScore(input: ScoringInput): ScoringResult {
 
   // ── Lead-type multipliers (Brothers Group priority order) ────────
   if (input.leadType === "expired") { s += 3; reasons.push("Expired priority (+3)"); }
-  else if (input.leadType === "absentee") { s += 1; reasons.push("Absentee (+1)"); }
+  else if (input.leadType === "absentee") { s += 3; reasons.push("Absentee priority (+3)"); }
   else if (input.leadType === "network") { s += 5; reasons.push("Network / inbound lead (+5)"); }
 
   // Clamp 0..100

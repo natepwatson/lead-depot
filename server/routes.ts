@@ -1307,23 +1307,28 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       const BATCHLEADS_BASE = "https://app.batchleads.io/api/v1";
       if (!BATCHLEADS_API_KEY) return res.status(500).json({ error: "No BATCHLEADS_API_KEY" });
 
-      // 1) List all lists, find first Lead Depot list.
+      // 1) List all lists (GET, matches fetchUserLists in batchleads.ts), find first Lead Depot list.
       const listsResp = await fetch(`${BATCHLEADS_BASE}/lists`, {
-        method: "POST",
         headers: {
           "api-key": BATCHLEADS_API_KEY,
-          "Content-Type": "application/json",
           "Accept": "application/json",
         },
-        body: JSON.stringify({ page: 1, per_page: 100 }),
       });
+      if (!listsResp.ok) {
+        return res.status(500).json({ error: "lists fetch failed", status: listsResp.status, body: await listsResp.text() });
+      }
       const listsData: any = await listsResp.json();
       const allLists = listsData.data || listsData.lists || listsData.results || [];
       const ldList = allLists.find((l: any) =>
         String(l.name || "").toLowerCase().startsWith("lead depot -")
       );
       if (!ldList) {
-        return res.json({ error: "No Lead Depot list found", sample_list: allLists[0] || null });
+        return res.json({
+          error: "No Lead Depot list found",
+          total_lists_returned: allLists.length,
+          list_names_seen: allLists.slice(0, 10).map((l: any) => l.name),
+          raw_lists_top_keys: Object.keys(listsData || {}),
+        });
       }
 
       // 2) Fetch page 1 (3 properties) from that list.

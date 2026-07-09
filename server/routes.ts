@@ -291,7 +291,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.40 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.41 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -350,7 +350,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.40 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.41 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -634,7 +634,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.40 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.41 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -4147,7 +4147,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.40 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.41 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4393,7 +4393,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.40",
+      version: "v14.41",
       services: results,
     });
   });
@@ -5543,7 +5543,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v14.40</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.41</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -6008,3 +6008,53 @@ function scheduleStaleLockReleaser() {
   console.log("[lead-locks] Stale-lock releaser running every 5 min");
 }
 scheduleStaleLockReleaser();
+
+// ─── v14.41 — BATCHLEADS DAILY AUTO-PIPELINE ─────────────────────────────
+// Fires runBatchLeadsPipeline() every day at 6:00 AM EDT (10:00 UTC).
+// Comments have promised this since v14.1 — finally wired in v14.41 alongside
+// the per-run cap raise (Expired 2500 / Absentee 1500). Prior behavior was
+// manual-only via POST /api/admin/batchleads-run.
+//
+// Scheduling: uses setTimeout to hit the next 10:00 UTC boundary, then chains
+// setTimeout on 24h cadence. Survives daylight saving in EDT because we anchor
+// to 10:00 UTC (fixed offset) rather than 06:00 local. In EST (winter), this
+// fires at 5am local — acceptable trade-off vs. importing a timezone lib.
+function scheduleBatchLeadsPipeline() {
+  const TARGET_HOUR_UTC = 10; // 10:00 UTC = 06:00 EDT / 05:00 EST
+  const TARGET_MIN_UTC = 0;
+
+  function msUntilNextFire(): number {
+    const now = new Date();
+    const target = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      TARGET_HOUR_UTC,
+      TARGET_MIN_UTC,
+      0, 0
+    ));
+    if (target.getTime() <= now.getTime()) {
+      target.setUTCDate(target.getUTCDate() + 1);
+    }
+    return target.getTime() - now.getTime();
+  }
+
+  function scheduleNext() {
+    const delay = msUntilNextFire();
+    const nextFire = new Date(Date.now() + delay).toISOString();
+    console.log(`[BatchLeads] Auto-pipeline scheduled to fire at ${nextFire} (in ${Math.round(delay / 1000 / 60)} min)`);
+    setTimeout(async () => {
+      try {
+        console.log("[BatchLeads] Auto-pipeline firing (daily 6am EDT / 10 UTC)");
+        const stats = await runBatchLeadsPipeline(rawDb);
+        console.log(`[BatchLeads] Auto-pipeline complete: fetched=${stats.fetched} filtered=${stats.filtered} priority=${stats.priority} standard=${stats.standard}`);
+      } catch (err: any) {
+        console.error("[BatchLeads] Auto-pipeline error:", err?.message || err);
+      } finally {
+        scheduleNext();
+      }
+    }, delay);
+  }
+  scheduleNext();
+}
+scheduleBatchLeadsPipeline();

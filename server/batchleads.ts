@@ -15,14 +15,30 @@ import { rawDb } from "./db";
 const BATCHLEADS_API_KEY = process.env.BATCHLEADS_API_KEY || "";
 const BATCHLEADS_BASE = "https://app.batchleads.io/api/v1";
 
-// v14.1 — Two-flow model: Expired + Absentee only (FSBO and Land removed).
-// Per lead type per county cap. Priority: Expired >> Absentee.
-//   Expired  × 3 counties × 1500 = 4,500  (Nassau/Duval/St. Johns — 44% list rate, urgent)
-//   Absentee × 3 counties ×  800 = 2,400  (slow drip, 14% list rate, 6-18mo LTV)
-//   Total = 6,900 raw pulls/mo
+// v14.41 — JUICE-THE-FUNNEL: caps raised + auto-scheduler wired.
+// These caps are enforced PER RUN, per list (one list = one county × one type),
+// NOT per month. Cron scheduleBatchLeadsPipeline() (routes.ts) fires this daily
+// at 6:00 AM EDT (10:00 UTC).
+//
+// Two-flow model: Expired + Absentee only (FSBO and Land removed in v14.1).
+// Priority: Expired > Absentee (~1.67× ratio).
+//
+//   Per-run ceiling (top-of-list, sorted by BatchRank lead_score desc):
+//     Expired  × 3 counties × 2500 = 7,500 max/run  (Nassau/Duval/St. Johns — 44% list rate)
+//     Absentee × 3 counties × 1500 = 4,500 max/run  (14% list rate, 6-18mo LTV)
+//     Combined = 12,000 raw pulls/run ceiling
+//
+//   Real-world monthly volume depends on:
+//     (a) how much fresh inventory BatchLeads accumulates in each list between runs,
+//     (b) dedupe hits against existing leads (only NEW addresses are inserted),
+//     (c) the DBPR + entity + phone filters downstream in the pipeline.
+//
+//   v14.39 (14d Recycle cooldown) + v14.40 (per-line 6-attempt strike + auto-delete)
+//   give the pool the churn machinery to absorb this volume — dead leads retire
+//   fast, so raising the top doesn't pile up stagnant inventory.
 const INGEST_CAPS: Record<string, number> = {
-  expired:  1500,
-  absentee:  800,
+  expired:  2500,
+  absentee: 1500,
 };
 export function getIngestCap(leadType: string): number {
   return INGEST_CAPS[leadType] ?? 500;

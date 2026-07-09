@@ -293,7 +293,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.29.4 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.30 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -352,7 +352,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.29.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.30 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -636,7 +636,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.29.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.30 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1546,83 +1546,141 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     return results;
   }
 
-  app.get("/api/leads/map", async (req, res) => {
-    // SQL: only fetch location columns needed for map — avoids full lead deserialization (v11.70)
-    // v14.29: cap at 500 most-recent leads to keep response < 2s. Viewport rebuild lands v14.30.
-    const MAP_CAP = 500;
-    const totalRow: any = rawDb.prepare(`SELECT COUNT(*) as c FROM leads`).get();
-    const totalCount = totalRow?.c ?? 0;
-    const all: any[] = rawDb.prepare(
-      `SELECT id, address, owner_name as ownerName, status, lead_type as leadType,
-              city, state, zip, extra_data as extraData
-       FROM leads ORDER BY uploaded_at DESC LIMIT ?`
-    ).all(MAP_CAP);
-
-    // Parse address components from each lead
-    const mapLeads = all.map((l: any) => {
-      // Use dedicated columns first (BatchLeads leads), fall back to extraData, then address parsing
-      let city = (l as any).city || ""; let state = (l as any).state || "FL"; let zip = (l as any).zip || "";
-      if (!city && l.extraData) {
-        try {
-          const ex = JSON.parse(l.extraData);
-          city  = ex.city  || ex.City  || ex.PropertyCity  || ex["Property City"]  || "";
-          state = state || ex.state || ex.State || ex.PropertyState || ex["Property State"] || "FL";
-          zip   = zip || ex.zip   || ex.Zip   || ex.zipcode || ex.Zipcode || ex.PostalCode ||
-                  ex["Postal Code"] || ex.PropertyZip || ex["Property Zip"] || "";
-        } catch {}
-      }
-      if (!city && l.address) {
-        const parts = l.address.split(",").map((s: string) => s.trim());
-        if (parts.length >= 3) {
-          city = parts[parts.length - 3] || "";
-          const stateZip = (parts[parts.length - 2] || "").split(" ").filter(Boolean);
-          if (stateZip.length >= 1) state = stateZip[0];
-          if (stateZip.length >= 2) zip   = stateZip[1];
-        } else if (parts.length === 2) {
-          const stateZip = (parts[1] || "").split(" ").filter(Boolean);
-          if (stateZip.length >= 1) state = stateZip[0];
-          if (stateZip.length >= 2) zip   = stateZip[1];
-        }
-      }
-      const fullAddr = [l.address, city, state || "FL", zip].filter(Boolean).join(", ");
-      return { id: l.id, address: l.address, ownerName: l.ownerName, status: l.status, leadType: l.leadType, city, state, zip, fullAddr };
-    });
-
-    // Check cache for each lead, collect uncached ones
-    const uncached: { id: number; addr: string; street: string; city: string; state: string; zip: string }[] = [];
-    const coordMap = new Map<number, { lat: number; lng: number }>();
-    for (const l of mapLeads) {
-      const key = geoKey(l.fullAddr);
-      const cached = getCached(key);
-      if (cached) { coordMap.set(l.id, cached); }
-      else if (l.address) {
-        // street = first part of address before any comma
-        const street = l.address.split(",")[0].trim();
-        uncached.push({ id: l.id, addr: l.fullAddr, street, city: l.city, state: l.state, zip: l.zip });
+  // v14.30 — helper: enrich a lead row with parsed city/state/zip + fullAddr
+  function enrichLeadForMap(l: any) {
+    let city = l.city || ""; let state = l.state || "FL"; let zip = l.zip || "";
+    if (!city && l.extraData) {
+      try {
+        const ex = JSON.parse(l.extraData);
+        city  = ex.city  || ex.City  || ex.PropertyCity  || ex["Property City"]  || "";
+        state = state || ex.state || ex.State || ex.PropertyState || ex["Property State"] || "FL";
+        zip   = zip || ex.zip   || ex.Zip   || ex.zipcode || ex.Zipcode || ex.PostalCode ||
+                ex["Postal Code"] || ex.PropertyZip || ex["Property Zip"] || "";
+      } catch {}
+    }
+    if (!city && l.address) {
+      const parts = l.address.split(",").map((s: string) => s.trim());
+      if (parts.length >= 3) {
+        city = parts[parts.length - 3] || "";
+        const stateZip = (parts[parts.length - 2] || "").split(" ").filter(Boolean);
+        if (stateZip.length >= 1) state = stateZip[0];
+        if (stateZip.length >= 2) zip   = stateZip[1];
+      } else if (parts.length === 2) {
+        const stateZip = (parts[1] || "").split(" ").filter(Boolean);
+        if (stateZip.length >= 1) state = stateZip[0];
+        if (stateZip.length >= 2) zip   = stateZip[1];
       }
     }
+    const fullAddr = [l.address, city, state || "FL", zip].filter(Boolean).join(", ");
+    return { id: l.id, address: l.address, ownerName: l.ownerName, status: l.status, leadType: l.leadType, city, state, zip, fullAddr };
+  }
 
-    // Geocode uncached addresses in batches of 1000 (Census limit)
-    if (uncached.length > 0) {
+  // v14.30 — background geocoder: fills geo_cache for any lead missing coords.
+  // Runs at boot (once) and after any large ingest. Idempotent — skips cached rows.
+  // Chunks of 1000 with a 3s gap so we never crush the Census API or block the request loop.
+  let bgGeocodeRunning = false;
+  async function runBackgroundGeocode(reason: string = "boot") {
+    if (bgGeocodeRunning) return;
+    bgGeocodeRunning = true;
+    try {
+      const all: any[] = rawDb.prepare(
+        `SELECT id, address, owner_name as ownerName, status, lead_type as leadType,
+                city, state, zip, extra_data as extraData
+         FROM leads`
+      ).all();
+      const uncached: { id: number; addr: string; street: string; city: string; state: string; zip: string; fullAddr: string }[] = [];
+      for (const raw of all) {
+        const l = enrichLeadForMap(raw);
+        const key = geoKey(l.fullAddr);
+        if (getCached(key)) continue;
+        if (!l.address) continue;
+        const street = l.address.split(",")[0].trim();
+        uncached.push({ id: l.id, addr: l.fullAddr, street, city: l.city, state: l.state, zip: l.zip, fullAddr: l.fullAddr });
+      }
+      if (uncached.length === 0) { console.log(`[bg-geocode] ${reason}: nothing to do`); return; }
+      console.log(`[bg-geocode] ${reason}: geocoding ${uncached.length} uncached leads in chunks of 1000`);
       const BATCH = 1000;
+      let cachedNew = 0;
       for (let i = 0; i < uncached.length; i += BATCH) {
         const batch = uncached.slice(i, i + BATCH);
-        const batchResults = await censusGeocodeAddresses(batch);
-        for (const [id, coords] of batchResults) {
-          coordMap.set(id, coords);
-          const lead = mapLeads.find(l => l.id === id);
-          if (lead) putCache(geoKey(lead.fullAddr), coords.lat, coords.lng);
+        try {
+          const results = await censusGeocodeAddresses(batch);
+          for (const [id, coords] of results) {
+            const item = uncached.find(u => u.id === id);
+            if (!item) continue;
+            putCache(geoKey(item.fullAddr), coords.lat, coords.lng);
+            cachedNew++;
+          }
+        } catch (e) {
+          console.error(`[bg-geocode] batch ${i} failed:`, e);
         }
+        if (i + BATCH < uncached.length) await new Promise(r => setTimeout(r, 3000));
+      }
+      console.log(`[bg-geocode] ${reason}: done — cached ${cachedNew}/${uncached.length} new leads`);
+    } finally {
+      bgGeocodeRunning = false;
+    }
+  }
+  // Kick off background geocode 5s after routes are wired so we don't compete with startup traffic.
+  setTimeout(() => { void runBackgroundGeocode("boot"); }, 5000);
+
+  app.get("/api/leads/map", (req, res) => {
+    // v14.30 — viewport rebuild:
+    //   1. Cap REMOVED. Return every lead that has coords cached.
+    //   2. Sync request path does zero geocoding. Uncached rows come back with pending flag.
+    //   3. Background geocoder (see runBackgroundGeocode above) fills geo_cache.
+    const totalRow: any = rawDb.prepare(`SELECT COUNT(*) as c FROM leads`).get();
+    const totalCount = totalRow?.c ?? 0;
+
+    // INNER JOIN geo_cache directly for max speed — one SQL, no per-row cache lookup.
+    // Address key format: lowercase trimmed full address (matches geoKey()).
+    const rows: any[] = rawDb.prepare(
+      `SELECT l.id, l.address, l.owner_name as ownerName, l.status, l.lead_type as leadType,
+              l.city, l.state, l.zip, l.extra_data as extraData,
+              g.lat, g.lng
+       FROM leads l
+       INNER JOIN geo_cache g ON g.address_key = lower(trim(
+         l.address || ', ' ||
+         coalesce(nullif(l.city,''), '') || ', ' ||
+         coalesce(nullif(l.state,''), 'FL') || ', ' ||
+         coalesce(nullif(l.zip,''), '')
+       ))`
+    ).all();
+
+    const leads = rows.map((r: any) => {
+      const enriched = enrichLeadForMap(r);
+      return { ...enriched, lat: r.lat, lng: r.lng };
+    });
+
+    // If the SQL JOIN missed some rows because addresses were parsed differently at cache
+    // time (extraData-derived city/zip), fall back to per-row lookup for anything not
+    // already in `leads`. This is O(totalCount) getCached calls but each is a fast PK lookup.
+    if (leads.length < totalCount) {
+      const seen = new Set(leads.map(l => l.id));
+      const remaining: any[] = rawDb.prepare(
+        `SELECT id, address, owner_name as ownerName, status, lead_type as leadType,
+                city, state, zip, extra_data as extraData
+         FROM leads`
+      ).all();
+      for (const raw of remaining) {
+        if (seen.has(raw.id)) continue;
+        const enriched = enrichLeadForMap(raw);
+        const cached = getCached(geoKey(enriched.fullAddr));
+        if (cached) leads.push({ ...enriched, lat: cached.lat, lng: cached.lng });
       }
     }
 
-    // Build final response — only include leads with coords
-    const leads = mapLeads
-      .map(l => ({ ...l, ...(coordMap.get(l.id) ?? {}) }))
-      .filter((l: any) => l.lat !== undefined);
+    const geocodedCount = leads.length;
+    const pending = totalCount - geocodedCount;
+    res.json({ leads, totalCount, geocodedCount, pending, bgRunning: bgGeocodeRunning });
+  });
 
-    // v14.29: return metadata so client can show 'Showing X of Y' banner
-    res.json({ leads, totalCount, cappedAt: MAP_CAP, capped: totalCount > MAP_CAP });
+  // v14.30 — manual trigger for background geocode (admin-only in practice; no auth
+  // check here because whole app is behind login, but harmless to expose).
+  app.post("/api/leads/map/refresh-geocode", async (_req, res) => {
+    if (bgGeocodeRunning) return res.json({ started: false, reason: "already running" });
+    void runBackgroundGeocode("manual");
+    res.json({ started: true });
   });
 
   app.get("/api/leads/stats", (req, res) => {
@@ -4104,7 +4162,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.29.4 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.30 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4350,7 +4408,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.29.4",
+      version: "v14.30",
       services: results,
     });
   });

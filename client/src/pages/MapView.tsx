@@ -44,6 +44,40 @@ function pin(c: string, L: any) {
   return L.divIcon({ html: svg, className: "", iconSize: [22, 30], iconAnchor: [11, 30], popupAnchor: [0, -32] });
 }
 
+// v14.30 — cluster bubble icon (gold gradient, count in center). Scales with size.
+function clusterIcon(count: number, L: any) {
+  const size = count < 10 ? 30 : count < 50 ? 36 : count < 200 ? 44 : 52;
+  const font = count < 10 ? 12 : count < 50 ? 13 : count < 200 ? 14 : 15;
+  const label = count < 1000 ? String(count) : Math.floor(count / 1000) + "k";
+  const svg = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:radial-gradient(circle at 35% 30%, rgba(200,170,90,0.95), rgba(200,170,90,0.55) 60%, rgba(200,170,90,0.2) 100%);border:1.5px solid rgba(200,170,90,0.9);box-shadow:0 0 0 4px rgba(200,170,90,0.12),0 4px 10px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-family:'Switzer','Inter',sans-serif;font-size:${font}px;font-weight:600;color:#0a0a0a;letter-spacing:0.02em">${label}</div>`;
+  return L.divIcon({ html: svg, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+}
+
+// v14.30 — grid-based clustering. Bucket pins into an N-pixel grid at current zoom.
+// Returns an array of either { type: 'pin', lead } or { type: 'cluster', lat, lng, count, items }.
+function clusterLeads(leads: MapLead[], map: any, cellPx: number = 60): Array<any> {
+  if (!map || !leads.length) return leads.map(l => ({ type: "pin", lead: l }));
+  const zoom = map.getZoom();
+  // Above zoom 15 stop clustering — show every pin.
+  if (zoom >= 15) return leads.map(l => ({ type: "pin", lead: l }));
+  const buckets = new Map<string, MapLead[]>();
+  for (const l of leads) {
+    if (typeof l.lat !== "number" || typeof l.lng !== "number") continue;
+    const pt = map.latLngToContainerPoint([l.lat, l.lng]);
+    const key = `${Math.floor(pt.x / cellPx)}:${Math.floor(pt.y / cellPx)}`;
+    const arr = buckets.get(key);
+    if (arr) arr.push(l); else buckets.set(key, [l]);
+  }
+  const out: any[] = [];
+  for (const arr of buckets.values()) {
+    if (arr.length === 1) { out.push({ type: "pin", lead: arr[0] }); continue; }
+    let sLat = 0, sLng = 0;
+    for (const l of arr) { sLat += l.lat; sLng += l.lng; }
+    out.push({ type: "cluster", lat: sLat / arr.length, lng: sLng / arr.length, count: arr.length, items: arr });
+  }
+  return out;
+}
+
 export default function MapView() {
   const mapDiv  = useRef<HTMLDivElement>(null);
   const mapRef  = useRef<any>(null);
@@ -55,31 +89,40 @@ export default function MapView() {
   const [filter, setFilter]  = useState("all");
   const [err, setErr]        = useState("");
   const [totalCount, setTotalCount] = useState(0);
-  const [capped, setCapped] = useState(false);
-  const [cappedAt, setCappedAt] = useState(500);
+  const [pending, setPending] = useState(0);
+  const [bgRunning, setBgRunning] = useState(false);
 
   // Load Leaflet JS
   useEffect(() => {
     loadLF().then(() => setLfReady(true)).catch(() => setErr("Failed to load map library."));
   }, []);
 
-  // Fetch pre-geocoded leads from server
+  // v14.30 — fetch pre-geocoded leads from server. No more 500 cap.
+  // Re-poll every 20s while background geocode is running so pins fill in live.
   useEffect(() => {
-    fetch("/api/leads/map")
+    let cancelled = false;
+    let pollTimer: any = null;
+    const load = () => fetch("/api/leads/map")
       .then(r => r.json())
       .then((d: any) => {
-        // v14.29: server now returns { leads, totalCount, cappedAt, capped }
+        if (cancelled) return;
         if (Array.isArray(d)) {
           setLeads(d); // backward-compat if older server
         } else {
           setLeads(d.leads || []);
           setTotalCount(d.totalCount || 0);
-          setCapped(!!d.capped);
-          setCappedAt(d.cappedAt || 500);
+          setPending(d.pending || 0);
+          setBgRunning(!!d.bgRunning);
+          // If server still has uncached leads, poll again in 20s.
+          if (d.bgRunning || (d.pending || 0) > 0) {
+            pollTimer = setTimeout(load, 20000);
+          }
         }
         setLoading(false);
       })
-      .catch(() => { setErr("Failed to load leads."); setLoading(false); });
+      .catch(() => { if (!cancelled) { setErr("Failed to load leads."); setLoading(false); } });
+    load();
+    return () => { cancelled = true; if (pollTimer) clearTimeout(pollTimer); };
   }, []);
 
   // Init map
@@ -97,32 +140,62 @@ export default function MapView() {
     mapRef.current = map;
   }, [lfReady]);
 
-  // Render pins whenever leads or filter changes
-  useEffect(() => {
+  // v14.30 — render pins/clusters whenever leads, filter, or zoom changes.
+  // Grid-based clustering keeps 4K+ pins performant. At zoom 15+ every pin renders.
+  const renderPins = () => {
     if (!mapRef.current || !layerRef.current) return;
     const L = (window as any).L; if (!L) return;
+    const map = mapRef.current;
     layerRef.current.clearLayers();
     const list = filter === "all" ? leads : leads.filter(l => l.status === filter);
-    list.forEach(l => {
-      const popup = `<div style="background:#0f0f0f;border:1px solid rgba(200,170,90,0.2);border-radius:6px;padding:10px 14px;min-width:190px;font-family:'Switzer','Inter',sans-serif;font-size:11px;line-height:1.6;color:#e8e4dc">
-        ${l.ownerName ? `<b style="color:#c8aa5a;font-size:12px">${l.ownerName}</b><br/>` : ""}
-        <span style="color:#797876">${l.address}${l.city ? ", " + l.city : ""}</span><br/>
-        <span style="display:inline-block;margin-top:5px;padding:2px 8px;border-radius:3px;background:rgba(200,170,90,0.1);color:#c8aa5a;font-size:10px;letter-spacing:.08em;text-transform:uppercase">${label(l.status)}</span>
-        <span style="color:#555;font-size:10px;margin-left:6px">${l.leadType}</span>
-      </div>`;
-      L.marker([l.lat, l.lng], { icon: pin(color(l.status), L) })
-        .bindPopup(popup, { className: "bgre-popup", maxWidth: 270, offset: [0, -6] })
-        .addTo(layerRef.current);
-    });
+    const clustered = clusterLeads(list, map, 60);
+    for (const c of clustered) {
+      if (c.type === "pin") {
+        const l: MapLead = c.lead;
+        const popup = `<div style="background:#0f0f0f;border:1px solid rgba(200,170,90,0.2);border-radius:6px;padding:10px 14px;min-width:190px;font-family:'Switzer','Inter',sans-serif;font-size:11px;line-height:1.6;color:#e8e4dc">
+          ${l.ownerName ? `<b style="color:#c8aa5a;font-size:12px">${l.ownerName}</b><br/>` : ""}
+          <span style="color:#797876">${l.address}${l.city ? ", " + l.city : ""}</span><br/>
+          <span style="display:inline-block;margin-top:5px;padding:2px 8px;border-radius:3px;background:rgba(200,170,90,0.1);color:#c8aa5a;font-size:10px;letter-spacing:.08em;text-transform:uppercase">${label(l.status)}</span>
+          <span style="color:#555;font-size:10px;margin-left:6px">${l.leadType}</span>
+        </div>`;
+        L.marker([l.lat, l.lng], { icon: pin(color(l.status), L) })
+          .bindPopup(popup, { className: "bgre-popup", maxWidth: 270, offset: [0, -6] })
+          .addTo(layerRef.current);
+      } else {
+        // Cluster — tap-to-zoom into the cluster's bounds.
+        const items: MapLead[] = c.items;
+        const marker = L.marker([c.lat, c.lng], { icon: clusterIcon(c.count, L) });
+        marker.on("click", () => {
+          try {
+            const bounds = L.latLngBounds(items.map(i => [i.lat, i.lng]));
+            map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+          } catch (_) { map.setView([c.lat, c.lng], Math.min(map.getZoom() + 2, 16)); }
+        });
+        marker.addTo(layerRef.current);
+      }
+    }
     // Auto-zoom to pin cluster on initial load only
     if (!hasFitRef.current && list.length > 0) {
       hasFitRef.current = true;
       try {
-        const group = (window as any).L.featureGroup(list.map((l: MapLead) => L.marker([l.lat, l.lng])));
-        mapRef.current.fitBounds(group.getBounds(), { padding: [50, 50], maxZoom: 13 });
+        const bounds = L.latLngBounds(list.map((l: MapLead) => [l.lat, l.lng]));
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
       } catch (_) { /* ignore if bounds fail */ }
     }
-  }, [leads, filter]);
+  };
+
+  useEffect(() => { renderPins(); }, [leads, filter, lfReady]);
+
+  // Re-cluster on zoom / pan-end so cluster granularity tracks the viewport.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+    const handler = () => renderPins();
+    map.on("zoomend", handler);
+    map.on("moveend", handler);
+    return () => { map.off("zoomend", handler); map.off("moveend", handler); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lfReady, leads, filter]);
 
   const counts = leads.reduce<Record<string, number>>((a, l) => { a[l.status] = (a[l.status] ?? 0) + 1; return a; }, {});
 
@@ -162,22 +235,24 @@ export default function MapView() {
         })}
       </div>
 
-      {/* v14.29: Cap banner — only shown when server capped the result set */}
-      {capped && !loading && (
+      {/* v14.30 — pending-geocode chip: only shown while background geocoder is still filling in coords. */}
+      {!loading && pending > 0 && (
         <div style={{
-          padding: "8px 12px",
-          background: "rgba(232,175,52,0.08)",
-          border: "1px solid rgba(232,175,52,0.25)",
-          borderRadius: 6,
-          fontSize: 11,
-          color: "#e8af34",
-          letterSpacing: "0.04em",
-          display: "flex",
+          padding: "6px 12px",
+          background: "rgba(200,170,90,0.06)",
+          border: "1px solid rgba(200,170,90,0.18)",
+          borderRadius: 20,
+          fontSize: 10,
+          color: "rgba(200,170,90,0.7)",
+          letterSpacing: "0.08em",
+          display: "inline-flex",
+          alignSelf: "flex-start",
           alignItems: "center",
           gap: 8,
+          textTransform: "uppercase",
         }}>
-          <span style={{ opacity: 0.9 }}>⚠</span>
-          <span>Showing {cappedAt} of {totalCount} leads (most recent). Zoom in or filter by status to explore. Viewport-based rendering ships in v14.30.</span>
+          <span style={{ opacity: 0.9 }}>{bgRunning ? "◷ geocoding" : "○"}</span>
+          <span>{leads.length} of {totalCount} mapped · {pending} pending</span>
         </div>
       )}
 

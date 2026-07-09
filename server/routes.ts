@@ -1319,9 +1319,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
       const listsData: any = await listsResp.json();
       const allLists = listsData.data || listsData.lists || listsData.results || [];
-      const ldList = allLists.find((l: any) =>
-        String(l.name || "").toLowerCase().startsWith("lead depot -")
-      );
+      // Real BatchLeads shape uses `list_name`, not `name` — our pipeline had this wrong.
+      const ldList = allLists.find((l: any) => {
+        const nm = String(l.list_name || l.name || "").toLowerCase();
+        return nm.startsWith("lead depot -");
+      });
       if (!ldList) {
         return res.json({
           error: "No Lead Depot list found (or no .name field)",
@@ -1361,7 +1363,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       walk(propData);
 
       return res.json({
-        list_used: { id: ldList.id, name: ldList.name },
+        list_used: { id: ldList.id, name: ldList.list_name || ldList.name },
         top_level_keys: Object.keys(propData || {}),
         email_shaped_keys: Array.from(emailShapedKeys),
         raw_response: propData,

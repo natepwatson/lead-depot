@@ -1440,7 +1440,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.43
+              v14.44
             </p>
           </div>
         </div>
@@ -1930,12 +1930,10 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                               : "linear-gradient(135deg, #0f0f0f 0%, #0a0a0a 100%)",
                             border: `1px solid ${isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)"}`,
                             borderRadius: 12, padding: "12px 16px",
-                            cursor: "pointer", transition: "border-color 0.2s",
+                            // v14.43 — row no longer clickable per Alex; no drilldown modal, no chevron.
+                            cursor: "default", transition: "border-color 0.2s",
                             display: "flex", alignItems: "center", gap: 12,
                           }}
-                          onClick={() => setDrilldownAgent({ id: stat.agent.id, name: stat.agent.name })}
-                          onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(200,170,90,0.35)")}
-                          onMouseLeave={e => (e.currentTarget.style.borderColor = isTop ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.07)")}
                           className="group"
                         >
                           {/* Rank badge — headshot or initials (v11.70) */}
@@ -2053,13 +2051,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
                                 </div>
-                                <div style={{ width: 44 }}>
-                                  <div style={{
-                                    fontSize: 15, fontWeight: 700, color: "#c8aa5a",
-                                    background: "rgba(200,170,90,0.1)", borderRadius: 6,
-                                    padding: "2px 6px", display: "inline-block",
-                                  }}>{stat.points || 0}</div>
-                                </div>
+                                {/* v14.43 — removed duplicate trailing Points column (header row only had 6 cols, rows had 7 → columns shifted left) */}
                               </>
                             )}
                           </div>

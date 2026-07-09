@@ -689,8 +689,23 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [mailtoOverride, setMailtoOverride] = useState<string | null>(null);
   const [mailtoOverride3, setMailtoOverride3] = useState<string | null>(null);
   // v14.28 — Email eligibility for Flow 3 button + 2nd-attempt badge
-  const [emailStatus, setEmailStatus] = useState<{ flow1Sent: boolean; contactedYet: boolean; emailedToday: boolean; flow3Eligible: boolean; secondAttemptBadge: boolean } | null>(null);
+  // v14.34 — Adds tap timestamp, 24h gate, and FUB evidence status
+  const [emailStatus, setEmailStatus] = useState<{
+    flow1Sent: boolean;
+    contactedYet: boolean;
+    emailedToday: boolean;
+    flow3Eligible: boolean;
+    secondAttemptBadge: boolean;
+    tappedAt: string | null;
+    unlockAt: string | null;
+    secondsUntilUnlock: number;
+    gateOpen: boolean;
+    evidenceConfirmed: boolean;
+    evidenceAt: string | null;
+  } | null>(null);
   const [flow3Sending, setFlow3Sending] = useState(false);
+  // v14.34 — live countdown ticker for the locked 2nd-attempt button
+  const [nowMs, setNowMs] = useState<number>(Date.now());
   const refreshEmailStatus = () => {
     if (!lead?.id) return;
     fetch(`/api/leads/${lead.id}/email-status`)
@@ -699,6 +714,12 @@ function LeadCard({ lead }: { lead: Lead }) {
       .catch(() => {});
   };
   useEffect(() => { refreshEmailStatus(); }, [lead?.id]);
+  // v14.34 — Tick every second while a gate countdown is showing.
+  useEffect(() => {
+    if (!emailStatus?.unlockAt || emailStatus?.gateOpen) return;
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [emailStatus?.unlockAt, emailStatus?.gateOpen]);
   useEffect(() => {
     if (!lead?.id || !lead?.email) { setMailtoOverride(null); setMailtoOverride3(null); return; }
     const q = `agentId=${user?.id || ""}`;
@@ -948,7 +969,7 @@ function LeadCard({ lead }: { lead: Lead }) {
 
         {/* v14.22 — Email + Zillow strip (outside the phone stack, below the Dial button) */}
         {/* v14.28 — Adds Flow 3 "Send 2nd Attempt" button when eligible */}
-        {(mailtoLink || zillow || emailStatus?.flow3Eligible) && (
+        {(mailtoLink || zillow || emailStatus?.flow3Eligible || (emailStatus?.flow1Sent && !emailStatus?.contactedYet && !emailStatus?.gateOpen)) && (
           <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
             {mailtoLink && !emailStatus?.flow1Sent && (
               <a
@@ -1009,17 +1030,40 @@ function LeadCard({ lead }: { lead: Lead }) {
                 <Mail size={14} /> {flow3Sending ? "Sending\u2026" : "Send 2nd Attempt"}
               </button>
             )}
-            {emailStatus?.flow1Sent && !emailStatus?.flow3Eligible && !emailStatus?.contactedYet && emailStatus?.emailedToday && (
-              <div style={{
-                flex: 1, minWidth: 140, textAlign: "center",
-                padding: "13px 18px", background: "rgba(255,255,255,0.04)",
-                border: "1px dashed rgba(255,255,255,0.14)", borderRadius: 8,
-                fontSize: 12, color: "rgba(255,255,255,0.45)", minHeight: 48,
-                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-              }}>
-                <Mail size={12} /> Email sent today — wait 24h
-              </div>
-            )}
+            {/* v14.34 — Locked 2nd-attempt button with live countdown. */}
+            {emailStatus?.flow1Sent && !emailStatus?.contactedYet && !emailStatus?.gateOpen && emailStatus?.unlockAt && (() => {
+              const unlockMs = new Date(emailStatus.unlockAt).getTime();
+              const remainingSec = Math.max(0, Math.round((unlockMs - nowMs) / 1000));
+              const h = Math.floor(remainingSec / 3600);
+              const m = Math.floor((remainingSec % 3600) / 60);
+              const s = remainingSec % 60;
+              const label = h > 0 ? `Available in ${h}h ${m}m` : (m > 0 ? `Available in ${m}m ${s}s` : `Available in ${s}s`);
+              return (
+                <div
+                  aria-disabled="true"
+                  title={`Unlocks at ${new Date(emailStatus.unlockAt).toLocaleString()}`}
+                  style={{
+                    flex: 1, minWidth: 140, textAlign: "center",
+                    padding: "13px 18px",
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px dashed rgba(200,170,90,0.35)",
+                    borderRadius: 8, cursor: "not-allowed",
+                    fontSize: 12, color: "rgba(255,255,255,0.55)", minHeight: 48,
+                    display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+                  }}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600, letterSpacing: "0.02em" }}>
+                    <Mail size={12} /> 2nd attempt — {label}
+                  </div>
+                  {emailStatus.evidenceConfirmed && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: "rgba(200,170,90,0.85)", letterSpacing: "0.05em" }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(200,170,90)", boxShadow: "0 0 6px rgba(200,170,90,0.6)" }} />
+                      Confirmed by FUB
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {zillow && (
               <a href={zillow} target="_blank" rel="noopener noreferrer" style={{
                 flex: 1, minWidth: 140,

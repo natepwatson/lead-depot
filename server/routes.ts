@@ -6,7 +6,7 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub } from "./fub";
+import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence } from "./fub";
 import { runBatchLeadsPipeline } from "./batchleads";
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
 import multer from "multer";
@@ -291,7 +291,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.33 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.34 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -350,7 +350,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.33 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.34 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -634,7 +634,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.33 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.34 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -2588,7 +2588,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   app.post("/api/leads/:id/email-sent", (req, res) => {
     const leadId = parseInt(req.params.id);
     const { agentId } = req.body;
-    const lead = storage.getLeadById(leadId);
+    const lead = storage.getLeadById(leadId) as any;
     if (!lead) return res.status(404).json({ error: "Lead not found" });
 
     // v14.27 — 1 email per lead per day cap
@@ -2604,17 +2604,36 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return res.status(429).json({ error: "Already emailed within last 24h", capped: true });
     }
 
+    // v14.34 — Tag the cold-intro tap by lead type so the 24h gate can find it.
+    // Absentee \u2192 flow5-mailto, Expired (and everything else) \u2192 flow1-mailto.
+    const isAbsentee = (lead.leadType || "").toLowerCase() === "absentee";
+    const tapNote = isAbsentee ? "flow5-mailto" : "flow1-mailto";
+    const nowIso = new Date().toISOString();
+
     storage.createLeadActivity({
       leadId,
       agentId: agentId || null,
       outcome: "email_sent",
-      notes: "flow1-manual-mailto",
+      notes: tapNote,
       lpmamabSnapshot: null,
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso,
     });
-    // v14.29 — Fix 1: award points for the manual Flow 1 email
+    // v14.29 — Fix 1: award points for the manual Flow 1/5 email
     if (agentId) awardPoints(parseInt(String(agentId)), "email_sent", leadId);
-    res.json({ logged: true, points: 3 });
+
+    // v14.34 \u2014 Kick off background FUB evidence poll (fire-and-forget).
+    // Checks FUB /em endpoint ~5min after tap; if outbound email to lead matches, logs
+    // a confirmation activity row. Never blocks the gate \u2014 gate opens at tap+24h regardless.
+    scheduleFubEmailEvidence({
+      leadId,
+      leadEmail: lead.email || "",
+      ownerPhone: lead.phone || "",
+      ownerName:  lead.ownerName || "",
+      tapNote,
+      tappedAtIso: nowIso,
+    }).catch(err => console.error("[v14.34 evidence] scheduling failed:", err?.message || err));
+
+    res.json({ logged: true, points: 3, tapNote, unlockAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
   });
 
   // ─── ADMIN: PER-AGENT STATS ───────────────────────────────────────────────
@@ -2993,7 +3012,7 @@ This template is for informational/outreach purposes only.`;
   // Format: first non-blank line = Subject: <line>. Everything after = body.
   // Placeholders: {ownerFirst}, {ownerName}, {address}, {agentFirst}, {agentFull}, {agentPhone}, {agentEmail}, {timing}, {apptDate}, {apptTime}
   // v14.29 — All 4 email templates rewritten in Alex's voice.
-  // v14.33 — Flow 5 + Flow 6 added for absentee cold outreach.
+  // v14.34 — Flow 5 + Flow 6 added for absentee cold outreach.
   // NOTE ON KEY MAPPING:
   //   email_flow1 = Cold Intro (mailto, expired)           — Flow 1 in user journey (expired path)
   //   email_flow3 = Value Stack (2nd attempt, expired)     — Flow 2 in user journey (expired path)
@@ -3107,7 +3126,7 @@ Brothers Group Real Estate Team at Momentum Realty
 {agentPhone} \u00b7 {agentEmail}`;
   initScript("email_flow4", emailFlow4Template);
 
-  // v14.33 — Flow 5 (Absentee Cold Intro, mailto). Fires from the Email button when lead.leadType='absentee'.
+  // v14.34 — Flow 5 (Absentee Cold Intro, mailto). Fires from the Email button when lead.leadType='absentee'.
   // Honest cold-outreach opener — no "following up" (there's nothing to follow up on). Peer-to-peer, hyper-local,
   // acknowledges the owner is likely out-of-area, keeps the ask small (real numbers, no obligation).
   const emailFlow5Template = `Subject: About your property at {address}
@@ -3126,7 +3145,7 @@ If you'd like, I'm happy to send preliminary information on {address} \u2014 rea
 Brothers Group Real Estate Team at Momentum Realty`;
   initScript("email_flow5", emailFlow5Template);
 
-  // v14.33 — Flow 6 (Absentee Value Stack, server-sent 2nd attempt). Fires from the Send 2nd Attempt button
+  // v14.34 — Flow 6 (Absentee Value Stack, server-sent 2nd attempt). Fires from the Send 2nd Attempt button
   // when lead.leadType='absentee'. Mirrors Flow 2's role but hits absentee's real decision matrix (buy / hold /
   // 1031 / sell) instead of just the listing-sale thesis.
   const emailFlow6Template = `Subject: A few real numbers on {address}
@@ -3160,9 +3179,9 @@ Brothers Group Real Estate Team at Momentum Realty
     forceUpdate.run(emailFlow4Template, nowIso, "email_flow4");
     forceUpdate.run(emailFlow5Template, nowIso, "email_flow5");
     forceUpdate.run(emailFlow6Template, nowIso, "email_flow6");
-    console.log("[v14.33] Force-updated expired script + 6 email templates to new voice");
+    console.log("[v14.34] Force-updated expired script + 6 email templates to new voice");
   } catch (e: any) {
-    console.error("[v14.33] Failed to force-update scripts:", e.message);
+    console.error("[v14.34] Failed to force-update scripts:", e.message);
   }
 
   // v14.29 — Delete test lead id=4859 (AUDIT Network Test placeholder)
@@ -3202,21 +3221,32 @@ Brothers Group Real Estate Team at Momentum Realty
   (globalThis as any).__leadDepotLoadEmailTemplate = loadEmailTemplate;
   (globalThis as any).__leadDepotRenderTemplate = renderTemplate;
 
-  // v14.29 — Email status for a lead. Used to gate the manual Flow 3 button on the client.
-  //   flow1Sent            = any Flow 1 email_sent activity exists for this lead
-  //   contactedYet         = a contacted_* outcome exists — disqualifies Flow 3
+  // v14.29 — Email status for a lead. Used to gate the manual Flow 3/6 button on the client.
+  //   flow1Sent            = any Flow 1/5 cold-intro tap exists for this lead
+  //   contactedYet         = a contacted_* outcome exists — disqualifies Flow 3/6
   //   emailedToday         = any email_sent activity in last 24h — daily cap active
-  //   flow3Eligible        = flow1Sent && !contactedYet && !emailedToday
-  //   secondAttemptBadge   = flow1Sent && !contactedYet (show badge even when cap active)
+  //   flow3Eligible        = flow1Sent && !contactedYet && gateOpen (v14.34: 24h since cold-intro tap)
+  //   secondAttemptBadge   = flow1Sent && !contactedYet (show badge even when gate closed)
+  //   v14.34 additions:
+  //     tappedAt           = ISO timestamp of the earliest cold-intro tap (Flow 1 or 5)
+  //     unlockAt           = tappedAt + 24h (ISO)
+  //     secondsUntilUnlock = clamp(unlockAt - now, 0..)
+  //     gateOpen           = secondsUntilUnlock === 0
+  //     evidenceConfirmed  = FUB webhook confirmed the outbound email landed in FUB timeline
   app.get("/api/leads/:id/email-status", (req, res) => {
     const leadId = parseInt(req.params.id);
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const flow1Row = rawDb.prepare(`
-      SELECT id FROM lead_activity
+    const now = Date.now();
+    const dayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+
+    // v14.34 \u2014 Look for the earliest cold-intro tap (Flow 1 or Flow 5).
+    // Older rows may have notes='flow1-manual-mailto' (pre-v14.34). Match those too.
+    const tapRow = rawDb.prepare(`
+      SELECT id, created_at, notes FROM lead_activity
        WHERE lead_id = ? AND outcome = 'email_sent'
-         AND (notes IS NULL OR notes LIKE '%flow1%' OR notes NOT LIKE '%flow3%')
+         AND (notes LIKE 'flow1%' OR notes LIKE 'flow5%')
+       ORDER BY created_at ASC
        LIMIT 1
-    `).get(leadId);
+    `).get(leadId) as any;
     const contactedRow = rawDb.prepare(`
       SELECT id FROM lead_activity
        WHERE lead_id = ? AND outcome IN ('contacted_appointment','keep_in_touch','contacted_not_interested')
@@ -3227,15 +3257,48 @@ Brothers Group Real Estate Team at Momentum Realty
        WHERE lead_id = ? AND outcome = 'email_sent' AND created_at > ?
        LIMIT 1
     `).get(leadId, dayAgo);
-    const flow1Sent = !!flow1Row;
+    // v14.34 \u2014 FUB evidence row logged by the background poller when the mailto
+    // actually left the agent's Gmail (visible in the FUB timeline). Best-effort, non-blocking.
+    const evidenceRow = rawDb.prepare(`
+      SELECT id, created_at, notes FROM lead_activity
+       WHERE lead_id = ? AND outcome = 'email_confirmed'
+       LIMIT 1
+    `).get(leadId) as any;
+
+    const flow1Sent    = !!tapRow;
     const contactedYet = !!contactedRow;
     const emailedToday = !!capRow;
+
+    let tappedAt: string | null = null;
+    let unlockAt: string | null = null;
+    let secondsUntilUnlock = 0;
+    let gateOpen = false;
+    if (tapRow) {
+      tappedAt = String(tapRow.created_at);
+      const tappedMs = new Date(tappedAt).getTime();
+      const unlockMs = tappedMs + 24 * 60 * 60 * 1000;
+      unlockAt = new Date(unlockMs).toISOString();
+      secondsUntilUnlock = Math.max(0, Math.round((unlockMs - now) / 1000));
+      gateOpen = secondsUntilUnlock === 0;
+    }
+
+    // Flow 3/6 is eligible only when: flow1 tapped, not contacted, gate open, AND not blocked by daily cap.
+    // (emailedToday is preserved for the display-only "Email sent today" placeholder before the gate flip.)
+    const flow3Eligible = flow1Sent && !contactedYet && gateOpen && !emailedToday;
+
     res.json({
       flow1Sent,
       contactedYet,
       emailedToday,
-      flow3Eligible:      flow1Sent && !contactedYet && !emailedToday,
+      flow3Eligible,
       secondAttemptBadge: flow1Sent && !contactedYet,
+      // v14.34 additions
+      tappedAt,
+      unlockAt,
+      secondsUntilUnlock,
+      gateOpen,
+      evidenceConfirmed: !!evidenceRow,
+      evidenceAt: evidenceRow ? String(evidenceRow.created_at) : null,
     });
   });
 
@@ -3265,6 +3328,30 @@ Brothers Group Real Estate Team at Momentum Realty
     `).get(leadId, dayAgo);
     if (capRow) return res.status(429).json({ error: "Already emailed within last 24h", capped: true });
 
+    // v14.34 — 24h gate. Look up the earliest cold-intro tap (Flow 1 or 5) and
+    // block Flow 3/6 with HTTP 425 until 24h have elapsed. Server-side hard gate
+    // matching the client-side lock in AgentView.
+    const tapRow = rawDb.prepare(`
+      SELECT created_at FROM lead_activity
+       WHERE lead_id = ? AND outcome = 'email_sent'
+         AND (notes LIKE 'flow1%' OR notes LIKE 'flow5%')
+       ORDER BY created_at ASC
+       LIMIT 1
+    `).get(leadId) as any;
+    if (tapRow) {
+      const tapMs = new Date(String(tapRow.created_at)).getTime();
+      const unlockMs = tapMs + 24 * 60 * 60 * 1000;
+      const secondsUntilUnlock = Math.max(0, Math.round((unlockMs - Date.now()) / 1000));
+      if (secondsUntilUnlock > 0) {
+        return res.status(425).json({
+          error: "2nd attempt locked \u2014 wait 24h from first email",
+          gateLocked: true,
+          secondsUntilUnlock,
+          unlockAt: new Date(unlockMs).toISOString(),
+        });
+      }
+    }
+
     if (!resend) return res.status(503).json({ error: "Email service not configured" });
 
     const agent = agentId ? storage.getAgentById(parseInt(String(agentId))) as any : null;
@@ -3273,7 +3360,7 @@ Brothers Group Real Estate Team at Momentum Realty
     const agentFirst = (agentFull.trim().split(/\s+/)[0] || "");
     const agentEmail = agent?.email || "noreply@watsonbrothersgroup.com";
     const agentPhone = agent?.phone || "";
-    // v14.33 — branch on lead.leadType so absentee leads use Flow 6 instead of Flow 3.
+    // v14.34 — branch on lead.leadType so absentee leads use Flow 6 instead of Flow 3.
     const isAbsentee = (lead.leadType || "").toLowerCase() === "absentee";
     const templateKey = isAbsentee ? "email_flow6" : "email_flow3";
     const flowLabel = isAbsentee ? "Flow 6 \u2014 Absentee 2nd Attempt (manual)" : "Flow 3 \u2014 2nd Attempt (manual)";
@@ -3341,7 +3428,7 @@ Brothers Group Real Estate Team at Momentum Realty
     const lead = storage.getLeadById(leadId);
     if (!lead) return res.status(404).json({ error: "Lead not found" });
     const agent = agentId ? storage.getAgentById(agentId) : null;
-    // v14.33 — branch on lead.leadType so absentee leads render Flow 5 (mailto) / Flow 6 (2nd attempt).
+    // v14.34 — branch on lead.leadType so absentee leads render Flow 5 (mailto) / Flow 6 (2nd attempt).
     const isAbsentee = ((lead as any).leadType || "").toLowerCase() === "absentee";
     let key: string;
     if (flow === "3") key = isAbsentee ? "email_flow6" : "email_flow3";
@@ -4020,7 +4107,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.33 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.34 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4266,7 +4353,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.33",
+      version: "v14.34",
       services: results,
     });
   });

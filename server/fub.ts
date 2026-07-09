@@ -77,6 +77,91 @@ export async function pushEmailNoteToFub(opts: {
   else console.error("[FUB] Failed to post email note:", r.data);
 }
 
+// v14.34 — Best-effort background poll for FUB email evidence.
+// After an agent taps the Flow 1/5 mailto, wait ~5 min, then check FUB /em for an
+// outbound email to lead.email posted at or near the tap time. If found, insert a
+// lead_activity row with outcome='email_confirmed' + FUB message ID in notes.
+// Never blocks the 24h gate — the gate opens at tap+24h regardless of evidence.
+export async function scheduleFubEmailEvidence(opts: {
+  leadId: number;
+  leadEmail: string;
+  ownerPhone?: string;
+  ownerName?: string;
+  tapNote: string;      // 'flow1-mailto' or 'flow5-mailto'
+  tappedAtIso: string;  // ISO of when the tap was logged
+  delayMs?: number;     // default 5 min
+}): Promise<void> {
+  if (!FUB_API_KEY) return;
+  if (!opts.leadEmail || !String(opts.leadEmail).includes("@")) return; // nothing to correlate against
+
+  const delay = typeof opts.delayMs === "number" ? opts.delayMs : 5 * 60 * 1000;
+
+  // Return immediately; do the correlation in the background.
+  setTimeout(async () => {
+    try {
+      // 1) Resolve personId (phone → name)
+      let personId: number | undefined;
+      if (opts.ownerPhone) {
+        const r = await fubRequest("GET", `/people?query=${encodeURIComponent(opts.ownerPhone)}&limit=1`);
+        personId = r.data?.people?.[0]?.id;
+      }
+      if (!personId && opts.ownerName) {
+        const r = await fubRequest("GET", `/people?query=${encodeURIComponent(opts.ownerName)}&limit=1`);
+        personId = r.data?.people?.[0]?.id;
+      }
+      if (!personId) {
+        console.warn(`[FUB evidence] lead ${opts.leadId} — could not resolve contact; skipping`);
+        return;
+      }
+
+      // 2) Fetch recent emails and look for one to lead.email at/after tap (minus 2min tolerance).
+      const emRes = await fubRequest("GET", `/em?personId=${personId}&limit=20`);
+      if (!emRes.ok) {
+        console.warn(`[FUB evidence] lead ${opts.leadId} — /em returned ${emRes.status}`);
+        return;
+      }
+
+      const tapMs = new Date(opts.tappedAtIso).getTime() - 2 * 60 * 1000; // 2-min tolerance
+      const targetEmail = String(opts.leadEmail).toLowerCase().trim();
+      const items: any[] = emRes.data?.em || emRes.data?.emails || emRes.data || [];
+      const arr = Array.isArray(items) ? items : [];
+
+      const match = arr.find((row: any) => {
+        const to = row?.to || row?.toAddress || row?.recipients || "";
+        const toStr = Array.isArray(to) ? to.map((x: any) => (typeof x === "string" ? x : x?.value || x?.email || "")).join(",") : String(to);
+        const sentAt = row?.sentAt || row?.sent_at || row?.created || row?.createdAt;
+        const sentMs = sentAt ? new Date(sentAt).getTime() : 0;
+        return toStr.toLowerCase().includes(targetEmail) && sentMs >= tapMs;
+      });
+
+      if (!match) {
+        console.log(`[FUB evidence] lead ${opts.leadId} — no matching outbound email found (checked ${arr.length} rows)`);
+        return;
+      }
+
+      const eventId = match?.id || match?.messageId || match?.emId || "?";
+      const sentAt = match?.sentAt || match?.sent_at || match?.created || match?.createdAt || opts.tappedAtIso;
+
+      // 3) Log the confirmation. Best-effort — swallow errors.
+      try {
+        // Use fubRequest's Node fetch already in scope; DB write is out of module scope
+        // so we import lazily via require to avoid a circular import at load time.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { rawDb } = require("./db");
+        rawDb.prepare(`
+          INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
+          VALUES (?, NULL, 'email_confirmed', ?, NULL, ?)
+        `).run(opts.leadId, `FUB ${opts.tapNote} event=${eventId} sent=${sentAt}`, new Date().toISOString());
+        console.log(`[FUB evidence] lead ${opts.leadId} — confirmed via FUB event ${eventId}`);
+      } catch (dbErr: any) {
+        console.error(`[FUB evidence] lead ${opts.leadId} — DB insert failed:`, dbErr?.message || dbErr);
+      }
+    } catch (err: any) {
+      console.error(`[FUB evidence] lead ${opts.leadId} — poll failed:`, err?.message || err);
+    }
+  }, delay);
+}
+
 async function fubRequest(
   method: string,
   path: string,

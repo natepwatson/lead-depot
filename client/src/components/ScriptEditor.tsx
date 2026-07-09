@@ -12,7 +12,7 @@ import { ScrollText, Save, RotateCcw, Edit3 } from "lucide-react";
 // been retired to keep the Scripts admin tightly focused on what agents actually dial.
 const SCRIPT_TYPES = [
   { key: "expired",     label: "Expired Listing Script",        accentColor: "#fdab43", group: "call" },
-  { key: "absentee",    label: "Absentee Owner Script",         accentColor: "#c8aa5a", group: "call" },
+  { key: "absentee",    label: "Absentee Owner Script",  accentColor: "#10b981", group: "call" },
   // v14.26 — Editable email templates. Format: first line "Subject: \u2026" then body.
   // Placeholders: {ownerFirst} {ownerName} {address} {agentFirst} {agentFull} {agentPhone} {agentEmail} {timing} {apptDate} {apptTime}
   { key: "email_flow1", label: "Flow 1 \u2014 Expired Cold Intro (mailto)",             accentColor: "#9ec5fe", group: "email" },
@@ -20,8 +20,8 @@ const SCRIPT_TYPES = [
   { key: "email_flow2", label: "Flow 3 \u2014 Thank You / KIT (auto, both types)",       accentColor: "#9ec5fe", group: "email" },
   { key: "email_flow4", label: "Flow 4 \u2014 Appointment Confirmed (auto, both types)",  accentColor: "#9ec5fe", group: "email" },
   // v14.33 \u2014 Absentee cold outreach pair (Flow 5 mailto \u2192 Flow 6 manual server-sent).
-  { key: "email_flow5", label: "Flow 5 \u2014 Absentee Cold Intro (mailto)",             accentColor: "#c8aa5a", group: "email" },
-  { key: "email_flow6", label: "Flow 6 \u2014 Absentee Value Stack (2nd attempt, manual)", accentColor: "#c8aa5a", group: "email" },
+  { key: "email_flow5", label: "Flow 5 \u2014 Absentee Cold Intro (mailto)", accentColor: "#10b981", group: "email" },
+  { key: "email_flow6", label: "Flow 6 \u2014 Absentee Value Stack (2nd attempt, manual)", accentColor: "#10b981", group: "email" },
 ] as const;
 
 type ScriptKey = typeof SCRIPT_TYPES[number]["key"];
@@ -76,7 +76,7 @@ function ScriptEditorPanel({ leadType, label, accentColor }: ScriptEditorPanelPr
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "12px 18px",
         borderBottom: "1px solid rgba(255,255,255,0.05)",
-        background: `linear-gradient(to right, rgba(${accentColor === "#c8aa5a" ? "200,170,90" : "255,255,255"},0.04) 0%, transparent 100%)`,
+        background: `linear-gradient(to right, rgba(${accentColor === "#c8aa5a" ? "200,170,90" : accentColor === "#10b981" ? "16,185,129" : "255,255,255"},0.04) 0%, transparent 100%)`,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <ScrollText size={13} style={{ color: accentColor }} />

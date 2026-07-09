@@ -754,7 +754,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     "/api/admin/batchleads-run",
     "/api/admin/dbpr-run",
     "/api/admin/missed-appointments",
-    "/api/admin/batchleads-diag", // v14.42 TEMP diagnostic — secret-gated internally
   ];
   app.use("/api/admin", (req: any, res: any, next: any) => {
     const fullPath = req.baseUrl + req.path;
@@ -1291,104 +1290,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Redistribute ALL unseen/untouched leads (no activity logged yet) regardless of assignment.
   // Use when adding a new agent — redistributes every lead no agent has interacted with yet
   // so the new agent and all others get an even share immediately.
-  // v14.42 DIAGNOSTIC (TEMPORARY — remove after email question resolved)
-  // GET /api/admin/batchleads-diag?secret=<INGEST_SECRET>
-  // Hits BatchLeads /lists then /property once for the first Lead-Depot list,
-  // returns raw JSON of the first 3 properties so we can see if email is present.
-  app.get("/api/admin/batchleads-diag", async (req, res) => {
-    try {
-      // Hardcoded one-shot token — endpoint is removed after diagnostic runs.
-      const providedSecret = String(req.query.secret || "");
-      if (providedSecret !== "v1442-diag-b3e9k71m") {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-
-      const BATCHLEADS_API_KEY = process.env.BATCHLEADS_API_KEY || "";
-      const BATCHLEADS_BASE = "https://app.batchleads.io/api/v1";
-      if (!BATCHLEADS_API_KEY) return res.status(500).json({ error: "No BATCHLEADS_API_KEY" });
-
-      // 1) List all lists (GET, matches fetchUserLists in batchleads.ts), find first Lead Depot list.
-      const listsResp = await fetch(`${BATCHLEADS_BASE}/lists`, {
-        headers: {
-          "api-key": BATCHLEADS_API_KEY,
-          "Accept": "application/json",
-        },
-      });
-      if (!listsResp.ok) {
-        return res.status(500).json({ error: "lists fetch failed", status: listsResp.status, body: await listsResp.text() });
-      }
-      const listsData: any = await listsResp.json();
-      const allLists = listsData.data || listsData.lists || listsData.results || [];
-      // Prefer Expired-Duval as the diagnostic target (highest volume).
-      const wantSlug = String(req.query.list || "expired - duval").toLowerCase();
-      const ldList = allLists.find((l: any) => {
-        const nm = String(l.list_name || l.name || "").toLowerCase();
-        return nm.startsWith("lead depot -") && nm.includes(wantSlug);
-      }) || allLists.find((l: any) => {
-        const nm = String(l.list_name || l.name || "").toLowerCase();
-        return nm.startsWith("lead depot -");
-      });
-      if (!ldList) {
-        return res.json({
-          error: "No Lead Depot list found (or no .name field)",
-          total_lists_returned: allLists.length,
-          raw_first_list: allLists[0] || null,
-          raw_all_lists: allLists,
-        });
-      }
-
-      // 2) Fetch page 1 (3 properties) from that list — try a few payload variants.
-      const endpointVariants: { url: string; body: any }[] = [
-        { url: `${BATCHLEADS_BASE}/property`, body: { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: "desc" } },
-        { url: `${BATCHLEADS_BASE}/property/search`, body: { list_ids: [ldList.id], page: 1, per_page: 3, sort_by: "lead_score", sort_type: "desc" } },
-        { url: `${BATCHLEADS_BASE}/property/list`, body: { list_id: ldList.id, page: 1, per_page: 3 } },
-        { url: `${BATCHLEADS_BASE}/list/${ldList.id}/property`, body: { page: 1, per_page: 3, sort_by: "lead_score", sort_type: "desc" } },
-        { url: `${BATCHLEADS_BASE}/lists/${ldList.id}/properties`, body: null },
-        { url: `${BATCHLEADS_BASE}/lists/${ldList.id}/records`, body: null },
-        { url: `${BATCHLEADS_BASE}/lists/${ldList.id}`, body: null },
-      ];
-      const attempts: any[] = [];
-      let propData: any = null;
-      for (const v of endpointVariants) {
-        const propResp = await fetch(v.url, {
-          method: v.body ? "POST" : "GET",
-          headers: {
-            "api-key": BATCHLEADS_API_KEY,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-          },
-          body: v.body ? JSON.stringify(v.body) : undefined,
-        }).catch((e: any) => ({ ok: false, status: 0, text: async () => String(e), json: async () => ({ fetch_error: String(e) }) } as any));
-        const parsed: any = await propResp.json().catch(() => ({}));
-        const arr = parsed?.data || parsed?.properties || parsed?.results || parsed?.data?.data || [];
-        attempts.push({ url: v.url, method: v.body ? "POST" : "GET", body_sent: v.body, http_status: propResp.status, top_keys: Object.keys(parsed || {}), errors: parsed?.errors, message: parsed?.message, code: parsed?.code, status_field: parsed?.status, count: Array.isArray(arr) ? arr.length : (parsed?.data?.data && Array.isArray(parsed.data.data) ? parsed.data.data.length : 0) });
-        if (Array.isArray(arr) && arr.length > 0) { propData = parsed; break; }
-      }
-      if (!propData) propData = { attempts };
-
-      // 3) Look for anything email-shaped in the response.
-      const emailShapedKeys = new Set<string>();
-      const walk = (obj: any, path = "") => {
-        if (!obj || typeof obj !== "object") return;
-        for (const [k, v] of Object.entries(obj)) {
-          if (/mail/i.test(k)) emailShapedKeys.add(path ? `${path}.${k}` : k);
-          if (v && typeof v === "object") walk(v, path ? `${path}.${k}` : k);
-        }
-      };
-      walk(propData);
-
-      return res.json({
-        list_used: { id: ldList.id, name: ldList.list_name || ldList.name },
-        top_level_keys: Object.keys(propData || {}),
-        email_shaped_keys: Array.from(emailShapedKeys),
-        attempts,
-        raw_response: propData,
-      });
-    } catch (err: any) {
-      console.error("[batchleads-diag] Error:", err);
-      return res.status(500).json({ error: String(err?.message || err) });
-    }
-  });
 
   app.post("/api/admin/redistribute-unseen", (req, res) => {
     try {

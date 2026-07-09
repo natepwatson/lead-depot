@@ -103,6 +103,10 @@ export const leads = sqliteTable("leads", {
   // v14.39 — Recycle cooldown. Unix ms timestamp. NULL = eligible. Set to now+14d when any agent taps Recycle.
   // Applies uniformly to Expired + Absentee. my-next filters out leads where recycle_cooldown_until > now.
   recycleCooldownUntil: integer("recycle_cooldown_until"),
+  // v14.40 — Per-line no-answer counter. JSON object: {"9041234567": 3}. NULL = grandfathered (all 0).
+  // No Answer + Left Voicemail increment. At >=6 the line is struck. All lines struck → lead auto-deletes.
+  // Wrong # + Disconnected don't touch this counter (they strike immediately, independent of no-answer count).
+  phoneAttempts: text("phone_attempts"),
 });
 
 export const insertLeadSchema = createInsertSchema(leads).omit({ id: true });

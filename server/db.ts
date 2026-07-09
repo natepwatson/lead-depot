@@ -101,6 +101,12 @@ if (!leadCols.includes("batch_id"))         rawDb.prepare("ALTER TABLE leads ADD
 // ─── Recycle cooldown (v14.39) — unified 14d on-ice timer for Expired + Absentee ─
 if (!leadCols.includes("recycle_cooldown_until")) rawDb.prepare("ALTER TABLE leads ADD COLUMN recycle_cooldown_until INTEGER").run();
 
+// ─── Per-line no-answer counter (v14.40) — 6 attempts per phone before it's struck ─
+// JSON object mapping phone → attempt count, e.g. {"9041234567": 3, "9047654321": 6}
+// NULL = grandfathered (all lines treated as 0). No Answer + Left Voicemail increment.
+// Wrong # + Disconnected don't touch this (they immediately strike the line).
+if (!leadCols.includes("phone_attempts")) rawDb.prepare("ALTER TABLE leads ADD COLUMN phone_attempts TEXT").run();
+
 // ─── lead_activity — lpmamab_snapshot column (v11.38) ────────────────────────
 const actCols = rawDb.prepare("PRAGMA table_info(lead_activity)").all().map((c: any) => c.name);
 if (!actCols.includes("lpmamab_snapshot"))  rawDb.prepare("ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT").run();

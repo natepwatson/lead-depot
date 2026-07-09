@@ -291,7 +291,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.39 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.40 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -350,7 +350,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.39 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.40 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -634,7 +634,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">BatchLeads runs daily at 6am. If the queue stays low, check your BatchLeads lists or trigger a manual run from the Admin panel.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.39 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.40 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -697,6 +697,8 @@ function toApiLead(r: any): any {
     yearPurchased: r.year_purchased,
     // v14.39 — unified 14d Recycle cooldown (Expired + Absentee)
     recycleCooldownUntil: r.recycle_cooldown_until,
+    // v14.40 — per-line no-answer counter (6 attempts per phone → struck)
+    phoneAttempts: r.phone_attempts,
   };
 }
 
@@ -2124,11 +2126,44 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
     } else if (outcome === "no_answer") {
-      // Mark the current phone as sleeping for today
+      // v14.40 — Per-LINE 6-attempt cap. Increment this phone's counter. At 6 it flips
+      // from "no_answer_today" to permanently "struck". When every phone is struck the
+      // lead auto-deletes (same exhaustion path as Wrong # / Disconnected).
+      const PHONE_ATTEMPT_CAP = 6;
       const currentPhone = req.body.dialedPhone || lead.phone || "";
+      let phoneAttempts: Record<string, number> = {};
+      try { phoneAttempts = lead.phoneAttempts ? JSON.parse(lead.phoneAttempts) : {}; } catch {}
+
       if (currentPhone && newPhoneStates[currentPhone] !== undefined) {
-        newPhoneStates[currentPhone] = "no_answer_today";
+        phoneAttempts[currentPhone] = (phoneAttempts[currentPhone] || 0) + 1;
+        if (phoneAttempts[currentPhone] >= PHONE_ATTEMPT_CAP) {
+          newPhoneStates[currentPhone] = "struck";
+        } else {
+          newPhoneStates[currentPhone] = "no_answer_today";
+        }
       }
+
+      // Persist the updated phone_attempts JSON now (before exhaustion check)
+      rawDb.prepare(`UPDATE leads SET phone_attempts = ? WHERE id = ?`).run(JSON.stringify(phoneAttempts), leadId);
+
+      // If every viable phone is now struck → exhaustion delete (parity with Wrong #).
+      const anyViable = newPhones.some(p => newPhoneStates[p] !== "struck");
+      if (!anyViable) {
+        // Log activity BEFORE deleting so daily-digest "Retired — all lines struck" can pick it up.
+        rawDb.prepare(`
+          INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
+          VALUES (?, ?, 'retired_no_answer', ?, NULL, ?)
+        `).run(leadId, agentId || null,
+          `Auto-retired: every phone hit ${PHONE_ATTEMPT_CAP} no-answer attempts (per-line cap).`,
+          new Date().toISOString());
+        awardPoints(agentId, "no_answer", leadId);
+        rawDb.prepare(`DELETE FROM lead_activity WHERE lead_id = ?`).run(leadId);
+        rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+        storage.deleteLead(leadId);
+        broadcast({ type: "lead_deleted", leadId });
+        return res.json({ deleted: true, leadId, reason: "all_lines_struck_no_answer" });
+      }
+
       // Check if there's another untried number to try today
       const nextPhone = getNextViablePhone(newPhoneStates, newPhones);
       if (nextPhone) {
@@ -2232,15 +2267,42 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length, keptOnLead: !!untriedNext });
 
     } else if (outcome === "left_voicemail") {
-      // v14.18 — Left VM = log outcome on this line, treat like a no-answer for
-      // rotation purposes (line goes "no_answer_today", agent advances to next
-      // untried line if available). Lead itself stays alive and rotates through
-      // the 6-call cap set by the retire-sweep. If no untried numbers remain,
-      // return the lead to the pool so it surfaces for someone tomorrow.
+      // v14.40 — Left VM counts toward the per-line 6-attempt cap (same as No Answer).
+      // At attempt 6 the phone flips to "struck" instead of "no_answer_today".
+      // When every phone is struck, the lead auto-deletes (exhaustion delete).
+      const PHONE_ATTEMPT_CAP_VM = 6;
       const currentPhone = req.body.dialedPhone || lead.phone || "";
+      let phoneAttemptsVm: Record<string, number> = {};
+      try { phoneAttemptsVm = lead.phoneAttempts ? JSON.parse(lead.phoneAttempts) : {}; } catch {}
+
       if (currentPhone && newPhoneStates[currentPhone] !== undefined) {
-        newPhoneStates[currentPhone] = "no_answer_today";
+        phoneAttemptsVm[currentPhone] = (phoneAttemptsVm[currentPhone] || 0) + 1;
+        if (phoneAttemptsVm[currentPhone] >= PHONE_ATTEMPT_CAP_VM) {
+          newPhoneStates[currentPhone] = "struck";
+        } else {
+          newPhoneStates[currentPhone] = "no_answer_today";
+        }
       }
+
+      rawDb.prepare(`UPDATE leads SET phone_attempts = ? WHERE id = ?`).run(JSON.stringify(phoneAttemptsVm), leadId);
+
+      // Exhaustion delete when all lines struck
+      const anyViableVm = newPhones.some(p => newPhoneStates[p] !== "struck");
+      if (!anyViableVm) {
+        rawDb.prepare(`
+          INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
+          VALUES (?, ?, 'retired_no_answer', ?, NULL, ?)
+        `).run(leadId, agentId || null,
+          `Auto-retired: every phone hit ${PHONE_ATTEMPT_CAP_VM} no-answer/voicemail attempts (per-line cap).`,
+          new Date().toISOString());
+        awardPoints(agentId, "left_voicemail", leadId);
+        rawDb.prepare(`DELETE FROM lead_activity WHERE lead_id = ?`).run(leadId);
+        rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+        storage.deleteLead(leadId);
+        broadcast({ type: "lead_deleted", leadId });
+        return res.json({ deleted: true, leadId, reason: "all_lines_struck_voicemail" });
+      }
+
       const nextPhone = getNextViablePhone(newPhoneStates, newPhones);
       if (nextPhone) {
         newStatus = "assigned";
@@ -4085,7 +4147,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.39 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.40 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4331,7 +4393,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.39",
+      version: "v14.40",
       services: results,
     });
   });
@@ -5471,6 +5533,7 @@ async function sendDailyDigest() {
   ${outcomeSection("Callback Scheduled", "#93c5fd", "callback_requested")}
   ${outcomeSection("Not Interested",     "#fca5a5", "contacted_not_interested")}
   ${outcomeSection("Wrong Number",       "rgba(255,255,255,0.35)", "wrong_number")}
+  ${outcomeSection("Retired — all lines struck (6 no-answers each)", "rgba(255,255,255,0.45)", "retired_no_answer")}
 
   <!-- Redistributed -->
   ${redistributedSection}
@@ -5480,7 +5543,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v11.77</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.40</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

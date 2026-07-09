@@ -1440,7 +1440,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.39
+              v14.40
             </p>
           </div>
         </div>
@@ -2500,7 +2500,28 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13, marginBottom: 16 }}>
                     {lead.address && <div className="flex items-start gap-2"><MapPin size={13} className="text-muted-foreground mt-0.5 shrink-0"/><span className="text-foreground">{lead.address}</span></div>}
-                    {lead.phone && <div className="flex items-center gap-2"><Phone size={13} className="text-muted-foreground"/><span className="text-foreground">{lead.phone}</span></div>}
+                    {(() => {
+                      // v14.40 — render all phones with per-line no-answer counters (· 3/6, · struck)
+                      const phones: string[] = (() => { try { return lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []); } catch { return lead.phone ? [lead.phone] : []; } })();
+                      const states: Record<string, string> = (() => { try { return lead.phoneStates ? JSON.parse(lead.phoneStates) : {}; } catch { return {}; } })();
+                      const attempts: Record<string, number> = (() => { try { return lead.phoneAttempts ? JSON.parse(lead.phoneAttempts) : {}; } catch { return {}; } })();
+                      if (phones.length === 0) return null;
+                      return phones.map((p, i) => {
+                        const n = attempts[p] || 0;
+                        const struck = states[p] === "struck";
+                        return (
+                          <div key={p + i} className="flex items-center gap-2">
+                            <Phone size={13} className="text-muted-foreground"/>
+                            <span className="text-foreground" style={{ textDecoration: struck ? "line-through" : "none", opacity: struck ? 0.5 : 1 }}>{p}</span>
+                            {struck ? (
+                              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>· struck</span>
+                            ) : n > 0 ? (
+                              <span style={{ fontSize: 10, color: n >= 5 ? "#f87171" : "rgba(255,255,255,0.4)" }}>· {n}/6</span>
+                            ) : null}
+                          </div>
+                        );
+                      });
+                    })()}
                     {lead.email && <div className="flex items-center gap-2"><Mail size={13} className="text-muted-foreground"/><span className="text-foreground">{lead.email}</span></div>}
                     {lead.motivation && <div className="flex items-start gap-2"><AlertTriangle size={13} style={{ color: "rgba(234,179,8,0.7)" }} className="mt-0.5 shrink-0"/><span className="text-muted-foreground">{lead.motivation}</span></div>}
                     {extra.county && <div className="text-xs text-muted-foreground">County: {extra.county}</div>}

@@ -292,7 +292,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.56 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.57 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -351,7 +351,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.56 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.57 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -636,7 +636,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.56 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.57 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -985,6 +985,27 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       if (key in req.body) patch[key] = req.body[key];
     }
     if (Object.keys(patch).length === 0) return res.status(400).json({ error: "No valid fields to update" });
+
+    // v14.57 — Email hygiene on agent edits. Login resolves via
+    // storage.getAgentByEmail(email.toLowerCase().trim()), so we (a) normalize the
+    // stored value to lowercase+trim to keep it canonical, and (b) block any change
+    // that would collide with a different agent's login. Without this guard, an admin
+    // could accidentally point two rows at the same email and one of them would
+    // silently become unloginnable (whichever row loses the getAgentByEmail race).
+    if (typeof patch.email === "string") {
+      const normalized = patch.email.toLowerCase().trim();
+      if (!normalized) {
+        return res.status(400).json({ error: "Email cannot be blank" });
+      }
+      const collision = storage.getAgentByEmail(normalized);
+      if (collision && collision.id !== id) {
+        return res.status(409).json({
+          error: `Email ${normalized} is already used by agent id=${collision.id} (${collision.name}). Pick a different email or merge the two accounts via /api/admin/agents/merge.`,
+        });
+      }
+      patch.email = normalized;
+    }
+
     const updated = storage.updateAgent(id, patch);
     if (!updated) return res.status(404).json({ error: "Agent not found" });
     res.json({ ...updated, password: undefined });
@@ -1162,6 +1183,100 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     broadcast({ type: "leads_updated" });
     broadcast({ type: "activity_event", event: { type: "agent_deactivated", agentId: id, agentName: updated.name, ts: new Date().toISOString() } });
     res.json({ ...updated, password: undefined, reassigned, callbackHeld, preserved });
+  });
+
+  // v14.57 — Admin-only agent merge endpoint. Merges a duplicate/stale agent record
+  // into a canonical agent record: reassigns every child row that references the source
+  // agent to point at the target, then deactivates + hides the source. All in a single
+  // SQLite transaction so we never leave orphaned FKs behind.
+  //
+  // Ships specifically for the Denise Jacobs dedupe (source id=11 djacobs312@gmail.com →
+  // target id=10 denise@watsonbrothersgroup.com) but is generic — any admin can point
+  // it at any (source, target) pair via the admin-guarded /api/admin route family.
+  //
+  // Preflight guards:
+  //   - source_id !== target_id
+  //   - both agents must exist
+  //   - target must be active (don't merge into a deleted account)
+  //   - source must be inactive (safety: use DELETE first to deactivate)
+  //
+  // FK tables covered (matches shared/schema.ts):
+  //   leads.assigned_agent_id
+  //   lead_activity.agent_id
+  //   round_robin_state.last_assigned_agent_id
+  //   agent_points.agent_id
+  //   agent_leads.assigned_admin_id
+  //   agent_leads.uploaded_by
+  //   agent_lead_activity.caller_id
+  //   lead_locks.agent_id
+  app.post("/api/admin/agents/merge", (req: any, res: any) => {
+    const sourceId = parseInt(String(req.body?.sourceId ?? ""));
+    const targetId = parseInt(String(req.body?.targetId ?? ""));
+    if (!sourceId || !targetId || isNaN(sourceId) || isNaN(targetId)) {
+      return res.status(400).json({ error: "sourceId and targetId are required integers" });
+    }
+    if (sourceId === targetId) {
+      return res.status(400).json({ error: "sourceId and targetId must be different" });
+    }
+    const source = storage.getAgentById(sourceId);
+    const target = storage.getAgentById(targetId);
+    if (!source) return res.status(404).json({ error: `Source agent ${sourceId} not found` });
+    if (!target) return res.status(404).json({ error: `Target agent ${targetId} not found` });
+    if (!target.isActive) {
+      return res.status(409).json({
+        error: `Target agent ${targetId} (${target.name}) is inactive. Merge target must be active.`,
+      });
+    }
+    if (source.isActive) {
+      return res.status(409).json({
+        error: `Source agent ${sourceId} (${source.name}) is still active. Deactivate the source first (DELETE /api/agents/${sourceId}) before merging.`,
+      });
+    }
+
+    const counts: Record<string, number> = {};
+    const tx = rawDb.transaction(() => {
+      counts.leads = rawDb.prepare(`UPDATE leads SET assigned_agent_id = ? WHERE assigned_agent_id = ?`).run(targetId, sourceId).changes;
+      counts.lead_activity = rawDb.prepare(`UPDATE lead_activity SET agent_id = ? WHERE agent_id = ?`).run(targetId, sourceId).changes;
+      counts.round_robin_state = rawDb.prepare(`UPDATE round_robin_state SET last_assigned_agent_id = ? WHERE last_assigned_agent_id = ?`).run(targetId, sourceId).changes;
+      counts.agent_points = rawDb.prepare(`UPDATE agent_points SET agent_id = ? WHERE agent_id = ?`).run(targetId, sourceId).changes;
+      counts.agent_leads_assigned_admin = rawDb.prepare(`UPDATE agent_leads SET assigned_admin_id = ? WHERE assigned_admin_id = ?`).run(targetId, sourceId).changes;
+      counts.agent_leads_uploaded_by = rawDb.prepare(`UPDATE agent_leads SET uploaded_by = ? WHERE uploaded_by = ?`).run(targetId, sourceId).changes;
+      counts.agent_lead_activity = rawDb.prepare(`UPDATE agent_lead_activity SET caller_id = ? WHERE caller_id = ?`).run(targetId, sourceId).changes;
+      counts.lead_locks = rawDb.prepare(`UPDATE lead_locks SET agent_id = ? WHERE agent_id = ?`).run(targetId, sourceId).changes;
+      // Hide the source: force-deactivate + null out lead-flow + wipe email so it can't
+      // be logged into. Keep the row (for foreign-key referential integrity of any
+      // future rows we may have missed) but make it invisible + login-locked.
+      rawDb.prepare(`UPDATE agents SET is_active = 0, lead_flow_on = 0, receive_leads = 0, email = ? WHERE id = ?`).run(
+        `_merged_into_${targetId}_${source.email}`,
+        sourceId,
+      );
+    });
+
+    try {
+      tx();
+    } catch (err: any) {
+      console.error("[merge] Transaction failed:", err);
+      return res.status(500).json({ error: `Merge failed: ${err.message}` });
+    }
+
+    console.log(`[merge] Merged agent ${sourceId} (${source.name} / ${source.email}) → ${targetId} (${target.name} / ${target.email})`, counts);
+
+    broadcast({ type: "leads_updated" });
+    broadcast({ type: "activity_event", event: {
+      type: "agent_merged",
+      sourceId, sourceName: source.name, sourceEmail: source.email,
+      targetId, targetName: target.name, targetEmail: target.email,
+      counts,
+      ts: new Date().toISOString(),
+    } });
+
+    res.json({
+      ok: true,
+      source: { id: sourceId, name: source.name, email: source.email },
+      target: { id: targetId, name: target.name, email: target.email },
+      counts,
+      total_rows_reassigned: Object.values(counts).reduce((a, b) => a + b, 0),
+    });
   });
 
   // Reactivate a trashed agent
@@ -4183,7 +4298,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.56 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.57 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4430,7 +4545,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.56",
+      version: "v14.57",
       services: results,
     });
   });

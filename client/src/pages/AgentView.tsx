@@ -889,43 +889,11 @@ function LeadCard({ lead }: { lead: Lead }) {
           </div>
         )}
 
-        {/* ── v14.51 — Stacked phone lines. Inactive line numbers HIDDEN (privacy + reduce visual noise);
-            only status label is shown for inactive lines. Active line renders in a slimmer Dial button. ── */}
+        {/* ── v14.52 — ELEGANT DIAL CARD: only the active line renders. Inactive rows removed entirely
+            for max visual relief. The header above already shows `LINE 1 OF 5 · 5/5 viable` so counts
+            aren't lost; struck/no-answer state is surfaced via the header “N struck / N tried today” chips. ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-          {/* Inactive lines first (thumb-reach: keep the Dial button at the bottom of the stack) */}
-          {allPhones.map((p, i) => {
-            if (p === activePhone) return null;
-            const state = phoneStates[p] || "untried";
-            const isStruck = state === "struck";
-            const stateLabel = state === "struck" ? "WRONG #" : state === "no_answer_today" ? "NO ANSWER TODAY" : "UNTRIED";
-            const stateColor = state === "struck" ? "#6b7280" : state === "no_answer_today" ? "#f97316" : "rgba(200,170,90,0.55)";
-            return (
-              <div key={p} style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "7px 12px",
-                background: "rgba(255,255,255,0.025)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 7, minHeight: 30,
-                opacity: isStruck ? 0.35 : 0.6,
-              }}>
-                <span style={{
-                  fontSize: 12, fontWeight: 500,
-                  color: "rgba(255,255,255,0.5)",
-                  textDecoration: isStruck ? "line-through" : "none",
-                  letterSpacing: "0.02em",
-                }}>
-                  Line {i + 1}
-                </span>
-                <span style={{
-                  fontSize: 9, letterSpacing: "0.14em", fontWeight: 700,
-                  color: stateColor,
-                }}>
-                  {stateLabel}
-                </span>
-              </div>
-            );
-          })}
-          {/* Slimmer gold Dial button for the active line — anchored at the bottom of the stack */}
+          {/* Gold Dial button — the only phone-line UI element on the card */}
           {activePhone && (() => {
             const activeIdx = allPhones.findIndex(p => p === activePhone);
             return (
@@ -2140,7 +2108,8 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
   useRealtimeUpdates();
   const qc = useQueryClient();
   // v14.50 — pull-to-refresh: swipe down from the very top to refetch every query.
-  usePullToRefresh(() => qc.invalidateQueries());
+  // v14.52 — destructure indicator so the pull gesture has visible feedback (gold chip at top)
+  const { indicator: ptrIndicator } = usePullToRefresh(() => qc.invalidateQueries());
 
   // ── Prospecting mode ─────────────────────────────────────────────
   // v12.5 — mode drives which depot this AgentView renders. Recruiting is
@@ -2269,6 +2238,8 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
 
   return (
     <div className="ld-bg-wrap" style={{ minHeight: "100dvh", background: "#080808", display: "flex", flexDirection: "column" }}>
+      {/* v14.52 — Pull-to-refresh visible indicator (gold chip floats above header) */}
+      {ptrIndicator}
       {/* Luxury ambient glows */}
       <div className="ld-glow" />
       <div className="ld-glow-corner" />
@@ -2303,10 +2274,12 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
             }}>{mode === "recruiting" ? "Recruiting Depot" : "Lead Depot"}</p>
             <p style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em", marginTop: 2 }}>{user?.name}</p>
           </div>
-          {/* v12.5 — admin-only cross-link between Seller ↔ Recruiting */}
-          {isAdmin && (
+          {/* v14.52 — Recruiting cross-link removed from header (overextended the right edge on iPhone).
+              Admins reach the recruiting side via the in-app Recruiting Depot tab. The ← Seller reverse
+              link on the recruiting side is preserved because there's no equivalent tab there. */}
+          {isAdmin && mode === "recruiting" && (
             <a
-              href={mode === "recruiting" ? "#/" : "#/recruiting"}
+              href="#/"
               style={{
                 marginLeft: 6, fontSize: 10, color: "rgba(79,184,163,0.85)",
                 textDecoration: "none", letterSpacing: "0.1em", textTransform: "uppercase",
@@ -2315,7 +2288,7 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
                 borderRadius: 6, padding: "4px 8px", fontWeight: 700,
               }}
             >
-              {mode === "recruiting" ? "← Seller" : "Recruiting →"}
+              ← Seller
             </a>
           )}
         </div>

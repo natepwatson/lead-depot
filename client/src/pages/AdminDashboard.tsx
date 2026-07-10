@@ -865,7 +865,8 @@ export default function AdminDashboard({
   const { toast } = useToast();
   const qc = useQueryClient();
   // v14.50 — pull-to-refresh site-wide.
-  usePullToRefresh(() => qc.invalidateQueries());
+  // v14.52 — destructure indicator so the pull gesture has visible feedback (gold chip at top)
+  const { indicator: ptrIndicator } = usePullToRefresh(() => qc.invalidateQueries());
   const fileRef = useRef<HTMLInputElement>(null);
   // Activity Feed
   const [feedOpen, setFeedOpen] = useState(false);
@@ -1452,6 +1453,8 @@ export default function AdminDashboard({
 
   return (
     <div className="ld-bg-wrap" style={{ minHeight: "100dvh", background: "#080808" }}>
+      {/* v14.52 — Pull-to-refresh visible indicator */}
+      {ptrIndicator}
       {/* Luxury ambient glows */}
       <div className="ld-glow" />
       <div className="ld-glow-corner" />
@@ -1479,7 +1482,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.51
+              v14.52
             </p>
           </div>
         </div>

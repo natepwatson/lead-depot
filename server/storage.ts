@@ -104,6 +104,21 @@ try { sqlite.exec(`ALTER TABLE agents ADD COLUMN merged_into_agent_id INTEGER`);
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN pending_email TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN pending_email_token TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN pending_email_expires TEXT`); } catch {}
+// v14.61 — Bucket 5 Phase C: deactivate reversibility window + agent audit log.
+// Same MUST-BE-HERE rationale as v14.59: Drizzle's SELECT * FROM agents at module
+// eval will fail if this column is missing. v14.59 crash lesson locked in.
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN deactivated_at INTEGER`); } catch {}
+try { sqlite.exec(`CREATE TABLE IF NOT EXISTS agent_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  actor_id INTEGER,
+  target_id INTEGER NOT NULL,
+  event TEXT NOT NULL,
+  before_json TEXT,
+  after_json TEXT,
+  notes TEXT
+)`); } catch {}
+try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_agent_audit_log_target ON agent_audit_log(target_id, ts DESC)`); } catch {}
 try { sqlite.exec(`ALTER TABLE agent_points ADD COLUMN scope TEXT NOT NULL DEFAULT 'seller'`); } catch {}
 // DBPR fields (v11.71, renamed from FREC in v13.4 — in case table was created before these existed)
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN dbpr_license_id TEXT`); } catch {}

@@ -50,6 +50,12 @@ export const agents = sqliteTable("agents", {
   pendingEmail: text("pending_email"),
   pendingEmailToken: text("pending_email_token"),
   pendingEmailExpires: text("pending_email_expires"),
+  // v14.61 (Bucket 5 Phase C — Deactivate + audit). Unix ms timestamp of the
+  // most recent deactivation, or NULL if the agent is active / has never been
+  // deactivated. The reactivate endpoint uses this to gate the 7-day undo
+  // window. Legacy rows deactivated before v14.61 have NULL here — they can be
+  // reactivated unconditionally (grandfathered).
+  deactivatedAt: integer("deactivated_at"),
 });
 
 export const insertAgentSchema = createInsertSchema(agents).omit({ id: true });

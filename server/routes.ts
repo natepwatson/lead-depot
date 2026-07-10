@@ -20,9 +20,11 @@ import {
   clearSessionCookie,
   requireSession,
   requireSelfOrAdmin,
+  requireAdmin,
   sha256,
   SESSION_COOKIE,
 } from "./auth";
+import { logAgentEvent, getAgentAuditLog, isWithinReactivateWindow } from "./audit";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
 import multer from "multer";
@@ -308,7 +310,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.60 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.61 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -367,7 +369,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.60 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.61 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -652,7 +654,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.60 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.61 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -986,6 +988,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // Password change from an unauthenticated reset flow revokes all existing
     // sessions for that agent — forces the attacker off if this was a takeover.
     revokeAllSessionsForAgent(agent.id);
+    logAgentEvent({
+      actorId: agent.id, // token-proven mailbox control
+      targetId: agent.id,
+      event: "password_reset",
+      before: null,
+      after: null,
+      notes: "Password set via /reset-password token (forgot-password flow). All sessions revoked.",
+    });
     res.json({ success: true });
   });
 
@@ -1252,7 +1262,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   }
 
   // Soft-delete: mark agent as inactive, redistribute leads with correct rules per status
+  // v14.61 Phase C — requires admin session, stamps deactivated_at (unix ms), revokes
+  // all live sessions for the target agent, and logs a `deactivated` audit event.
   app.delete("/api/agents/:id", (req, res) => {
+    if (!requireAdmin(req, res)) return;
     const id = parseInt(req.params.id);
     // Guard: must always have at least one lead receiver after deactivation
     const receiversAfter = countLeadReceivers(id);
@@ -1261,8 +1274,22 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         error: "Cannot deactivate — at least one agent must be able to receive leads at all times. Activate another agent first, or enable lead flow on an admin.",
       });
     }
-    const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false });
+    const before = storage.getAgentById(id);
+    if (!before) return res.status(404).json({ error: "Agent not found" });
+    const deactivatedAt = Date.now();
+    const updated = storage.updateAgent(id, { isActive: false, leadFlowOn: false, deactivatedAt } as any);
     if (!updated) return res.status(404).json({ error: "Agent not found" });
+    // v14.61 — kick any live sessions so the agent can't stay logged in after
+    // deactivation. Was previously stale-until-refresh.
+    revokeAllSessionsForAgent(id);
+    logAgentEvent({
+      actorId: req.currentAgent?.id ?? null,
+      targetId: id,
+      event: "deactivated",
+      before: { isActive: true, leadFlowOn: before.leadFlowOn, deactivatedAt: null },
+      after:  { isActive: false, leadFlowOn: false, deactivatedAt },
+      notes: `Deactivated by ${req.currentAgent?.name ?? "unknown admin"}.`,
+    });
 
     // SQL: only fetch this agent's leads — avoids loading all leads (v11.70)
     const agentLeadsToProcess: any[] = rawDb.prepare(
@@ -1396,6 +1423,24 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return res.status(500).json({ error: `Merge failed: ${err.message}` });
     }
 
+    // v14.61 Phase C — audit both sides of the merge.
+    logAgentEvent({
+      actorId: req.currentAgent?.id ?? null,
+      targetId: sourceId,
+      event: "merged_into",
+      before: { email: source.email, isActive: source.isActive, merged_into_agent_id: null },
+      after:  { email: `tombstone:${sourceId}:${source.email}`, isActive: false, merged_into_agent_id: targetId },
+      notes: `Merged into agent ${targetId} (${target.name}). Rows reassigned: ${JSON.stringify(counts)}. By ${req.currentAgent?.name ?? "unknown admin"}.`,
+    });
+    logAgentEvent({
+      actorId: req.currentAgent?.id ?? null,
+      targetId: targetId,
+      event: "merge_received",
+      before: null,
+      after: { rows_absorbed: counts },
+      notes: `Absorbed agent ${sourceId} (${source.name} / ${source.email}). By ${req.currentAgent?.name ?? "unknown admin"}.`,
+    });
+
     console.log(`[merge] Merged agent ${sourceId} (${source.name} / ${source.email}) → ${targetId} (${target.name} / ${target.email})`, counts);
 
     broadcast({ type: "leads_updated" });
@@ -1464,6 +1509,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         .run(normalized, id);
       revokeAllSessionsForAgent(id);
       console.log(`[email-change] admin ${req.currentAgent?.email} (${req.currentAgent?.id}) changed agent ${id} email: ${agent.email} → ${normalized}`);
+      logAgentEvent({
+        actorId: req.currentAgent?.id ?? null,
+        targetId: id,
+        event: "email_changed",
+        before: { email: agent.email },
+        after:  { email: normalized },
+        notes: `Admin instant change by ${req.currentAgent?.name ?? "admin"}. All sessions revoked.`,
+      });
       broadcast({ type: "activity_event", event: {
         type: "agent_email_changed_by_admin",
         adminId: req.currentAgent?.id, adminEmail: req.currentAgent?.email,
@@ -1501,7 +1554,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.60</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.61</p>
             </div>
           `,
         });
@@ -1512,6 +1565,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
 
     console.log(`[email-change] self-request: agent ${id} (${agent.email}) requested → ${normalized}, verify link sent`);
+    logAgentEvent({
+      actorId: id,
+      targetId: id,
+      event: "email_change_requested",
+      before: { email: agent.email },
+      after:  { pending_email: normalized, expires_at: expires },
+      notes: "Self-service email change: verification link sent to new address.",
+    });
     res.json({ ok: true, path: "self_pending_verification", pendingEmail: normalized, expiresAt: expires });
   });
 
@@ -1543,6 +1604,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // Revoke all sessions for the agent — they'll re-login with the new email everywhere.
     revokeAllSessionsForAgent(row.id);
     console.log(`[email-change] verified: agent ${row.id} ${row.email} → ${row.pending_email}`);
+    logAgentEvent({
+      actorId: row.id, // self-verified via mailbox proof
+      targetId: row.id,
+      event: "email_change_verified",
+      before: { email: row.email },
+      after:  { email: row.pending_email },
+      notes: "Self-service email change verified via link click. All sessions revoked.",
+    });
     broadcast({ type: "activity_event", event: {
       type: "agent_email_changed_verified",
       agentId: row.id, oldEmail: row.email, newEmail: row.pending_email,
@@ -1561,11 +1630,43 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Reactivate a trashed agent
   // v14.48 — Legacy endpoint kept for backward compatibility. UI no longer calls it
   // (there is no Inactive Agents section anymore). Restores account + turns Flow on.
+  // v14.61 Phase C — requires admin session, enforces 7-day undo window from
+  // deactivated_at (grandfathered rows with NULL are always allowed), clears the
+  // timestamp on success, and logs a `reactivated` audit event.
   app.patch("/api/agents/:id/reactivate", (req, res) => {
+    if (!requireAdmin(req, res)) return;
     const id = parseInt(req.params.id);
-    const updated = storage.updateAgent(id, { isActive: true, leadFlowOn: true });
+    const before = storage.getAgentById(id);
+    if (!before) return res.status(404).json({ error: "Agent not found" });
+    const deactivatedAt = (before as any).deactivatedAt ?? null;
+    if (!isWithinReactivateWindow(deactivatedAt)) {
+      const daysSince = Math.floor((Date.now() - deactivatedAt) / (24*60*60*1000));
+      return res.status(410).json({
+        error: `Reactivate window expired — agent was deactivated ${daysSince} days ago (>7d). Row is read-only. Create a new agent record if needed.`,
+      });
+    }
+    const updated = storage.updateAgent(id, { isActive: true, leadFlowOn: true, deactivatedAt: null } as any);
     if (!updated) return res.status(404).json({ error: "Agent not found" });
+    logAgentEvent({
+      actorId: req.currentAgent?.id ?? null,
+      targetId: id,
+      event: "reactivated",
+      before: { isActive: false, deactivatedAt },
+      after:  { isActive: true, deactivatedAt: null },
+      notes: `Reactivated by ${req.currentAgent?.name ?? "unknown admin"} within ${Math.floor((Date.now() - (deactivatedAt ?? Date.now())) / (60*60*1000))}h of deactivation.`,
+    });
     res.json({ ...updated, password: undefined });
+  });
+
+  // v14.61 Phase C — admin-only audit log fetch for one agent.
+  // Returns the full lifecycle trail (most recent first) so Phase D's admin
+  // Agent Lifecycle tab can render "who did what, when".
+  app.get("/api/admin/agents/:id/audit-log", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(req.params.id);
+    const limit = Math.min(500, parseInt(String(req.query?.limit ?? "200")) || 200);
+    const rows = getAgentAuditLog(id, limit);
+    res.json({ agentId: id, count: rows.length, entries: rows });
   });
 
   // ─── AGENT PROFILE SELF-SERVICE ──────────────────────────────────────────────
@@ -1625,6 +1726,15 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       ip: (req.ip || (req.socket && req.socket.remoteAddress)) ?? undefined,
     });
     setSessionCookie(res, token);
+
+    logAgentEvent({
+      actorId: req.currentAgent?.id ?? id,
+      targetId: id,
+      event: "password_changed",
+      before: null,
+      after: null,
+      notes: `Self-service password change${req.currentAgent?.id === id ? "" : ` by admin ${req.currentAgent?.name ?? ""}`}. Other sessions revoked.`,
+    });
 
     res.json({ ok: true });
   });
@@ -4600,7 +4710,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.60 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.61 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4832,7 +4942,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.60",
+      version: "v14.61",
       services: results,
     });
   });

@@ -362,6 +362,73 @@ if (!agentColsV1459.includes("pending_email"))         rawDb.prepare("ALTER TABL
 if (!agentColsV1459.includes("pending_email_token"))   rawDb.prepare("ALTER TABLE agents ADD COLUMN pending_email_token TEXT").run();
 if (!agentColsV1459.includes("pending_email_expires")) rawDb.prepare("ALTER TABLE agents ADD COLUMN pending_email_expires TEXT").run();
 
+// v14.61 Bucket 5 Phase C — Deactivate reversibility window + agent audit log.
+//
+// deactivated_at: unix ms timestamp of the most recent deactivation. NULL means
+// never deactivated OR grandfathered legacy row. The reactivate endpoint checks
+// Date.now() - deactivated_at <= 7 days; past that, the row is read-only.
+//
+// agent_audit_log: append-only trail of every lifecycle event affecting an
+// agent (deactivate, reactivate, merge, email change, password reset, etc.).
+// Feeds Phase D's admin Agent Lifecycle tab.
+const agentColsV1461 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
+if (!agentColsV1461.includes("deactivated_at")) rawDb.prepare("ALTER TABLE agents ADD COLUMN deactivated_at INTEGER").run();
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS agent_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    actor_id INTEGER,
+    target_id INTEGER NOT NULL,
+    event TEXT NOT NULL,
+    before_json TEXT,
+    after_json TEXT,
+    notes TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_audit_log_target ON agent_audit_log(target_id, ts DESC);
+`);
+
+// v14.61 — One-shot FK normalization for the Denise Jacobs tombstones.
+//
+// Legacy state (before v14.61): agent rows 11, 12, 13 are tombstones with
+// `merged_into_agent_id = 10` (points at the canonical Denise on
+// denise@watsonbrothersgroup.com). The tombstoned original email is
+// djacobs312@gmail.com, and that email now lives on a separate active row
+// id=14 (created after the merge). Pointing the FK at 10 works today but is
+// tribal knowledge — it doesn't match the semantic contract that
+// `merged_into_agent_id` names the row now holding the original identity.
+//
+// Fix: remap 11/12/13 from merged_into_agent_id=10 → 14, but ONLY if id=14
+// exists and its email starts with 'djacobs312@'. Idempotent — does nothing on
+// re-boot once remapped. Guarded so it can't fire in a fresh dev DB that lacks
+// id=14. Logs an fk_remap audit event per row.
+try {
+  const denise14 = rawDb.prepare("SELECT id, email FROM agents WHERE id = 14").get() as any;
+  if (denise14 && typeof denise14.email === "string" && denise14.email.toLowerCase().startsWith("djacobs312@")) {
+    const remapCandidates = rawDb.prepare(
+      "SELECT id, merged_into_agent_id FROM agents WHERE id IN (11, 12, 13) AND merged_into_agent_id = 10"
+    ).all() as Array<{ id: number; merged_into_agent_id: number }>;
+    for (const row of remapCandidates) {
+      rawDb.prepare("UPDATE agents SET merged_into_agent_id = 14 WHERE id = ?").run(row.id);
+      rawDb.prepare(
+        `INSERT INTO agent_audit_log (ts, actor_id, target_id, event, before_json, after_json, notes)
+         VALUES (?, ?, ?, 'fk_remap', ?, ?, ?)`
+      ).run(
+        Date.now(),
+        null, // system/boot migration
+        row.id,
+        JSON.stringify({ merged_into_agent_id: 10 }),
+        JSON.stringify({ merged_into_agent_id: 14 }),
+        "v14.61 Denise FK normalization: remapped tombstone from canonical Denise (id=10) to the row now holding djacobs312@gmail.com (id=14).",
+      );
+    }
+    if (remapCandidates.length > 0) {
+      console.log(`[db] v14.61 Denise FK remap: converted ${remapCandidates.length} tombstone row(s) from merged_into_agent_id=10 → 14`);
+    }
+  }
+} catch (err) {
+  console.error("[db] v14.61 Denise FK remap failed:", err);
+}
+
 // v14.59 — Retroactive tombstone conversion. Any row still carrying the legacy
 // `_merged_into_<targetId>_from_<sourceId>_<origEmail>` OR
 // `_merged_into_<targetId>_<origEmail>` sentinel gets rewritten to the new shape:

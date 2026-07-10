@@ -1246,8 +1246,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // Hide the source: force-deactivate + null out lead-flow + wipe email so it can't
       // be logged into. Keep the row (for foreign-key referential integrity of any
       // future rows we may have missed) but make it invisible + login-locked.
+      //
+      // v14.57 hotfix: when merging multiple sources into the same target, the
+      // simple `_merged_into_<targetId>_<email>` pattern collides with earlier
+      // merged rows that had the same email. Suffix with sourceId to guarantee
+      // uniqueness across repeated merges. The agents.email UNIQUE constraint is
+      // enforced at the SQLite layer.
       rawDb.prepare(`UPDATE agents SET is_active = 0, lead_flow_on = 0, receive_leads = 0, email = ? WHERE id = ?`).run(
-        `_merged_into_${targetId}_${source.email}`,
+        `_merged_into_${targetId}_from_${sourceId}_${source.email}`,
         sourceId,
       );
     });

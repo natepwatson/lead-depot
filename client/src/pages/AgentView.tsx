@@ -1135,9 +1135,12 @@ function LeadCard({ lead }: { lead: Lead }) {
           </div>
         )}
 
-        {lead.attemptCount > 0 && (
+        {/* v14.77 — Show only THIS agent's dials today, not the all-time all-agent
+            attemptCount. Cards should feel fresh; seeing "18 previous attempts"
+            from other agents subconsciously discourages effort. Hidden at 0. */}
+        {(lead.myAttemptsToday ?? 0) > 0 && (
           <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", marginBottom: 4 }}>
-            {lead.attemptCount} previous attempt{lead.attemptCount !== 1 ? "s" : ""}
+            You've dialed this lead {lead.myAttemptsToday} time{lead.myAttemptsToday !== 1 ? "s" : ""} today
           </p>
         )}
 
@@ -2761,9 +2764,9 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
                           color: "#4fb8a3", border: "1px solid rgba(79,184,163,0.3)",
                           borderRadius: 10, padding: "3px 10px", background: "rgba(79,184,163,0.08)",
                         }}>{nextAgentLead.status || "new"}</span>
-                        {nextAgentLead.attempt_count > 0 && (
-                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{nextAgentLead.attempt_count} previous dials</span>
-                        )}
+                        {/* v14.77 — Removed all-time dial counter from my-next preview.
+                            Every next lead should look fresh at preview time; agent
+                            gets their own today-counter once they pull the card. */}
                       </div>
                     </div>
 

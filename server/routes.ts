@@ -311,7 +311,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.74 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.75 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -370,7 +370,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.74 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.75 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -655,7 +655,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.74 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.75 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1145,7 +1145,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const agent = storage.getAgentById(id);
     if (!agent) return res.status(404).json({ error: "Not found" });
     if (!agent.isActive) return res.status(403).json({ error: "Account deactivated" });
-    // v14.74 — Drizzle exposes camelCase (headshotUrl, homeAddress) not snake_case.
+    // v14.75 — Drizzle exposes camelCase (headshotUrl, homeAddress) not snake_case.
     // Previous version read agent.headshot_url which is always undefined, so the
     // profile page fell back to initials even when the DB had a real headshot.
     const a = agent as any;
@@ -1697,7 +1697,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.74</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.75</p>
             </div>
           `,
         });
@@ -1859,7 +1859,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.74 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.75 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2819,8 +2819,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
-  // ─── MY PIPELINE (restored v14.74, no date filter) ────────────────────────
-  // v14.74 (moved here v14.74 hotfix) — MUST be registered BEFORE `/api/leads/:id`
+  // ─── MY PIPELINE (restored v14.75, no date filter) ────────────────────────
+  // v14.75 (moved here v14.75 hotfix) — MUST be registered BEFORE `/api/leads/:id`
   // or Express routes `/api/leads/my-pipeline` to the `:id` handler and returns
   // "Lead not found". Read-only over existing columns — no routing changes.
   app.get("/api/leads/my-pipeline", (req, res) => {
@@ -3106,7 +3106,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       awardPoints(agentId, "disconnected", leadId);
       broadcast({ type: "activity_event", event: { type: "disconnected", agentId, leadId, agentName: storage.getAgentById(agentId)?.name || "Agent", address: lead.address } });
       broadcast({ type: "lead_updated", leadId });
-      // v14.74 — `remaining` was undefined here since v14.65 refactor (would have
+      // v14.75 — `remaining` was undefined here since v14.65 refactor (would have
       // thrown ReferenceError → 500 on every Disconnected outcome that landed in
       // this branch). Use surviving phones count from the mutated `phones` array.
       return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: phones.length, keptOnLead: !!untriedNext });
@@ -3266,7 +3266,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       awardPoints(agentId, "wrong_number", leadId);
       broadcast({ type: "activity_event", event: { type: "wrong_number", agentId, leadId, agentName: storage.getAgentById(agentId)?.name || "Agent", address: lead.address } });
       broadcast({ type: "lead_updated", leadId });
-      // v14.74 — Same fix as Disconnected branch above: `remaining` was undefined.
+      // v14.75 — Same fix as Disconnected branch above: `remaining` was undefined.
       return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: phones.length, keptOnLead: !!untriedNext });
     }
 
@@ -4520,8 +4520,8 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json({ ...updated, password: undefined });
   });
 
-  // ─── CLAIM A CALLBACK (v14.74) ────────────────────────────────────────────
-  // v14.74 — Alex: "With the phone-number look-up I want anyone to grab it if
+  // ─── CLAIM A CALLBACK (v14.75) ────────────────────────────────────────────
+  // v14.75 — Alex: "With the phone-number look-up I want anyone to grab it if
   // they call back that agent." Rule: FIRST LOOKUP WINS if lead is unassigned.
   //
   // Preconditions to claim:
@@ -4915,7 +4915,7 @@ Brothers Group Real Estate Team at Momentum Realty
       let leadCount = 0, lockCount = 0, activityCount = 0, pointCount = 0;
       const txn = rawDb.transaction(() => {
         // Delete in FK-safe order: locks -> activity -> leads.
-        // v14.74: lead_locks has FK to leads, must go first or DELETE FROM leads throws.
+        // v14.75: lead_locks has FK to leads, must go first or DELETE FROM leads throws.
         lockCount = (rawDb.prepare(`DELETE FROM lead_locks`).run().changes) || 0;
         activityCount = (rawDb.prepare(`DELETE FROM lead_activity`).run().changes) || 0;
         leadCount = (rawDb.prepare(`DELETE FROM leads`).run().changes) || 0;
@@ -5085,7 +5085,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.74 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.75 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5317,7 +5317,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.74",
+      version: "v14.75",
       services: results,
     });
   });
@@ -6447,7 +6447,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v14.74</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.75</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

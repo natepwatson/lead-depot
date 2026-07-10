@@ -1351,7 +1351,7 @@ export default function AdminDashboard({
     onError: () => toast({ title: "Error clearing queue", variant: "destructive" }),
   });
 
-  // v14.74 — Upload CSV tab now routes to the SAME smart server-side parser used
+  // v14.75 — Upload CSV tab now routes to the SAME smart server-side parser used
   // by "Import BatchLeads CSV": /api/admin/import-batchleads-csv. That parser
   // auto-detects LandVoice SkipTraced listing, LandVoice Expired listing, and
   // BatchLeads xlsx exports; extracts all phones (with per-phone DNC + rank),
@@ -1461,7 +1461,7 @@ export default function AdminDashboard({
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    // v14.74 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
+    // v14.75 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
     if (file && /\.(csv|xlsx|xls)$/i.test(file.name)) {
       processFile(file);
     } else {
@@ -1575,7 +1575,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.74
+              v14.75
             </p>
           </div>
         </div>
@@ -3665,7 +3665,7 @@ export default function AdminDashboard({
         />
       )}
 
-      {/* v14.74 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
+      {/* v14.75 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
       {hardResetOpen && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",

@@ -566,6 +566,43 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
   byType: Record<string, number>;
   byCounty: Record<string, number>;
 } {
+  // v14.75 — Address normalization that survives LandVoice re-export drift.
+  // Real-world case: "123 Oak Street" vs "123 Oak St" vs "123 Oak St." all
+  // point to the same parcel but hash to different keys under the naive
+  // alnum-only scheme. We collapse common USPS suffixes to canonical stems,
+  // strip punctuation, and drop the unit indicator so "#4" doesn't split.
+  const SUFFIX_MAP: Record<string, string> = {
+    street: "st", st: "st",
+    avenue: "ave", ave: "ave", av: "ave",
+    drive: "dr", dr: "dr",
+    road: "rd", rd: "rd",
+    boulevard: "blvd", blvd: "blvd",
+    lane: "ln", ln: "ln",
+    court: "ct", ct: "ct",
+    circle: "cir", cir: "cir",
+    place: "pl", pl: "pl",
+    terrace: "ter", ter: "ter",
+    parkway: "pkwy", pkwy: "pkwy",
+    highway: "hwy", hwy: "hwy",
+    trail: "trl", trl: "trl",
+    way: "way",
+    north: "n", n: "n",
+    south: "s", s: "s",
+    east: "e", e: "e",
+    west: "w", w: "w",
+  };
+  const normalizeAddress = (raw: string): string => {
+    if (!raw) return "";
+    const cleaned = String(raw)
+      .toLowerCase()
+      .replace(/[.,#]/g, " ")           // periods, commas, unit '#' → space
+      .replace(/\bapt\b|\bunit\b|\bste\b|\bsuite\b/g, " ") // strip unit words
+      .replace(/\s+/g, " ")
+      .trim();
+    const tokens = cleaned.split(" ").map(t => SUFFIX_MAP[t] || t);
+    return tokens.join("").replace(/[^a-z0-9]/g, "");
+  };
+
   const existingPhones = new Set<string>();
   const existingAddresses = new Set<string>();
   const existing = rawDb.prepare(`SELECT phone, phones, address FROM leads`).all() as any[];
@@ -577,7 +614,7 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
         for (const p of arr) existingPhones.add(String(p).replace(/\D/g, "").slice(-10));
       } catch {}
     }
-    if (l.address) existingAddresses.add(String(l.address).toLowerCase().replace(/[^a-z0-9]/g, ""));
+    if (l.address) existingAddresses.add(normalizeAddress(l.address));
   }
 
   const insertStmt = rawDb.prepare(`
@@ -598,8 +635,14 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
 
   const tx = rawDb.transaction((items: ImportRow[]) => {
     for (const r of items) {
-      const addrKey = r.address.toLowerCase().replace(/[^a-z0-9]/g, "");
-      if (existingPhones.has(r.phone) || existingAddresses.has(addrKey)) {
+      const addrKey = normalizeAddress(r.address);
+      // v14.75 — Check ALL phones on the incoming row against existing pool,
+      // not just the primary. LandVoice sometimes shuffles which contact is
+      // "primary" between exports; we treat any shared phone as a match.
+      const anyPhoneMatch = (r.allPhones || [r.phone]).some(p =>
+        existingPhones.has(String(p).replace(/\D/g, "").slice(-10))
+      );
+      if (anyPhoneMatch || existingAddresses.has(addrKey)) {
         skippedDuplicate++;
         continue;
       }
@@ -617,7 +660,11 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
         inserted++;
         byType[r.leadType] = (byType[r.leadType] || 0) + 1;
         if (r.county) byCounty[r.county] = (byCounty[r.county] || 0) + 1;
-        existingPhones.add(r.phone);
+        // v14.75 — Seed ALL phones from this row so a later row in the same
+        // CSV can't sneak in via a shared secondary.
+        for (const p of (r.allPhones || [r.phone])) {
+          existingPhones.add(String(p).replace(/\D/g, "").slice(-10));
+        }
         existingAddresses.add(addrKey);
       } else {
         skippedDuplicate++;

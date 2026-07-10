@@ -1042,6 +1042,7 @@ export default function AdminDashboard({
 
   // v12.5 — Get Leads Now / Hard Reset helpers
   const [hardResetOpen, setHardResetOpen] = useState<null | "seller" | "recruiting">(null);
+  const [hardResetBusy, setHardResetBusy] = useState(false);
   const [hardResetInput, setHardResetInput] = useState("");
   // v13.2 — Reactivate Retired Leads (go-live helper)
   const [busyReactivate, setBusyReactivate] = useState(false);
@@ -1106,17 +1107,32 @@ export default function AdminDashboard({
     }
   };
   const runHardReset = async () => {
-    if (!hardResetOpen || hardResetInput !== "RESET") return;
+    if (!hardResetOpen || hardResetInput !== "RESET" || hardResetBusy) return;
+    setHardResetBusy(true);
+    const side = hardResetOpen;
     try {
-      const url = hardResetOpen === "seller" ? "/api/admin/seller-hard-reset" : "/api/admin/recruiting-hard-reset";
-      await apiRequest("POST", url, { confirm: "RESET" });
-      toast({ title: `${hardResetOpen === "seller" ? "Seller" : "Recruiting"} depot reset`, description: "All data cleared." });
-      qc.invalidateQueries();
+      const url = side === "seller" ? "/api/admin/seller-hard-reset" : "/api/admin/recruiting-hard-reset";
+      const r = await apiRequest("POST", url, { confirm: "RESET" });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.error || `HTTP ${r.status}`);
+      }
+      // Close modal first so user sees the change immediately.
+      setHardResetOpen(null);
+      setHardResetInput("");
+      // Force-refresh every query so numbers snap to zero on-screen.
+      await qc.invalidateQueries();
+      await qc.refetchQueries({ type: "active" });
+      toast({
+        title: `${side === "seller" ? "Seller" : "Recruiting"} depot cleared`,
+        description: side === "seller"
+          ? "All seller leads, activity, points, and appointments deleted."
+          : "All recruiting leads, activity, and recruiting points deleted.",
+      });
     } catch (err: any) {
       toast({ title: "Reset failed", description: err?.message || String(err), variant: "destructive" });
     } finally {
-      setHardResetOpen(null);
-      setHardResetInput("");
+      setHardResetBusy(false);
     }
   };
   const closeTerritoryMutation = useMutation({
@@ -1550,7 +1566,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.70
+              v14.71
             </p>
           </div>
         </div>
@@ -1887,49 +1903,6 @@ export default function AdminDashboard({
               <StatCard label="Active in Pool" value={stats?.activeLeads ?? 0} accent="text-white" />
               <StatCard label="Appointments Set" value={stats?.appointmentsSet ?? 0} accent="text-green-400" />
             </div>
-
-            {/* v12.5 — Hard Reset confirmation modal (shared) */}
-            {hardResetOpen && (
-              <div style={{
-                position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)",
-                display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-              }} onClick={() => { setHardResetOpen(null); setHardResetInput(""); }}>
-                <div style={{
-                  background: "#0a0a0a", border: "1px solid rgba(239,68,68,0.4)",
-                  borderRadius: 12, padding: 24, maxWidth: 460, width: "90%",
-                }} onClick={e => e.stopPropagation()}>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: "#ef4444", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>
-                    ⚠ Hard Reset {hardResetOpen === "seller" ? "Seller Depot" : "Recruiting Depot"}
-                  </p>
-                  <p style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginBottom: 14, lineHeight: 1.5 }}>
-                    This wipes all {hardResetOpen === "seller" ? "seller leads, activity, points, and appointments" : "agent-recruiting leads, activity, and recruiting points"}. Cannot be undone. Type <b style={{ color: "#ef4444" }}>RESET</b> to confirm.
-                  </p>
-                  <input
-                    autoFocus
-                    value={hardResetInput}
-                    onChange={e => setHardResetInput(e.target.value)}
-                    placeholder="Type RESET"
-                    style={{
-                      width: "100%", padding: "10px 12px", fontSize: 13,
-                      background: "rgba(255,255,255,0.05)", color: "#fff",
-                      border: "1px solid rgba(239,68,68,0.3)", borderRadius: 6, marginBottom: 12,
-                    }}
-                  />
-                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                    <button onClick={() => { setHardResetOpen(null); setHardResetInput(""); }}
-                      style={{ padding: "7px 14px", fontSize: 12, borderRadius: 6, background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,0.2)", cursor: "pointer" }}>
-                      Cancel
-                    </button>
-                    <button onClick={runHardReset} disabled={hardResetInput !== "RESET"}
-                      style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, borderRadius: 6,
-                        background: hardResetInput === "RESET" ? "#ef4444" : "rgba(239,68,68,0.3)",
-                        color: "#fff", border: "none", cursor: hardResetInput === "RESET" ? "pointer" : "not-allowed" }}>
-                      Reset Everything
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
 
             <div>
               {/* Header */}
@@ -3681,6 +3654,67 @@ export default function AdminDashboard({
           agentName={drilldownAgent.name}
           onClose={() => setDrilldownAgent(null)}
         />
+      )}
+
+      {/* v14.71 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
+      {hardResetOpen && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999,
+          backdropFilter: "blur(4px)",
+        }} onClick={() => { if (!hardResetBusy) { setHardResetOpen(null); setHardResetInput(""); } }}>
+          <div style={{
+            background: "#0a0a0a", border: "1px solid rgba(239,68,68,0.4)",
+            borderRadius: 12, padding: 28, maxWidth: 480, width: "90%",
+            boxShadow: "0 20px 60px rgba(239,68,68,0.2)",
+          }} onClick={e => e.stopPropagation()}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#ef4444", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>
+              ⚠ Hard Reset {hardResetOpen === "seller" ? "Seller Depot" : "Recruiting Depot"}
+            </p>
+            <p style={{ fontSize: 14, color: "rgba(255,255,255,0.75)", marginBottom: 8, lineHeight: 1.5 }}>
+              This will permanently delete{" "}
+              <b style={{ color: "#fff" }}>
+                {hardResetOpen === "seller"
+                  ? `${stats?.totalLeads ?? 0} seller lead${(stats?.totalLeads ?? 0) === 1 ? "" : "s"}, all activity, points, and appointments`
+                  : "every recruiting lead, all activity, and recruiting points"}
+              </b>.
+            </p>
+            <p style={{ fontSize: 12, color: "rgba(239,68,68,0.85)", marginBottom: 16, lineHeight: 1.5 }}>
+              Cannot be undone. Type <b>RESET</b> below to confirm.
+            </p>
+            <input
+              autoFocus
+              value={hardResetInput}
+              onChange={e => setHardResetInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && hardResetInput === "RESET" && !hardResetBusy) runHardReset(); }}
+              placeholder="Type RESET"
+              disabled={hardResetBusy}
+              style={{
+                width: "100%", padding: "12px 14px", fontSize: 14, fontWeight: 600,
+                background: "rgba(255,255,255,0.06)", color: "#fff",
+                border: `1px solid ${hardResetInput === "RESET" ? "#ef4444" : "rgba(239,68,68,0.3)"}`,
+                borderRadius: 8, marginBottom: 14, outline: "none",
+                letterSpacing: "0.05em", textTransform: "uppercase",
+              }}
+            />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => { setHardResetOpen(null); setHardResetInput(""); }}
+                disabled={hardResetBusy}
+                style={{ padding: "9px 16px", fontSize: 13, borderRadius: 6, background: "transparent", color: "#fff", border: "1px solid rgba(255,255,255,0.2)", cursor: hardResetBusy ? "not-allowed" : "pointer", opacity: hardResetBusy ? 0.5 : 1 }}>
+                Cancel
+              </button>
+              <button onClick={runHardReset} disabled={hardResetInput !== "RESET" || hardResetBusy}
+                style={{ padding: "9px 18px", fontSize: 13, fontWeight: 700, borderRadius: 6,
+                  background: (hardResetInput === "RESET" && !hardResetBusy) ? "#ef4444" : "rgba(239,68,68,0.3)",
+                  color: "#fff", border: "none",
+                  cursor: (hardResetInput === "RESET" && !hardResetBusy) ? "pointer" : "not-allowed",
+                  transition: "background 120ms ease",
+                }}>
+                {hardResetBusy ? "Deleting…" : "Delete Everything"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Luxury confirm modal */}

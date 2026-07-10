@@ -1081,7 +1081,9 @@ export default function AdminDashboard({
       if (r.ok && j.ok) {
         const byC = Object.entries(j.byCounty || {}).map(([k,v]) => `${k}: ${v}`).join(", ");
         const byT = Object.entries(j.byType || {}).map(([k,v]) => `${k}: ${v}`).join(", ");
-        toast({ title: `Imported ${j.inserted} leads`, description: `${j.assigned} assigned. By type: ${byT}. Counties: ${byC}. ${j.skippedDuplicate} duplicates skipped.` });
+        const mergedNote = j.merged ? ` · refreshed ${j.merged} existing (new phones/MLS intel)` : "";
+        const identicalNote = j.skippedIdentical ? ` · ${j.skippedIdentical} identical skipped` : "";
+        toast({ title: `Imported ${j.inserted} new leads`, description: `By type: ${byT}. Counties: ${byC}.${mergedNote}${identicalNote}` });
         qc.invalidateQueries();
       } else {
         toast({ title: "Import failed", description: j.error || r.statusText, variant: "destructive" });
@@ -1351,7 +1353,7 @@ export default function AdminDashboard({
     onError: () => toast({ title: "Error clearing queue", variant: "destructive" }),
   });
 
-  // v14.75 — Upload CSV tab now routes to the SAME smart server-side parser used
+  // v14.76 — Upload CSV tab now routes to the SAME smart server-side parser used
   // by "Import BatchLeads CSV": /api/admin/import-batchleads-csv. That parser
   // auto-detects LandVoice SkipTraced listing, LandVoice Expired listing, and
   // BatchLeads xlsx exports; extracts all phones (with per-phone DNC + rank),
@@ -1374,7 +1376,9 @@ export default function AdminDashboard({
       setUploadRowCount(data.rowsInFile ?? null);
       const byC = Object.entries(data.byCounty || {}).map(([k, v]) => `${k}: ${v}`).join(", ");
       const byT = Object.entries(data.byType || {}).map(([k, v]) => `${k}: ${v}`).join(", ");
-      const dupNote = data.skippedDuplicate ? ` · ${data.skippedDuplicate} duplicates skipped` : "";
+      const mergedNote2 = data.merged ? ` · refreshed ${data.merged} existing` : "";
+      const identicalNote2 = data.skippedIdentical ? ` · ${data.skippedIdentical} identical skipped` : "";
+      const dupNote = `${mergedNote2}${identicalNote2}`;
       toast({
         title: `Imported ${data.inserted} of ${data.rowsInFile} leads`,
         description: `${byT ? `Types: ${byT}. ` : ""}${byC ? `Counties: ${byC}. ` : ""}Leads are in the shared pool — agents pull via Work My Leads.${dupNote}`,
@@ -1461,7 +1465,7 @@ export default function AdminDashboard({
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    // v14.75 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
+    // v14.76 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
     if (file && /\.(csv|xlsx|xls)$/i.test(file.name)) {
       processFile(file);
     } else {
@@ -1575,7 +1579,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.75
+              v14.76
             </p>
           </div>
         </div>
@@ -3665,7 +3669,7 @@ export default function AdminDashboard({
         />
       )}
 
-      {/* v14.75 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
+      {/* v14.76 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
       {hardResetOpen && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",

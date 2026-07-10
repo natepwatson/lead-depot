@@ -562,7 +562,9 @@ export function parseBatchLeadsFile(buffer: Buffer): ImportRow[] {
 
 export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
   inserted: number;
-  skippedDuplicate: number;
+  merged: number;
+  skippedIdentical: number;
+  skippedDuplicate: number;   // legacy alias = merged + skippedIdentical
   byType: Record<string, number>;
   byCounty: Record<string, number>;
 } {
@@ -603,18 +605,29 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
     return tokens.join("").replace(/[^a-z0-9]/g, "");
   };
 
-  const existingPhones = new Set<string>();
-  const existingAddresses = new Set<string>();
-  const existing = rawDb.prepare(`SELECT phone, phones, address FROM leads`).all() as any[];
+  // v14.76 — Track BOTH phone → leadId and address → leadId. On a duplicate
+  // hit we merge fresh CSV intel into the existing row rather than dropping it.
+  const phoneToLead = new Map<string, number>();
+  const addrToLead = new Map<string, number>();
+  const existing = rawDb.prepare(`SELECT id, phone, phones, address FROM leads`).all() as any[];
   for (const l of existing) {
-    if (l.phone) existingPhones.add(String(l.phone).replace(/\D/g, "").slice(-10));
+    if (l.phone) {
+      const norm = String(l.phone).replace(/\D/g, "").slice(-10);
+      if (norm && !phoneToLead.has(norm)) phoneToLead.set(norm, l.id);
+    }
     if (l.phones) {
       try {
         const arr: string[] = JSON.parse(l.phones);
-        for (const p of arr) existingPhones.add(String(p).replace(/\D/g, "").slice(-10));
+        for (const p of arr) {
+          const norm = String(p).replace(/\D/g, "").slice(-10);
+          if (norm && !phoneToLead.has(norm)) phoneToLead.set(norm, l.id);
+        }
       } catch {}
     }
-    if (l.address) existingAddresses.add(normalizeAddress(l.address));
+    if (l.address) {
+      const norm = normalizeAddress(l.address);
+      if (norm && !addrToLead.has(norm)) addrToLead.set(norm, l.id);
+    }
   }
 
   const insertStmt = rawDb.prepare(`
@@ -627,25 +640,153 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
 
+  // v14.76 — UPDATE statement used on duplicate hit. We merge fresh CSV intel
+  // into the existing lead row. Rules:
+  //   • phones[]: UNION of existing + new (dedup by last-10 digits)
+  //   • phoneStates: preserve existing state for existing phones; new phones
+  //     start as untried unless DNC (then struck)
+  //   • phone (primary): keep existing UNLESS existing phone is empty/DNC and
+  //     new one is dialable, then upgrade
+  //   • extra_data: shallow-merge, with CSV "MLS fields" (mlsNumber, mlsStatus,
+  //     daysOnMarket, listPrice, listAgent, listAgentPhone, listOffice, remarks,
+  //     statusDate, relisted) OVERWRITING the DB values — LandVoice is the
+  //     source of truth for MLS state. Union phoneMeta so agent-facing intel
+  //     accumulates instead of being replaced.
+  //   • list_price column: overwrite if CSV has a fresher value.
+  //   • NEVER touch: assigned_id, status, callback_date, notes, l_location,
+  //     l_price, l_motivation, l_agent, l_mortgage, l_appointment, l_buyer,
+  //     confirmed_address, stage, intention, source (network flag), or any
+  //     agent-authored field. Those all get selected but not written.
+  const updateStmt = rawDb.prepare(`
+    UPDATE leads
+       SET phones = ?, phone_states = ?, phone = ?,
+           list_price = COALESCE(?, list_price),
+           extra_data = ?,
+           owner_name = COALESCE(NULLIF(?, ''), owner_name)
+     WHERE id = ?
+  `);
+
+  const MLS_FIELDS = [
+    "mlsNumber", "mlsStatus", "daysOnMarket", "listPrice", "listAgent",
+    "listAgentPhone", "listOffice", "remarks", "statusDate", "relisted",
+    "beds", "baths", "sqft", "yearBuilt", "acreage", "parcelId",
+    "ownerMailing", "ownerOccupied", "ownerIsAgent",
+  ];
+
   const batchId = `batchleads_csv_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}`;
   let inserted = 0;
-  let skippedDuplicate = 0;
+  let merged = 0;
+  let skippedIdentical = 0;
   const byType: Record<string, number> = {};
   const byCounty: Record<string, number> = {};
 
   const tx = rawDb.transaction((items: ImportRow[]) => {
     for (const r of items) {
       const addrKey = normalizeAddress(r.address);
-      // v14.75 — Check ALL phones on the incoming row against existing pool,
-      // not just the primary. LandVoice sometimes shuffles which contact is
-      // "primary" between exports; we treat any shared phone as a match.
-      const anyPhoneMatch = (r.allPhones || [r.phone]).some(p =>
-        existingPhones.has(String(p).replace(/\D/g, "").slice(-10))
-      );
-      if (anyPhoneMatch || existingAddresses.has(addrKey)) {
-        skippedDuplicate++;
+      const incomingNorms = (r.allPhones || [r.phone]).map(p => String(p).replace(/\D/g, "").slice(-10)).filter(Boolean);
+
+      // Find matching existing lead ID (by any shared phone OR normalized addr).
+      let matchId: number | null = null;
+      for (const n of incomingNorms) {
+        if (phoneToLead.has(n)) { matchId = phoneToLead.get(n)!; break; }
+      }
+      if (matchId == null && addrKey && addrToLead.has(addrKey)) {
+        matchId = addrToLead.get(addrKey)!;
+      }
+
+      if (matchId != null) {
+        // ---- MERGE PATH — fold new CSV intel into existing row ----
+        const existingRow = rawDb.prepare(`
+          SELECT phones, phone, phone_states, extra_data, list_price, owner_name
+            FROM leads WHERE id = ?
+        `).get(matchId) as any;
+        if (!existingRow) { skippedIdentical++; continue; }
+
+        let existingPhonesArr: string[] = [];
+        try { existingPhonesArr = JSON.parse(existingRow.phones || "[]"); } catch {}
+        let existingStates: Record<string, string> = {};
+        try { existingStates = JSON.parse(existingRow.phone_states || "{}"); } catch {}
+        let existingExtra: any = {};
+        try { existingExtra = JSON.parse(existingRow.extra_data || "{}"); } catch {}
+
+        // Union phones (dedup on last-10 digits, preserve existing order first).
+        const seen = new Set<string>();
+        const mergedPhones: string[] = [];
+        for (const p of existingPhonesArr) {
+          const n = String(p).replace(/\D/g, "").slice(-10);
+          if (n && !seen.has(n)) { seen.add(n); mergedPhones.push(p); }
+        }
+        let addedPhoneCount = 0;
+        for (const p of (r.allPhones || [])) {
+          const n = String(p).replace(/\D/g, "").slice(-10);
+          if (n && !seen.has(n)) {
+            seen.add(n);
+            mergedPhones.push(p);
+            addedPhoneCount++;
+            // New phone — pull its state from the incoming row (untried|struck).
+            existingStates[p] = r.phoneStates?.[p] || "untried";
+          }
+        }
+
+        // Primary phone: keep existing unless existing is empty; then use
+        // incoming primary. Never DOWNGRADE agent-progressed primary.
+        const newPrimary = existingRow.phone || r.phone || mergedPhones[0] || "";
+
+        // MLS fields: overwrite. Everything else in extra: keep existing.
+        const mergedExtra: any = { ...existingExtra };
+        for (const f of MLS_FIELDS) {
+          if (r.extra && r.extra[f] != null && r.extra[f] !== "") mergedExtra[f] = r.extra[f];
+        }
+        // phoneMeta: union by phone number.
+        const existingMeta = Array.isArray(existingExtra.phoneMeta) ? existingExtra.phoneMeta : [];
+        const incomingMeta = Array.isArray(r.extra?.phoneMeta) ? r.extra.phoneMeta : [];
+        const metaByPhone: Record<string, any> = {};
+        for (const m of existingMeta) if (m?.number) metaByPhone[String(m.number).replace(/\D/g, "").slice(-10)] = m;
+        for (const m of incomingMeta) {
+          const n = String(m?.number || "").replace(/\D/g, "").slice(-10);
+          if (!n) continue;
+          // Incoming wins for DNC status (LandVoice re-scans DNC every export).
+          metaByPhone[n] = { ...metaByPhone[n], ...m };
+        }
+        mergedExtra.phoneMeta = Object.values(metaByPhone);
+        // Track merge history for debugging.
+        mergedExtra.mergeHistory = [
+          ...(existingExtra.mergeHistory || []),
+          { at: new Date().toISOString(), source: r.extra?.source || "unknown", addedPhones: addedPhoneCount, batchId },
+        ].slice(-5);   // keep last 5 merges max
+
+        // Detect "nothing new": no added phones AND no MLS field changed.
+        let mlsChanged = false;
+        for (const f of MLS_FIELDS) {
+          if (r.extra?.[f] != null && r.extra[f] !== "" && JSON.stringify(existingExtra[f]) !== JSON.stringify(r.extra[f])) {
+            mlsChanged = true; break;
+          }
+        }
+        if (addedPhoneCount === 0 && !mlsChanged) {
+          skippedIdentical++;
+          continue;
+        }
+
+        updateStmt.run(
+          JSON.stringify(mergedPhones),
+          JSON.stringify(existingStates),
+          newPrimary,
+          r.listPrice ?? null,
+          JSON.stringify(mergedExtra),
+          r.ownerName || "",
+          matchId,
+        );
+        merged++;
+        // Update maps so a later row in the same CSV also sees the merged state.
+        for (const p of mergedPhones) {
+          const n = String(p).replace(/\D/g, "").slice(-10);
+          if (n) phoneToLead.set(n, matchId);
+        }
+        if (addrKey) addrToLead.set(addrKey, matchId);
         continue;
       }
+
+      // ---- INSERT PATH — brand new lead ----
       const sourceTag = r.extra?.source === "landvoice-expired" ? "landvoice_expired"
         : r.extra?.source === "landvoice-listing" ? "landvoice_listing"
         : "batchleads_csv";
@@ -657,21 +798,28 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
         sourceTag, batchId, JSON.stringify(r.extra || {}),
       );
       if (result.changes > 0) {
+        const newId = Number(result.lastInsertRowid);
         inserted++;
         byType[r.leadType] = (byType[r.leadType] || 0) + 1;
         if (r.county) byCounty[r.county] = (byCounty[r.county] || 0) + 1;
-        // v14.75 — Seed ALL phones from this row so a later row in the same
-        // CSV can't sneak in via a shared secondary.
         for (const p of (r.allPhones || [r.phone])) {
-          existingPhones.add(String(p).replace(/\D/g, "").slice(-10));
+          const n = String(p).replace(/\D/g, "").slice(-10);
+          if (n) phoneToLead.set(n, newId);
         }
-        existingAddresses.add(addrKey);
+        if (addrKey) addrToLead.set(addrKey, newId);
       } else {
-        skippedDuplicate++;
+        skippedIdentical++;
       }
     }
   });
 
   tx(rows);
-  return { inserted, skippedDuplicate, byType, byCounty };
+  return {
+    inserted,
+    merged,
+    skippedIdentical,
+    skippedDuplicate: merged + skippedIdentical,
+    byType,
+    byCounty,
+  };
 }

@@ -591,7 +591,7 @@ export default function LoginPage() {
               fontSize: 10, color: "rgba(255,255,255,0.15)", textAlign: "center",
               marginTop: 16, marginBottom: 0, letterSpacing: "0.08em",
             }}>
-              Lead Depot v14.62
+              Lead Depot v14.63
             </p>
           </div>
 

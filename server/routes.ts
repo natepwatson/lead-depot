@@ -310,7 +310,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.62 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.63 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -369,7 +369,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.62 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.63 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -654,7 +654,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.62 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.63 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -833,9 +833,15 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // ─── SAFEGUARDS: MIDDLEWARE (v11.70) ──────────────────────────────────────
 
   // ─ Admin-only route guard ──────────────────────────────────────────────────
-  // All /api/admin/* routes require the requester to be an active admin.
-  // X-Agent-Id header is sent by the React client on every request.
+  // v14.63 — SECURITY FIX. Previously this checked only the `X-Agent-Id` header,
+  // which is spoofable (any curl with `-H "X-Agent-Id: 1"` passed). Now uses the
+  // session cookie via attachSession + req.currentAgent (same pattern used by
+  // the newer merge / admin-reset-password / audit-log routes). Any tool without
+  // a valid session cookie now gets 401 regardless of headers.
+  //
   // Cron trigger routes are exempt (they run server-side with no session).
+  // They MUST authenticate themselves via INGEST_SECRET or a similar mechanism
+  // inside the route body — the exempt list here just skips the session gate.
   const CRON_EXEMPT_PATHS = [
     "/api/admin/stale-lead-audit",
     "/api/admin/dbpr-run",
@@ -844,12 +850,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   app.use("/api/admin", (req: any, res: any, next: any) => {
     const fullPath = req.baseUrl + req.path;
     if (CRON_EXEMPT_PATHS.some(p => fullPath.startsWith(p))) return next();
-    const agentId = parseInt(String(req.headers["x-agent-id"] || ""));
-    if (!agentId || isNaN(agentId)) {
+    // req.currentAgent is populated by attachSession middleware iff a valid
+    // session cookie is present. Not spoofable.
+    if (!req.currentAgent) {
       return res.status(401).json({ error: "Authentication required" });
     }
-    const agent = storage.getAgentById(agentId);
-    if (!agent || !agent.isActive || agent.role !== "admin") {
+    if (req.currentAgent.role !== "admin") {
       return res.status(403).json({ error: "Admin access required" });
     }
     next();
@@ -874,18 +880,59 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     next();
   }
 
+  // v14.63 — Login rate limiter. 5 failed attempts per IP → 5-minute 429 lockout.
+  // In-memory only (no dependency, no DB). Auto-purges old entries.
+  const LOGIN_LIMIT_MAX = 5;
+  const LOGIN_LIMIT_WINDOW_MS = 5 * 60 * 1000;
+  const loginAttempts: Map<string, { count: number; firstFailAt: number; blockedUntil: number | null }> = new Map();
+  function loginRateGate(req: any, res: any): boolean {
+    const ip = (req.ip || req.socket?.remoteAddress || "unknown") as string;
+    const now = Date.now();
+    const rec = loginAttempts.get(ip);
+    // Purge stale entries occasionally (cheap: every ~50 lookups)
+    if (loginAttempts.size > 50 && Math.random() < 0.02) {
+      for (const [k, v] of loginAttempts) {
+        if ((v.blockedUntil ?? 0) < now && now - v.firstFailAt > LOGIN_LIMIT_WINDOW_MS) loginAttempts.delete(k);
+      }
+    }
+    if (rec && rec.blockedUntil && rec.blockedUntil > now) {
+      const waitSec = Math.ceil((rec.blockedUntil - now) / 1000);
+      res.status(429).json({ error: `Too many failed login attempts. Try again in ${waitSec} seconds.` });
+      return false;
+    }
+    return true;
+  }
+  function loginRecordFail(req: any) {
+    const ip = (req.ip || req.socket?.remoteAddress || "unknown") as string;
+    const now = Date.now();
+    const rec = loginAttempts.get(ip);
+    if (!rec || (now - rec.firstFailAt) > LOGIN_LIMIT_WINDOW_MS) {
+      loginAttempts.set(ip, { count: 1, firstFailAt: now, blockedUntil: null });
+      return;
+    }
+    rec.count++;
+    if (rec.count >= LOGIN_LIMIT_MAX) {
+      rec.blockedUntil = now + LOGIN_LIMIT_WINDOW_MS;
+    }
+  }
+  function loginRecordSuccess(req: any) {
+    const ip = (req.ip || req.socket?.remoteAddress || "unknown") as string;
+    loginAttempts.delete(ip);
+  }
+
   app.post("/api/login", async (req, res) => {
+    if (!loginRateGate(req, res)) return;
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Missing credentials" });
     const agent = storage.getAgentByEmail(email.toLowerCase().trim());
-    if (!agent) return res.status(401).json({ error: "Invalid email or password" });
+    if (!agent) { loginRecordFail(req); return res.status(401).json({ error: "Invalid email or password" }); }
 
     // v14.58 — Phase A: bcrypt verify with legacy plaintext fallback.
     // If the row is still legacy plaintext at login time (e.g. boot migration
     // hasn't finished yet), verifyPassword returns ok + needsRehash so we
     // upgrade on the fly.
     const { ok, needsRehash } = await verifyPassword(password, (agent as any).password);
-    if (!ok) return res.status(401).json({ error: "Invalid email or password" });
+    if (!ok) { loginRecordFail(req); return res.status(401).json({ error: "Invalid email or password" }); }
     if (needsRehash) {
       try {
         const h = await hashPassword(password);
@@ -895,6 +942,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (!agent.isActive) {
       return res.status(403).json({ error: "Your account has been deactivated. Contact an admin." });
     }
+
+    // v14.63 — Successful login clears the rate-limit bucket for this IP.
+    loginRecordSuccess(req);
 
     // Mint a server-side session and set httpOnly cookie. Client also gets a
     // legacy user payload for localStorage compatibility with existing UI.
@@ -1034,6 +1084,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
   app.post("/api/agents", async (req, res) => {
+    // v14.63 — SECURITY: was fully ungated. Admin-only create.
+    if (!requireAdmin(req, res)) return;
     const { name, email, password, role } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: "Missing fields" });
     // v14.58 — Phase A: legacy admin-create endpoint (unused by current UI, kept
@@ -1055,7 +1107,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
   app.patch("/api/agents/:id", (req, res) => {
+    // v14.63 — SECURITY: was fully ungated. Anyone could rewrite any agent's
+    // profile fields. Now: self-or-admin.
     const id = parseInt(req.params.id);
+    if (!requireSelfOrAdmin(req, res, id)) return;
     // Safeguard (v11.70): whitelist allowed fields — never let client overwrite
     // role, password, id, or receiveLeads without going through dedicated routes
     // v12.5 — territory1/territory2 replace territory. Legacy "territory" is still
@@ -1107,6 +1162,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // ─── AGENT INVITATION ─────────────────────────────────────────────────────
   // POST /api/agents/invite — admin sends invite with just name + email
   app.post("/api/agents/invite", async (req, res) => {
+    // v14.63 — SECURITY: was fully ungated. Anyone could send Lead Depot
+    // invite emails from noreply@ (spam / deliverability / DB injection risk).
+    if (!requireAdmin(req, res)) return;
     const { name, email, role: reqRole } = req.body;
     if (!name || !email) return res.status(400).json({ error: "Name and email required" });
     const cleanEmail = email.toLowerCase().trim();
@@ -1554,7 +1612,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.62</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.63</p>
             </div>
           `,
         });
@@ -1716,7 +1774,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.62 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.63 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -1751,7 +1809,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   // Update own profile (name, email, phone, brokerage, homeAddress, headshotUrl)
   app.patch("/api/agents/:id/profile", (req, res) => {
+    // v14.63 — SECURITY: was fully ungated. Now self-or-admin.
     const id = parseInt(req.params.id);
+    if (!requireSelfOrAdmin(req, res, id)) return;
     const agent = storage.getAgentById(id);
     if (!agent) return res.status(404).json({ error: "Agent not found" });
     const { name, email, phone, brokerage, homeAddress, headshotUrl } = req.body;
@@ -1819,7 +1879,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   // Upload headshot — accepts any image, server-side face-detect + smart crop to 400×400 JPEG
   app.post("/api/agents/:id/headshot", async (req: any, res: any) => {
+    // v14.63 — SECURITY: was fully ungated. Now self-or-admin.
     const id = parseInt(req.params.id);
+    if (!requireSelfOrAdmin(req, res, id)) return;
     const { imageData, mimeType } = req.body; // imageData = base64 string
     if (!imageData || !mimeType) return res.status(400).json({ error: "Missing imageData or mimeType" });
     const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"];
@@ -1893,12 +1955,18 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
   // Delete own account — removes all activity, unassigns leads, then deletes agent
-  app.delete("/api/agents/:id/self", (req, res) => {
+  app.delete("/api/agents/:id/self", async (req, res) => {
+    // v14.63 — SECURITY: was fully ungated + plaintext password compare (which
+    // never matched post-bcrypt-migration, so this endpoint was dead). Now:
+    // requires session for the target agent, verifies password via bcrypt.
     const id = parseInt(req.params.id);
+    if (!requireSelfOrAdmin(req, res, id)) return;
     const { password } = req.body;
+    if (!password) return res.status(400).json({ error: "Password required" });
     const agent = storage.getAgentById(id);
     if (!agent) return res.status(404).json({ error: "Agent not found" });
-    if (agent.password !== password) return res.status(401).json({ error: "Password incorrect" });
+    const { ok } = await verifyPassword(password, (agent as any).password);
+    if (!ok) return res.status(401).json({ error: "Password incorrect" });
     // Must have at least one receiver remaining
     const receiversAfter = countLeadReceivers(id);
     if (receiversAfter === 0) {
@@ -1974,6 +2042,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   // Toggle admin as lead receiver
   app.patch("/api/agents/:id/receive-leads", (req, res) => {
+    // v14.63 — SECURITY: was fully ungated. Admin-only toggle.
+    if (!requireAdmin(req, res)) return;
     const id = parseInt(req.params.id);
     const { receiveLeads } = req.body;
     const updated = storage.updateAgent(id, { receiveLeads: !!receiveLeads });
@@ -1986,6 +2056,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Rule: at least one receiver must remain at all times.
   // Admins are the final fallback — they can only turn off lead flow if a non-admin agent is active with flow on.
   app.patch("/api/agents/:id/lead-flow", (req, res) => {
+    // v14.63 — SECURITY: was fully ungated. Admin-only toggle.
+    if (!requireAdmin(req, res)) return;
     const id = parseInt(req.params.id);
     const { leadFlowOn } = req.body;
     if (!leadFlowOn) {
@@ -4264,16 +4336,25 @@ Brothers Group Real Estate Team at Momentum Realty
   // PATCH /api/agents/:id/home-county  { homeCounty: "Nassau"|"Duval"|"St Johns" }
   // Called by the first-login gate. Agent picks their county — required to enter app.
   app.patch("/api/agents/:id/home-county", (req, res) => {
+    // v14.63 — SECURITY: was fully ungated. Now self-or-admin.
+    // v14.63 — PRODUCT: agents can now self-select "All counties" (killer mode)
+    // by passing null / empty. Previously admin-only via /api/admin/agents/:id/home-county.
     const id = parseInt(req.params.id);
     if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid agent id" });
+    if (!requireSelfOrAdmin(req, res, id)) return;
     const raw = req.body?.homeCounty;
-    const county = raw ? String(raw).trim() : "";
+    const trimmed = raw != null ? String(raw).trim() : "";
     const ALLOWED = ["Nassau", "Duval", "St Johns"];
-    if (!ALLOWED.includes(county)) return res.status(400).json({ error: "Invalid county" });
+    // Empty / null / "All counties" all mean killer mode → store as NULL.
+    const isAllCounties = trimmed === "" || trimmed.toLowerCase() === "all counties";
+    if (!isAllCounties && !ALLOWED.includes(trimmed)) {
+      return res.status(400).json({ error: "Invalid county. Allowed: Nassau, Duval, St Johns, or 'All counties'." });
+    }
     const existing = storage.getAgentById(id);
     if (!existing) return res.status(404).json({ error: "Agent not found" });
-    rawDb.prepare(`UPDATE agents SET home_county = ? WHERE id = ?`).run(county, id);
-    res.json({ ok: true, homeCounty: county });
+    const value = isAllCounties ? null : trimmed;
+    rawDb.prepare(`UPDATE agents SET home_county = ? WHERE id = ?`).run(value, id);
+    res.json({ ok: true, homeCounty: value });
   });
 
   // ─── ADMIN: SET AGENT HOME COUNTY (v13.9) ──────────────────────
@@ -4788,7 +4869,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.62 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.63 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5020,7 +5101,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.62",
+      version: "v14.63",
       services: results,
     });
   });

@@ -1113,21 +1113,19 @@ export default function AdminDashboard({
     try {
       const url = side === "seller" ? "/api/admin/seller-hard-reset" : "/api/admin/recruiting-hard-reset";
       const r = await apiRequest("POST", url, { confirm: "RESET" });
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({}));
-        throw new Error(body?.error || `HTTP ${r.status}`);
-      }
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.error || `HTTP ${r.status}`);
       // Close modal first so user sees the change immediately.
       setHardResetOpen(null);
       setHardResetInput("");
       // Force-refresh every query so numbers snap to zero on-screen.
       await qc.invalidateQueries();
       await qc.refetchQueries({ type: "active" });
+      const cleared = body?.cleared || {};
+      const n = cleared.leads ?? 0;
       toast({
         title: `${side === "seller" ? "Seller" : "Recruiting"} depot cleared`,
-        description: side === "seller"
-          ? "All seller leads, activity, points, and appointments deleted."
-          : "All recruiting leads, activity, and recruiting points deleted.",
+        description: `${n} lead${n === 1 ? "" : "s"} deleted. Ready for a fresh upload.`,
       });
     } catch (err: any) {
       toast({ title: "Reset failed", description: err?.message || String(err), variant: "destructive" });
@@ -1566,7 +1564,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.71
+              v14.72
             </p>
           </div>
         </div>
@@ -3656,7 +3654,7 @@ export default function AdminDashboard({
         />
       )}
 
-      {/* v14.71 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
+      {/* v14.72 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
       {hardResetOpen && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",

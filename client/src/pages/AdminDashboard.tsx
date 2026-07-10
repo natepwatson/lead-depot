@@ -22,7 +22,8 @@ import {
   Phone, PhoneCall, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneMissed, Calendar, XCircle, CheckCircle2,
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, Heart, Map as MapIcon,
-  Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake
+  Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
+  UserPlus, UserCircle2
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -851,7 +852,14 @@ function HealthWidget() {
   );
 }
 
-export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () => void } = {}) {
+export default function AdminDashboard({
+  onWorkMyLeads,
+  onOpenAgentTab,
+}: {
+  onWorkMyLeads?: () => void;
+  // v14.51 — admin bottom nav jumps into AgentView on a specific tab.
+  onOpenAgentTab?: (tab: "leads" | "refer" | "leaderboard" | "profile") => void;
+} = {}) {
   const { user, logout } = useAuth();
   useRealtimeUpdates();
   const { toast } = useToast();
@@ -861,6 +869,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const fileRef = useRef<HTMLInputElement>(null);
   // Activity Feed
   const [feedOpen, setFeedOpen] = useState(false);
+  // v14.51 — Admin tabs now controlled so the bottom nav can activate them.
+  const [adminTab, setAdminTab] = useState<string>("leaderboard");
   // v14.49 — admin "Who called me?" modal state.
   const [adminLookupOpen, setAdminLookupOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -1469,7 +1479,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.50
+              v14.51
             </p>
           </div>
         </div>
@@ -1539,7 +1549,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
       <main style={{ padding: "20px 16px", maxWidth: 1200, margin: "0 auto" }}>
         {/* v14.19 — Admin default landing = Leaderboard (leftmost). Leaderboard sub-tab defaults to Today (see lbTab state). */}
-        <Tabs defaultValue="leaderboard">
+        <Tabs value={adminTab} onValueChange={(v) => setAdminTab(v)}>
           {/* ── Tab bar ──────────────────────────────────────────────────────── */}
           <TabsList style={{
             background: "rgba(255,255,255,0.03)",
@@ -3554,6 +3564,51 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
       <ActivityFeed open={feedOpen} onClose={() => setFeedOpen(false)} wsRef={wsRef} />
       {/* v14.49 — Admin "Who called me?" modal (reused from AgentView). */}
       {adminLookupOpen && <CallbackLookupModal onClose={() => setAdminLookupOpen(false)} />}
+
+      {/* v14.51 — Spacer to clear the bottom nav so page content isn't hidden behind it. */}
+      <div style={{ height: "calc(62px + env(safe-area-inset-bottom, 0px))" }} />
+
+      {/* v14.51 — Admin bottom nav. Mirrors AgentView's nav so Alex has the same 4 shortcuts everywhere.
+          Dashboard stays on Admin (activates Leaderboard tab). Dial/Refer/Profile jump into AgentView. */}
+      <nav style={{
+        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
+        display: "flex",
+        background: "linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(6,6,6,0.99) 100%)",
+        backdropFilter: "blur(24px)",
+        borderTop: "1px solid rgba(200,170,90,0.18)",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        boxShadow: "0 -4px 24px rgba(0,0,0,0.5)",
+      }}>
+        {[
+          { id: "dashboard", label: "Dashboard", icon: Trophy,       onClick: () => setAdminTab("leaderboard") },
+          { id: "dial",      label: "Dial",      icon: Phone,        onClick: () => (onWorkMyLeads ? onWorkMyLeads() : onOpenAgentTab?.("leads")) },
+          { id: "refer",     label: "Referrals", icon: UserPlus,     onClick: () => onOpenAgentTab?.("refer") },
+          { id: "profile",   label: "Profile",   icon: UserCircle2,  onClick: () => setAdminTab("profile") },
+        ].map(n => {
+          const Icon = n.icon;
+          const active = (n.id === "dashboard" && adminTab === "leaderboard") || (n.id === "profile" && adminTab === "profile");
+          return (
+            <button key={n.id} data-testid={`admin-bottom-nav-${n.id}`} onClick={n.onClick} style={{
+              flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+              gap: 5, padding: "12px 8px 14px",
+              background: active ? "rgba(200,170,90,0.07)" : "transparent",
+              borderTop: active ? "2px solid #c8aa5a" : "2px solid transparent",
+              border: "none", cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}>
+              <Icon size={22} style={{ color: active ? "#c8aa5a" : "rgba(255,255,255,0.35)", transition: "color 0.15s" }} />
+              <span style={{
+                fontSize: 10, letterSpacing: "0.08em",
+                color: active ? "#c8aa5a" : "rgba(255,255,255,0.35)",
+                fontWeight: active ? 700 : 400,
+                transition: "color 0.15s",
+              }}>
+                {n.label}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }

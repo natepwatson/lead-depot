@@ -18,7 +18,9 @@ import { useEffect, useState } from "react";
 
 function AppRoutes() {
   const { user, setHeadshot, setHomeCounty } = useAuth();
-  const [adminViewingLeads, setAdminViewingLeads] = useState(false);
+  // v14.51 — admin bottom nav can jump to any agent-side tab, not just leads.
+  // null = show AdminDashboard. "leads"/"refer"/"leaderboard"/"profile" = show AgentView on that tab.
+  const [adminAgentTab, setAdminAgentTab] = useState<null | "leads" | "refer" | "leaderboard" | "profile">(null);
   const [location, navigate] = useLocation();
 
   if (!user) return <LoginPage />;
@@ -57,10 +59,15 @@ function AppRoutes() {
   // see a dismissible per-session nudge to get their team email provisioned.
   const showEmailNudge = isAgent;
 
-  if (user.role === "admin" && adminViewingLeads) {
-    return <AgentView mode="seller" onBackToAdmin={() => setAdminViewingLeads(false)} initialTab="leads" />;
+  if (user.role === "admin" && adminAgentTab) {
+    return <AgentView mode="seller" onBackToAdmin={() => setAdminAgentTab(null)} initialTab={adminAgentTab} />;
   }
-  if (user.role === "admin") return <AdminDashboard onWorkMyLeads={() => setAdminViewingLeads(true)} />;
+  if (user.role === "admin") return (
+    <AdminDashboard
+      onWorkMyLeads={() => setAdminAgentTab("leads")}
+      onOpenAgentTab={(t) => setAdminAgentTab(t)}
+    />
+  );
   return (
     <>
       <AgentView mode="seller" />

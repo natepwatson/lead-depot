@@ -889,31 +889,32 @@ function LeadCard({ lead }: { lead: Lead }) {
           </div>
         )}
 
-        {/* ── v14.22 — Stacked phone lines (INACTIVE lines on top, active DIAL button at bottom) ── */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-          {/* Inactive lines first (thumb-reach: keep the big Dial button at the bottom of the stack) */}
+        {/* ── v14.51 — Stacked phone lines. Inactive line numbers HIDDEN (privacy + reduce visual noise);
+            only status label is shown for inactive lines. Active line renders in a slimmer Dial button. ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+          {/* Inactive lines first (thumb-reach: keep the Dial button at the bottom of the stack) */}
           {allPhones.map((p, i) => {
             if (p === activePhone) return null;
             const state = phoneStates[p] || "untried";
             const isStruck = state === "struck";
             const stateLabel = state === "struck" ? "WRONG #" : state === "no_answer_today" ? "NO ANSWER TODAY" : "UNTRIED";
-            const stateColor = state === "struck" ? "#6b7280" : state === "no_answer_today" ? "#f97316" : "rgba(200,170,90,0.7)";
+            const stateColor = state === "struck" ? "#6b7280" : state === "no_answer_today" ? "#f97316" : "rgba(200,170,90,0.55)";
             return (
               <div key={p} style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "9px 14px",
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 8, minHeight: 36,
-                opacity: isStruck ? 0.35 : 0.55,
+                padding: "7px 12px",
+                background: "rgba(255,255,255,0.025)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 7, minHeight: 30,
+                opacity: isStruck ? 0.35 : 0.6,
               }}>
                 <span style={{
-                  fontSize: 13, fontWeight: 500,
-                  color: "rgba(255,255,255,0.6)",
+                  fontSize: 12, fontWeight: 500,
+                  color: "rgba(255,255,255,0.5)",
                   textDecoration: isStruck ? "line-through" : "none",
-                  fontVariantNumeric: "tabular-nums",
+                  letterSpacing: "0.02em",
                 }}>
-                  Line {i + 1}: {p}
+                  Line {i + 1}
                 </span>
                 <span style={{
                   fontSize: 9, letterSpacing: "0.14em", fontWeight: 700,
@@ -924,31 +925,31 @@ function LeadCard({ lead }: { lead: Lead }) {
               </div>
             );
           })}
-          {/* Big gold Dial button for the active line — anchored at the bottom of the stack */}
+          {/* Slimmer gold Dial button for the active line — anchored at the bottom of the stack */}
           {activePhone && (() => {
             const activeIdx = allPhones.findIndex(p => p === activePhone);
             return (
               <a href={`tel:${activePhone}`} style={{
                 display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                gap: 4, padding: "18px 22px",
+                gap: 2, padding: "11px 18px",
                 background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-                borderRadius: 12, textDecoration: "none",
-                color: "#080808", minHeight: 76,
-                border: "2px solid #e8c96a",
-                boxShadow: "0 6px 24px rgba(200,170,90,0.4), 0 0 0 4px rgba(200,170,90,0.12)",
+                borderRadius: 10, textDecoration: "none",
+                color: "#080808", minHeight: 56,
+                border: "1px solid #e8c96a",
+                boxShadow: "0 4px 14px rgba(200,170,90,0.28)",
               }}>
                 <span style={{
-                  fontSize: 9, letterSpacing: "0.24em", fontWeight: 800,
-                  color: "rgba(8,8,8,0.65)",
+                  fontSize: 8, letterSpacing: "0.22em", fontWeight: 800,
+                  color: "rgba(8,8,8,0.6)",
                 }}>
                   DIAL LINE {activeIdx + 1}
                 </span>
                 <span style={{
-                  fontSize: "clamp(1.5rem, 6.5vw, 1.9rem)", fontWeight: 800,
-                  letterSpacing: "0.02em", display: "flex", alignItems: "center", gap: 10,
+                  fontSize: "clamp(1.15rem, 5.2vw, 1.55rem)", fontWeight: 800,
+                  letterSpacing: "0.02em", display: "flex", alignItems: "center", gap: 8,
                   lineHeight: 1,
                 }}>
-                  <Phone size={22} strokeWidth={2.5} /> {activePhone}
+                  <Phone size={18} strokeWidth={2.5} /> {activePhone}
                 </span>
               </a>
             );

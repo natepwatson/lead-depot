@@ -1,7 +1,15 @@
 // v14.80 — Opt-in sound effects. Silent by default. Respects device mute switch on iOS.
 const KEY = "ld_sounds_enabled";
 
+// v14.81 — Tutorial override. The celebration in Chapter 6 must always sing,
+// even for agents who have sounds off (first-time onboarding is a special
+// case). TutorialFlow calls forceTutorialSounds(true) on mount and
+// forceTutorialSounds(false) on unmount, restoring the user's real preference.
+let tutorialSoundsForced = false;
+export function forceTutorialSounds(on: boolean) { tutorialSoundsForced = on; }
+
 export function soundsEnabled(): boolean {
+  if (tutorialSoundsForced) return true;
   try { return localStorage.getItem(KEY) === "1"; } catch { return false; }
 }
 export function setSoundsEnabled(on: boolean) {

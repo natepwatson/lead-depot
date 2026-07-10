@@ -20,7 +20,7 @@ function AppRoutes() {
   const { user, setHeadshot, setHomeCounty } = useAuth();
   // v14.51 — admin bottom nav can jump to any agent-side tab, not just leads.
   // null = show AdminDashboard. "leads"/"refer"/"leaderboard"/"profile" = show AgentView on that tab.
-  const [adminAgentTab, setAdminAgentTab] = useState<null | "leads" | "refer" | "leaderboard" | "profile">(null);
+  const [adminAgentTab, setAdminAgentTab] = useState<null | "leads" | "refer" | "leaderboard" | "profile" | "pipeline">(null);
   const [location, navigate] = useLocation();
 
   if (!user) return <LoginPage />;

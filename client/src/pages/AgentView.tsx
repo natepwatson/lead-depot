@@ -18,6 +18,8 @@ import {
 import ProfilePage from "./ProfilePage";
 import TutorialModal from "../components/TutorialModal";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
+import { playSound } from "@/lib/sounds";
+import AnimatedNumber from "../components/AnimatedNumber";
 import type { Lead } from "@shared/schema";
 
 // ─── LPMAMA fields config ─────────────────────────────────────────────────────
@@ -469,6 +471,8 @@ function LeadCard({ lead }: { lead: Lead }) {
   // Tone Rules + Guardrails + Branch Cues moved to the Scripts admin page.
   const [outcomeFlash, setOutcomeFlash] = useState<{ label: string; color: string } | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
+  // v14.80 — Tier 3 celebration: bumping this key re-triggers the Appt Set shimmer sweep
+  const [apptShimmerKey, setApptShimmerKey] = useState(0);
   const [lpmData, setLpmData] = useState<Record<string, string>>({
     // Seller LPMAMA
     location: lead.lLocation ?? "",
@@ -555,6 +559,13 @@ function LeadCard({ lead }: { lead: Lead }) {
       // Confetti for appointments!
       if (variables.outcome === "contacted_appointment") {
         setShowConfetti(true);
+        // v14.80 — Tier 3: gold shimmer sweep on the Appt Set tile + chime sound (opt-in)
+        setApptShimmerKey(k => k + 1);
+        playSound("chime");
+      }
+      // v14.80 — Tier 3: quiet tick sound when a KIT (Keep in Touch) submits successfully
+      if (variables.outcome === "keep_in_touch") {
+        playSound("tick");
       }
 
       // v14.11 — Advance toast: make the phone advance visible.
@@ -1422,12 +1433,16 @@ function LeadCard({ lead }: { lead: Lead }) {
           {OUTCOMES.map(o => {
             const Icon = o.icon;
             const isHovered = hoveredOutcome === o.key;
+            // v14.80 — Tier 3: Appt Set tile gets a 400ms gold shimmer sweep + chime
+            // right after it's tapped (see apptShimmerKey / outcomeMutation.onSuccess).
+            const isApptTile = o.key === "contacted_appointment";
+            const showShimmer = isApptTile && apptShimmerKey > 0;
             return (
-              <button key={o.key} onClick={() => handleOutcome(o.key)} disabled={outcomeMutation.isPending}
+              <button key={o.key} className="outcome-btn" onClick={() => handleOutcome(o.key)} disabled={outcomeMutation.isPending}
                 onMouseEnter={() => setHoveredOutcome(o.key)} onMouseLeave={() => setHoveredOutcome(null)}
                 style={{
                   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
-                  padding: "6px 4px",
+                  padding: "6px 4px", position: "relative", overflow: "hidden",
                   // v14.79 — fuller look: brighter tinted bg + subtle inner sheen so tiles feel
                   // dimensional instead of flat against the dark card. Sheen is a light
                   // top-highlight fading to the base tint (creates a soft "glass" feel).
@@ -1445,6 +1460,15 @@ function LeadCard({ lead }: { lead: Lead }) {
               >
                 <Icon size={14} style={{ color: o.text }} />
                 <span style={{ fontSize: 10, fontWeight: 700, color: o.text, letterSpacing: "0.02em", textAlign: "center", lineHeight: 1.15 }}>{o.label}</span>
+                {showShimmer && (
+                  <span key={apptShimmerKey} aria-hidden style={{
+                    position: "absolute", inset: 0,
+                    background: "linear-gradient(100deg, transparent 30%, rgba(255,241,199,0.55) 50%, transparent 70%)",
+                    backgroundSize: "250% 100%",
+                    animation: "apptShimmer 400ms ease-out",
+                    pointerEvents: "none",
+                  }} />
+                )}
               </button>
             );
           })}
@@ -1781,6 +1805,23 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
   const apptsGap  = rankAbove ? Math.max(0, rankAbove.appointmentsSet - (myStats?.appointmentsSet ?? 0)) : 0;
   const pointsGap = rankAbove && apptsGap === 0 ? Math.max(0, (rankAbove.points || 0) - (myStats?.points || 0)) : 0;
 
+  // v14.80 — Tier 3: rank-up toast + lift sound. Tracks the previous rank in a ref;
+  // when the rank NUMBER decreases (i.e. climbing the board), fires a toast naming
+  // whoever we just passed, plus a quick ascending "lift" chime.
+  const prevRankIdxRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (myRankIdx < 0 || !ranked.length) return;
+    const prev = prevRankIdxRef.current;
+    if (prev !== null && myRankIdx < prev) {
+      // The agent now sitting one spot below us (index myRankIdx+1) is the one
+      // we just overtook, since we moved into their old slot.
+      const passedName = ranked[myRankIdx + 1]?.agent?.name ?? "the next spot";
+      toast({ title: `↑ You just passed ${passedName}.` });
+      playSound("lift");
+    }
+    prevRankIdxRef.current = myRankIdx;
+  }, [myRankIdx, ranked.length]);
+
   return (
     <div style={{ width: "100%", padding: "0 0 20px" }}>
 
@@ -1830,7 +1871,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
               <p style={{
                 fontSize: s.hero ? 36 : 24, fontWeight: 700, color: "#c8aa5a",
                 fontFamily: "'Cormorant Garamond','Georgia',serif", lineHeight: 1,
-              }}>{s.value}</p>
+              }}><AnimatedNumber value={s.value} /></p>
               <p style={{
                 fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase",
                 color: s.hero ? "rgba(200,170,90,0.75)" : "rgba(255,255,255,0.45)",
@@ -1894,6 +1935,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                       : <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>#{i+1}</span>}
                   </span>
                   {/* v13.9 — headshot or initials */}
+                  {/* v14.80 — Tier 1: #1 rank gets a breathing gold ring (first-place-glow) */}
                   {(() => {
                     const initials = s.agent.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
                     const commonStyle = {
@@ -1901,9 +1943,11 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                       border: `1.5px solid ${medalColor ?? "rgba(255,255,255,0.12)"}`,
                       flexShrink: 0,
                     } as const;
+                    const firstPlaceClass = i === 0 ? "first-place-glow" : undefined;
                     if (s.agent.headshotUrl) {
                       return (
                         <img
+                          className={firstPlaceClass}
                           src={s.agent.headshotUrl}
                           alt={s.agent.name}
                           style={{ ...commonStyle, objectFit: "cover" }}
@@ -1925,7 +1969,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                       );
                     }
                     return (
-                      <div style={{
+                      <div className={firstPlaceClass} style={{
                         ...commonStyle,
                         display: "flex", alignItems: "center", justifyContent: "center",
                         background: "rgba(200,170,90,0.08)",
@@ -2062,9 +2106,14 @@ interface PipelineLead {
   follow_up_timing?: string | null;
   last_outcome?: string | null;
   last_activity_at?: string | null;
+  // v14.80 — Agent Pipeline redesign: from lpmamab_snapshot on /api/leads/my-pipeline
+  appt_date?: string | null;
+  appt_time?: string | null;
+  intention?: string | null;
+  stage?: string | null;
 }
 
-function PipelineCard({ lead, kind }: { lead: PipelineLead; kind: "appt" | "kit" | "network" }) {
+function PipelineCard({ lead, kind, onOpen }: { lead: PipelineLead; kind: "appt" | "kit" | "network"; onOpen?: (leadId: number) => void }) {
   const accent = kind === "appt" ? "#10b981" : kind === "kit" ? "#c8aa5a" : "#8b7cff";
   const kindLabel = kind === "appt" ? "APPT SET" : kind === "kit" ? "KEEP IN TOUCH" : "MY NETWORK LEAD";
   const name = lead.owner_name || lead.ownerName || "Unknown";
@@ -2072,15 +2121,21 @@ function PipelineCard({ lead, kind }: { lead: PipelineLead; kind: "appt" | "kit"
   const when = lead.last_activity_at
     ? new Date(lead.last_activity_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
     : null;
+  // v14.80 — Agent Pipeline redesign: surface appt date/time (appts) and
+  // intention + follow-up trigger (KIT) pulled from the activity snapshot.
+  const apptWhen = [lead.appt_date, lead.appt_time].filter(Boolean).join(" at ");
   return (
-    <div style={{
-      padding: "14px 16px",
-      background: "rgba(255,255,255,0.03)",
-      border: "1px solid rgba(200,170,90,0.14)",
-      borderLeft: `3px solid ${accent}`,
-      borderRadius: 10,
-      display: "flex", flexDirection: "column", gap: 4,
-    }}>
+    <div
+      onClick={() => lead.id && onOpen?.(lead.id)}
+      style={{
+        padding: "14px 16px",
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(200,170,90,0.14)",
+        borderLeft: `3px solid ${accent}`,
+        borderRadius: 10,
+        display: "flex", flexDirection: "column", gap: 4,
+        cursor: onOpen ? "pointer" : "default",
+      }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", letterSpacing: "0.01em" }}>{name}</div>
         <div style={{
@@ -2098,16 +2153,22 @@ function PipelineCard({ lead, kind }: { lead: PipelineLead; kind: "appt" | "kit"
           <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", letterSpacing: "0.02em" }}>Last touch · {when}</div>
         )}
       </div>
-      {lead.follow_up_timing && kind === "kit" && (
+      {kind === "appt" && apptWhen && (
+        <div style={{ fontSize: 10, color: "rgba(16,185,129,0.9)", marginTop: 4 }}>
+          Appointment: <b style={{ color: "#10b981" }}>{apptWhen}</b>
+        </div>
+      )}
+      {kind === "kit" && (lead.intention || lead.follow_up_timing) && (
         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>
-          Follow up: <b style={{ color: "rgba(255,255,255,0.75)" }}>{lead.follow_up_timing}</b>
+          {lead.intention && <>Intention: <b style={{ color: "rgba(255,255,255,0.75)" }}>{lead.intention}</b>{lead.follow_up_timing && " · "}</>}
+          {lead.follow_up_timing && <>Follow up: <b style={{ color: "rgba(255,255,255,0.75)" }}>{lead.follow_up_timing}</b></>}
         </div>
       )}
     </div>
   );
 }
 
-function MyLeadsTab() {
+function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
   const { user } = useAuth();
   const agentId = (user as any)?.id;
   const { data, isLoading, isError } = useQuery<any>({
@@ -2117,72 +2178,105 @@ function MyLeadsTab() {
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
+  // v14.80 — Agent Pipeline redesign: tiles now filter the list below instead of
+  // just displaying counts. "all" (default) shows every owned pipeline lead.
+  const [pipelineFilter, setPipelineFilter] = useState<"all" | "appts" | "kit" | "network">("all");
   const counts = data?.counts || { appts: 0, kit: 0, network: 0, total: 0 };
   const appts: PipelineLead[] = data?.appts || [];
   const kit: PipelineLead[]   = data?.kit || [];
   const network: PipelineLead[] = data?.network || [];
+
+  const TILES = [
+    { key: "all" as const,     label: "ALL",     count: counts.total,   color: "#e8e8e8", bg: "rgba(255,255,255,0.05)", border: "rgba(255,255,255,0.18)" },
+    { key: "appts" as const,   label: "APPTS",   count: counts.appts,   color: "#10b981", bg: "rgba(16,185,129,0.08)",  border: "rgba(16,185,129,0.25)" },
+    { key: "kit" as const,     label: "KIT",      count: counts.kit,     color: "#c8aa5a", bg: "rgba(200,170,90,0.08)", border: "rgba(200,170,90,0.25)" },
+    { key: "network" as const, label: "NETWORK", count: counts.network, color: "#8b7cff", bg: "rgba(139,124,255,0.08)", border: "rgba(139,124,255,0.25)" },
+  ];
+
+  const showAppts = pipelineFilter === "all" || pipelineFilter === "appts";
+  const showKit = pipelineFilter === "all" || pipelineFilter === "kit";
+  const showNetwork = pipelineFilter === "all" || pipelineFilter === "network";
+  const visibleTotal = (showAppts ? appts.length : 0) + (showKit ? kit.length : 0) + (showNetwork ? network.length : 0);
+  const filterLabel = pipelineFilter === "appts" ? "appointment" : pipelineFilter === "kit" ? "keep-in-touch" : pipelineFilter === "network" ? "network" : "pipeline";
+
   return (
     <div style={{ padding: "22px 18px 120px", maxWidth: 640, margin: "0 auto", color: "#fff" }}>
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ marginBottom: 14 }}>
         <h1 style={{
           fontFamily: "'Cormorant Garamond','Georgia',serif",
           fontSize: "1.9rem", fontWeight: 400, letterSpacing: "0.01em", marginBottom: 4,
         }}>My Pipeline</h1>
-        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", letterSpacing: "0.02em" }}>
-          Every appointment, keep-in-touch, and network lead you own. Nothing expires.
+        {/* v14.80 — confidence copy: this is 100% owned/qualified leads, never the raw pool */}
+        <p style={{
+          fontFamily: "'Cormorant Garamond','Georgia',serif", fontStyle: "italic",
+          fontSize: 13, color: "rgba(200,170,90,0.75)", letterSpacing: "0.01em",
+        }}>
+          MY PIPELINE — every deal I've moved forward. Nothing expires.
         </p>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 22 }}>
-        <div style={{ padding: "14px 12px", background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.25)", borderRadius: 10, textAlign: "center" }}>
-          <div style={{ fontSize: 24, fontWeight: 700, color: "#10b981", lineHeight: 1 }}>{counts.appts}</div>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: "rgba(16,185,129,0.9)", marginTop: 6 }}>APPTS</div>
-        </div>
-        <div style={{ padding: "14px 12px", background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.25)", borderRadius: 10, textAlign: "center" }}>
-          <div style={{ fontSize: 24, fontWeight: 700, color: "#c8aa5a", lineHeight: 1 }}>{counts.kit}</div>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: "rgba(200,170,90,0.9)", marginTop: 6 }}>KIT</div>
-        </div>
-        <div style={{ padding: "14px 12px", background: "rgba(139,124,255,0.08)", border: "1px solid rgba(139,124,255,0.25)", borderRadius: 10, textAlign: "center" }}>
-          <div style={{ fontSize: 24, fontWeight: 700, color: "#8b7cff", lineHeight: 1 }}>{counts.network}</div>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: "rgba(139,124,255,0.9)", marginTop: 6 }}>NETWORK</div>
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 22 }}>
+        {TILES.map(t => {
+          const active = pipelineFilter === t.key;
+          return (
+            <button
+              key={t.key}
+              data-testid={`tile-pipeline-${t.key}`}
+              onClick={() => setPipelineFilter(cur => cur === t.key ? "all" : t.key)}
+              style={{
+                padding: "14px 8px", background: t.bg,
+                border: `1.5px solid ${active ? t.color : t.border}`,
+                borderRadius: 10, textAlign: "center", cursor: "pointer",
+                boxShadow: active ? `0 0 0 3px ${t.color}22` : "none",
+                transition: "all 0.15s ease",
+              }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: t.color, lineHeight: 1 }}><AnimatedNumber value={t.count} /></div>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", color: t.color, marginTop: 6, opacity: 0.9 }}>{t.label}</div>
+            </button>
+          );
+        })}
       </div>
       {isLoading && (<div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Loading your pipeline…</div>)}
       {isError && (<div style={{ padding: 40, textAlign: "center", color: "rgb(252,165,165)", fontSize: 13 }}>Failed to load pipeline. Pull down to refresh.</div>)}
       {!isLoading && !isError && counts.total === 0 && (
         <div style={{ padding: "40px 20px", textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13, lineHeight: 1.6, border: "1px dashed rgba(255,170,90,0.2)", borderRadius: 12 }}>
-          Nothing here yet. Once you set an appointment or keep-in-touch on a call, it will live here forever.
+          Your pipeline is just getting started. Every appointment and keep-in-touch you set will live here forever.
         </div>
       )}
-      {appts.length > 0 && (
+      {!isLoading && !isError && counts.total > 0 && visibleTotal === 0 && (
+        <div style={{ padding: "40px 20px", textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13, lineHeight: 1.6, border: "1px dashed rgba(255,170,90,0.2)", borderRadius: 12 }}>
+          No {filterLabel} leads yet — go make some.
+        </div>
+      )}
+      {showAppts && appts.length > 0 && (
         <section style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <Calendar size={14} color="#10b981" />
             <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: "#10b981", textTransform: "uppercase" }}>Appointments · {appts.length}</h2>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {appts.map(l => <PipelineCard key={l.id} lead={l} kind="appt" />)}
+            {appts.map(l => <PipelineCard key={l.id} lead={l} kind="appt" onOpen={onOpenLead} />)}
           </div>
         </section>
       )}
-      {kit.length > 0 && (
+      {showKit && kit.length > 0 && (
         <section style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <Heart size={14} color="#c8aa5a" />
             <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: "#c8aa5a", textTransform: "uppercase" }}>Keep In Touch · {kit.length}</h2>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {kit.map(l => <PipelineCard key={l.id} lead={l} kind="kit" />)}
+            {kit.map(l => <PipelineCard key={l.id} lead={l} kind="kit" onOpen={onOpenLead} />)}
           </div>
         </section>
       )}
-      {network.length > 0 && (
+      {showNetwork && network.length > 0 && (
         <section style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <UserPlus size={14} color="#8b7cff" />
             <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: "#8b7cff", textTransform: "uppercase" }}>My Network Leads · {network.length}</h2>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {network.map(l => <PipelineCard key={l.id} lead={l} kind="network" />)}
+            {network.map(l => <PipelineCard key={l.id} lead={l} kind="network" onOpen={onOpenLead} />)}
           </div>
         </section>
       )}
@@ -2478,8 +2572,22 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
   const { user, logout } = useAuth();
   const [tab, setTab] = useState<Tab>(initialTab ?? "leaderboard");
   const [showTutorial, setShowTutorial] = useState(false);
-  useRealtimeUpdates();
+  const { connected: wsConnected } = useRealtimeUpdates();
   const qc = useQueryClient();
+
+  // v14.80 — Tier 1 aliveness: "N dialing now" pulse pill. No true WS presence
+  // channel exists yet, so we fall back to a client-side proxy: count of active
+  // agents from /api/agents. Cheap, always-fresh via the 60s poll, and never
+  // wrong in the "zero activity" direction the way a stale timestamp could be.
+  const { data: agentsForPulse } = useQuery<any[]>({
+    queryKey: ["/api/agents"],
+    queryFn: () => apiRequest("GET", "/api/agents").then(r => r.json()),
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+  const dialingNowCount = Array.isArray(agentsForPulse)
+    ? agentsForPulse.filter((a: any) => a.isActive && a.role === "agent").length
+    : 0;
   // v14.50 — pull-to-refresh: swipe down from the very top to refetch every query.
   // v14.52 — destructure indicator so the pull gesture has visible feedback (gold chip at top)
   const { indicator: ptrIndicator } = usePullToRefresh(() => qc.invalidateQueries());
@@ -2598,6 +2706,32 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
   const queueCount = myQueueData?.count ?? 0;
   const hasLeads   = queueCount > 0;
 
+  // v14.80 — Tier 4: idle nudge. Tracks lastInteraction via click/scroll/keypress.
+  // If 90s idle AND leads are queued AND we're NOT already on the Dial tab,
+  // give the FAB a bigger-amplitude nudge for 2.5s to draw the eye back in.
+  const lastInteractionRef = useRef(Date.now());
+  const [fabNudge, setFabNudge] = useState(false);
+  useEffect(() => {
+    const bump = () => { lastInteractionRef.current = Date.now(); };
+    window.addEventListener("click", bump);
+    window.addEventListener("scroll", bump, true);
+    window.addEventListener("keypress", bump);
+    const interval = setInterval(() => {
+      const idleMs = Date.now() - lastInteractionRef.current;
+      if (idleMs >= 90_000 && hasLeads && tab !== "leads") {
+        setFabNudge(true);
+        setTimeout(() => setFabNudge(false), 2500);
+        lastInteractionRef.current = Date.now(); // avoid re-nudging every 5s while idle
+      }
+    }, 5000);
+    return () => {
+      window.removeEventListener("click", bump);
+      window.removeEventListener("scroll", bump, true);
+      window.removeEventListener("keypress", bump);
+      clearInterval(interval);
+    };
+  }, [hasLeads, tab]);
+
   // Scroll main back to top whenever a new lead loads
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -2667,6 +2801,34 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* v14.80 — Tier 1 aliveness: live team pulse pill + WS heartbeat dot */}
+          {mode === "seller" && dialingNowCount > 0 && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "5px 9px", borderRadius: 20,
+              background: "rgba(34,197,94,0.08)",
+              border: "1px solid rgba(34,197,94,0.25)",
+              fontSize: 10, color: "rgba(134,239,172,0.9)", fontWeight: 600, letterSpacing: "0.03em",
+              whiteSpace: "nowrap",
+            }} data-testid="pill-dialing-now">
+              <span style={{
+                width: 6, height: 6, borderRadius: "50%", background: "#4ade80",
+                boxShadow: "0 0 6px rgba(74,222,128,0.8)",
+                animation: "livePulse 1.8s ease-in-out infinite",
+              }} />
+              {dialingNowCount} dialing now
+            </div>
+          )}
+          <span
+            title={wsConnected ? "Live" : "Reconnecting\u2026"}
+            data-testid="ws-heartbeat-dot"
+            style={{
+              width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+              background: wsConnected ? "#4ade80" : "#ef4444",
+              boxShadow: wsConnected ? "0 0 6px rgba(74,222,128,0.7)" : "0 0 6px rgba(239,68,68,0.7)",
+              animation: wsConnected ? "wsHeartbeat 1.2s ease-in-out infinite" : "none",
+            }}
+          />
           {/* v14.50 — Global "Who called me?" button, visible on every tab */}
           {mode === "seller" && (
             <button
@@ -3046,7 +3208,11 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
                         }}>Back to pool</button>
                       </div>
                     )}
-                    <LeadCard lead={displayedLead} />
+                    {/* v14.80 — Tier 2: slide-in when a new lead loads. key={displayedLead.id}
+                       forces a remount (and therefore the animation) every time the lead changes. */}
+                    <div key={displayedLead.id} style={{ animation: "cardSlideIn 260ms cubic-bezier(0.4,0,0.2,1)" }}>
+                      <LeadCard lead={displayedLead} />
+                    </div>
                   </>
                 )}
               </>
@@ -3054,7 +3220,15 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
           </div>
         )}
 
-        {tab === "pipeline" && <MyLeadsTab />}
+        {tab === "pipeline" && (
+          <MyLeadsTab
+            onOpenLead={(leadId) => {
+              try { sessionStorage.setItem("pending_lead_jump", String(leadId)); } catch {}
+              setPendingLeadId(leadId);
+              setTab("leads");
+            }}
+          />
+        )}
 
         {tab === "refer" && <ReferralsHub />}
 
@@ -3106,14 +3280,17 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
                  inset shadow so it reads as "pressed in", and a slow 2.4s ring pulse.
                  On other tabs, it stays big & raised as the CTA to enter dialing. */}
               {isDial ? (
-                <div style={{
+                <div className={!active ? `fab-breathe${fabNudge ? " fab-nudge" : ""}` : undefined} style={{
                   position: "relative",
                   width: active ? 38 : 52, height: active ? 38 : 52,
                   marginTop: active ? -4 : -18,
                   borderRadius: "50%",
+                  // v14.80 — Tier 4: non-active FAB gets a slow gold gradient breathe
+                  // (fab-breathe class in style block below); active/pulsing state is
+                  // untouched (goModePulse already owns that state).
                   background: active
                     ? "linear-gradient(135deg, #8a6f2a 0%, #6a5320 100%)"
-                    : "linear-gradient(135deg, #c8aa5a 0%, #8a6f2a 100%)",
+                    : undefined,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   boxShadow: active
                     ? "inset 0 2px 6px rgba(0,0,0,0.55), 0 0 0 2px rgba(6,6,6,0.98), 0 0 0 3px rgba(200,170,90,0.35)"
@@ -3160,6 +3337,41 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
         }
         input::placeholder, textarea::placeholder { color: rgba(255,255,255,0.25); }
         input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6) sepia(1) saturate(2) hue-rotate(5deg); }
+
+        /* ─── v14.80 — Aliveness pack (Tier 1–4) ─────────────────────────────── */
+
+        /* Tier 1 — ambient */
+        @keyframes livePulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
+        @keyframes wsHeartbeat {
+          0%,100% { transform: scale(1); opacity:1 }
+          30% { transform: scale(1.4); opacity:0.9 }
+          60% { transform: scale(1); opacity: 0.7 }
+        }
+        @keyframes firstPlaceGlow {
+          0%,100% { box-shadow: 0 0 0 0 rgba(200,170,90,0.5); }
+          50%     { box-shadow: 0 0 0 8px rgba(200,170,90,0); }
+        }
+        .first-place-glow { animation: firstPlaceGlow 2.4s ease-in-out infinite; }
+
+        /* Tier 2 — reactive */
+        .outcome-btn:active { transform: scale(0.94); transition: transform 80ms; }
+        @keyframes cardSlideIn { from { opacity:0; transform: translateY(16px) } to { opacity:1; transform: translateY(0) } }
+
+        /* Tier 3 — celebrations */
+        @keyframes apptShimmer { from { background-position: 150% 0; } to { background-position: -100% 0; } }
+
+        /* Tier 4 — background */
+        @keyframes fabBreathe {
+          0%,100% { background: linear-gradient(135deg, #c8aa5a 0%, #8a6f2a 100%); }
+          50%     { background: linear-gradient(135deg, #d9bf74 0%, #a8893a 100%); }
+        }
+        .fab-breathe { animation: fabBreathe 4s ease-in-out infinite; }
+        /* Idle nudge: bigger-amplitude override, active for 2.5s then removed by JS */
+        @keyframes fabNudgePulse {
+          0%,100% { transform: scale(1); }
+          50%     { transform: scale(1.14); }
+        }
+        .fab-nudge { animation: fabNudgePulse 0.6s ease-in-out 3 !important; }
       `}</style>
 
       {/* Tutorial modal */}

@@ -5,6 +5,7 @@ import ActivityFeed from "../components/ld/ActivityFeed";
 import ProfilePage from "./ProfilePage";
 import ScriptEditor from "../components/ScriptEditor";
 import MapView from "./MapView";
+import AnimatedNumber from "../components/AnimatedNumber";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "../contexts/AuthContext";
@@ -89,6 +90,7 @@ function CooldownPill({ until, onThaw, compact = false }: { until?: number | nul
 }
 
 function StatCard({ label, value, sub, accent }: { label: string; value: number | string; sub?: string; accent?: string }) {
+  // v14.80 — Tier 2 aliveness: numeric values tween 0→n over 600ms on mount/change.
   return (
     <div style={{
       background: "linear-gradient(135deg, #0f0f0f 0%, #0a0a0a 100%)",
@@ -98,7 +100,7 @@ function StatCard({ label, value, sub, accent }: { label: string; value: number 
       <div style={{ fontSize: 28, fontWeight: 300, lineHeight: 1, marginBottom: 4 }}
         className={accent || "text-foreground"}
       >
-        {value}
+        {typeof value === "number" ? <AnimatedNumber value={value} /> : value}
       </div>
       <div style={{ fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" }}
         className="text-muted-foreground"
@@ -858,7 +860,7 @@ export default function AdminDashboard({
 }: {
   onWorkMyLeads?: () => void;
   // v14.51 — admin bottom nav jumps into AgentView on a specific tab.
-  onOpenAgentTab?: (tab: "leads" | "refer" | "leaderboard" | "profile") => void;
+  onOpenAgentTab?: (tab: "leads" | "refer" | "leaderboard" | "profile" | "pipeline") => void;
 } = {}) {
   const { user, logout } = useAuth();
   useRealtimeUpdates();
@@ -989,7 +991,7 @@ export default function AdminDashboard({
     refetchInterval: 15000,
   });
 
-  // Paginated lead list query (v11.70) — replaces full pipeline load for All Leads tab
+  // Paginated lead list query (v11.70) — replaces full pipeline load for Lead Pool tab
   const paginatedLeadsQuery = useQuery<any>({
     queryKey: ["/api/leads/paginated", statusFilter, searchTerm, leadsPage],
     queryFn: () => {
@@ -1198,7 +1200,7 @@ export default function AdminDashboard({
     },
   });
 
-  // v14.79 — Hard-delete an inactive agent. Permanent, orphans historical
+  // v14.80 — Hard-delete an inactive agent. Permanent, orphans historical
   // activity rows to NULL agent_id, unassigns leads, deletes locks, removes
   // the agent row entirely. Requires a confirmation dialog before firing.
   const hardDeleteAgentMutation = useMutation({
@@ -1372,7 +1374,7 @@ export default function AdminDashboard({
     onError: () => toast({ title: "Error clearing queue", variant: "destructive" }),
   });
 
-  // v14.79 — Upload CSV tab now routes to the SAME smart server-side parser used
+  // v14.80 — Upload CSV tab now routes to the SAME smart server-side parser used
   // by "Import BatchLeads CSV": /api/admin/import-batchleads-csv. That parser
   // auto-detects LandVoice SkipTraced listing, LandVoice Expired listing, and
   // BatchLeads xlsx exports; extracts all phones (with per-phone DNC + rank),
@@ -1484,7 +1486,7 @@ export default function AdminDashboard({
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    // v14.79 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
+    // v14.80 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
     if (file && /\.(csv|xlsx|xls)$/i.test(file.name)) {
       processFile(file);
     } else {
@@ -1598,7 +1600,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.79
+              v14.80
             </p>
           </div>
         </div>
@@ -1687,8 +1689,7 @@ export default function AdminDashboard({
             {[
               { value: "leaderboard", icon: Trophy,     label: "Leaderboard" },
               { value: "admin",       icon: Shield,      label: "Admin" },
-              { value: "pipeline",    icon: Layers,      label: "Pipeline" },
-              { value: "leads",       icon: List,        label: "All Leads" },
+              { value: "leads",       icon: List,        label: "Lead Pool" },
               { value: "map",         icon: MapIcon,     label: "Map View" },
               { value: "reports",     icon: BarChart2,   label: "Reports" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
@@ -2346,96 +2347,75 @@ export default function AdminDashboard({
 
           </TabsContent>
 
-          {/* ── PIPELINE ────────────────────────────────────────────────────── */}
-          <TabsContent value="pipeline" className="mt-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 style={{
-                  fontFamily: "'Cormorant Garamond','Georgia',serif",
-                  fontSize: "1.3rem", fontWeight: 300, color: "#fff",
-                  display: "flex", alignItems: "center", gap: 8,
-                }}>
-                  <Layers size={16} style={{ color: "rgba(200,170,90,0.7)" }} />
-                  Live Pipeline
-                </h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Every lead from the depot, grouped by stage</p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["/api/admin/pipeline"] })} className="gap-1 text-xs text-muted-foreground">
-                <RefreshCw size={11}/>Refresh
-              </Button>
-            </div>
-
-            {pipelineLoading ? (
-              <div className="grid gap-3 md:grid-cols-4">
-                {Array(8).fill(0).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
-              </div>
-            ) : (
-              <>
-                <div className="grid gap-2 grid-cols-2 md:grid-cols-4">
-                  {pipelineStages.map(stage => (
-                    <div key={stage.key} style={{
-                      borderRadius: 10, border: `1px solid ${stage.border}`,
-                      background: stage.bg, padding: "12px 16px",
-                    }}>
-                      <div style={{ fontSize: 24, fontWeight: 300, color: stage.color, lineHeight: 1 }}>
-                        {byStatus[stage.key] ?? 0}
-                      </div>
-                      <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginTop: 4 }}>
-                        {stage.label}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div>
-                  <p style={{ fontSize: 9, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: 10 }}>
-                    Active Leads in Flow
-                  </p>
-                  <div className="space-y-1.5">
-                    {(pipeline?.leads || [])
-                      .filter((l: any) => ["unassigned","assigned","no_answer","keep_in_touch","callback_requested"].includes(l.status))
-                      .slice(0, 50)
-                      .map((lead: any) => (
-                        <div key={lead.id} style={{
-                          background: "rgba(255,255,255,0.02)",
-                          border: "1px solid rgba(255,255,255,0.06)",
-                          borderRadius: 8, padding: "10px 16px",
-                          display: "flex", alignItems: "center", gap: 10,
-                        }} data-testid={`row-pipeline-${lead.id}`}>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                              <TypeBadge type={lead.leadType} />
-                              <StatusBadge status={lead.status} />
-                              <CooldownPill until={lead.recycleCooldownUntil} compact />
-                              {lead.attemptCount > 0 && <span className="text-xs text-muted-foreground">{lead.attemptCount}×</span>}
-                            </div>
-                            <p className="text-sm font-medium text-foreground truncate">{lead.ownerName || "—"}</p>
-                            <p className="text-xs text-muted-foreground truncate flex items-center gap-1"><MapPin size={9}/>{lead.address}</p>
-                          </div>
-                          <div className="hidden md:flex flex-col items-end gap-0.5 text-xs shrink-0">
-                            {lead.phone && <span className="text-white/50 flex items-center gap-1"><Phone size={10}/>{lead.phone}</span>}
-                            {lead.assignedAgentName && <span className="text-muted-foreground">{lead.assignedAgentName}</span>}
-                            {lead.callbackDate && <span style={{ color: "#67e8f9" }}>CB: {lead.callbackDate}</span>}
-                          </div>
-                        </div>
-                      ))}
-                    {(pipeline?.leads || []).filter((l: any) => ["unassigned","assigned","no_answer","keep_in_touch","callback_requested"].includes(l.status)).length === 0 && (
-                      <div style={{
-                        padding: "32px 20px", textAlign: "center",
-                        border: "1px dashed rgba(200,170,90,0.1)",
-                        borderRadius: 12, color: "rgba(255,255,255,0.3)", fontSize: 13,
-                      }}>
-                        No active leads in queue. Upload a CSV to populate the pipeline.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-          </TabsContent>
-
           {/* ── ALL LEADS ───────────────────────────────────────────────────── */}
           <TabsContent value="leads" className="mt-5 space-y-3">
+            {/* v14.80 — Pipeline tab deleted; its 8 stage tiles now live here at the
+               top of Lead Pool, plus an "All" tile as a 9th at the front. Tapping a
+               tile drives the SAME statusFilter state used by the paginated table
+               below (and by the Status dropdown), so the two stay in sync either way. */}
+            <div className="flex items-center gap-2 mb-1">
+              <Layers size={13} style={{ color: "rgba(200,170,90,0.7)" }} />
+              <p style={{
+                fontFamily: "'Cormorant Garamond','Georgia',serif",
+                fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase",
+                color: "rgba(200,170,90,0.6)", fontWeight: 600,
+              }}>
+                Pipeline Funnel
+              </p>
+            </div>
+            {pipelineLoading ? (
+              <div className="grid gap-2 grid-cols-3 md:grid-cols-9">
+                {Array(9).fill(0).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
+              </div>
+            ) : (
+              <div className="grid gap-2 grid-cols-3 md:grid-cols-9">
+                <button
+                  onClick={() => setStatusFilter("all")}
+                  data-testid="tile-status-all"
+                  style={{
+                    borderRadius: 10, cursor: "pointer", textAlign: "left",
+                    border: `1px solid ${statusFilter === "all" ? "rgba(200,170,90,0.65)" : "rgba(200,170,90,0.18)"}`,
+                    background: statusFilter === "all" ? "rgba(200,170,90,0.12)" : "rgba(200,170,90,0.04)",
+                    padding: "10px 12px",
+                    boxShadow: statusFilter === "all" ? "0 0 0 1px rgba(200,170,90,0.35), 0 2px 10px rgba(200,170,90,0.15)" : "none",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <div style={{ fontSize: 22, fontWeight: 300, color: "#c8aa5a", lineHeight: 1 }}>
+                    {(pipeline?.leads || []).length ?? 0}
+                  </div>
+                  <div style={{ fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", marginTop: 4, fontWeight: 700 }}>
+                    All
+                  </div>
+                </button>
+                {pipelineStages.map(stage => {
+                  const active = statusFilter === stage.key;
+                  return (
+                    <button
+                      key={stage.key}
+                      onClick={() => setStatusFilter(stage.key)}
+                      data-testid={`tile-status-${stage.key}`}
+                      style={{
+                        borderRadius: 10, cursor: "pointer", textAlign: "left",
+                        border: `1px solid ${active ? stage.color : stage.border}`,
+                        background: active ? stage.bg.replace(/0\.0[0-9]\)/, "0.14)") : stage.bg,
+                        padding: "10px 12px",
+                        boxShadow: active ? `0 0 0 1px ${stage.color}, 0 2px 10px ${stage.border}` : "none",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <div style={{ fontSize: 22, fontWeight: 300, color: stage.color, lineHeight: 1 }}>
+                        {byStatus[stage.key] ?? 0}
+                      </div>
+                      <div style={{ fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginTop: 4 }}>
+                        {stage.label}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             {/* ── Paginated All Leads (v11.70) ── */}
             {(() => {
               const plData = paginatedLeadsQuery.data as any;
@@ -3554,7 +3534,7 @@ export default function AdminDashboard({
                       </div>
                       <div className="space-y-2">
                         {inactiveAgents.map((agent) => {
-                          // v14.79 — Removed the 7-day reactivate window. Deactivated timestamp is
+                          // v14.80 — Removed the 7-day reactivate window. Deactivated timestamp is
                           // shown for reference only — admins can reactivate OR hard-delete at any time.
                           const deactivatedAt = (agent as any).deactivatedAt ?? null;
                           const msSinceDeactivate = deactivatedAt ? Date.now() - deactivatedAt : null;
@@ -3626,7 +3606,7 @@ export default function AdminDashboard({
                                   >
                                     <Power size={11}/> Re-activate
                                   </Button>
-                                  {/* v14.79 — Hard-delete. Permanent removal with confirmation prompt. */}
+                                  {/* v14.80 — Hard-delete. Permanent removal with confirmation prompt. */}
                                   <Button
                                     variant="ghost" size="icon"
                                     className="h-7 w-7 text-muted-foreground hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -3702,7 +3682,7 @@ export default function AdminDashboard({
         />
       )}
 
-      {/* v14.79 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
+      {/* v14.80 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
       {hardResetOpen && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
@@ -3923,8 +3903,12 @@ export default function AdminDashboard({
       {/* v14.51 — Spacer to clear the bottom nav so page content isn't hidden behind it. */}
       <div style={{ height: "calc(62px + env(safe-area-inset-bottom, 0px))" }} />
 
-      {/* v14.51 — Admin bottom nav. Mirrors AgentView's nav so Alex has the same 4 shortcuts everywhere.
-          Dashboard stays on Admin (activates Leaderboard tab). Dial/Refer/Profile jump into AgentView. */}
+      {/* v14.80 — Admin bottom nav is now IDENTICAL to AgentView's nav: 5 slots
+         (Dashboard, Pipeline, Dial, Referrals, Profile), Dial is a raised gold
+         FAB with a subtle red dot when this admin has queued leads. The old
+         "99+" count badge is gone — Alex asked for a red dot only ("signals
+         activity without dread"). Dashboard stays on Admin (Leaderboard tab).
+         Pipeline/Dial/Referrals/Profile jump into AgentView. */}
       <nav style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
         display: "flex",
@@ -3935,41 +3919,57 @@ export default function AdminDashboard({
         boxShadow: "0 -4px 24px rgba(0,0,0,0.5)",
       }}>
         {[
-          { id: "dashboard", label: "Dashboard", icon: Trophy,       onClick: () => setAdminTab("leaderboard") },
-          { id: "dial",      label: "Dial",      icon: Phone,        onClick: () => (onWorkMyLeads ? onWorkMyLeads() : onOpenAgentTab?.("leads")) },
-          { id: "refer",     label: "Referrals", icon: UserPlus,     onClick: () => onOpenAgentTab?.("refer") },
-          { id: "profile",   label: "Profile",   icon: UserCircle2,  onClick: () => setAdminTab("profile") },
+          { id: "dashboard", label: "Dashboard", icon: Trophy,      onClick: () => setAdminTab("leaderboard") },
+          { id: "pipeline",  label: "Pipeline",  icon: Layers,      onClick: () => onOpenAgentTab?.("pipeline") },
+          { id: "dial",      label: "Dial",      icon: Phone,       onClick: () => (onWorkMyLeads ? onWorkMyLeads() : onOpenAgentTab?.("leads")) },
+          { id: "refer",     label: "Referrals", icon: UserPlus,    onClick: () => onOpenAgentTab?.("refer") },
+          { id: "profile",   label: "Profile",   icon: UserCircle2, onClick: () => setAdminTab("profile") },
         ].map(n => {
           const Icon = n.icon;
-          const active = (n.id === "dashboard" && adminTab === "leaderboard") || (n.id === "profile" && adminTab === "profile");
-          // v14.54 — red notification badge on Dial when this admin has leads queued
-          const showBadge = n.id === "dial" && adminQueueCount > 0;
+          const active =
+            (n.id === "dashboard" && adminTab === "leaderboard") ||
+            (n.id === "profile"   && adminTab === "profile");
+          const isDial = n.id === "dial";
+          const showDot = isDial && adminQueueCount > 0;
           return (
             <button key={n.id} data-testid={`admin-bottom-nav-${n.id}`} onClick={n.onClick} style={{
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
-              gap: 5, padding: "12px 8px 14px",
-              background: active ? "rgba(200,170,90,0.07)" : "transparent",
-              borderTop: active ? "2px solid #c8aa5a" : "2px solid transparent",
+              gap: isDial ? 3 : 5,
+              padding: isDial ? "6px 8px 14px" : "12px 8px 14px",
+              background: (!isDial && active) ? "rgba(200,170,90,0.07)" : "transparent",
+              borderTop: (!isDial && active) ? "2px solid #c8aa5a" : "2px solid transparent",
               border: "none", cursor: "pointer",
               position: "relative", transition: "all 0.2s ease",
             }}>
-              {showBadge && (
-                <span style={{
-                  position: "absolute", top: 6, right: "calc(50% - 22px)",
-                  minWidth: 16, height: 16, borderRadius: 8,
-                  padding: "0 4px",
-                  background: "#ef4444",
-                  boxShadow: "0 0 10px rgba(239,68,68,0.75), 0 0 0 2px rgba(6,6,6,0.98)",
-                  color: "#fff", fontSize: 9, fontWeight: 800,
+              {isDial ? (
+                <div style={{
+                  position: "relative",
+                  width: 52, height: 52,
+                  marginTop: -18,
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg, #c8aa5a 0%, #8a6f2a 100%)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  lineHeight: 1, letterSpacing: 0,
-                }}>{adminQueueCount > 99 ? "99+" : adminQueueCount}</span>
+                  boxShadow: "0 4px 16px rgba(200,170,90,0.35), 0 0 0 3px rgba(6,6,6,0.98)",
+                  transition: "all 0.28s cubic-bezier(0.4, 0, 0.2, 1)",
+                  animation: "goModePulseIdle 1.8s ease-in-out infinite",
+                }}>
+                  <Icon size={26} style={{ color: "#0a0700" }} />
+                  {showDot && (
+                    <span style={{
+                      position: "absolute", top: -2, right: -2,
+                      width: 12, height: 12, borderRadius: "50%",
+                      background: "#ef4444",
+                      boxShadow: "0 0 8px rgba(239,68,68,0.85), 0 0 0 2px rgba(6,6,6,0.98)",
+                    }} />
+                  )}
+                </div>
+              ) : (
+                <Icon size={22} style={{ color: active ? "#c8aa5a" : "rgba(255,255,255,0.35)", transition: "color 0.15s" }} />
               )}
-              <Icon size={22} style={{ color: active ? "#c8aa5a" : "rgba(255,255,255,0.35)", transition: "color 0.15s" }} />
               <span style={{
                 fontSize: 10, letterSpacing: "0.08em",
-                color: active ? "#c8aa5a" : "rgba(255,255,255,0.35)",
-                fontWeight: active ? 700 : 400,
+                color: isDial ? "#c8aa5a" : (active ? "#c8aa5a" : "rgba(255,255,255,0.35)"),
+                fontWeight: isDial ? 700 : (active ? 700 : 400),
                 transition: "color 0.15s",
               }}>
                 {n.label}
@@ -3978,6 +3978,18 @@ export default function AdminDashboard({
           );
         })}
       </nav>
+
+      {/* v14.80 — GO MODE pulse for the admin Dial FAB (louder + faster than v14.80).
+         Tier 4 fabBreathe (client/src/pages/AgentView.tsx) is intentionally NOT applied
+         here: the admin Dial FAB already runs goModePulseIdle continuously (no idle/active
+         split like AgentView), so layering a second background-animating class would fight
+         it. Per spec: "skip when goModePulse already active". */}
+      <style>{`
+        @keyframes goModePulseIdle {
+          0%,100% { box-shadow: 0 4px 16px rgba(200,170,90,0.35), 0 0 0 3px rgba(6,6,6,0.98), 0 0 0 4px rgba(200,170,90,0.0), 0 0 0 8px rgba(200,170,90,0.0); }
+          50%     { box-shadow: 0 4px 20px rgba(200,170,90,0.55), 0 0 0 3px rgba(6,6,6,0.98), 0 0 0 6px rgba(200,170,90,0.55), 0 0 24px 10px rgba(200,170,90,0.22); }
+        }
+      `}</style>
     </div>
   );
 }

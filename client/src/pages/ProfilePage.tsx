@@ -3,9 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { soundsEnabled, setSoundsEnabled, playSound } from "@/lib/sounds";
 import {
   User, Mail, Phone, Lock, Home, Building2, Trash2, MapPin,
-  Camera, ChevronLeft, Check, AlertTriangle, Eye, EyeOff,
+  Camera, ChevronLeft, Check, AlertTriangle, Eye, EyeOff, Volume2,
 } from "lucide-react";
 
 const COUNTIES = ["Nassau", "Duval", "St Johns"] as const;
@@ -87,6 +88,16 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
 
   // Upload state
   const [uploading, setUploading]   = useState(false);
+
+  // v14.80 — Opt-in sound effects toggle (default OFF)
+  const [soundsOn, setSoundsOn] = useState(false);
+  useEffect(() => { setSoundsOn(soundsEnabled()); }, []);
+  const handleToggleSounds = () => {
+    const next = !soundsOn;
+    setSoundsOn(next);
+    setSoundsEnabled(next);
+    if (next) playSound("chime");
+  };
 
   // Fetch full profile on mount — v14.73: was useState(fn) which fired
   // synchronously once per render cycle; converted to a proper useEffect.
@@ -454,6 +465,50 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
           >
             <Lock size={13} /> {pwSaving ? "Changing…" : "Change Password"}
           </button>
+        </div>
+
+        {/* ── Preferences (v14.80) ── */}
+        <div style={sectionCard}>
+          <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(200,170,90,0.6)", marginBottom: 16, fontWeight: 600 }}>
+            Preferences
+          </p>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: "50%",
+                background: "rgba(200,170,90,0.1)", border: "1px solid rgba(200,170,90,0.25)",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              }}>
+                <Volume2 size={14} style={{ color: "#c8aa5a" }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 13, color: "#fff", fontWeight: 500 }}>Sound effects</p>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 1 }}>
+                  Chime on Appt Set, tick on Keep in Touch
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleToggleSounds}
+              data-testid="toggle-sound-effects"
+              role="switch"
+              aria-checked={soundsOn}
+              style={{
+                width: 44, height: 26, borderRadius: 13, position: "relative",
+                border: `1px solid ${soundsOn ? "rgba(34,197,94,0.5)" : "rgba(255,255,255,0.15)"}`,
+                background: soundsOn ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.06)",
+                cursor: "pointer", flexShrink: 0, transition: "all 0.2s ease",
+              }}
+            >
+              <span style={{
+                position: "absolute", top: 2, left: soundsOn ? 20 : 2,
+                width: 20, height: 20, borderRadius: "50%",
+                background: soundsOn ? "#86efac" : "rgba(255,255,255,0.5)",
+                transition: "left 0.2s ease",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+              }} />
+            </button>
+          </div>
         </div>
 
         {/* ── Delete account ── */}

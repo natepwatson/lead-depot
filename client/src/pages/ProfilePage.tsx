@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -88,9 +88,10 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
   // Upload state
   const [uploading, setUploading]   = useState(false);
 
-  // Fetch full profile on mount
-  useState(() => {
-    if (!user?.id) return;
+  // Fetch full profile on mount — v14.73: was useState(fn) which fired
+  // synchronously once per render cycle; converted to a proper useEffect.
+  useEffect(() => {
+    if (!user?.id) { setProfileLoaded(true); return; }
     fetch(`/api/me/${user.id}`, { credentials: "include" })
       .then(r => r.json())
       .then(d => {
@@ -110,7 +111,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
         setProfileLoaded(true);
       })
       .catch(() => setProfileLoaded(true));
-  });
+  }, [user?.id]);
 
   // ── Save profile ──────────────────────────────────────────────────────────
   const handleSave = async () => {

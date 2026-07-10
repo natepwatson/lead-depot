@@ -1564,7 +1564,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.72
+              v14.73
             </p>
           </div>
         </div>
@@ -3654,7 +3654,7 @@ export default function AdminDashboard({
         />
       )}
 
-      {/* v14.72 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
+      {/* v14.73 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
       {hardResetOpen && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",

@@ -1362,7 +1362,8 @@ interface AgentStat {
 }
 
 // v14.16 — "Who called me?" modal. Agent types last 4 digits, gets back matching leads with owner/address/agent-of-record.
-function CallbackLookupModal({ onClose }: { onClose: () => void }) {
+// v14.49 — Exported so AdminDashboard can reuse the same modal.
+export function CallbackLookupModal({ onClose }: { onClose: () => void }) {
   const [last4, setLast4] = useState("");
   const [submitted, setSubmitted] = useState(false);
 

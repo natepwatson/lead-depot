@@ -737,7 +737,7 @@ ${a.applicantNotes}
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.48 \u2014 Brothers Group \xB7 Momentum Realty</span>
+    <span>Lead Depot v14.49 \u2014 Brothers Group \xB7 Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -765,7 +765,7 @@ ${a.applicantNotes}
       \u{1F4CB} Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${r?"#c8aa5a":"#4fb8a3"}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.48 \u2014 Brothers Group \xB7 Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.49 \u2014 Brothers Group \xB7 Momentum Realty</div>
 </div></body></html>`;await Er.emails.send({from:"Lead Depot <noreply@watsonbrothersgroup.com>",to:["alex@watsonbrothersgroup.com"],cc:["nate@watsonbrothersgroup.com"],subject:t,html:e})}var zJ={a_few_days:"in a few days",few_weeks:"in 2\u20133 weeks",few_months:"in 2\u20133 months",six_months:"in about six months \u2014 no rush"};async function WJ(a){if(!Er){console.log("[CredibilityEmail] skipped \u2014 no RESEND_API_KEY");return}if(!a.ownerEmail||!a.ownerEmail.includes("@")){console.log(`[CredibilityEmail] skipped lead ${a.leadId} \u2014 no owner email`);return}let r=new Date(Date.now()-1440*60*60*1e3).toISOString();if(B.prepare(`
     SELECT id FROM lead_activity
      WHERE lead_id = ?
@@ -807,7 +807,7 @@ ${l}`,W=a.agentId?We.getAgentById(a.agentId):null,se=Tx({bodyText:V,agentName:l,
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.48 \u2014 Brothers Group \xB7 Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.49 \u2014 Brothers Group \xB7 Momentum Realty</div>
 </div></body></html>`}),console.log(`[QueueAlert] Sent low-queue alert: ${r} leads / ${t} agents`)}catch(r){console.error("[QueueAlert] Error:",r.message)}}var bx=(0,hF.createRequire)(typeof __filename<"u"?__filename:rZ.url);function _x(a){return!a||typeof a!="object"?a:{id:a.id,ownerName:a.owner_name,address:a.address,city:a.city,state:a.state,zip:a.zip,county:a.county,phone:a.phone,phones:a.phones,phoneStates:a.phone_states,email:a.email,leadType:a.lead_type,status:a.status,motivation:a.motivation,extraData:a.extra_data,assignedAgentId:a.assigned_agent_id,attemptCount:a.attempt_count,callbackDate:a.callback_date,lLocation:a.l_location,lPricePaid:a.l_price_paid,lMotivation:a.l_motivation,lAgentHistory:a.l_agent_history,lMortgage:a.l_mortgage,lAppointment:a.l_appointment,lBuy:a.l_buy,alsoBuying:a.also_buying,bLocation:a.b_location,bPrice:a.b_price,bMotivation:a.b_motivation,bAgent:a.b_agent,bMortgage:a.b_mortgage,uploadedAt:a.uploaded_at,uploadedBy:a.uploaded_by,batchId:a.batch_id,score:a.score,territory:a.territory,source:a.source,listPrice:a.list_price,assessedValue:a.assessed_value,lastSalePrice:a.last_sale_price,lotSizeAcres:a.lot_size_acres,yearPurchased:a.year_purchased,recycleCooldownUntil:a.recycle_cooldown_until,phoneAttempts:a.phone_attempts}}function gF(a,r){try{let S=B.prepare(`
       UPDATE leads
          SET status = 'retired'

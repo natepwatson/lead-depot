@@ -18,12 +18,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   LogOut, Upload, Download, Users, BarChart2, List, Plus, Trash2,
-  Phone, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
+  Phone, PhoneCall, Mail, MapPin, RefreshCw, Trophy, TrendingUp,
   PhoneMissed, Calendar, XCircle, CheckCircle2,
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, Heart, Map as MapIcon,
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
+// v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
+import { CallbackLookupModal } from "./AgentView";
 
 // ── Logo ─────────────────────────────────────────────────────────────────────
 function LogoIcon({ size = 28 }: { size?: number }) {
@@ -856,6 +858,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const fileRef = useRef<HTMLInputElement>(null);
   // Activity Feed
   const [feedOpen, setFeedOpen] = useState(false);
+  // v14.49 — admin "Who called me?" modal state.
+  const [adminLookupOpen, setAdminLookupOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   useEffect(() => {
     const connect = () => {
@@ -952,12 +956,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
     refetchInterval: 60000,
   });
 
-  const { data: myQueueData } = useQuery<{ count: number }>({
-    queryKey: [`/api/leads/my-count/${user?.id}`],
-    queryFn: () => apiRequest("GET", `/api/leads/my-count/${user?.id}`).then(r => r.json()),
-    enabled: !!user?.id,
-    refetchInterval: 15000,
-  });
+  // v14.49 — myQueueData removed. Pull-only model: no per-agent queues to display.
 
   const { data: pipeline, isLoading: pipelineLoading } = useQuery<any>({
     queryKey: ["/api/admin/pipeline"],
@@ -1467,7 +1466,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.48
+              v14.49
             </p>
           </div>
         </div>
@@ -1491,16 +1490,28 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           </button>
           <style>{`@keyframes feedPulseBtn { 0%,100%{box-shadow:0 0 0 0 rgba(200,170,90,0.3)} 50%{box-shadow:0 0 0 4px rgba(200,170,90,0)} }`}</style>
           {/* Prospecting Mode Toggle removed — Recruiting tab handles this separately */}
-          {agents.filter(a => a.role === "admin" && a.id === user?.id && a.receiveLeads).length > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5 text-xs"
-              style={{ borderColor: "rgba(200,170,90,0.3)", color: "#c8aa5a" }}
-              onClick={() => onWorkMyLeads?.()}
-            >
-              <Phone size={11}/> Work My Leads
-            </Button>
+          {/* v14.49 — Admin always sees Work My Leads + Who called me? (receiveLeads gate removed). */}
+          {user?.role === "admin" && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs"
+                style={{ borderColor: "rgba(200,170,90,0.3)", color: "#c8aa5a" }}
+                onClick={() => onWorkMyLeads?.()}
+              >
+                <Phone size={11}/> Work My Leads
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs"
+                style={{ borderColor: "rgba(200,170,90,0.3)", color: "#c8aa5a" }}
+                onClick={() => setAdminLookupOpen(true)}
+              >
+                <PhoneCall size={11}/> Who called me?
+              </Button>
+            </>
           )}
           <button
             onClick={logout}
@@ -1560,10 +1571,10 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           {/* ── ADMIN (v13.1) — Consolidated admin controls: Toolbar, Territories, Queue Mgmt, Inactivity Alert ── */}
           <TabsContent value="admin" className="mt-5 space-y-5">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* v14.49 — Pull-only model: no per-agent queues. Removed "My Lead Queue". Renamed "Active in Queue" → "Active in Pool". */}
               <StatCard label="Total Leads" value={stats?.totalLeads ?? 0} />
-              <StatCard label="Active in Queue" value={stats?.activeLeads ?? 0} accent="text-white" />
+              <StatCard label="Active in Pool" value={stats?.activeLeads ?? 0} accent="text-white" />
               <StatCard label="Appointments Set" value={stats?.appointmentsSet ?? 0} accent="text-green-400" />
-              <StatCard label="My Lead Queue" value={myQueueData?.count ?? 0} accent={myQueueData?.count ? "text-gold" : undefined} />
             </div>
 
             {/* Seller Depot admin toolbar: Get Leads Now, Hard Reset, Territory management, Recruiting link */}
@@ -1779,10 +1790,10 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
           {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
           <TabsContent value="leaderboard" className="mt-5 space-y-5">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* v14.49 — Pull-only model: no per-agent queues. Removed "My Lead Queue". Renamed "Active in Queue" → "Active in Pool". */}
               <StatCard label="Total Leads" value={stats?.totalLeads ?? 0} />
-              <StatCard label="Active in Queue" value={stats?.activeLeads ?? 0} accent="text-white" />
+              <StatCard label="Active in Pool" value={stats?.activeLeads ?? 0} accent="text-white" />
               <StatCard label="Appointments Set" value={stats?.appointmentsSet ?? 0} accent="text-green-400" />
-              <StatCard label="My Lead Queue" value={myQueueData?.count ?? 0} accent={myQueueData?.count ? "text-gold" : undefined} />
             </div>
 
             {/* v12.5 — Hard Reset confirmation modal (shared) */}
@@ -3539,6 +3550,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
       {/* Live Activity Feed drawer */}
       <ActivityFeed open={feedOpen} onClose={() => setFeedOpen(false)} wsRef={wsRef} />
+      {/* v14.49 — Admin "Who called me?" modal (reused from AgentView). */}
+      {adminLookupOpen && <CallbackLookupModal onClose={() => setAdminLookupOpen(false)} />}
     </div>
   );
 }

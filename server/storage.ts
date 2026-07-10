@@ -648,27 +648,12 @@ if (!nateExists) {
   }).run();
 }
 
-// Seed real team agents if not present
-const realAgents = [
-  { name: "Bronson Sarmento", email: "brbzsa@gmail.com" },
-  { name: "Cory Deroin",      email: "corylderoin@gmail.com" },
-  // v14.29.1 — Luis Marquez removed as default entry agent per Alex.
-  { name: "Noah Tomlinson",   email: "noahtomlinson.re@gmail.com" },
-  { name: "Gabriel Duran",    email: "gabrielduran.realtor@gmail.com" },
-  { name: "Vonda Jewell",     email: "diamondjewell0712@gmail.com" },
-  { name: "Usman Jan",        email: "usmanjan33@gmail.com" },
-  { name: "Denise Jacobs",    email: "djacobs312@gmail.com" },
-];
-realAgents.forEach((a, idx) => {
-  const exists = db.select().from(agents).where(eq(agents.email, a.email)).get();
-  if (!exists) {
-    db.insert(agents).values({
-      name: a.name,
-      email: a.email,
-      password: "brothers2026",
-      role: "agent",
-      roundRobinOrder: idx,
-      isActive: true,
-    }).run();
-  }
-});
+// v14.67 — Hardcoded team-agent seed REMOVED. Agents are added exclusively
+// through the app (Admin → Add Agent, or the onboarding /join flow). Prior
+// versions kept a static `realAgents` list here that re-ran on every boot;
+// after v14.47 changed Denise's canonical email in the DB while leaving the
+// seed pointing at her old djacobs312@gmail.com, every Railway restart
+// silently created a fresh duplicate Denise row (ids 11 → 12 → 13 → 14 → 16
+// over time). Deleting the seed closes the root cause — no boot-time inserts
+// of agent rows means no ghost duplicates on restart. Alex + Nate admin seeds
+// above are preserved as a bootstrap so a fresh DB is still reachable.

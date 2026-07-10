@@ -42,7 +42,20 @@ async function runRow(row) {
     page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
 
     await page.goto(`${BASE}/?nc=${Date.now()}`, { waitUntil: 'networkidle' });
-    const html = await page.content();
+    // v14.70 — Firefox occasionally throws 'page is navigating' on content()
+    // right after networkidle if the SPA fires an async redirect. One quick
+    // retry with a short settle absorbs this without hiding real failures.
+    let html = '';
+    for (let i = 0; i < 3; i++) {
+      try {
+        await page.waitForTimeout(200);
+        html = await page.content();
+        break;
+      } catch (e) {
+        if (i === 2) throw e;
+        await page.waitForLoadState('networkidle').catch(() => {});
+      }
+    }
     const versionOk = EXPECT_VERSION ? html.includes(EXPECT_VERSION) : /v14\.\d+/.test(html);
 
     // Login

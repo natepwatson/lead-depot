@@ -5,7 +5,7 @@ import ActivityFeed from "../components/ld/ActivityFeed";
 import ProfilePage from "./ProfilePage";
 import ScriptEditor from "../components/ScriptEditor";
 import MapView from "./MapView";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -1001,7 +1001,7 @@ export default function AdminDashboard({
       });
       return apiRequest("GET", `/api/leads/paginated?${params}`).then(r => r.json());
     },
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
   });
 
   // Reset to page 0 when filters change
@@ -1550,7 +1550,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.69
+              v14.70
             </p>
           </div>
         </div>
@@ -2433,7 +2433,7 @@ export default function AdminDashboard({
           <TabsContent value="leads" className="mt-5 space-y-3">
             {/* ── Paginated All Leads (v11.70) ── */}
             {(() => {
-              const plData = paginatedLeadsQuery.data;
+              const plData = paginatedLeadsQuery.data as any;
               const plLeads: any[] = plData?.leads || [];
               const plTotal: number = plData?.total || 0;
               const plHasMore: boolean = plData?.hasMore || false;
@@ -3440,7 +3440,7 @@ export default function AdminDashboard({
                                   onChange={e => {
                                     const val = e.target.value || null;
                                     apiRequest("PATCH", `/api/admin/agents/${agent.id}/home-county`, { homeCounty: val })
-                                      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/agents"] }))
+                                      .then(() => qc.invalidateQueries({ queryKey: ["/api/agents"] }))
                                       .catch(() => {});
                                   }}
                                   style={{

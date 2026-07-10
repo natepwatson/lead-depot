@@ -78,10 +78,13 @@ function checkTypeScript() {
   } catch (e) {
     const out = (e.stdout || '').toString() + (e.stderr || '').toString();
     const errors = (out.match(/error TS\d+/g) || []).length;
-    // NOTE: 22 pre-existing type errors as of v14.66. Not critical (build succeeds anyway
-    // because Vite/esbuild transpile without full typecheck). Track down in Bucket 12.
-    const critical = errors > 30; // Only fail hard if the count grows significantly
-    rec.add('typescript', 'warn', { critical, detail: `${errors} type errors (baseline 22; fails at >30)`, durationMs: Date.now() - t0 });
+    // v14.70 — Baseline lowered from 22 → 0. All 22 pre-existing type errors cleaned in
+    // the v14.70 debt sweep (real bugs found: queryClient undef, remaining undef ×2,
+    // keepPreviousData v5 rename, multer types, iterator downlevel via tsconfig target).
+    // Any new type error is now a hard fail — do not let this drift back up.
+    const critical = errors > 0;
+    const status = errors === 0 ? 'pass' : 'fail';
+    rec.add('typescript', status, { critical, detail: errors === 0 ? 'tsc --noEmit clean' : `${errors} type errors (baseline 0)`, durationMs: Date.now() - t0 });
     // Print first 5 lines so failures are actionable
     out.split('\n').filter(l => l.includes('error TS')).slice(0, 5).forEach(l => console.log(`    ${T.RED}${l}${T.RST}`));
   }

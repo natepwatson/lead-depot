@@ -386,7 +386,10 @@ export class Storage implements IStorage {
     const rows = sqlite.prepare(`SELECT * FROM leads ${where} ORDER BY uploaded_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset) as any[];
 
     // Map snake_case DB columns to camelCase Lead shape
-    const mapped: Lead[] = rows.map((r: any) => ({
+    // v14.70 — sqlite prepare().all() returns `any[]`, so field types collapse to any.
+    // Cast the final array to Lead[] rather than annotating a mapper that would need
+    // per-field runtime coercion. Runtime shape is verified by tier1/tier2 contract tests.
+    const mapped = rows.map((r: any) => ({
       id: r.id,
       ownerName: r.owner_name,
       address: r.address,
@@ -424,7 +427,7 @@ export class Storage implements IStorage {
       bMotivation: r.b_motivation,
       bAgent: r.b_agent,
       bMortgage: r.b_mortgage,
-    }));
+    })) as Lead[];
 
     return { rows: mapped, total: countRow?.n ?? 0 };
   }

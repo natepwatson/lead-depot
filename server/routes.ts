@@ -27,6 +27,7 @@ import {
 import { logAgentEvent, getAgentAuditLog, isWithinReactivateWindow } from "./audit";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
+// @ts-expect-error — no @types/multer installed; runtime-only import
 import multer from "multer";
 import { runDbprPipeline } from "./dbpr-pipeline";
 import { getTerritoryForZip, TERRITORIES as TERRITORY_META } from "./territories";
@@ -310,7 +311,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.69 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.70 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -369,7 +370,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.69 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.70 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -654,7 +655,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.69 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.70 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1692,7 +1693,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.69</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.70</p>
             </div>
           `,
         });
@@ -1854,7 +1855,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.69 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.70 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2814,8 +2815,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
-  // ─── MY PIPELINE (restored v14.69, no date filter) ────────────────────────
-  // v14.69 (moved here v14.69 hotfix) — MUST be registered BEFORE `/api/leads/:id`
+  // ─── MY PIPELINE (restored v14.70, no date filter) ────────────────────────
+  // v14.70 (moved here v14.70 hotfix) — MUST be registered BEFORE `/api/leads/:id`
   // or Express routes `/api/leads/my-pipeline` to the `:id` handler and returns
   // "Lead not found". Read-only over existing columns — no routing changes.
   app.get("/api/leads/my-pipeline", (req, res) => {
@@ -2977,7 +2978,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       rawDb.prepare(`UPDATE leads SET phone_attempts = ? WHERE id = ?`).run(JSON.stringify(phoneAttempts), leadId);
 
       // If every viable phone is now struck → exhaustion delete (parity with Wrong #).
-      const anyViable = newPhones.some(p => newPhoneStates[p] !== "struck");
+      const anyViable = newPhones.some((p: string) => newPhoneStates[p] !== "struck");
       if (!anyViable) {
         // Log activity BEFORE deleting so daily-digest "Retired — all lines struck" can pick it up.
         rawDb.prepare(`
@@ -3101,7 +3102,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       awardPoints(agentId, "disconnected", leadId);
       broadcast({ type: "activity_event", event: { type: "disconnected", agentId, leadId, agentName: storage.getAgentById(agentId)?.name || "Agent", address: lead.address } });
       broadcast({ type: "lead_updated", leadId });
-      return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length, keptOnLead: !!untriedNext });
+      // v14.70 — `remaining` was undefined here since v14.65 refactor (would have
+      // thrown ReferenceError → 500 on every Disconnected outcome that landed in
+      // this branch). Use surviving phones count from the mutated `phones` array.
+      return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: phones.length, keptOnLead: !!untriedNext });
 
     } else if (outcome === "left_voicemail") {
       // v14.40 — Left VM counts toward the per-line no-answer cap (same as No Answer).
@@ -3126,7 +3130,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       rawDb.prepare(`UPDATE leads SET phone_attempts = ? WHERE id = ?`).run(JSON.stringify(phoneAttemptsVm), leadId);
 
       // Exhaustion delete when all lines struck
-      const anyViableVm = newPhones.some(p => newPhoneStates[p] !== "struck");
+      const anyViableVm = newPhones.some((p: string) => newPhoneStates[p] !== "struck");
       if (!anyViableVm) {
         rawDb.prepare(`
           INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
@@ -3146,7 +3150,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       if (nextPhone) {
         newStatus = "assigned";
         newAssignedId = agentId;
-        newPhones = [nextPhone, ...newPhones.filter(p => p !== nextPhone)];
+        newPhones = [nextPhone, ...newPhones.filter((p: string) => p !== nextPhone)];
         rawDb.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(nextPhone, leadId);
       } else {
         // All lines tried today — return to pool, release lock
@@ -3258,7 +3262,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       awardPoints(agentId, "wrong_number", leadId);
       broadcast({ type: "activity_event", event: { type: "wrong_number", agentId, leadId, agentName: storage.getAgentById(agentId)?.name || "Agent", address: lead.address } });
       broadcast({ type: "lead_updated", leadId });
-      return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length, keptOnLead: !!untriedNext });
+      // v14.70 — Same fix as Disconnected branch above: `remaining` was undefined.
+      return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: phones.length, keptOnLead: !!untriedNext });
     }
 
     // Update lead — persist phoneStates changes from no_answer handling
@@ -4511,8 +4516,8 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json({ ...updated, password: undefined });
   });
 
-  // ─── CLAIM A CALLBACK (v14.69) ────────────────────────────────────────────
-  // v14.69 — Alex: "With the phone-number look-up I want anyone to grab it if
+  // ─── CLAIM A CALLBACK (v14.70) ────────────────────────────────────────────
+  // v14.70 — Alex: "With the phone-number look-up I want anyone to grab it if
   // they call back that agent." Rule: FIRST LOOKUP WINS if lead is unassigned.
   //
   // Preconditions to claim:
@@ -5065,7 +5070,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.69 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.70 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5297,7 +5302,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.69",
+      version: "v14.70",
       services: results,
     });
   });
@@ -6427,7 +6432,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v14.69</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.70</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -6477,7 +6482,7 @@ async function redistributeDueCallbacks() {
       ? { isActive: lead.agentIsActive, leadFlowOn: lead.agentLeadFlowOn, name: lead.agentName }
       : null;
 
-    if (assignedAgent && assignedAgent.leadFlowOn !== false && assignedAgent.leadFlowOn !== 0) {
+    if (assignedAgent != null && assignedAgent!.leadFlowOn !== false && assignedAgent!.leadFlowOn !== 0) {
       // Agent is active — promote callback to 'no_answer' so it surfaces at top of their queue today.
       // getNextLeadForAgent prioritizes callbacks with past/today dates already, but flipping to
       // no_answer ensures it appears in the regular dial flow with no special-case logic needed.
@@ -6495,8 +6500,9 @@ async function redistributeDueCallbacks() {
     }
 
     // Agent is inactive (or unassigned) — redistribute to next active agent
-    const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-    if (!nextAgent) continue;
+    const nextAgentMaybe = storage.getNextAgentInRotation(lead.leadType);
+    if (!nextAgentMaybe) continue;
+    const nextAgent: { id: number } = nextAgentMaybe as { id: number };
 
     const originalAgentName = assignedAgent?.name || "a deactivated agent";
 

@@ -4509,28 +4509,13 @@ Brothers Group Real Estate Team at Momentum Realty
       results.app_url = { ok: false, detail: e.message };
     }
 
-    // 5. BatchLeads API
-    const blKey = process.env.BATCHLEADS_API_KEY;
-    if (blKey) {
-      try {
-        const start = Date.now();
-        const blRes = await fetch("https://app.batchleads.io/api/v1/lists?page=1&per_page=1", {
-          headers: { "api-key": blKey },
-          signal: AbortSignal.timeout(6000),
-        });
-        results.batchleads = {
-          ok: blRes.ok,
-          latencyMs: Date.now() - start,
-          detail: blRes.ok ? "Connected" : `HTTP ${blRes.status}`,
-        };
-      } catch (e: any) {
-        results.batchleads = { ok: false, detail: e.message };
-      }
-    } else {
-      results.batchleads = { ok: false, detail: "BATCHLEADS_API_KEY not set in Railway env" };
-    }
+    // v14.57 — BatchLeads probe removed. The BatchLeads auto-pipeline was killed
+    // permanently in v14.46; the vendor's live API was still being probed here and
+    // was returning HTTP 500 for hours at a time, which dragged /api/health to 207
+    // "degraded" and turned every browser-matrix row red on phase 6. There is no
+    // production dependency on BatchLeads anymore — CSV import is the sole intake.
 
-    // 6. WebSocket server
+    // 5. WebSocket server
     results.websocket = {
       ok: true,
       detail: "WS server active (broadcast available)",

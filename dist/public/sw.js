@@ -1,8 +1,15 @@
-// Lead Depot Service Worker — v14.21 cache-buster edition
+// Lead Depot Service Worker — cache-buster edition.
 // Does NOT intercept fetch. On activate: purges any legacy caches AND asks every
 // open client page to reload so stale PWA installs don't show old builds.
+//
+// IMPORTANT: SW_VERSION must be bumped on EVERY deploy. Browsers only fetch a new
+// service worker when the SW file bytes differ. If the version stays the same, an
+// installed PWA can lag a build by many hours (until its next daily SW check). Bumping
+// this literal every deploy guarantees the SW byte-diffs, triggers a fresh install,
+// which then broadcasts SW_UPDATED to every open tab and forces a reload.
+// This is the 6th mandatory version-bump spot in the deploy workflow.
 
-const SW_VERSION = "v14.21";
+const SW_VERSION = "v14.55";
 
 self.addEventListener("install", () => self.skipWaiting());
 

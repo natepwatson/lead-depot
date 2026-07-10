@@ -1729,23 +1729,26 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                       {s.agent.name}{isMe ? " (you)" : ""}
                     </p>
                   </div>
-                  {/* v14.24 — Column order matches admin: APPTS (hero) → PTS → CALLS → EMAILS */}
-                  <div style={{ display: "flex", gap: 14, flexShrink: 0, alignItems: "center" }}>
-                    <div style={{ textAlign: "right", minWidth: 40 }}>
-                      <p style={{ fontSize: 22, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{s.appointmentsSet}</p>
-                      <p style={{ fontSize: 9, color: "rgba(200,170,90,0.65)", letterSpacing: "0.12em", marginTop: 3, fontWeight: 700 }}>APPTS</p>
+                  {/* v14.55 — Alex: "points should be the main indicator of first place... points
+                       represent what has been achieved. From left to right: points, appts, dials, email."
+                       PTS is now the hero (largest, gold pill), then APPTS, DIALS, EMAILS. Same order
+                       matches the admin leaderboard for consistency. */}
+                  <div style={{ display: "flex", gap: 12, flexShrink: 0, alignItems: "center" }}>
+                    <div style={{ textAlign: "right", minWidth: 44 }}>
+                      <p style={{ fontSize: 22, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif", background: "rgba(200,170,90,0.12)", borderRadius: 8, padding: "2px 8px", display: "inline-block" }}>{s.points ?? 0}</p>
+                      <p style={{ fontSize: 9, color: "rgba(200,170,90,0.7)", letterSpacing: "0.14em", marginTop: 4, fontWeight: 700 }}>PTS</p>
                     </div>
                     <div style={{ textAlign: "right", minWidth: 34 }}>
-                      <p style={{ fontSize: 15, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, background: "rgba(200,170,90,0.1)", borderRadius: 6, padding: "2px 6px", display: "inline-block" }}>{s.points ?? 0}</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 3 }}>PTS</p>
+                      <p style={{ fontSize: 17, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{s.appointmentsSet}</p>
+                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>APPTS</p>
                     </div>
                     <div style={{ textAlign: "right", minWidth: 30 }}>
                       <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.7)", lineHeight: 1 }}>{s.totalAttempts}</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 3 }}>CALLS</p>
+                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>DIALS</p>
                     </div>
                     <div style={{ textAlign: "right", minWidth: 30 }}>
                       <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(147,197,253,0.85)", lineHeight: 1 }}>{s.emailsSent ?? 0}</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 3 }}>EMAILS</p>
+                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>EMAILS</p>
                     </div>
                   </div>
                 </div>

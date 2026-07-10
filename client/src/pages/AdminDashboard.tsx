@@ -1493,7 +1493,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.54
+              v14.55
             </p>
           </div>
         </div>
@@ -1940,21 +1940,24 @@ export default function AdminDashboard({
                   {/* v14.29 — Unified column order: APPTS first & bold gold (the #1 goal), Points second, Dials third. Then supporting metrics. */}
                   {lbTab === "today" ? (
                     <>
-                      {/* v14.54 — Appts + Pts + Dials always visible; KIT/Emails/Refs hidden on phones via .ld-lb-supporting */}
-                      <div style={{ width: 54, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
-                      <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.07em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
+                      {/* v14.55 — Alex: "points should be the main indicator of first place. From left to
+                          right: points, appts, dials, email." Emails is now a PRIMARY column (not
+                          supporting). KIT/Refs are demoted to .ld-lb-supporting (hidden on phones,
+                          shown on tablets+). Pts is the hero cell — gold pill, biggest number. */}
+                      <div style={{ width: 48, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
+                      <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
+                      <div style={{ width: 40, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
                       <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
-                      <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
                       <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
                   ) : (
                     <>
-                      <div style={{ width: 54, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
-                      <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.07em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
+                      <div style={{ width: 48, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
+                      <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
+                      <div style={{ width: 40, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
+                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
                       <div className="ld-lb-supporting" style={{ width: 52, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Conv%</div>
-                      <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
                       <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
                   )}
@@ -2070,26 +2073,30 @@ export default function AdminDashboard({
 
                           {/* Stats columns — v14.29: Appts hero (large gold), Points second, Dials third */}
                           <div className="ld-lb-cols" style={{ display: "flex", gap: 20, textAlign: "center", alignItems: "center", flexShrink: 0 }}>
+                            {/* v14.55 — Column order matches Alex's spec: PTS (hero) → APPTS → DIALS → EMAILS.
+                                 Emails is now a primary column (not supporting). KIT/Conv%/Refs demoted to
+                                 .ld-lb-supporting (hidden on phones, shown on tablets+). */}
                             {lbTab === "today" ? (
                               <>
-                                <div style={{ width: 54 }}>
-                                  <div style={{ fontSize: 24, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{s.appts}</div>
-                                </div>
-                                <div style={{ width: 44 }}>
+                                <div style={{ width: 48 }}>
                                   <div style={{
-                                    fontSize: 15, fontWeight: 700, color: "#c8aa5a",
-                                    background: "rgba(200,170,90,0.1)", borderRadius: 6,
-                                    padding: "2px 6px", display: "inline-block",
+                                    fontSize: 22, fontWeight: 700, color: "#c8aa5a", lineHeight: 1,
+                                    fontFamily: "'Cormorant Garamond','Georgia',serif",
+                                    background: "rgba(200,170,90,0.12)", borderRadius: 8,
+                                    padding: "2px 8px", display: "inline-block",
                                   }}>{stat.points || 0}</div>
                                 </div>
                                 <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 20, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{s.appts}</div>
+                                </div>
+                                <div style={{ width: 40 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
                                 </div>
                                 <div className="ld-lb-supporting" style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#c4b5fd" }}>{s.kit}</div>
-                                </div>
-                                <div className="ld-lb-supporting" style={{ width: 44 }}>
-                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
                                 </div>
                                 <div className="ld-lb-supporting" style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
@@ -2097,29 +2104,29 @@ export default function AdminDashboard({
                               </>
                             ) : (
                               <>
-                                <div style={{ width: 54 }}>
-                                  <div style={{ fontSize: 24, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{s.appts}</div>
-                                </div>
-                                <div style={{ width: 44 }}>
+                                <div style={{ width: 48 }}>
                                   <div style={{
-                                    fontSize: 15, fontWeight: 700, color: "#c8aa5a",
-                                    background: "rgba(200,170,90,0.1)", borderRadius: 6,
-                                    padding: "2px 6px", display: "inline-block",
+                                    fontSize: 22, fontWeight: 700, color: "#c8aa5a", lineHeight: 1,
+                                    fontFamily: "'Cormorant Garamond','Georgia',serif",
+                                    background: "rgba(200,170,90,0.12)", borderRadius: 8,
+                                    padding: "2px 8px", display: "inline-block",
                                   }}>{stat.points || 0}</div>
                                 </div>
                                 <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 20, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{s.appts}</div>
+                                </div>
+                                <div style={{ width: 40 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
+                                </div>
+                                <div style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
                                 </div>
                                 <div className="ld-lb-supporting" style={{ width: 52 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#67e8f9" }}>{s.convRate}%</div>
                                 </div>
                                 <div className="ld-lb-supporting" style={{ width: 44 }}>
-                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
-                                </div>
-                                <div className="ld-lb-supporting" style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
                                 </div>
-                                {/* v14.43 — removed duplicate trailing Points column (header row only had 6 cols, rows had 7 → columns shifted left) */}
                               </>
                             )}
                           </div>

@@ -1467,7 +1467,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.47
+              v14.48
             </p>
           </div>
         </div>
@@ -3148,18 +3148,16 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
 
             {/* v13.1 — Queue Management moved to Admin tab */}
 
-            {/* Active + Inactive Agents — admins shown at top of same list */}
+            {/* v14.48 — One unified list. Flow toggle is the ONLY control for lead flow.
+                Soft-deleted agents (isActive=false) vanish completely. No Inactive section. */}
             {(() => {
-              // All users (admins + agents) in one unified list
-              // For admins: active = isActive AND receiveLeads. For agents: active = isActive AND leadFlowOn.
-              const allUsers = agents;
-              const sortedActive = allUsers.filter(a => {
-                if (a.role === "admin") return a.isActive && a.receiveLeads;
-                return a.isActive && a.leadFlowOn !== false;
-              });
-              const inactiveAgents = allUsers.filter(a => {
-                if (a.role === "admin") return !a.isActive || !a.receiveLeads;
-                return !a.isActive || a.leadFlowOn === false;
+              const allUsers = agents.filter(a => a.isActive);
+              // Sort: Flow ON first (round-robin order preserved), Flow OFF last.
+              const sortedActive = [...allUsers].sort((a, b) => {
+                const aOn = a.leadFlowOn !== false ? 1 : 0;
+                const bOn = b.leadFlowOn !== false ? 1 : 0;
+                if (aOn !== bOn) return bOn - aOn;
+                return 0;
               });
               return (
                 <>
@@ -3172,7 +3170,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                         }}>
                           Agents
                         </h2>
-                        <p className="text-xs text-muted-foreground mt-0.5">Round-robin: top → bottom. Flow off = Inactive (removed from rotation &amp; leaderboard).</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Flow on = receives leads. Flow off = paused. Trash = remove from team.</p>
                         {/* Activity Export button */}
                         <button
                           onClick={handleExportActivity}
@@ -3259,8 +3257,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                     {/* v13.1 — Agent Inactivity Alert moved to Admin tab */}
                     <div className="space-y-2">
                       {sortedActive.map((agent, idx) => {
-                        // For admins use receiveLeads, for agents use leadFlowOn
-                        const flowActive = agent.role === "admin" ? !!agent.receiveLeads : agent.leadFlowOn !== false;
+                        // v14.48 — Flow is the only control. Same rule for admins and agents.
+                        const flowActive = agent.leadFlowOn !== false;
                         return (
                           <div
                             key={agent.id}
@@ -3344,31 +3342,25 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                                 <span className="text-[10px] text-muted-foreground">Flow</span>
                                 <LuxToggle
                                   on={flowActive}
-                                  onToggle={() => {
-                                    if (agent.role === "admin") {
-                                      toggleReceiveLeadsMutation.mutate({ id: agent.id, receiveLeads: !agent.receiveLeads });
-                                    } else {
-                                      toggleLeadFlowMutation.mutate({ id: agent.id, leadFlowOn: !agent.leadFlowOn });
-                                    }
-                                  }}
+                                  onToggle={() => toggleLeadFlowMutation.mutate({ id: agent.id, leadFlowOn: !flowActive })}
                                   testId={`toggle-lead-flow-${agent.id}`}
                                 />
                               </div>
-                              <Badge variant="outline" className={`text-xs ${flowActive ? "text-green-400 border-green-400/30" : "text-red-400 border-red-400/30"}`}>
-                                {flowActive ? "Active" : "Inactive"}
+                              <Badge variant="outline" className={`text-xs ${flowActive ? "text-green-400 border-green-400/30" : "text-muted-foreground border-white/10"}`}>
+                                {flowActive ? "Flow On" : "Flow Off"}
                               </Badge>
                               {/* v14.0 — Min Dials/Wk gate removed. Motivation over shaming. */}
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
                                 onClick={() => openConfirm({
-                                  title: `Deactivate ${agent.name}?`,
-                                  message: `${agent.name} will be moved to Inactive Agents. All leads in their queue will be returned to the pool for redistribution. This cannot be undone without manually reactivating them.`,
-                                  confirmLabel: "Deactivate",
+                                  title: `Remove ${agent.name} from the team?`,
+                                  message: `${agent.name} will be removed from the team. All leads in their queue return to the pool. This is permanent — they will not appear in the agent list anymore.`,
+                                  confirmLabel: "Remove",
                                   confirmColor: "#ef4444",
                                   onConfirm: () => { closeConfirm(); deleteAgentMutation.mutate(agent.id); },
                                 })}
-                                title="Move to Inactive Agents"
+                                title="Remove from team"
                                 data-testid={`button-delete-agent-${agent.id}`}
                               >
                                 <Trash2 size={13}/>
@@ -3383,13 +3375,14 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                           border: "1px dashed rgba(200,170,90,0.1)",
                           borderRadius: 12, color: "rgba(255,255,255,0.3)", fontSize: 13,
                         }}>
-                          No active agents yet. Add one above.
+                          No agents yet. Add one above.
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {inactiveAgents.length > 0 && (
+                  {/* v14.48 — Inactive Agents section removed. Flow toggle is the only control. */}
+                  {false && (
                     <div className="space-y-3">
                       <div>
                         <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.1rem", fontWeight: 300, color: "rgba(255,255,255,0.4)" }}>

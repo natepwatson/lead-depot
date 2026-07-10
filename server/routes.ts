@@ -292,7 +292,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.47 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.48 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -351,7 +351,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.47 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.48 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -605,7 +605,8 @@ async function checkQueueDepthAlert(rawDb: any) {
   if (!resend) return;
   try {
     const activeLeads = (rawDb.prepare(`SELECT COUNT(*) as n FROM leads WHERE status NOT IN ('retired','contacted_not_interested','contacted_appointment','keep_in_touch','wrong_number','listed')`).get() as any)?.n ?? 0;
-    const activeAgents = (rawDb.prepare(`SELECT COUNT(*) as n FROM agents WHERE is_active = 1 AND receive_leads = 1 AND lead_flow_on = 1`).get() as any)?.n ?? 1;
+    // v14.48 — Flow is the only gate for receiving leads.
+    const activeAgents = (rawDb.prepare(`SELECT COUNT(*) as n FROM agents WHERE lead_flow_on = 1`).get() as any)?.n ?? 1;
     const perAgent = Math.floor(activeLeads / Math.max(activeAgents, 1));
     if (perAgent > LOW_QUEUE_THRESHOLD) return; // queue is healthy
 
@@ -635,7 +636,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.47 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.48 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1049,16 +1050,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
 
   // ─── HELPER: count agents currently able to receive leads ──────────────────
+  // v14.48 — Flow is the ONLY gate. No isActive, no receiveLeads, no role checks.
   function countLeadReceivers(excludeId?: number): number {
     const allAgents = storage.getAllAgents ? storage.getAllAgents() : [];
     return allAgents.filter((a: any) => {
       if (a.id === excludeId) return false;
-      if (!a.isActive) return false;
-      // Non-admin agent: must have leadFlowOn
-      if (a.role === "agent") return a.leadFlowOn !== false;
-      // Admin: must have receiveLeads=true AND leadFlowOn
-      if (a.role === "admin") return a.receiveLeads && a.leadFlowOn !== false;
-      return false;
+      return a.leadFlowOn !== false && a.leadFlowOn !== 0;
     }).length;
   }
 
@@ -1129,12 +1126,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
   // Reactivate a trashed agent
+  // v14.48 — Legacy endpoint kept for backward compatibility. UI no longer calls it
+  // (there is no Inactive Agents section anymore). Restores account + turns Flow on.
   app.patch("/api/agents/:id/reactivate", (req, res) => {
     const id = parseInt(req.params.id);
-    // Only turn flow ON if agent has a headshot — no headshot = incomplete onboarding
-    const existing = storage.getAgentById(id);
-    const hasHeadshot = !!(existing as any)?.headshotUrl;
-    const updated = storage.updateAgent(id, { isActive: true, leadFlowOn: hasHeadshot });
+    const updated = storage.updateAgent(id, { isActive: true, leadFlowOn: true });
     if (!updated) return res.status(404).json({ error: "Agent not found" });
     res.json({ ...updated, password: undefined });
   });
@@ -1436,7 +1432,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     const now = new Date().toISOString();
     const allA = storage.getAllAgents();
-    const agentCount = allA.filter((a: any) => a.isActive && a.leadFlowOn !== false && (a.role === "agent" || (a.role === "admin" && a.receiveLeads))).length;
+    // v14.48 — Flow is the only gate.
+    const agentCount = allA.filter((a: any) => a.leadFlowOn !== false && a.leadFlowOn !== 0).length;
 
     // Always start unassigned — assignment happens after creation to avoid assigned+null state
     const [created] = storage.createLeadsFromBatch([{
@@ -1858,13 +1855,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
 
     const now = new Date().toISOString();
-    // Count eligible receivers for this specific lead type
+    // v14.48 — Flow is the only gate for receiving leads.
     const allA = storage.getAllAgents();
-    const agentCount = allA.filter(a => {
-      if (!a.isActive || !a.leadFlowOn) return false;
-      if (a.role === "admin" && !a.receiveLeads) return false;
-      return true;
-    }).length;
+    const agentCount = allA.filter(a => !!a.leadFlowOn).length;
 
     let disqualified = 0;
     const validRows = leadRows.filter((row: any) => {
@@ -4294,8 +4287,9 @@ Brothers Group Real Estate Team at Momentum Realty
   // a weekly dial goal). Now returns every active seller-side agent with their
   // dial count for the current week — informational only, no goals, no misses.
   app.get("/api/admin/agent-inactivity", (_req: any, res) => {
+    // v14.48 — Flow is the only gate. Admins included if Flow is on.
     const activeAgents = rawDb.prepare(
-      `SELECT id, name, email, headshot_url FROM agents WHERE is_active = 1 AND role != 'admin' AND receive_leads = 1`
+      `SELECT id, name, email, headshot_url FROM agents WHERE lead_flow_on = 1`
     ).all() as any[];
 
     const thisWeekStart = new Date();
@@ -4404,7 +4398,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.47",
+      version: "v14.48",
       services: results,
     });
   });
@@ -5584,7 +5578,7 @@ async function redistributeDueCallbacks() {
       ? { isActive: lead.agentIsActive, leadFlowOn: lead.agentLeadFlowOn, name: lead.agentName }
       : null;
 
-    if (assignedAgent && assignedAgent.isActive && assignedAgent.leadFlowOn !== false) {
+    if (assignedAgent && assignedAgent.leadFlowOn !== false && assignedAgent.leadFlowOn !== 0) {
       // Agent is active — promote callback to 'no_answer' so it surfaces at top of their queue today.
       // getNextLeadForAgent prioritizes callbacks with past/today dates already, but flipping to
       // no_answer ensures it appears in the regular dial flow with no special-case logic needed.

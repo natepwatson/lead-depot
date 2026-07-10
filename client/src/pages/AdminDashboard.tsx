@@ -1198,6 +1198,25 @@ export default function AdminDashboard({
     },
   });
 
+  // v14.78 — Hard-delete an inactive agent. Permanent, orphans historical
+  // activity rows to NULL agent_id, unassigns leads, deletes locks, removes
+  // the agent row entirely. Requires a confirmation dialog before firing.
+  const hardDeleteAgentMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/agents/${id}/hard-delete`, {}).then(async r => {
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Failed to delete");
+      return j;
+    }),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["/api/agents"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
+      toast({ title: "Agent deleted", description: `${data.deletedName} permanently removed. Historical activity preserved as anonymous.` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Delete failed", description: err?.message || "Could not delete agent", variant: "destructive" });
+    },
+  });
+
   // v14.62 Phase D — admin-triggered password reset. Server thin-wraps forgot-password
   // flow so admin gets real success/failure feedback (unlike public endpoint which
   // always 200s to prevent email enumeration).
@@ -1353,7 +1372,7 @@ export default function AdminDashboard({
     onError: () => toast({ title: "Error clearing queue", variant: "destructive" }),
   });
 
-  // v14.77 — Upload CSV tab now routes to the SAME smart server-side parser used
+  // v14.78 — Upload CSV tab now routes to the SAME smart server-side parser used
   // by "Import BatchLeads CSV": /api/admin/import-batchleads-csv. That parser
   // auto-detects LandVoice SkipTraced listing, LandVoice Expired listing, and
   // BatchLeads xlsx exports; extracts all phones (with per-phone DNC + rank),
@@ -1465,7 +1484,7 @@ export default function AdminDashboard({
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    // v14.77 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
+    // v14.78 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
     if (file && /\.(csv|xlsx|xls)$/i.test(file.name)) {
       processFile(file);
     } else {
@@ -1579,7 +1598,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.77
+              v14.78
             </p>
           </div>
         </div>
@@ -3531,23 +3550,20 @@ export default function AdminDashboard({
                         <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.1rem", fontWeight: 300, color: "rgba(255,255,255,0.4)" }}>
                           Inactive Agents
                         </h2>
-                        <p className="text-xs text-muted-foreground">Deactivated agents. Reactivate is available for 7 days after deactivation — after that, the row is preserved for audit but cannot be brought back.</p>
+                        <p className="text-xs text-muted-foreground">Deactivated agents. Reactivate any time to bring them back, or hard-delete to remove permanently (historical activity is preserved as anonymous).</p>
                       </div>
                       <div className="space-y-2">
                         {inactiveAgents.map((agent) => {
-                          // v14.62 Phase D — Compute reactivate window state client-side. Server
-                          // is authoritative (returns 410 Gone past 7d), but we mirror the check
-                          // here so admins see days-remaining and the button is greyed out cleanly.
+                          // v14.78 — Removed the 7-day reactivate window. Deactivated timestamp is
+                          // shown for reference only — admins can reactivate OR hard-delete at any time.
                           const deactivatedAt = (agent as any).deactivatedAt ?? null;
                           const msSinceDeactivate = deactivatedAt ? Date.now() - deactivatedAt : null;
-                          const withinWindow = deactivatedAt !== null && msSinceDeactivate! < SEVEN_DAYS_MS;
-                          const daysLeft = withinWindow ? Math.max(0, Math.ceil((SEVEN_DAYS_MS - msSinceDeactivate!) / (24*60*60*1000))) : 0;
-                          const hoursLeft = withinWindow ? Math.max(0, Math.ceil((SEVEN_DAYS_MS - msSinceDeactivate!) / (60*60*1000))) : 0;
+                          const daysAgo = msSinceDeactivate ? Math.floor(msSinceDeactivate / (24*60*60*1000)) : null;
                           const countdownText = deactivatedAt === null
                             ? "Legacy inactive (no timestamp)"
-                            : withinWindow
-                              ? daysLeft > 1 ? `Reactivate window: ${daysLeft}d left` : `Reactivate window: ${hoursLeft}h left`
-                              : "Reactivate window expired";
+                            : daysAgo === 0 ? "Deactivated today"
+                              : daysAgo === 1 ? "Deactivated 1 day ago"
+                              : `Deactivated ${daysAgo} days ago`;
                           return (
                             <div
                               key={agent.id}
@@ -3604,11 +3620,28 @@ export default function AdminDashboard({
                                     variant="outline"
                                     className="gap-1.5 text-xs border-green-500/40 text-green-400 hover:bg-green-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
                                     onClick={() => reactivateAgentMutation.mutate(agent.id)}
-                                    disabled={reactivateAgentMutation.isPending || !withinWindow}
-                                    title={withinWindow ? `Reactivate ${agent.name}` : "Reactivate window expired — more than 7 days since deactivation"}
+                                    disabled={reactivateAgentMutation.isPending}
+                                    title={`Reactivate ${agent.name}`}
                                     data-testid={`button-reactivate-agent-${agent.id}`}
                                   >
                                     <Power size={11}/> Re-activate
+                                  </Button>
+                                  {/* v14.78 — Hard-delete. Permanent removal with confirmation prompt. */}
+                                  <Button
+                                    variant="ghost" size="icon"
+                                    className="h-7 w-7 text-muted-foreground hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    onClick={() => {
+                                      const ok = window.confirm(`Permanently DELETE ${agent.name}?\n\nThis removes the agent row entirely. Their historical activity (calls made, leads worked) will be preserved as anonymous but their name/email will be gone.\n\nThis cannot be undone. Type YES on the next prompt to confirm.`);
+                                      if (!ok) return;
+                                      const typed = window.prompt(`Type DELETE to permanently remove ${agent.name}:`);
+                                      if (typed !== "DELETE") { alert("Not deleted (you must type DELETE exactly)."); return; }
+                                      hardDeleteAgentMutation.mutate(agent.id);
+                                    }}
+                                    disabled={hardDeleteAgentMutation.isPending}
+                                    title={`Permanently delete ${agent.name}`}
+                                    data-testid={`button-hard-delete-agent-${agent.id}`}
+                                  >
+                                    <Trash2 size={13}/>
                                   </Button>
                                   <Button
                                     variant="ghost" size="icon"
@@ -3629,7 +3662,7 @@ export default function AdminDashboard({
                                     <ScrollText size={13}/>
                                   </Button>
                                 </div>
-                                <span className="text-[10px]" style={{ color: withinWindow ? "rgba(200,170,90,0.6)" : "rgba(239,68,68,0.55)" }}>{countdownText}</span>
+                                <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.4)" }}>{countdownText}</span>
                               </div>
                             </div>
                           );
@@ -3669,7 +3702,7 @@ export default function AdminDashboard({
         />
       )}
 
-      {/* v14.77 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
+      {/* v14.78 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
       {hardResetOpen && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",

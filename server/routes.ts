@@ -310,7 +310,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.64 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.65 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -369,7 +369,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.64 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.65 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -654,7 +654,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.64 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.65 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -841,6 +841,53 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   } catch (err) {
     console.error("[v14.64 stuck-lead-sweep] Failed:", err);
+  }
+
+  // ─── v14.65 — STRUCK-PHONE PURGE SWEEP (one-time per boot, idempotent) ───
+  // Bring existing leads into line with the new candidate-list model: struck
+  // phones are physically removed from `phones` (and from phoneStates +
+  // phoneAttempts), moved to `dead_lines`. Slot label 'Line X of N' then
+  // naturally renumbers on the client. Purely a data-migration — no behavior
+  // change for leads that already have no struck history.
+  try {
+    const struckRows: any[] = rawDb.prepare(`
+      SELECT id, phones, phone_states, phone_attempts, dead_lines FROM leads
+      WHERE phone_states LIKE '%"struck"%' AND phones IS NOT NULL
+    `).all();
+    let purged = 0;
+    for (const r of struckRows) {
+      try {
+        let phones: string[] = JSON.parse(r.phones || "[]");
+        const states: Record<string, string> = JSON.parse(r.phone_states || "{}");
+        const attempts: Record<string, number> = r.phone_attempts ? JSON.parse(r.phone_attempts) : {};
+        let deadLines: string[] = r.dead_lines ? JSON.parse(r.dead_lines) : [];
+        const struckPhones = phones.filter(p => states[p] === "struck");
+        if (struckPhones.length === 0) continue;
+        phones = phones.filter(p => states[p] !== "struck");
+        for (const sp of struckPhones) {
+          delete states[sp];
+          delete attempts[sp];
+          if (!deadLines.includes(sp)) deadLines.push(sp);
+        }
+        rawDb.prepare(`
+          UPDATE leads
+             SET phones = ?, phone_states = ?, phone_attempts = ?, dead_lines = ?
+           WHERE id = ?
+        `).run(
+          JSON.stringify(phones),
+          JSON.stringify(states),
+          JSON.stringify(attempts),
+          JSON.stringify(deadLines),
+          r.id
+        );
+        purged++;
+      } catch {}
+    }
+    if (purged > 0) {
+      console.log(`[v14.65 struck-phone-purge] Removed struck phones from ${purged} leads (moved to dead_lines).`);
+    }
+  } catch (err) {
+    console.error("[v14.65 struck-phone-purge] Failed:", err);
   }
 
   // ─── v14.14 — CALLBACK-RETIRE SWEEP (one-time, runs on every boot) ─────
@@ -1645,7 +1692,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.64</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.65</p>
             </div>
           `,
         });
@@ -1807,7 +1854,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.64 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.65 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2870,10 +2917,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
     } else if (outcome === "no_answer") {
-      // v14.40 — Per-LINE 6-attempt cap. Increment this phone's counter. At 6 it flips
+      // v14.40 — Per-LINE no-answer cap. Increment this phone's counter. At CAP it flips
       // from "no_answer_today" to permanently "struck". When every phone is struck the
       // lead auto-deletes (same exhaustion path as Wrong # / Disconnected).
-      const PHONE_ATTEMPT_CAP = 6;
+      // v14.65 — Raised from 6 → 10 to give more attempts to hunt the true owner
+      //           before retiring a line.
+      const PHONE_ATTEMPT_CAP = 10;
       const currentPhone = req.body.dialedPhone || lead.phone || "";
       let phoneAttempts: Record<string, number> = {};
       try { phoneAttempts = lead.phoneAttempts ? JSON.parse(lead.phoneAttempts) : {}; } catch {}
@@ -2911,10 +2960,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // Check if there's another untried number to try today
       const nextPhone = getNextViablePhone(newPhoneStates, newPhones);
       if (nextPhone) {
-        // Still has untried numbers — stay with same agent, update active phone
+        // v14.65 — Still has untried numbers. Do NOT reorder the phones array;
+        // slot order is the owner-priority order and must stay stable for the
+        // "Line X of N" label. Just update lead.phone to the next untried.
         newStatus = "no_answer";
-        // Shift nextPhone to front so agent sees it next
-        newPhones = [nextPhone, ...newPhones.filter(p => p !== nextPhone)];
         rawDb.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(nextPhone, leadId);
       } else {
         // v14.10 — PULL MODE: all numbers tried today, return to shared pool.
@@ -2954,19 +3003,24 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     } else if (outcome === "disconnected") {
       // v14.18 — Disconnected line = per-line cleanup, NOT a full lead kill.
-      // Behaviorally identical to Wrong # but semantically different (bad number,
-      // not wrong person). We mark the dialed phone as struck in phone_states AND
-      // add it to dead_lines JSON. If any untried number remains, agent advances
-      // on the same lead; if every line is dead, we release + delete the lead
-      // (same exhaustion path as Wrong #).
+      // v14.65 — REWRITE: struck phones are physically REMOVED from phones[]
+      //   (also purged from phoneStates + phoneAttempts). What remains is our
+      //   candidate set of "actual owner" numbers. Slot label 'Line X of N'
+      //   naturally renumbers as candidates die. Dead numbers persist only in
+      //   dead_lines JSON for audit/history.
       const dialedPhone = req.body.dialedPhone || lead.phone || "";
-      const phones: string[] = lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []);
+      let phones: string[] = lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []);
       const phoneStates: Record<string, string> = lead.phoneStates ? JSON.parse(lead.phoneStates) : {};
+      let phoneAttempts: Record<string, number> = {};
+      try { phoneAttempts = lead.phoneAttempts ? JSON.parse(lead.phoneAttempts) : {}; } catch {}
       let deadLines: string[] = [];
       try { deadLines = JSON.parse((lead as any).deadLines || (lead as any).dead_lines || "[]"); } catch {}
 
+      // v14.65 — Physically remove the dialed phone from the candidate list
       if (dialedPhone) {
-        phoneStates[dialedPhone] = "struck";
+        phones = phones.filter(p => p !== dialedPhone);
+        delete phoneStates[dialedPhone];
+        delete phoneAttempts[dialedPhone];
         if (!deadLines.includes(dialedPhone)) deadLines.push(dialedPhone);
       }
 
@@ -2975,12 +3029,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
         VALUES (?, ?, 'disconnected', ?, NULL, ?)
       `).run(leadId, agentId || null,
-        notes || (dialedPhone ? `Disconnected: ${dialedPhone} marked dead.` : null),
+        notes || (dialedPhone ? `Disconnected: ${dialedPhone} removed from candidate list. ${phones.length} candidate(s) remaining.` : null),
         new Date().toISOString());
 
-      const remaining = phones.filter(p => phoneStates[p] !== "struck");
-      if (remaining.length === 0) {
-        // All lines dead — exhaustion path. Award points, clear FKs, delete lead.
+      if (phones.length === 0) {
+        // All candidate numbers exhausted — exhaustion path. Award, clear, delete.
         awardPoints(agentId, "disconnected", leadId);
         rawDb.prepare(`DELETE FROM lead_activity WHERE lead_id = ?`).run(leadId);
         rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
@@ -2989,27 +3042,22 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         return res.json({ deleted: true, leadId, reason: "all_lines_disconnected" });
       }
 
-      // Otherwise advance to next viable line, keep agent on the lead
-      const untriedNext = remaining.find(p => phoneStates[p] === "untried");
-      const nextViable  = untriedNext ?? remaining[0];
-      const reorderedPhones = [nextViable, ...phones.filter(p => p !== nextViable)];
+      // v14.65 — Slot 1 (lowest index) is always the next candidate we dial.
+      // Prefer untried; if none untried but candidates remain, they're all
+      // no_answer_today — lead exits pool until tomorrow.
+      const untriedNext = phones.find(p => phoneStates[p] === "untried") ?? null;
+      const nextViable  = untriedNext ?? phones[0];
       if (untriedNext) {
-        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, dead_lines = ?, status = 'assigned', assigned_agent_id = ? WHERE id = ?`).run(
-          nextViable, JSON.stringify(reorderedPhones), JSON.stringify(phoneStates),
-          JSON.stringify(deadLines), agentId, leadId
+        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, phone_attempts = ?, dead_lines = ?, status = 'assigned', assigned_agent_id = ? WHERE id = ?`).run(
+          nextViable, JSON.stringify(phones), JSON.stringify(phoneStates),
+          JSON.stringify(phoneAttempts), JSON.stringify(deadLines), agentId, leadId
         );
       } else {
-        // v14.64 HOTFIX — BUG: previously wrote status='unassigned' which sent the
-        // lead straight back into the my-next pool. Same agent (or any home-county
-        // agent) would immediately pull it again, showing LINE 1 OF 5 pointing at
-        // a phone already in phone_states as no_answer_today. Agent gets stuck on
-        // one lead. Fix: write status='no_answer' so the my-next puller (which only
-        // matches status='unassigned') skips it until the 8am EDT daily reset flips
-        // no_answer_today back to untried. Parity with the No Answer / Left VM
-        // exhaustion branches.
-        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, dead_lines = ?, status = 'no_answer', assigned_agent_id = NULL WHERE id = ?`).run(
-          nextViable, JSON.stringify(reorderedPhones), JSON.stringify(phoneStates),
-          JSON.stringify(deadLines), leadId
+        // v14.64 fix preserved: write status='no_answer' so puller skips it
+        // until tomorrow's 8am EDT reset. Release lock.
+        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, phone_attempts = ?, dead_lines = ?, status = 'no_answer', assigned_agent_id = NULL WHERE id = ?`).run(
+          nextViable, JSON.stringify(phones), JSON.stringify(phoneStates),
+          JSON.stringify(phoneAttempts), JSON.stringify(deadLines), leadId
         );
         rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
       }
@@ -3019,10 +3067,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: remaining.length, keptOnLead: !!untriedNext });
 
     } else if (outcome === "left_voicemail") {
-      // v14.40 — Left VM counts toward the per-line 6-attempt cap (same as No Answer).
-      // At attempt 6 the phone flips to "struck" instead of "no_answer_today".
+      // v14.40 — Left VM counts toward the per-line no-answer cap (same as No Answer).
+      // At CAP the phone flips to "struck" instead of "no_answer_today".
       // When every phone is struck, the lead auto-deletes (exhaustion delete).
-      const PHONE_ATTEMPT_CAP_VM = 6;
+      // v14.65 — Raised from 6 → 10 to give more attempts to hunt the true owner
+      //           before retiring a line.
+      const PHONE_ATTEMPT_CAP_VM = 10;
       const currentPhone = req.body.dialedPhone || lead.phone || "";
       let phoneAttemptsVm: Record<string, number> = {};
       try { phoneAttemptsVm = lead.phoneAttempts ? JSON.parse(lead.phoneAttempts) : {}; } catch {}
@@ -3096,27 +3146,38 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       bMortgage:  lpmamab.bMortgage  || lead.bMortgage,
     } : {};
 
-    // Wrong number: strike this number; delete lead only if it was the last one
+    // Wrong number: remove this number from the candidate list; delete lead only if it was the last one
     if (outcome === "wrong_number") {
+      // v14.65 — REWRITE: struck phones are physically REMOVED from phones[]
+      //   (also purged from phoneStates + phoneAttempts). What remains is our
+      //   candidate set of "actual owner" numbers. Slot label 'Line X of N'
+      //   naturally renumbers as candidates die. Dead numbers persist only in
+      //   dead_lines JSON for audit/history.
       const dialedPhone = req.body.dialedPhone || lead.phone || "";
-      const phones: string[] = lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []);
+      let phones: string[] = lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []);
       const phoneStates: Record<string, string> = lead.phoneStates ? JSON.parse(lead.phoneStates) : {};
+      let phoneAttempts: Record<string, number> = {};
+      try { phoneAttempts = lead.phoneAttempts ? JSON.parse(lead.phoneAttempts) : {}; } catch {}
+      let deadLines: string[] = [];
+      try { deadLines = JSON.parse((lead as any).deadLines || (lead as any).dead_lines || "[]"); } catch {}
 
-      // Permanently strike this number
-      if (dialedPhone) phoneStates[dialedPhone] = "struck";
-
-      // Find remaining viable numbers (not struck)
-      const remaining = phones.filter(p => phoneStates[p] !== "struck");
+      // v14.65 — Physically remove the dialed phone from the candidate list
+      if (dialedPhone) {
+        phones = phones.filter(p => p !== dialedPhone);
+        delete phoneStates[dialedPhone];
+        delete phoneAttempts[dialedPhone];
+        if (!deadLines.includes(dialedPhone)) deadLines.push(dialedPhone);
+      }
 
       // Log the activity
       rawDb.prepare(`
         INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
         VALUES (?, ?, ?, ?, NULL, ?)
       `).run(leadId, agentId || null, outcome,
-        notes || (dialedPhone ? `Wrong number: ${dialedPhone} struck from list. ${remaining.length} number(s) remaining.` : null),
+        notes || (dialedPhone ? `Wrong number: ${dialedPhone} removed from candidate list. ${phones.length} candidate(s) remaining.` : null),
         new Date().toISOString());
 
-      if (remaining.length === 0) {
+      if (phones.length === 0) {
         // All numbers confirmed bad — award points first, then clear FK-referencing rows
         // v14.10 — fix FK crash: also delete lead_locks row (previously only lead_activity was cleared)
         awardPoints(agentId, "wrong_number", leadId);
@@ -3128,40 +3189,29 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
 
       // v14.18 — Wrong # advances phone but KEEPS the agent on the lead.
-      // Agent burns through all numbers on the spot in one sitting. Only when
-      // the LAST number is struck does the lead leave (handled above via delete).
-      // Between-line no-op on assignment prevents the my-next race that left
-      // agents stuck on an exhausted lead card (v14.14 bug, screenshot 2026-07-07).
-      const untriedNext = remaining.find(p => phoneStates[p] === "untried");
-      const nextViable = untriedNext ?? remaining[0];
-      const reorderedPhones = [nextViable, ...phones.filter(p => p !== nextViable)];
+      // v14.65 — Slot 1 (lowest index) is always the next candidate we dial.
+      const untriedNext = phones.find(p => phoneStates[p] === "untried") ?? null;
+      const nextViable = untriedNext ?? phones[0];
 
-      // If there are ANY untried numbers left, stay assigned and dial the next one.
-      // If every remaining number is "no_answer_today" (untriedNext is undefined),
-      // the agent has burned through everything they can dial today — return to pool
-      // so it can surface for someone else tomorrow, AND release the lock so the
-      // next my-next fetch doesn't hand this same lead back.
       if (untriedNext) {
-        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, status = 'assigned', assigned_agent_id = ? WHERE id = ?`).run(
+        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, phone_attempts = ?, dead_lines = ?, status = 'assigned', assigned_agent_id = ? WHERE id = ?`).run(
           nextViable,
-          JSON.stringify(reorderedPhones),
+          JSON.stringify(phones),
           JSON.stringify(phoneStates),
+          JSON.stringify(phoneAttempts),
+          JSON.stringify(deadLines),
           agentId,
           leadId
         );
       } else {
-        // v14.64 HOTFIX — BUG: previously wrote status='unassigned' which sent the
-        // lead straight back into the my-next pool. Same agent (or any home-county
-        // agent) would immediately pull it again, showing LINE 1 OF 5 pointing at
-        // a phone already in phone_states as no_answer_today. Agent gets stuck on
-        // one lead. Fix: write status='no_answer' so the my-next puller (which only
-        // matches status='unassigned') skips it until the 8am EDT daily reset flips
-        // no_answer_today back to untried. Parity with the No Answer / Left VM
-        // exhaustion branches.
-        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, status = 'no_answer', assigned_agent_id = NULL WHERE id = ?`).run(
+        // v14.64 fix preserved: write status='no_answer' so puller skips it
+        // until tomorrow's 8am EDT reset. Release lock.
+        rawDb.prepare(`UPDATE leads SET phone = ?, phones = ?, phone_states = ?, phone_attempts = ?, dead_lines = ?, status = 'no_answer', assigned_agent_id = NULL WHERE id = ?`).run(
           nextViable,
-          JSON.stringify(reorderedPhones),
+          JSON.stringify(phones),
           JSON.stringify(phoneStates),
+          JSON.stringify(phoneAttempts),
+          JSON.stringify(deadLines),
           leadId
         );
         // Release the lock so my-next doesn't hand back this exhausted lead
@@ -4918,7 +4968,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.64 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.65 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5150,7 +5200,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.64",
+      version: "v14.65",
       services: results,
     });
   });
@@ -6270,7 +6320,7 @@ async function sendDailyDigest() {
   ${outcomeSection("Callback Scheduled", "#93c5fd", "callback_requested")}
   ${outcomeSection("Not Interested",     "#fca5a5", "contacted_not_interested")}
   ${outcomeSection("Wrong Number",       "rgba(255,255,255,0.35)", "wrong_number")}
-  ${outcomeSection("Retired — all lines struck (6 no-answers each)", "rgba(255,255,255,0.45)", "retired_no_answer")}
+  ${outcomeSection("Retired — all lines struck (10 no-answers each)", "rgba(255,255,255,0.45)", "retired_no_answer")}
 
   <!-- Redistributed -->
   ${redistributedSection}

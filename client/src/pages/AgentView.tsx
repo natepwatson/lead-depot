@@ -593,23 +593,25 @@ function LeadCard({ lead }: { lead: Lead }) {
             });
           }
         } else if (variables.outcome === "wrong_number" || variables.outcome === "disconnected") {
+          // v14.65 — Struck phone is physically removed from the candidate list.
+          //          Whatever was line N+1 becomes the new line N. "1 of (total-1)".
           const label = variables.outcome === "disconnected" ? "Disconnected" : "Wrong #";
+          const newTotal = Math.max(0, total - 1);
           if (data && data.deleted) {
             toast({
-              title: `${label} — line ${currentLineNum} struck`,
+              title: `${label} — line ${currentLineNum} removed`,
               description: "All numbers dead — lead removed.",
               duration: 3000,
             });
           } else if (data && data.keptOnLead) {
-            const nextIdx = allPhones.findIndex(p => p === untriedRemaining[0]);
             toast({
-              title: `${label} — line ${currentLineNum} struck`,
-              description: `Now dialing line ${nextIdx + 1} of ${total}.`,
+              title: `${label} — line ${currentLineNum} removed`,
+              description: `Now dialing line 1 of ${newTotal}.`,
               duration: 3000,
             });
           } else {
             toast({
-              title: `${label} — line ${currentLineNum} struck`,
+              title: `${label} — line ${currentLineNum} removed`,
               description: "All viable numbers rested. Loading next lead…",
               duration: 3000,
             });
@@ -651,9 +653,11 @@ function LeadCard({ lead }: { lead: Lead }) {
   }, [lead.phoneStates]);
   // Active phone is whatever is currently on lead.phone (server keeps it current)
   const activePhone = lead.phone || allPhones[0] || "";
-  const struckCount = Object.values(phoneStates).filter(s => s === "struck").length;
-  const triedTodayCount = Object.values(phoneStates).filter(s => s === "no_answer_today").length;
-  const remainingCount = allPhones.filter(p => phoneStates[p] !== "struck").length;
+  // v14.65 — Struck phones are physically removed from allPhones on the server,
+  // so allPhones is now our live candidate list. Slot numbering renumbers as
+  // candidates die.
+  const triedTodayCount = allPhones.filter(p => phoneStates[p] === "no_answer_today").length;
+  const untriedCount = allPhones.filter(p => phoneStates[p] === "untried" || !phoneStates[p]).length;
 
   const handleOutcome = (key: string) => {
     if (key === "contacted_appointment" || key === "keep_in_touch") {
@@ -884,9 +888,9 @@ function LeadCard({ lead }: { lead: Lead }) {
               {allPhones.length === 1 ? "Single Line" : `Line ${Math.max(1, allPhones.findIndex(p => p === activePhone) + 1)} of ${allPhones.length}`}
             </span>
             <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em" }}>
-              {remainingCount}/{allPhones.length} viable
-              {struckCount > 0 ? ` · ${struckCount} struck` : ""}
-              {triedTodayCount > 0 ? ` · ${triedTodayCount} tried today` : ""}
+              {untriedCount > 0 ? `${untriedCount} untried` : ""}
+              {untriedCount > 0 && triedTodayCount > 0 ? " · " : ""}
+              {triedTodayCount > 0 ? `${triedTodayCount} tried today` : ""}
             </span>
           </div>
         )}

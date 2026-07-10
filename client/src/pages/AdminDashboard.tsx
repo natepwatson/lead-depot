@@ -1550,7 +1550,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.64
+              v14.65
             </p>
           </div>
         </div>
@@ -2625,7 +2625,8 @@ export default function AdminDashboard({
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13, marginBottom: 16 }}>
                     {lead.address && <div className="flex items-start gap-2"><MapPin size={13} className="text-muted-foreground mt-0.5 shrink-0"/><span className="text-foreground">{lead.address}</span></div>}
                     {(() => {
-                      // v14.40 — render all phones with per-line no-answer counters (· 3/6, · struck)
+                      // v14.40 — render all phones with per-line no-answer counters (· 3/10, · struck)
+                      // v14.65 — cap raised 6 → 10
                       const phones: string[] = (() => { try { return lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []); } catch { return lead.phone ? [lead.phone] : []; } })();
                       const states: Record<string, string> = (() => { try { return lead.phoneStates ? JSON.parse(lead.phoneStates) : {}; } catch { return {}; } })();
                       const attempts: Record<string, number> = (() => { try { return lead.phoneAttempts ? JSON.parse(lead.phoneAttempts) : {}; } catch { return {}; } })();
@@ -2640,7 +2641,7 @@ export default function AdminDashboard({
                             {struck ? (
                               <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>· struck</span>
                             ) : n > 0 ? (
-                              <span style={{ fontSize: 10, color: n >= 5 ? "#f87171" : "rgba(255,255,255,0.4)" }}>· {n}/6</span>
+                              <span style={{ fontSize: 10, color: n >= 8 ? "#f87171" : "rgba(255,255,255,0.4)" }}>· {n}/10</span>
                             ) : null}
                           </div>
                         );

@@ -103,7 +103,7 @@ export async function migrateLegacyPasswords(): Promise<{ migrated: number; alre
 
 // ─── SESSION HELPERS ───────────────────────────────────────────────────────
 
-export function sha256(s: string): string {
+function sha256(s: string): string {
   return createHash("sha256").update(s).digest("hex");
 }
 

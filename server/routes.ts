@@ -20,7 +20,6 @@ import {
   clearSessionCookie,
   requireSession,
   requireSelfOrAdmin,
-  sha256,
   SESSION_COOKIE,
 } from "./auth";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
@@ -308,7 +307,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.59 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.58 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -367,7 +366,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.59 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.58 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -652,7 +651,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.59 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.58 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1072,16 +1071,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       if (!normalized) {
         return res.status(400).json({ error: "Email cannot be blank" });
       }
-      if (normalized.startsWith("tombstone:")) {
-        return res.status(400).json({ error: "Refusing to write a tombstone sentinel as an email." });
-      }
-      // v14.59 — exclude tombstoned rows from the collision check so re-inviting a
-      // merged agent's original email works. Tombstones have merged_into_agent_id
-      // set AND email prefixed with 'tombstone:'.
-      const collision = rawDb.prepare(
-        "SELECT id, name FROM agents WHERE LOWER(email) = ? AND id <> ? AND merged_into_agent_id IS NULL"
-      ).get(normalized, id) as { id: number; name: string } | undefined;
-      if (collision) {
+      const collision = storage.getAgentByEmail(normalized);
+      if (collision && collision.id !== id) {
         return res.status(409).json({
           error: `Email ${normalized} is already used by agent id=${collision.id} (${collision.name}). Pick a different email or merge the two accounts via /api/admin/agents/merge.`,
         });
@@ -1104,20 +1095,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const assignedRole = ["admin", "agent"].includes(reqRole) ? reqRole : "agent";
 
     // Check duplicate email (case-insensitive; email is stored lowercased so LOWER on
-    // the column is a defensive belt-and-suspenders in case any legacy row drifted).
-    // v14.59 — exclude tombstoned rows so re-inviting a merged agent's original
-    // email is allowed (tombstones have merged_into_agent_id set).
-    const existing = rawDb.prepare(
-      "SELECT id FROM agents WHERE LOWER(email) = ? AND merged_into_agent_id IS NULL"
-    ).get(cleanEmail);
+    // the column is a defensive belt-and-suspenders in case any legacy row drifted)
+    const existing = rawDb.prepare("SELECT id FROM agents WHERE LOWER(email) = ?").get(cleanEmail);
     if (existing) return res.status(409).json({ error: "An agent with this email already exists" });
 
     // v14.58 — Same-name duplicate warning. Merged rows have their email renamed to
-    // a tombstone sentinel (v14.59 shape: 'tombstone:<sourceId>:<oldEmail>';
-    // v14.58 legacy shape: '_merged_into_<targetId>_from_<sourceId>_<oldEmail>').
-    // Either way the email uniqueness check above passes for a re-invite with the
-    // pre-merge email. This lets duplicates slip through if an admin re-invites
-    // the same person after a merge.
+    // `_merged_into_<targetId>_from_<sourceId>_<oldEmail>`, so the email uniqueness
+    // check above passes for a re-invite with the pre-merge email. This lets
+    // duplicates slip through if an admin re-invites the same person after a merge.
     // Guard: if an ACTIVE agent already exists with the same name, block the invite
     // and instruct the admin to edit the existing agent's email instead.
     // Bypass by passing { forceDuplicateName: true } in the request body.
@@ -1362,31 +1347,19 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       counts.agent_leads_uploaded_by = rawDb.prepare(`UPDATE agent_leads SET uploaded_by = ? WHERE uploaded_by = ?`).run(targetId, sourceId).changes;
       counts.agent_lead_activity = rawDb.prepare(`UPDATE agent_lead_activity SET caller_id = ? WHERE caller_id = ?`).run(targetId, sourceId).changes;
       counts.lead_locks = rawDb.prepare(`UPDATE lead_locks SET agent_id = ? WHERE agent_id = ?`).run(targetId, sourceId).changes;
-      // v14.59 tombstone shape (Bucket 5 Phase B). Hide the source:
-      // force-deactivate + null out lead-flow + rewrite email to sentinel
-      // 'tombstone:<sourceId>:<origEmail>' so no real email can ever match it in
-      // login. Also set merged_into_agent_id = <targetId> so tombstones are
-      // programmatically discoverable via `WHERE merged_into_agent_id IS NOT NULL`.
-      // Belt-and-suspenders uniqueness guard: append "#N" only if a prior tombstone
-      // with identical sentinel already exists (extremely rare but possible if the
-      // same source is somehow processed twice).
-      let tsEmail = `tombstone:${sourceId}:${source.email}`;
-      let n = 0;
-      while (rawDb.prepare("SELECT 1 FROM agents WHERE email = ? AND id <> ?").get(tsEmail, sourceId)) {
-        n++;
-        tsEmail = `tombstone:${sourceId}:${source.email}#${n}`;
-        if (n > 5) break;
-      }
-      rawDb.prepare(`UPDATE agents SET is_active = 0, lead_flow_on = 0, receive_leads = 0, email = ?, merged_into_agent_id = ? WHERE id = ?`).run(
-        tsEmail,
-        targetId,
+      // Hide the source: force-deactivate + null out lead-flow + wipe email so it can't
+      // be logged into. Keep the row (for foreign-key referential integrity of any
+      // future rows we may have missed) but make it invisible + login-locked.
+      //
+      // v14.58 hotfix: when merging multiple sources into the same target, the
+      // simple `_merged_into_<targetId>_<email>` pattern collides with earlier
+      // merged rows that had the same email. Suffix with sourceId to guarantee
+      // uniqueness across repeated merges. The agents.email UNIQUE constraint is
+      // enforced at the SQLite layer.
+      rawDb.prepare(`UPDATE agents SET is_active = 0, lead_flow_on = 0, receive_leads = 0, email = ? WHERE id = ?`).run(
+        `_merged_into_${targetId}_from_${sourceId}_${source.email}`,
         sourceId,
       );
-      // Also revoke any active sessions the tombstoned agent may hold. Phase A
-      // sessions are keyed to agent_id, so this closes any lingering logged-in
-      // browser window that was authenticated as the now-merged source.
-      rawDb.prepare(`UPDATE sessions SET revoked_at = ? WHERE agent_id = ? AND revoked_at IS NULL`)
-        .run(new Date().toISOString(), sourceId);
     });
 
     try {
@@ -1414,148 +1387,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       counts,
       total_rows_reassigned: Object.values(counts).reduce((a, b) => a + b, 0),
     });
-  });
-
-  // ─── EMAIL CHANGE (Bucket 5 Phase B — v14.59) ─────────────────────
-  //
-  // The correct way to change an agent's login email. Two paths:
-  //   • ADMIN actor  → instant change + revokes all sessions for that agent so
-  //     any active browser must re-login with the new email.
-  //   • SELF actor   → stashes the new address in pending_email + mints a
-  //     verification token, sends a link to the NEW address. Only when the agent
-  //     clicks the link (proving control of the new mailbox) does email flip.
-  //
-  // The generic PATCH /api/agents/:id still accepts email edits for admin UIs that
-  // haven't migrated yet, but self-service flows should route through here.
-  app.patch("/api/agents/:id/email", async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
-    if (!requireSelfOrAdmin(req, res, id)) return;
-    const newEmailRaw = req.body?.newEmail;
-    if (typeof newEmailRaw !== "string" || !newEmailRaw.trim()) {
-      return res.status(400).json({ error: "newEmail is required" });
-    }
-    const normalized = newEmailRaw.toLowerCase().trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
-      return res.status(400).json({ error: "newEmail is not a valid email address" });
-    }
-    if (normalized.startsWith("tombstone:")) {
-      return res.status(400).json({ error: "Refusing to write a tombstone sentinel as an email." });
-    }
-    const agent = storage.getAgentById(id);
-    if (!agent) return res.status(404).json({ error: "Agent not found" });
-    if (agent.email === normalized) return res.status(400).json({ error: "That is already your email." });
-
-    // Collision check — excludes tombstoned rows.
-    const collision = rawDb.prepare(
-      "SELECT id, name FROM agents WHERE LOWER(email) = ? AND id <> ? AND merged_into_agent_id IS NULL"
-    ).get(normalized, id) as { id: number; name: string } | undefined;
-    if (collision) {
-      return res.status(409).json({
-        error: `Email ${normalized} is already used by agent id=${collision.id} (${collision.name}).`,
-      });
-    }
-
-    const isAdminActor = req.currentAgent?.role === "admin" && req.currentAgent.id !== id;
-
-    if (isAdminActor) {
-      // Admin path — instant change, revoke all sessions, log it.
-      rawDb.prepare("UPDATE agents SET email = ?, pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL WHERE id = ?")
-        .run(normalized, id);
-      revokeAllSessionsForAgent(id);
-      console.log(`[email-change] admin ${req.currentAgent?.email} (${req.currentAgent?.id}) changed agent ${id} email: ${agent.email} → ${normalized}`);
-      broadcast({ type: "activity_event", event: {
-        type: "agent_email_changed_by_admin",
-        adminId: req.currentAgent?.id, adminEmail: req.currentAgent?.email,
-        agentId: id, oldEmail: agent.email, newEmail: normalized,
-        ts: new Date().toISOString(),
-      } });
-      return res.json({ ok: true, path: "admin_instant", newEmail: normalized });
-    }
-
-    // Self-service path — pending + verification token to the NEW address.
-    const token = randomBytes(32).toString("hex");
-    const tokenHash = sha256(token);
-    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
-    rawDb.prepare("UPDATE agents SET pending_email = ?, pending_email_token = ?, pending_email_expires = ? WHERE id = ?")
-      .run(normalized, tokenHash, expires, id);
-
-    const appBase = process.env.RAILWAY_PUBLIC_DOMAIN
-      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-      : process.env.APP_URL ?? "https://depot.watsonbrothersgroup.com";
-    const verifyLink = `${appBase}/api/agents/verify-email/${token}`;
-
-    if (resend) {
-      try {
-        await resend.emails.send({
-          from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-          to: normalized,
-          subject: "Confirm your new Lead Depot email address",
-          html: `
-            <div style="font-family:Georgia,serif;background:#09090b;color:#e5e5e5;padding:40px 24px;max-width:600px;margin:0 auto;border-radius:12px;">
-              <h2 style="color:#facc15;margin-top:0;">Confirm your new email</h2>
-              <p>Hi ${agent.name},</p>
-              <p>You (or someone with your Lead Depot login) requested to change your login email from <strong>${agent.email}</strong> to <strong>${normalized}</strong>.</p>
-              <p>Click the button below within 24 hours to confirm. If you didn't request this, ignore this email — your login will not change.</p>
-              <p style="text-align:center;margin:32px 0;">
-                <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
-              </p>
-              <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.59</p>
-            </div>
-          `,
-        });
-      } catch (e: any) {
-        console.error("[email-change] resend send failed:", e?.message);
-        // Do not roll back — the pending state is still valid, agent can retry.
-      }
-    }
-
-    console.log(`[email-change] self-request: agent ${id} (${agent.email}) requested → ${normalized}, verify link sent`);
-    res.json({ ok: true, path: "self_pending_verification", pendingEmail: normalized, expiresAt: expires });
-  });
-
-  // GET /api/agents/verify-email/:token — apply pending_email after user clicks link.
-  // No session required: the token IS the proof of mailbox control.
-  app.get("/api/agents/verify-email/:token", (req, res) => {
-    const token = req.params.token;
-    if (!token || token.length < 32) return res.status(400).send("Invalid token");
-    const tokenHash = sha256(token);
-    const now = new Date().toISOString();
-    const row = rawDb.prepare(
-      "SELECT id, email, pending_email, pending_email_expires FROM agents WHERE pending_email_token = ?"
-    ).get(tokenHash) as { id: number; email: string; pending_email: string; pending_email_expires: string } | undefined;
-    if (!row) return res.status(404).type("html").send("<h1>Link is invalid or already used.</h1>");
-    if (row.pending_email_expires < now) {
-      return res.status(410).type("html").send("<h1>This link has expired.</h1><p>Request a new email change from your profile.</p>");
-    }
-    // Collision recheck — someone else may have grabbed this email between request and click.
-    const collision = rawDb.prepare(
-      "SELECT id, name FROM agents WHERE LOWER(email) = ? AND id <> ? AND merged_into_agent_id IS NULL"
-    ).get(row.pending_email, row.id) as { id: number; name: string } | undefined;
-    if (collision) {
-      // Clear the pending state so the agent can request again with a different address.
-      rawDb.prepare("UPDATE agents SET pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL WHERE id = ?").run(row.id);
-      return res.status(409).type("html").send("<h1>Email already in use.</h1><p>Someone else claimed that address while you were verifying. Please pick a different one.</p>");
-    }
-    rawDb.prepare("UPDATE agents SET email = ?, pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL WHERE id = ?")
-      .run(row.pending_email, row.id);
-    // Revoke all sessions for the agent — they'll re-login with the new email everywhere.
-    revokeAllSessionsForAgent(row.id);
-    console.log(`[email-change] verified: agent ${row.id} ${row.email} → ${row.pending_email}`);
-    broadcast({ type: "activity_event", event: {
-      type: "agent_email_changed_verified",
-      agentId: row.id, oldEmail: row.email, newEmail: row.pending_email,
-      ts: new Date().toISOString(),
-    } });
-    res.type("html").send(`
-      <div style="font-family:Georgia,serif;background:#09090b;color:#e5e5e5;padding:60px 24px;max-width:600px;margin:0 auto;text-align:center;min-height:100vh;">
-        <h1 style="color:#facc15;">Email updated</h1>
-        <p>Your Lead Depot login is now <strong>${row.pending_email}</strong>.</p>
-        <p>Any signed-in browser sessions have been logged out for security. Please sign in again with your new email.</p>
-        <p style="margin-top:32px;"><a href="https://depot.watsonbrothersgroup.com/" style="background:#facc15;color:#09090b;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Go to Lead Depot</a></p>
-      </div>
-    `);
   });
 
   // Reactivate a trashed agent
@@ -4600,7 +4431,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.59 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.58 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4832,7 +4663,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.59",
+      version: "v14.58",
       services: results,
     });
   });

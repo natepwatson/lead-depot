@@ -35,21 +35,6 @@ export const agents = sqliteTable("agents", {
   // to other counties ONLY when their home county is completely dry.
   // NULL = admin / no restriction (killer mode — sees everything, cross-county).
   homeCounty: text("home_county"),
-  // v14.59 (Bucket 5 Phase B — Email hygiene) — tombstone + pending-email columns.
-  //
-  // mergedIntoAgentId: when a row is a merge tombstone, this points at the surviving
-  // canonical agent row. Combined with email = 'tombstone:<sourceId>:<orig>' this
-  // makes tombstones both login-locked (no real email will ever match) AND
-  // programmatically discoverable (WHERE merged_into_agent_id IS NOT NULL).
-  mergedIntoAgentId: integer("merged_into_agent_id"),
-  // pending_email flow: when a non-admin agent requests an email change, we don't
-  // rewrite `email` immediately. We stash the new address in pending_email, mint a
-  // token, hash it to pending_email_token, send a verification link to the NEW
-  // address, and only apply the change when they click through before
-  // pending_email_expires. Admin-initiated changes bypass this and apply instantly.
-  pendingEmail: text("pending_email"),
-  pendingEmailToken: text("pending_email_token"),
-  pendingEmailExpires: text("pending_email_expires"),
 });
 
 export const insertAgentSchema = createInsertSchema(agents).omit({ id: true });

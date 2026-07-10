@@ -310,7 +310,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.61 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.62 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -369,7 +369,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.61 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.62 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -654,7 +654,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.61 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.62 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1554,7 +1554,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.61</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.62</p>
             </div>
           `,
         });
@@ -1667,6 +1667,84 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const limit = Math.min(500, parseInt(String(req.query?.limit ?? "200")) || 200);
     const rows = getAgentAuditLog(id, limit);
     res.json({ agentId: id, count: rows.length, entries: rows });
+  });
+
+  // v14.62 Phase D — admin-triggered password reset for a specific agent.
+  // Thin wrapper around the forgot-password flow that (a) accepts an agent ID
+  // instead of an email lookup so admin can trigger from a row click without
+  // retyping, (b) requires admin session, (c) returns real success/failure so
+  // the admin sees a toast instead of the silent 200-always contract used on
+  // the public forgot-password endpoint (which is silent to prevent email
+  // enumeration). Both endpoints go through the same underlying token-mint +
+  // Resend email path, so admin-initiated + self-initiated resets cannot
+  // diverge. Audit-logs as password_reset with actor=admin, notes=admin_triggered.
+  app.post("/api/admin/agents/:id/reset-password", async (req: any, res: any) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(req.params.id);
+    const agent = storage.getAgentById(id);
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+    if (!agent.isActive) return res.status(400).json({ error: "Cannot reset password on deactivated / tombstoned agent" });
+    if (!agent.email || agent.email.startsWith("tombstone:")) {
+      return res.status(400).json({ error: "Agent has no valid email address" });
+    }
+
+    const token = randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1hr
+    rawDb.prepare("UPDATE agents SET setup_token = ?, setup_expires = ? WHERE id = ?")
+      .run(token, expires, agent.id);
+
+    const appBase = process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : process.env.APP_URL ?? "https://depot.watsonbrothersgroup.com";
+    const resetLink = `${appBase}/#/reset-password/${token}`;
+
+    let emailSent = false;
+    let emailError: string | null = null;
+    if (resend) {
+      try {
+        await resend.emails.send({
+          from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+          to: agent.email,
+          subject: "Reset your Lead Depot password",
+          html: `
+            <div style="font-family:'Georgia',serif;background:#09090b;color:#e5e5e5;padding:40px 24px;max-width:600px;margin:0 auto;border-radius:12px;">
+              <div style="text-align:center;margin-bottom:28px;">
+                <p style="color:#c8aa5a;letter-spacing:0.18em;font-size:11px;text-transform:uppercase;margin:0;">Lead Depot</p>
+              </div>
+              <h1 style="color:#fff;font-weight:300;font-size:24px;margin:0 0 10px;">Password Reset</h1>
+              <p style="color:rgba(255,255,255,0.55);font-size:14px;line-height:1.7;margin:0 0 28px;">Your Brothers Group admin sent you a password reset link for your Lead Depot account. Click below to set a new password. This link expires in 1 hour.</p>
+              <div style="text-align:center;margin-bottom:28px;">
+                <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
+              </div>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.62 · Brothers Group Real Estate Team at Momentum Realty</p>
+            </div>
+          `,
+        });
+        emailSent = true;
+      } catch (err: any) {
+        emailError = err?.message ?? "send_failed";
+      }
+    } else {
+      emailError = "resend_not_configured";
+    }
+
+    logAgentEvent({
+      actorId: req.currentAgent?.id ?? null,
+      targetId: id,
+      event: "password_reset",
+      before: { hasSetupToken: false },
+      after: { hasSetupToken: true, expires },
+      notes: `Admin-triggered password reset by ${req.currentAgent?.name ?? "unknown admin"}. email_sent=${emailSent}${emailError ? " error="+emailError : ""}.`,
+    });
+
+    if (!emailSent) {
+      return res.status(502).json({
+        error: emailError === "resend_not_configured"
+          ? "Resend is not configured on this server"
+          : `Email send failed: ${emailError}`,
+      });
+    }
+    res.json({ success: true, email: agent.email });
   });
 
   // ─── AGENT PROFILE SELF-SERVICE ──────────────────────────────────────────────
@@ -4710,7 +4788,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.61 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.62 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));

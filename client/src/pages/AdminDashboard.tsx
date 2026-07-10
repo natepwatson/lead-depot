@@ -1167,13 +1167,70 @@ export default function AdminDashboard({
   });
 
   const reactivateAgentMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("PATCH", `/api/agents/${id}/reactivate`, {}).then(r => r.json()),
+    mutationFn: (id: number) => apiRequest("PATCH", `/api/agents/${id}/reactivate`, {}).then(async r => {
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Failed to reactivate");
+      return j;
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/agents"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
       toast({ title: "Agent reactivated" });
     },
+    onError: (err: any) => {
+      toast({ title: "Reactivation failed", description: err?.message || "Could not reactivate agent", variant: "destructive" });
+    },
   });
+
+  // v14.62 Phase D — admin-triggered password reset. Server thin-wraps forgot-password
+  // flow so admin gets real success/failure feedback (unlike public endpoint which
+  // always 200s to prevent email enumeration).
+  const resetPasswordMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/agents/${id}/reset-password`, {}).then(async r => {
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Failed to send reset email");
+      return j;
+    }),
+    onSuccess: (data: any) => {
+      toast({ title: "Reset email sent", description: `Password reset link delivered to ${data.email}. Expires in 1 hour.` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Reset failed", description: err?.message || "Could not send reset email", variant: "destructive" });
+    },
+  });
+
+  // v14.62 Phase D — merge two agents. Source becomes a tombstone pointing at target;
+  // all leads / activities re-parent to target. Uses existing POST /api/admin/agents/merge
+  // (Phase B shared function — admin path and self-service path stay identical).
+  const mergeAgentMutation = useMutation({
+    mutationFn: ({ sourceId, targetId }: { sourceId: number; targetId: number }) =>
+      apiRequest("POST", "/api/admin/agents/merge", { sourceId, targetId }).then(async r => {
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "Merge failed");
+        return j;
+      }),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["/api/agents"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
+      qc.invalidateQueries({ queryKey: ["/api/leads"] });
+      toast({ title: "Agents merged", description: `Source is now a tombstone. ${data.remappedLeads ?? 0} leads re-parented.` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Merge failed", description: err?.message || "Could not merge agents", variant: "destructive" });
+    },
+  });
+
+  // v14.62 Phase D — audit log drawer state
+  const [auditLogAgentId, setAuditLogAgentId] = useState<number | null>(null);
+  const auditLogQuery = useQuery<{ agentId: number; count: number; entries: any[] }>({
+    queryKey: ["/api/admin/agents", auditLogAgentId, "audit-log"],
+    queryFn: () => apiRequest("GET", `/api/admin/agents/${auditLogAgentId}/audit-log?limit=200`).then(r => r.json()),
+    enabled: auditLogAgentId !== null,
+  });
+
+  // v14.62 Phase D — merge dialog state
+  const [mergeSourceAgent, setMergeSourceAgent] = useState<Agent | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState<number | null>(null);
 
   const { data: prospectingData, refetch: refetchProspecting } = useQuery<{ enabled: boolean }>({
     queryKey: ["/api/settings/agent-prospecting-mode"],
@@ -1493,7 +1550,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.61
+              v14.62
             </p>
           </div>
         </div>
@@ -3212,6 +3269,17 @@ export default function AdminDashboard({
                 if (aOn !== bOn) return bOn - aOn;
                 return 0;
               });
+              // v14.62 Phase D — Inactive Agents section: deactivated within last 7 days.
+              // Server enforces the 7d reactivate window (returns 410 Gone past that). Client
+              // filters to only show deactivated agents that are still within-window OR were
+              // deactivated but have no timestamp (legacy pre-v14.61 rows) so admin can still
+              // see them and take action. Merge tombstones (email starts with 'tombstone:')
+              // are excluded — they represent a merged-away row, not a genuine inactive agent.
+              const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+              const inactiveAgents = agents
+                .filter(a => !a.isActive)
+                .filter(a => !(a.email || "").startsWith("tombstone:"))
+                .sort((a, b) => (b.deactivatedAt ?? 0) - (a.deactivatedAt ?? 0));
               return (
                 <>
                   <div className="space-y-3">
@@ -3403,17 +3471,52 @@ export default function AdminDashboard({
                                 {flowActive ? "Flow On" : "Flow Off"}
                               </Badge>
                               {/* v14.0 — Min Dials/Wk gate removed. Motivation over shaming. */}
+                              {/* v14.62 Phase D — Lifecycle actions: reset password, merge, audit log */}
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-amber-400"
+                                onClick={() => openConfirm({
+                                  title: `Send password reset to ${agent.name}?`,
+                                  message: `An email with a secure reset link will be sent to ${agent.email}. The link expires in 1 hour. Any active sessions will be revoked when they use it.`,
+                                  confirmLabel: "Send reset email",
+                                  confirmColor: "#c8aa5a",
+                                  onConfirm: () => { closeConfirm(); resetPasswordMutation.mutate(agent.id); },
+                                })}
+                                title="Send password reset email"
+                                data-testid={`button-reset-password-${agent.id}`}
+                                disabled={resetPasswordMutation.isPending}
+                              >
+                                <Mail size={13}/>
+                              </Button>
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-blue-400"
+                                onClick={() => { setMergeSourceAgent(agent); setMergeTargetId(null); }}
+                                title="Merge into another agent"
+                                data-testid={`button-merge-agent-${agent.id}`}
+                              >
+                                <Users size={13}/>
+                              </Button>
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-purple-400"
+                                onClick={() => setAuditLogAgentId(agent.id)}
+                                title="View audit log"
+                                data-testid={`button-audit-log-${agent.id}`}
+                              >
+                                <ScrollText size={13}/>
+                              </Button>
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
                                 onClick={() => openConfirm({
-                                  title: `Remove ${agent.name} from the team?`,
-                                  message: `${agent.name} will be removed from the team. All leads in their queue return to the pool. This is permanent — they will not appear in the agent list anymore.`,
-                                  confirmLabel: "Remove",
+                                  title: `Deactivate ${agent.name}?`,
+                                  message: `${agent.name} will be moved to Inactive Agents. All leads in their queue return to the pool. They can be reactivated within 7 days.`,
+                                  confirmLabel: "Deactivate",
                                   confirmColor: "#ef4444",
                                   onConfirm: () => { closeConfirm(); deleteAgentMutation.mutate(agent.id); },
                                 })}
-                                title="Remove from team"
+                                title="Deactivate agent"
                                 data-testid={`button-delete-agent-${agent.id}`}
                               >
                                 <Trash2 size={13}/>
@@ -3434,19 +3537,30 @@ export default function AdminDashboard({
                     </div>
                   </div>
 
-                  {/* v14.48 — Inactive Agents section removed. Flow toggle is the only control. */}
-                  {false && (
+                  {/* v14.62 Phase D — Inactive Agents section restored with 7-day reactivate window. */}
+                  {inactiveAgents.length > 0 && (
                     <div className="space-y-3">
                       <div>
                         <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.1rem", fontWeight: 300, color: "rgba(255,255,255,0.4)" }}>
                           Inactive Agents
                         </h2>
-                        <p className="text-xs text-muted-foreground">Removed from rotation. Re-activate or turn flow on to bring them back.</p>
+                        <p className="text-xs text-muted-foreground">Deactivated agents. Reactivate is available for 7 days after deactivation — after that, the row is preserved for audit but cannot be brought back.</p>
                       </div>
                       <div className="space-y-2">
                         {inactiveAgents.map((agent) => {
-                          // flowOffOnly = active account but flow disabled (no headshot / manually toggled)
-                          const flowOffOnly = agent.isActive && agent.leadFlowOn === false;
+                          // v14.62 Phase D — Compute reactivate window state client-side. Server
+                          // is authoritative (returns 410 Gone past 7d), but we mirror the check
+                          // here so admins see days-remaining and the button is greyed out cleanly.
+                          const deactivatedAt = (agent as any).deactivatedAt ?? null;
+                          const msSinceDeactivate = deactivatedAt ? Date.now() - deactivatedAt : null;
+                          const withinWindow = deactivatedAt !== null && msSinceDeactivate! < SEVEN_DAYS_MS;
+                          const daysLeft = withinWindow ? Math.max(0, Math.ceil((SEVEN_DAYS_MS - msSinceDeactivate!) / (24*60*60*1000))) : 0;
+                          const hoursLeft = withinWindow ? Math.max(0, Math.ceil((SEVEN_DAYS_MS - msSinceDeactivate!) / (60*60*1000))) : 0;
+                          const countdownText = deactivatedAt === null
+                            ? "Legacy inactive (no timestamp)"
+                            : withinWindow
+                              ? daysLeft > 1 ? `Reactivate window: ${daysLeft}d left` : `Reactivate window: ${hoursLeft}h left`
+                              : "Reactivate window expired";
                           return (
                             <div
                               key={agent.id}
@@ -3495,51 +3609,40 @@ export default function AdminDashboard({
                                   >✎</button>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-3">
-                                {flowOffOnly ? (
-                                  // Active account, flow just off — show flow toggle + badge
-                                  <>
-                                    <div className="flex flex-col items-center gap-0.5">
-                                      <span className="text-[10px] text-muted-foreground">Flow</span>
-                                      <LuxToggle
-                                        on={false}
-                                        onToggle={() => toggleLeadFlowMutation.mutate({ id: agent.id, leadFlowOn: true })}
-                                        testId={`toggle-lead-flow-${agent.id}`}
-                                      />
-                                    </div>
-                                    <Badge variant="outline" className="text-xs text-amber-400 border-amber-400/30">Flow Off</Badge>
-                                    <Button
-                                      variant="ghost" size="icon"
-                                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                      onClick={() => openConfirm({
-                                        title: `Deactivate ${agent.name}?`,
-                                        message: `${agent.name} will be moved to Inactive Agents. All leads in their queue will be returned to the pool for redistribution. This cannot be undone without manually reactivating them.`,
-                                        confirmLabel: "Deactivate",
-                                        confirmColor: "#ef4444",
-                                        onConfirm: () => { closeConfirm(); deleteAgentMutation.mutate(agent.id); },
-                                      })}
-                                      title="Move to Inactive Agents"
-                                      data-testid={`button-delete-agent-${agent.id}`}
-                                    >
-                                      <Trash2 size={13}/>
-                                    </Button>
-                                  </>
-                                ) : (
-                                  // Fully deactivated — show Inactive badge + re-activate button
-                                  <>
-                                    <Badge variant="outline" className="text-xs text-red-400 border-red-400/30">Inactive</Badge>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="gap-1.5 text-xs border-green-500/40 text-green-400 hover:bg-green-500/10"
-                                      onClick={() => reactivateAgentMutation.mutate(agent.id)}
-                                      disabled={reactivateAgentMutation.isPending}
-                                      data-testid={`button-reactivate-agent-${agent.id}`}
-                                    >
-                                      <Power size={11}/> Re-activate
-                                    </Button>
-                                  </>
-                                )}
+                              <div className="flex flex-col items-end gap-1">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-xs text-red-400 border-red-400/30">Deactivated</Badge>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-1.5 text-xs border-green-500/40 text-green-400 hover:bg-green-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    onClick={() => reactivateAgentMutation.mutate(agent.id)}
+                                    disabled={reactivateAgentMutation.isPending || !withinWindow}
+                                    title={withinWindow ? `Reactivate ${agent.name}` : "Reactivate window expired — more than 7 days since deactivation"}
+                                    data-testid={`button-reactivate-agent-${agent.id}`}
+                                  >
+                                    <Power size={11}/> Re-activate
+                                  </Button>
+                                  <Button
+                                    variant="ghost" size="icon"
+                                    className="h-7 w-7 text-muted-foreground hover:text-blue-400"
+                                    onClick={() => { setMergeSourceAgent(agent); setMergeTargetId(null); }}
+                                    title="Merge into another agent"
+                                    data-testid={`button-merge-agent-${agent.id}`}
+                                  >
+                                    <Users size={13}/>
+                                  </Button>
+                                  <Button
+                                    variant="ghost" size="icon"
+                                    className="h-7 w-7 text-muted-foreground hover:text-purple-400"
+                                    onClick={() => setAuditLogAgentId(agent.id)}
+                                    title="View audit log"
+                                    data-testid={`button-audit-log-${agent.id}`}
+                                  >
+                                    <ScrollText size={13}/>
+                                  </Button>
+                                </div>
+                                <span className="text-[10px]" style={{ color: withinWindow ? "rgba(200,170,90,0.6)" : "rgba(239,68,68,0.55)" }}>{countdownText}</span>
                               </div>
                             </div>
                           );
@@ -3589,6 +3692,147 @@ export default function AdminDashboard({
         onConfirm={confirmDialog.onConfirm}
         onCancel={closeConfirm}
       />
+
+      {/* v14.62 Phase D — Merge Agents dialog. Source picker is the row you clicked from;
+           target picker is a searchable dropdown of every other active non-tombstone agent.
+           Server (POST /api/admin/agents/merge) re-parents all leads + activities to target
+           and turns source into a tombstone row (email prefixed with 'tombstone:<sourceId>:'). */}
+      <Dialog open={mergeSourceAgent !== null} onOpenChange={(open) => { if (!open) { setMergeSourceAgent(null); setMergeTargetId(null); } }}>
+        <DialogContent style={{ background: "#0f0f0f", border: "1px solid rgba(200,170,90,0.15)", maxWidth: 480 }}>
+          <DialogHeader>
+            <DialogTitle style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontWeight: 300, fontSize: "1.3rem", color: "#fff" }}>
+              Merge Agent
+            </DialogTitle>
+          </DialogHeader>
+          {mergeSourceAgent && (
+            <div className="space-y-4 mt-2">
+              <div style={{ padding: 12, borderRadius: 8, background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                <p className="text-xs" style={{ color: "rgba(239,68,68,0.85)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px" }}>Source (will become tombstone)</p>
+                <p className="text-sm text-foreground" style={{ margin: 0 }}>{mergeSourceAgent.name}</p>
+                <p className="text-xs text-muted-foreground" style={{ margin: 0 }}>{mergeSourceAgent.email}</p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-foreground/60">Merge into (target survives)</Label>
+                <select
+                  value={mergeTargetId ?? ""}
+                  onChange={e => setMergeTargetId(e.target.value ? parseInt(e.target.value) : null)}
+                  style={{
+                    width: "100%", padding: "10px 12px",
+                    background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 6, color: "#e5e5e5", fontSize: 13, cursor: "pointer",
+                  }}
+                  data-testid="merge-target-select"
+                >
+                  <option value="" style={{ background: "#111" }}>— Pick target agent —</option>
+                  {agents
+                    .filter(a => a.id !== mergeSourceAgent.id && a.isActive && !(a.email || "").startsWith("tombstone:"))
+                    .map(a => (
+                      <option key={a.id} value={a.id} style={{ background: "#111" }}>{a.name} — {a.email}</option>
+                    ))}
+                </select>
+              </div>
+              <div style={{ padding: 10, borderRadius: 6, background: "rgba(200,170,90,0.05)", border: "1px solid rgba(200,170,90,0.15)" }}>
+                <p className="text-[11px]" style={{ color: "rgba(200,170,90,0.8)", lineHeight: 1.6, margin: 0 }}>
+                  All leads, activities, and lead-history rows currently pointing at <strong>{mergeSourceAgent.name}</strong> will be re-parented to the target. This is irreversible. The source row remains for audit but its login is deactivated.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  style={{
+                    flex: 1, padding: "10px 16px",
+                    background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 6, fontSize: 12, color: "rgba(255,255,255,0.7)", cursor: "pointer",
+                  }}
+                  onClick={() => { setMergeSourceAgent(null); setMergeTargetId(null); }}
+                  data-testid="merge-cancel"
+                >Cancel</button>
+                <button
+                  style={{
+                    flex: 1, padding: "10px 16px",
+                    background: mergeTargetId && !mergeAgentMutation.isPending
+                      ? "linear-gradient(135deg,#ef4444 0%,#b91c1c 100%)"
+                      : "rgba(239,68,68,0.2)",
+                    border: "none", borderRadius: 6,
+                    fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase",
+                    color: mergeTargetId ? "#fff" : "rgba(255,255,255,0.4)",
+                    cursor: mergeTargetId && !mergeAgentMutation.isPending ? "pointer" : "not-allowed",
+                  }}
+                  onClick={() => {
+                    if (!mergeTargetId || !mergeSourceAgent) return;
+                    openConfirm({
+                      title: `Merge ${mergeSourceAgent.name} into another agent?`,
+                      message: `This will re-parent every lead and activity from ${mergeSourceAgent.name} to the target agent. ${mergeSourceAgent.name} becomes a tombstone (cannot log in). This is irreversible.`,
+                      confirmLabel: "Merge",
+                      confirmColor: "#ef4444",
+                      onConfirm: () => {
+                        closeConfirm();
+                        mergeAgentMutation.mutate(
+                          { sourceId: mergeSourceAgent.id, targetId: mergeTargetId },
+                          { onSuccess: () => { setMergeSourceAgent(null); setMergeTargetId(null); } },
+                        );
+                      },
+                    });
+                  }}
+                  disabled={!mergeTargetId || mergeAgentMutation.isPending}
+                  data-testid="merge-confirm"
+                >{mergeAgentMutation.isPending ? "Merging…" : "Merge"}</button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* v14.62 Phase D — Audit Log dialog. Renders the full lifecycle trail for one agent
+           (invite_sent, setup_completed, email_changed, password_reset, deactivated,
+           reactivated, merged_into, merge_received, etc.) with actor + timestamp + notes. */}
+      <Dialog open={auditLogAgentId !== null} onOpenChange={(open) => { if (!open) setAuditLogAgentId(null); }}>
+        <DialogContent style={{ background: "#0f0f0f", border: "1px solid rgba(200,170,90,0.15)", maxWidth: 720, maxHeight: "80vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <DialogHeader>
+            <DialogTitle style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontWeight: 300, fontSize: "1.3rem", color: "#fff" }}>
+              Agent Audit Log
+              {auditLogAgentId !== null && (() => {
+                const a = agents.find(x => x.id === auditLogAgentId);
+                return a ? <span className="text-xs" style={{ color: "rgba(200,170,90,0.6)", marginLeft: 12, letterSpacing: "0.08em", textTransform: "uppercase" }}>{a.name}</span> : null;
+              })()}
+            </DialogTitle>
+          </DialogHeader>
+          <div style={{ overflowY: "auto", flex: 1, marginTop: 8 }}>
+            {auditLogQuery.isLoading && <p className="text-sm text-muted-foreground p-4">Loading…</p>}
+            {auditLogQuery.isError && <p className="text-sm text-red-400 p-4">Failed to load audit log.</p>}
+            {auditLogQuery.data && auditLogQuery.data.entries.length === 0 && (
+              <p className="text-sm text-muted-foreground p-4">No audit entries recorded for this agent yet.</p>
+            )}
+            {auditLogQuery.data && auditLogQuery.data.entries.length > 0 && (
+              <div className="space-y-2">
+                {auditLogQuery.data.entries.map((entry: any) => (
+                  <div key={entry.id} style={{ padding: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Badge variant="outline" className="text-[10px]" style={{ letterSpacing: "0.06em", textTransform: "uppercase", borderColor: "rgba(200,170,90,0.3)", color: "#c8aa5a" }}>{entry.event}</Badge>
+                        <span className="text-xs text-foreground/80">{entry.actor_name || "system"}</span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">{new Date(entry.ts).toLocaleString()}</span>
+                    </div>
+                    {entry.notes && <p className="text-xs text-muted-foreground mt-1" style={{ margin: "6px 0 0", lineHeight: 1.5 }}>{entry.notes}</p>}
+                    {(entry.before_json || entry.after_json) && (
+                      <details style={{ marginTop: 6 }}>
+                        <summary className="text-[10px] text-muted-foreground" style={{ cursor: "pointer", letterSpacing: "0.06em", textTransform: "uppercase" }}>Diff</summary>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 4 }}>
+                          <pre className="text-[10px]" style={{ background: "rgba(239,68,68,0.05)", padding: 6, borderRadius: 4, overflow: "auto", margin: 0, color: "rgba(255,255,255,0.6)" }}>{entry.before_json || "—"}</pre>
+                          <pre className="text-[10px]" style={{ background: "rgba(34,197,94,0.05)", padding: 6, borderRadius: 4, overflow: "auto", margin: 0, color: "rgba(255,255,255,0.6)" }}>{entry.after_json || "—"}</pre>
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {auditLogQuery.data && (
+            <p className="text-[10px] text-muted-foreground text-right" style={{ marginTop: 8 }}>{auditLogQuery.data.count} entries (most recent first)</p>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Live Activity Feed drawer */}
       <ActivityFeed open={feedOpen} onClose={() => setFeedOpen(false)} wsRef={wsRef} />

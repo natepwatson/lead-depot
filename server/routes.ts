@@ -1020,9 +1020,30 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // v12.5 — recruiter role is gone; only admin/agent supported.
     const assignedRole = ["admin", "agent"].includes(reqRole) ? reqRole : "agent";
 
-    // Check duplicate
-    const existing = rawDb.prepare("SELECT id FROM agents WHERE email = ?").get(cleanEmail);
+    // Check duplicate email (case-insensitive; email is stored lowercased so LOWER on
+    // the column is a defensive belt-and-suspenders in case any legacy row drifted)
+    const existing = rawDb.prepare("SELECT id FROM agents WHERE LOWER(email) = ?").get(cleanEmail);
     if (existing) return res.status(409).json({ error: "An agent with this email already exists" });
+
+    // v14.57 — Same-name duplicate warning. Merged rows have their email renamed to
+    // `_merged_into_<targetId>_from_<sourceId>_<oldEmail>`, so the email uniqueness
+    // check above passes for a re-invite with the pre-merge email. This lets
+    // duplicates slip through if an admin re-invites the same person after a merge.
+    // Guard: if an ACTIVE agent already exists with the same name, block the invite
+    // and instruct the admin to edit the existing agent's email instead.
+    // Bypass by passing { forceDuplicateName: true } in the request body.
+    if (!req.body?.forceDuplicateName) {
+      const sameNameActive = rawDb.prepare(
+        "SELECT id, email FROM agents WHERE LOWER(name) = LOWER(?) AND is_active = 1"
+      ).get(name);
+      if (sameNameActive) {
+        return res.status(409).json({
+          error: `An active agent named "${name}" already exists (id=${sameNameActive.id}, ${sameNameActive.email}). If you want them to use a different email, edit their profile instead of sending a new invite. To create anyway (rare), retry with forceDuplicateName: true.`,
+          existingAgentId: sameNameActive.id,
+          existingAgentEmail: sameNameActive.email,
+        });
+      }
+    }
 
     // Create account with random temp password (they'll set their own)
     const tempPass = randomBytes(12).toString("hex");
@@ -1080,6 +1101,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       });
     }
 
+    console.log(`[invite] agent created id=${agent.id} name="${name}" email=${cleanEmail} role=${assignedRole} at ${new Date().toISOString()}`);
     res.json({ success: true, agentId: agent.id });
   });
 

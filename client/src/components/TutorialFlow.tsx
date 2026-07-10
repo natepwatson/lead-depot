@@ -51,7 +51,10 @@ const TAB_COPY: Record<string, string> = {
   leaderboard: "Where you check the score. Effort is visible.",
   pipeline:    "Every deal you've moved forward. Nothing here ever expires.",
   leads:       "The gold button. Where the money gets made.",
-  refer:       "Send us a client or agent — you own that lead forever.",
+  // v14.81 — Corrected per Alex: Network/Referral leads are NOT leads given
+  // away to us — they're leads the agent personally sourced (church, gym, in
+  // person) and works themselves. If it fizzles, it goes back in the pool.
+  refer:       "Referrals: leads YOU sourced from your own network. You keep them, work them, and if one fizzles you toss it back in the coals and grab another. Our systems do the heavy lifting.",
   profile:     "Your headshot, rank, and identity on the team.",
 };
 
@@ -358,10 +361,17 @@ const RULES = [
     body: "The system remembers. Your rank updates in real time.",
     extra: null,
   },
+  {
+    // v14.81 — New 4th culture card, added per Alex.
+    title: "We're a well-oiled machine.",
+    body: "All hands on deck. Everyone has their role. We're all specialists in our field. Your job on any given dial is simple — run the play, log the outcome, move to the next one. The system does the rest.",
+    extra: null,
+  },
 ];
 
 function Chapter3({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: boolean; onSkip: () => void }) {
-  const [expanded, setExpanded] = useState<boolean[]>([false, false, false]);
+  // v14.81 — 4 rule cards now (was 3). NEXT unlocks only after all 4 expanded.
+  const [expanded, setExpanded] = useState<boolean[]>(RULES.map(() => false));
   const allExpanded = expanded.every(Boolean);
 
   return (

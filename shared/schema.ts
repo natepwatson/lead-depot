@@ -69,8 +69,10 @@ export const leads = sqliteTable("leads", {
   lMortgage: text("l_mortgage"),        // M - Mortgage (what do they owe?)
   lAppointment: text("l_appointment"),  // A - Appointment (are they available to meet?)
   lBuy: text("l_buy"),                  // B - Buyer (do they want to buy after selling?) [v14.20 — replaced in UI by alsoBuying toggle, kept for backfill]
-  // v14.20 — Buyer LPMAMA (only populated when alsoBuying=true)
+  // v14.20 — Buyer LPMAMA (only populated when alsoBuying=true / intent !== sell_only)
   alsoBuying: integer("also_buying").default(0),   // 0 = no, 1 = yes
+  // v14.53 — 3-way intent: 'sell_only' | 'sell_and_buy' | 'buy_only'
+  intent: text("intent"),
   bLocation: text("b_location"),        // B-L Location — where do they want to buy?
   bPrice: text("b_price"),              // B-P Price — budget
   bMotivation: text("b_motivation"),    // B-M Motivation — why buying?

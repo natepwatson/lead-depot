@@ -70,6 +70,8 @@ try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_appointment TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN l_buy TEXT`); } catch {}
 // v14.20 — Buyer LPMAMA (only used when also_buying=1)
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN also_buying INTEGER DEFAULT 0`); } catch {}
+// v14.53 — 3-way intent selector
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN intent TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_location TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_price TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_motivation TEXT`); } catch {}
@@ -391,6 +393,7 @@ export class Storage implements IStorage {
       lAppointment: r.l_appointment,
       lBuy: r.l_buy,
       alsoBuying: r.also_buying,
+      intent: r.intent, // v14.53
       bLocation: r.b_location,
       bPrice: r.b_price,
       bMotivation: r.b_motivation,

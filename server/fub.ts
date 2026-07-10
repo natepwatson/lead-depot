@@ -296,7 +296,9 @@ function buildLpmamabNote(opts: {
     appointment?: string;
     buy?: string;
   };
-  // v14.20 — Buyer LPMAMA (only rendered when alsoBuying=true)
+  // v14.53 — intent decides seller vs buyer vs both
+  intent?: "sell_only" | "sell_and_buy" | "buy_only";
+  // v14.20 — Buyer LPMAMA (only rendered when alsoBuying=true / intent !== sell_only)
   alsoBuying?: boolean;
   buyerLpmama?: {
     location?: string;
@@ -313,7 +315,10 @@ function buildLpmamabNote(opts: {
   apptEmail?: string;
   address?: string;
 }): string {
-  const { agentName, outcome, notes, lpmamab, alsoBuying, buyerLpmama, apptDate, apptTime, stage, intention, confirmedAddress, apptEmail, address } = opts;
+  const { agentName, outcome, notes, lpmamab, intent, alsoBuying, buyerLpmama, apptDate, apptTime, stage, intention, confirmedAddress, apptEmail, address } = opts;
+  const effectiveIntent = intent || (alsoBuying ? "sell_and_buy" : "sell_only");
+  const showSeller = effectiveIntent !== "buy_only";
+  const showBuyer = effectiveIntent !== "sell_only";
 
   const outcomeLabel: Record<string, string> = {
     contacted_appointment:    "✅ APPOINTMENT SET",
@@ -334,9 +339,12 @@ function buildLpmamabNote(opts: {
     ``,
   ];
 
-  if (lpmamab && Object.values(lpmamab).some(Boolean)) {
-    lines.push(`── LPMAMAB ──────────────────`);
-    if (lpmamab.location)    lines.push(`L — Location:    ${lpmamab.location}`);
+  lines.push(`Intent: ${effectiveIntent === "sell_only" ? "SELL ONLY" : effectiveIntent === "buy_only" ? "BUY ONLY" : "SELL & BUY"}`);
+  lines.push(``);
+
+  if (showSeller && lpmamab && Object.values(lpmamab).some(Boolean)) {
+    lines.push(`── SELLER CPMAMA ────────────`);
+    if (lpmamab.location)    lines.push(`C — Condition:   ${lpmamab.location}`);
     if (lpmamab.price)       lines.push(`P — Price:       ${lpmamab.price}`);
     if (lpmamab.motivation)  lines.push(`M — Motivation:  ${lpmamab.motivation}`);
     if (lpmamab.agent)       lines.push(`A — Agent Hist:  ${lpmamab.agent}`);
@@ -346,8 +354,8 @@ function buildLpmamabNote(opts: {
     lines.push(``);
   }
 
-  // v14.20 — Buyer LPMAMA block (only when they said yes to also buying)
-  if (alsoBuying) {
+  // v14.53 — Buyer LPMAMA block (renders when intent !== sell_only)
+  if (showBuyer) {
     lines.push(`── BUYER LPMAMA ────────────`);
     lines.push(`Also buying: YES`);
     if (buyerLpmama?.location)   lines.push(`B-L — Location:   ${buyerLpmama.location}`);
@@ -423,6 +431,8 @@ export interface FubOutcomePayload {
     buy?: string;
     // v14.20 — Buyer LPMAMA (from AgentView payload)
     alsoBuying?: boolean;
+    // v14.53 — 3-way intent
+    intent?: "sell_only" | "sell_and_buy" | "buy_only";
     bLocation?: string;
     bPrice?: string;
     bMotivation?: string;
@@ -523,6 +533,8 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
       appointment: lead.lAppointment || undefined,
       buy:         lead.lBuy         || undefined,
     },
+    // v14.53 — pass intent through so the note reflects the right script
+    intent: (lpmamab?.intent as any) || ((lead as any).intent as any),
     // v14.20 — Buyer LPMAMA. Prefer live form payload; fall back to lead row.
     alsoBuying: !!(lpmamab?.alsoBuying ?? lead.alsoBuying),
     buyerLpmama: {

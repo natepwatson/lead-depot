@@ -74,6 +74,8 @@ if (!leadCols.includes("l_mortgage"))      rawDb.prepare("ALTER TABLE leads ADD 
 if (!leadCols.includes("l_appointment"))   rawDb.prepare("ALTER TABLE leads ADD COLUMN l_appointment TEXT").run();
 if (!leadCols.includes("l_buy"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN l_buy TEXT").run();
 if (!leadCols.includes("also_buying"))     rawDb.prepare("ALTER TABLE leads ADD COLUMN also_buying INTEGER DEFAULT 0").run();
+// v14.53 — 3-way intent selector: 'sell_only' | 'sell_and_buy' | 'buy_only'. Null defaults to 'sell_only'.
+if (!leadCols.includes("intent"))          rawDb.prepare("ALTER TABLE leads ADD COLUMN intent TEXT").run();
 if (!leadCols.includes("b_location"))      rawDb.prepare("ALTER TABLE leads ADD COLUMN b_location TEXT").run();
 if (!leadCols.includes("b_price"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN b_price TEXT").run();
 if (!leadCols.includes("b_motivation"))    rawDb.prepare("ALTER TABLE leads ADD COLUMN b_motivation TEXT").run();

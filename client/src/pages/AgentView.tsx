@@ -37,7 +37,8 @@ function LogoIcon({ size = 28 }: { size?: number }) {
 // point of the redesign: we can now give buyer-side service without cramming it into
 // a single text field.
 const SELLER_LPMAMA_FIELDS = [
-  { key: "location",    label: "L — Location",    color: "#c8aa5a", hint: "Where do they want to go? Area preferences?",           leadField: "lLocation" },
+  // v14.53 — was L Location; now C Condition (same db col l_location, preserved data)
+  { key: "location",    label: "C — Condition",   color: "#c8aa5a", hint: "What condition is the property in? Updates, repairs, deferred maintenance?", leadField: "lLocation" },
   { key: "price",       label: "P — Price",       color: "#e2d5b0", hint: "What are they thinking price-wise? Ballpark only.",      leadField: "lPricePaid" },
   { key: "motivation",  label: "M — Motivation",  color: "#7ec8e3", hint: "Why are they selling? Divorce, downsizing, job move?",   leadField: "lMotivation" },
   { key: "agent",       label: "A — Agent",       color: "#a8d5a2", hint: "Are they working with an agent already?",                leadField: "lAgentHistory" },
@@ -490,8 +491,18 @@ function LeadCard({ lead }: { lead: Lead }) {
     bAgent:      (lead as any).bAgent      ?? "",
     bMortgage:   (lead as any).bMortgage   ?? "",
   });
-  // v14.20 — Also buying toggle. Unfolds Buyer LPMAMA when YES.
-  const [alsoBuying, setAlsoBuying] = useState<boolean>(!!(lead as any).alsoBuying);
+  // v14.53 — Intent selector: 3-way mutually-exclusive choice.
+  //   sell_only     → Seller CPMAMA only
+  //   sell_and_buy  → Seller CPMAMA + Buyer LPMAMA
+  //   buy_only      → Buyer LPMAMA only (no seller card at all)
+  // Backward compat: derive from existing lead.intent if present, otherwise from alsoBuying flag.
+  type Intent = "sell_only" | "sell_and_buy" | "buy_only";
+  const initialIntent: Intent = ((lead as any).intent as Intent) ||
+    ((lead as any).alsoBuying ? "sell_and_buy" : "sell_only");
+  const [intent, setIntent] = useState<Intent>(initialIntent);
+  const alsoBuying = intent === "sell_and_buy"; // preserved derived flag for downstream code / FUB
+  const showSellerCard = intent !== "buy_only";
+  const showBuyerCard = intent !== "sell_only";
 
   const extra = (() => { try { return JSON.parse(lead.extraData || "{}"); } catch { return {}; } })();
 
@@ -541,7 +552,8 @@ function LeadCard({ lead }: { lead: Lead }) {
       apiRequest("POST", `/api/leads/${lead.id}/outcome`, {
         ...data,
         agentId: user?.id,
-        lpmamab: { ...lpmData, alsoBuying },
+        // v14.53 — include intent so server persists it + FUB note reflects the right script
+        lpmamab: { ...lpmData, alsoBuying, intent },
       }).then(r => r.json()),
     onSuccess: (data, variables) => {
       // Show success flash for 900ms, then load next lead
@@ -1115,7 +1127,44 @@ function LeadCard({ lead }: { lead: Lead }) {
         </pre>
       </div>
 
-      {/* v14.20 ── SELLER LPMAMA (6 fields, always visible — no chevron) ── */}
+      {/* v14.53 ── INTENT SELECTOR (3-way, mutually exclusive) ──
+          Drives which script card renders. Sell only → CPMAMA. Sell & Buy → CPMAMA + LPMAMA. Buy only → LPMAMA. */}
+      <div style={{ padding: "0 20px 14px" }}>
+        <div style={{
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.10)",
+          borderRadius: 12, padding: "12px 12px 10px",
+        }}>
+          <p style={{ margin: "0 0 8px", fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.55)", fontWeight: 700 }}>
+            Intent · pick one
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            {([
+              { key: "sell_only",    label: "Sell only",   bg: "rgba(200,170,90,0.20)",  fg: "#c8aa5a", border: "rgba(200,170,90,0.55)" },
+              { key: "sell_and_buy", label: "Sell & Buy",  bg: "rgba(147,197,253,0.22)", fg: "#93c5fd", border: "rgba(59,130,246,0.60)" },
+              { key: "buy_only",     label: "Buy only",    bg: "rgba(147,197,253,0.22)", fg: "#93c5fd", border: "rgba(59,130,246,0.60)" },
+            ] as const).map(opt => {
+              const active = intent === opt.key;
+              return (
+                <button key={opt.key} onClick={() => setIntent(opt.key)}
+                  style={{
+                    minHeight: 40,
+                    background: active ? opt.bg : "rgba(255,255,255,0.02)",
+                    border: `1px solid ${active ? opt.border : "rgba(255,255,255,0.10)"}`,
+                    color: active ? opt.fg : "rgba(255,255,255,0.55)",
+                    borderRadius: 8, padding: "8px 6px",
+                    fontSize: 12, fontWeight: 700, letterSpacing: "0.04em",
+                    cursor: "pointer", transition: "all 0.15s ease",
+                  }}
+                >{opt.label}</button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* v14.53 ── SELLER CPMAMA (was LPMAMA; L→C for Condition) ── */}
+      {showSellerCard && (
       <div style={{ padding: "0 20px 20px" }}>
         <div style={{
           background: "linear-gradient(180deg, rgba(200,170,90,0.06), rgba(200,170,90,0.02))",
@@ -1123,7 +1172,7 @@ function LeadCard({ lead }: { lead: Lead }) {
           padding: "14px 14px 12px",
         }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
-            <SectionLabel style={{ margin: 0 }}>Seller LPMAMA</SectionLabel>
+            <SectionLabel style={{ margin: 0 }}>Seller CPMAMA</SectionLabel>
             {SELLER_LPMAMA_FIELDS.some(f => lpmData[f.key]?.trim()) && (
               <span style={{ fontSize: 9, letterSpacing: "0.12em", color: "#c8aa5a", background: "rgba(200,170,90,0.14)", padding: "2px 8px", borderRadius: 99 }}>
                 FILLED
@@ -1154,50 +1203,12 @@ function LeadCard({ lead }: { lead: Lead }) {
           </div>
         </div>
       </div>
+      )}
 
-      {/* v14.20 ── ALSO BUYING? Yes/No pill toggle ── */}
-      <div style={{ padding: "0 20px 18px" }}>
-        <div style={{
-          background: alsoBuying ? "rgba(59,130,246,0.08)" : "rgba(255,255,255,0.03)",
-          border: `1px solid ${alsoBuying ? "rgba(59,130,246,0.35)" : "rgba(255,255,255,0.10)"}`,
-          borderRadius: 12, padding: "14px 14px",
-          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-          transition: "all 0.18s ease",
-        }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.9)" }}>
-              Also buying?
-            </p>
-            <p style={{ margin: "2px 0 0", fontSize: 11, color: "rgba(255,255,255,0.5)", lineHeight: 1.4 }}>
-              If yes, we'll capture Buyer LPMAMA and give both sides service.
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-            {[
-              { key: false, label: "No",  activeBg: "rgba(148,163,184,0.20)", activeText: "rgb(226,232,240)", activeBorder: "rgba(148,163,184,0.5)" },
-              { key: true,  label: "Yes", activeBg: "rgba(59,130,246,0.22)",  activeText: "rgb(147,197,253)", activeBorder: "rgba(59,130,246,0.6)" },
-            ].map(opt => {
-              const active = alsoBuying === opt.key;
-              return (
-                <button key={String(opt.key)} onClick={() => setAlsoBuying(opt.key)}
-                  style={{
-                    minWidth: 60, minHeight: 40,
-                    background: active ? opt.activeBg : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${active ? opt.activeBorder : "rgba(255,255,255,0.10)"}`,
-                    color: active ? opt.activeText : "rgba(255,255,255,0.55)",
-                    borderRadius: 999, padding: "8px 16px",
-                    fontSize: 12, fontWeight: 700, letterSpacing: "0.06em",
-                    cursor: "pointer", transition: "all 0.15s ease",
-                  }}
-                >{opt.label}</button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+      {/* v14.53 ── Also-Buying pill removed; Intent selector above the seller card now drives visibility. ── */}
 
-      {/* v14.20 ── BUYER LPMAMA (conditional on alsoBuying === true) ── */}
-      {alsoBuying && (
+      {/* v14.53 ── BUYER LPMAMA (renders when intent !== sell_only) ── */}
+      {showBuyerCard && (
         <div style={{ padding: "0 20px 18px" }}>
           <div style={{
             background: "linear-gradient(180deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02))",

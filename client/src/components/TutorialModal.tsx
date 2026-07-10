@@ -96,9 +96,10 @@ const SLIDES: Slide[] = [
           <p style={SECTION_TITLE}>How to use a lead card</p>
           <ol style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, lineHeight: 1.7, paddingLeft: 18, margin: 0 }}>
             <li>Tap the phone number to dial directly from your phone.</li>
-            <li>Use the LPMAMAB script — Location, Price, Motivation, Agent, Mortgage, Appointment, Buyer — as your conversation guide.</li>
+            <li>Set the Intent at the top of the card (Sell only / Sell & Buy / Buy only). This decides which script to run.</li>
+            <li>For sellers use CPMAMA — Condition, Price, Motivation, Agent, Mortgage, Appointment. For buyers use LPMAMA — Location, Price, Motivation, Agent, Mortgage.</li>
             <li>Add call notes as you speak. Notes are visible to the whole team.</li>
-            <li>Fill in the LPMAMAB fields as you learn them.</li>
+            <li>Fill in the CPMAMA / LPMAMA fields as you learn them.</li>
             <li>Log an outcome when you're done with this call.</li>
           </ol>
         </div>
@@ -205,7 +206,7 @@ const SLIDES: Slide[] = [
           ["Dial first thing", "Start your day in the Dial tab. Fresh leads get the best contact rates."],
           ["Log every call", "Even no-answers. It keeps the system accurate and protects your numbers."],
           ["Add real notes", "Notes are cumulative and visible to the whole team. Write what you'd want to know if you were reading this lead for the first time."],
-          ["Use the script", "LPMAMAB isn't a rigid script — it's a framework. Hit the highlights naturally."],
+          ["Use the script", "CPMAMA (sellers) / LPMAMA (buyers) isn't a rigid script — it's a framework. Hit the highlights naturally."],
           ["Be human", "People can tell when they're being sold to. Ask questions. Listen more than you talk."],
           ["Refer generously", "Every referral you enter is a lead that's already warmed up. Submit them the same day you hear about them."],
         ].map(([k, v]) => (

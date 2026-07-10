@@ -94,6 +94,16 @@ try { sqlite.exec(`ALTER TABLE agents ADD COLUMN territory2 TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN territory_closed_notice INTEGER NOT NULL DEFAULT 0`); } catch {}
 // v13.9 — home_county for home-county-first lead serving
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN home_county TEXT`); } catch {}
+// v14.59 — Bucket 5 Phase B: email hygiene + tombstone shape.
+// MUST run here (not just db.ts) because Drizzle's typed SELECT at module-eval
+// includes these columns as soon as they exist in shared/schema.ts. If they're
+// missing on Railway boot, the SELECT fails with "no such column" and the entire
+// server crashes before Express is listening. Learned the hard way in the v14.59
+// deploy: forgetting these ALTERs here caused a full prod outage until revert.
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN merged_into_agent_id INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN pending_email TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN pending_email_token TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN pending_email_expires TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agent_points ADD COLUMN scope TEXT NOT NULL DEFAULT 'seller'`); } catch {}
 // DBPR fields (v11.71, renamed from FREC in v13.4 — in case table was created before these existed)
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN dbpr_license_id TEXT`); } catch {}

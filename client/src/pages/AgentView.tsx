@@ -20,18 +20,8 @@ import TutorialModal from "../components/TutorialModal";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
 import type { Lead } from "@shared/schema";
 
-// ─── Logo ─────────────────────────────────────────────────────────────────────
-function LogoIcon({ size = 28 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 36 36" fill="none" aria-label="Lead Depot">
-      <rect x="2" y="18" width="32" height="15" rx="1" stroke="#c8aa5a" strokeWidth="1.6"/>
-      <path d="M2 18 L18 5 L34 18" stroke="#c8aa5a" strokeWidth="1.6" strokeLinejoin="round" fill="none"/>
-      <rect x="13" y="24" width="10" height="9" rx="0.5" stroke="#c8aa5a" strokeWidth="1.4"/>
-    </svg>
-  );
-}
-
 // ─── LPMAMA fields config ─────────────────────────────────────────────────────
+// v14.56 — removed dead LogoIcon component (last usage stripped in v14.54 header cleanup).
 // v14.20 — split into SELLER (6 fields, drops the buyer catch-all) and BUYER (5 fields,
 // only shown when the seller says they're also buying). The Buyer LPMAMA is the whole
 // point of the redesign: we can now give buyer-side service without cramming it into

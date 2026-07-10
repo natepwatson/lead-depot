@@ -874,6 +874,17 @@ export default function AdminDashboard({
   const [adminTab, setAdminTab] = useState<string>("leaderboard");
   // v14.49 — admin "Who called me?" modal state.
   const [adminLookupOpen, setAdminLookupOpen] = useState(false);
+
+  // v14.54 — red notification badge on the Dial bottom-nav button (admin uses AgentView
+  // routing under the hood via onWorkMyLeads). Fetch this admin's own queue count so the
+  // badge lights up when leads are ready for THEM to work, not the whole pool.
+  const { data: adminQueueCountData } = useQuery<{ count: number }>({
+    queryKey: [`/api/leads/my-count/${user?.id}`],
+    queryFn: () => fetch(`/api/leads/my-count/${user?.id}`).then(r => r.json()),
+    enabled: !!user?.id,
+    refetchInterval: 30_000,
+  });
+  const adminQueueCount = adminQueueCountData?.count ?? 0;
   const wsRef = useRef<WebSocket | null>(null);
   useEffect(() => {
     const connect = () => {
@@ -1482,7 +1493,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.53
+              v14.54
             </p>
           </div>
         </div>
@@ -1544,8 +1555,16 @@ export default function AdminDashboard({
           </button>
           <style>{`
             @media (max-width: 480px){.ld-signout-label{display:none}.ld-signout-btn{padding:4px}}
-            @media (max-width: 640px){.ld-lb-cols{gap:8px !important}.ld-lb-cols>div{width:32px !important}}
-            @media (max-width: 380px){.ld-lb-cols{gap:6px !important}.ld-lb-cols>div{width:26px !important;font-size:9px}}
+            /* v14.54 — Admin Leaderboard density fix. On phones we HIDE the supporting columns
+               (KIT / Conv% / Emails / Refs) so agent names get room to breathe. IMG_9237 showed
+               names truncating to a single letter ("B..", "A..", "N..") because 6 stat columns
+               were fighting for space. Only Appts + Pts + Dials remain on mobile — the actual
+               podium metrics. Full column set still visible on tablets+ (≥641px). */
+            @media (max-width: 640px){
+              .ld-lb-cols{gap:12px !important}
+              .ld-lb-cols>div{width:auto !important; min-width:36px}
+              .ld-lb-supporting{display:none !important}
+            }
           `}</style>
         </div>
       </header>
@@ -1921,21 +1940,22 @@ export default function AdminDashboard({
                   {/* v14.29 — Unified column order: APPTS first & bold gold (the #1 goal), Points second, Dials third. Then supporting metrics. */}
                   {lbTab === "today" ? (
                     <>
+                      {/* v14.54 — Appts + Pts + Dials always visible; KIT/Emails/Refs hidden on phones via .ld-lb-supporting */}
                       <div style={{ width: 54, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
                       <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.07em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
+                      <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
+                      <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
+                      <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
                   ) : (
                     <>
                       <div style={{ width: 54, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
                       <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.07em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
-                      <div style={{ width: 52, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Conv%</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
+                      <div className="ld-lb-supporting" style={{ width: 52, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Conv%</div>
+                      <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
+                      <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
                   )}
                 </div>
@@ -2065,13 +2085,13 @@ export default function AdminDashboard({
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
                                 </div>
-                                <div style={{ width: 44 }}>
+                                <div className="ld-lb-supporting" style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#c4b5fd" }}>{s.kit}</div>
                                 </div>
-                                <div style={{ width: 44 }}>
+                                <div className="ld-lb-supporting" style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
                                 </div>
-                                <div style={{ width: 44 }}>
+                                <div className="ld-lb-supporting" style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
                                 </div>
                               </>
@@ -2090,13 +2110,13 @@ export default function AdminDashboard({
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
                                 </div>
-                                <div style={{ width: 52 }}>
+                                <div className="ld-lb-supporting" style={{ width: 52 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#67e8f9" }}>{s.convRate}%</div>
                                 </div>
-                                <div style={{ width: 44 }}>
+                                <div className="ld-lb-supporting" style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
                                 </div>
-                                <div style={{ width: 44 }}>
+                                <div className="ld-lb-supporting" style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
                                 </div>
                                 {/* v14.43 — removed duplicate trailing Points column (header row only had 6 cols, rows had 7 → columns shifted left) */}
@@ -3590,6 +3610,8 @@ export default function AdminDashboard({
         ].map(n => {
           const Icon = n.icon;
           const active = (n.id === "dashboard" && adminTab === "leaderboard") || (n.id === "profile" && adminTab === "profile");
+          // v14.54 — red notification badge on Dial when this admin has leads queued
+          const showBadge = n.id === "dial" && adminQueueCount > 0;
           return (
             <button key={n.id} data-testid={`admin-bottom-nav-${n.id}`} onClick={n.onClick} style={{
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
@@ -3597,8 +3619,20 @@ export default function AdminDashboard({
               background: active ? "rgba(200,170,90,0.07)" : "transparent",
               borderTop: active ? "2px solid #c8aa5a" : "2px solid transparent",
               border: "none", cursor: "pointer",
-              transition: "all 0.2s ease",
+              position: "relative", transition: "all 0.2s ease",
             }}>
+              {showBadge && (
+                <span style={{
+                  position: "absolute", top: 6, right: "calc(50% - 22px)",
+                  minWidth: 16, height: 16, borderRadius: 8,
+                  padding: "0 4px",
+                  background: "#ef4444",
+                  boxShadow: "0 0 10px rgba(239,68,68,0.75), 0 0 0 2px rgba(6,6,6,0.98)",
+                  color: "#fff", fontSize: 9, fontWeight: 800,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  lineHeight: 1, letterSpacing: 0,
+                }}>{adminQueueCount > 99 ? "99+" : adminQueueCount}</span>
+              )}
               <Icon size={22} style={{ color: active ? "#c8aa5a" : "rgba(255,255,255,0.35)", transition: "color 0.15s" }} />
               <span style={{
                 fontSize: 10, letterSpacing: "0.08em",

@@ -2276,7 +2276,8 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
               <ChevronLeft size={13} /> Admin
             </button>
           )}
-          <LogoIcon size={26} />
+          {/* v14.54 — removed the dead LogoIcon (home glyph). Alex called out header clutter
+              in IMG_9238: he only wants ‹ Admin, Who called?, and Sign out. Title + username stay. */}
           <div>
             <p style={{
               fontFamily: "'Cormorant Garamond','Georgia',serif",
@@ -2321,17 +2322,9 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
               <Phone size={12} /> Who called?
             </button>
           )}
-          <button
-            onClick={() => setShowTutorial(true)}
-            title="How to use Lead Depot"
-            style={{
-              width: 32, height: 32, borderRadius: "50%",
-              background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.2)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer", color: "rgba(200,170,90,0.6)",
-              fontSize: 13, fontWeight: 700,
-            }}
-          >?</button>
+          {/* v14.54 — removed the tutorial "?" help pill. It sat between Who called? and Sign out
+              and was pushing the header past the right edge. Tutorial is still reachable from
+              the profile screen if needed. */}
           <button onClick={logout} style={{
             display: "flex", alignItems: "center", gap: 5,
             fontSize: 11, color: "rgba(255,255,255,0.4)",
@@ -2740,11 +2733,19 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
               position: "relative", transition: "all 0.2s ease",
             }}>
               {showBadge && (
+                /* v14.54 — red notification badge (was gold, blended with the theme).
+                   Alex: "could we have a red notification thing on it when a lead(s) are ready?"
+                   Now shows the count so agents know how many leads are queued at a glance. */
                 <span style={{
-                  position: "absolute", top: 8, right: "calc(50% - 18px)",
-                  width: 8, height: 8, borderRadius: "50%",
-                  background: "#c8aa5a", boxShadow: "0 0 7px rgba(200,170,90,0.9)",
-                }} />
+                  position: "absolute", top: 6, right: "calc(50% - 22px)",
+                  minWidth: 16, height: 16, borderRadius: 8,
+                  padding: "0 4px",
+                  background: "#ef4444",
+                  boxShadow: "0 0 10px rgba(239,68,68,0.75), 0 0 0 2px rgba(6,6,6,0.98)",
+                  color: "#fff", fontSize: 9, fontWeight: 800,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  lineHeight: 1, letterSpacing: 0,
+                }}>{queueCount > 99 ? "99+" : queueCount}</span>
               )}
               <Icon size={22} style={{ color: active ? "#c8aa5a" : "rgba(255,255,255,0.35)", transition: "color 0.15s" }} />
               <span style={{

@@ -42,18 +42,38 @@ function saveUser(u: AuthUser | null) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(loadUser);
 
-  // On mount, validate that the stored user is still active on the server.
-  // If the agent was deactivated, clear local storage and force re-login.
+  // v14.79 — On mount, validate the stored user is still active on the server
+  // AND re-hydrate local state from the server response. Previously we only
+  // read the HTTP status to detect deactivation; the JSON payload was thrown
+  // away. That meant any admin-side edit (email change, name change, headshot
+  // upload, home-county change) was invisible to the agent until they logged
+  // out and back in — and any UI that gates on `user.email` (e.g. the
+  // WatsonEmailNudge) kept firing against the stale email. Now we replace
+  // `user` with the fresh server record on every page load so admin-side
+  // edits show up immediately.
   useEffect(() => {
     const stored = loadUser();
     if (!stored) return;
     fetch(`/api/me/${stored.id}`, { credentials: "include" })
-      .then(r => {
+      .then(async r => {
         if (r.status === 403 || r.status === 404) {
           // Account deactivated or deleted — sign out
           saveUser(null);
           setUser(null);
+          return;
         }
+        if (!r.ok) return;
+        try {
+          const data = await r.json();
+          if (data?.agent) {
+            // Merge over the stored user so we keep any client-only fields
+            // (there shouldn't be any today, but future-proof). Server-side
+            // fields overwrite stored ones — that's the whole point.
+            const merged = { ...stored, ...data.agent };
+            saveUser(merged);
+            setUser(merged);
+          }
+        } catch { /* bad json — keep stored user */ }
       })
       .catch(() => { /* network error — keep session, will fail naturally */ });
   }, []);

@@ -49,19 +49,22 @@ const BUYER_LPMAMA_FIELDS = [
 // Row 1 (fast, per-line):     No Answer      · Wrong #        · Disconnected
 // Row 2 (decision, lead-lvl): Not Interested · Recycle        · Listed
 // Row 3 (wins):               Appt Set       · Keep in Touch  · Left VM
+// v14.79 — Outcome tiles: brightened + fuller. Prior palette (bg 0.12, border 0.4)
+// read as flat/dark against the deep card. Bumped bg to 0.22, border to 0.55, and
+// added an inner sheen via linear-gradient in the render layer for dimensionality.
 const OUTCOMES = [
   // Row 1 — fast per-line taps
-  { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.12)",   border: "rgba(234,179,8,0.4)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.22)" },
-  { key: "wrong_number",            label: "Wrong #",       icon: AlertTriangle, bg: "rgba(239,68,68,0.08)",   border: "rgba(239,68,68,0.25)",   text: "rgba(252,165,165,0.8)", hoverBg: "rgba(239,68,68,0.15)" },
-  { key: "disconnected",            label: "Disconnected",  icon: PhoneOff,      bg: "rgba(148,163,184,0.10)", border: "rgba(148,163,184,0.35)", text: "rgb(203,213,225)",      hoverBg: "rgba(148,163,184,0.20)" },
+  { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.22)",   border: "rgba(234,179,8,0.55)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.34)" },
+  { key: "wrong_number",            label: "Wrong #",       icon: AlertTriangle, bg: "rgba(239,68,68,0.16)",   border: "rgba(239,68,68,0.40)",    text: "rgba(252,165,165,0.95)",hoverBg: "rgba(239,68,68,0.28)" },
+  { key: "disconnected",            label: "Disconnected",  icon: PhoneOff,      bg: "rgba(148,163,184,0.20)", border: "rgba(148,163,184,0.50)", text: "rgb(203,213,225)",      hoverBg: "rgba(148,163,184,0.32)" },
   // Row 2 — decision, lead-level
-  { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.4)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.22)" },
-  { key: "recycled",                label: "Recycle",       icon: RefreshCw,     bg: "rgba(34,211,238,0.12)",  border: "rgba(34,211,238,0.4)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.22)" },
-  { key: "listed",                  label: "Listed",        icon: Home,          bg: "rgba(139,92,246,0.12)",  border: "rgba(139,92,246,0.4)",   text: "rgb(196,181,253)",      hoverBg: "rgba(139,92,246,0.22)" },
+  { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.22)",   border: "rgba(239,68,68,0.55)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.34)" },
+  { key: "recycled",                label: "Recycle",       icon: RefreshCw,     bg: "rgba(34,211,238,0.22)",  border: "rgba(34,211,238,0.55)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.34)" },
+  { key: "listed",                  label: "Listed",        icon: Home,          bg: "rgba(139,92,246,0.22)",  border: "rgba(139,92,246,0.55)",   text: "rgb(196,181,253)",      hoverBg: "rgba(139,92,246,0.34)" },
   // Row 3 — wins
-  { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.12)",   border: "rgba(34,197,94,0.4)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.22)" },
-  { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.12)",  border: "rgba(236,72,153,0.4)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.22)" },
-  { key: "left_voicemail",          label: "Left VM",       icon: Voicemail,     bg: "rgba(59,130,246,0.12)",  border: "rgba(59,130,246,0.4)",   text: "rgb(147,197,253)",      hoverBg: "rgba(59,130,246,0.22)" },
+  { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.22)",   border: "rgba(34,197,94,0.55)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.34)" },
+  { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.22)",  border: "rgba(236,72,153,0.55)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.34)" },
+  { key: "left_voicemail",          label: "Left VM",       icon: Voicemail,     bg: "rgba(59,130,246,0.22)",  border: "rgba(59,130,246,0.55)",   text: "rgb(147,197,253)",      hoverBg: "rgba(59,130,246,0.34)" },
 ] as const;
 
 // ─── Gold divider ─────────────────────────────────────────────────────────────
@@ -1393,7 +1396,8 @@ function LeadCard({ lead }: { lead: Lead }) {
       </div>
 
       {/* v14.43 ── spacer: 3-row sticky outcomes bar (~200px) + bottom nav (~62px) + safe area */}
-      <div aria-hidden style={{ height: 262 }} />
+      {/* v14.79 — slightly taller to match new grid bottom padding */}
+      <div aria-hidden style={{ height: 274 }} />
 
       {/* v14.42 ── STICKY OUTCOMES BAR — 3x3, ALL rows above mobile chrome */}
       {/* Fix: prior version rendered a 3rd row that landed under iPhone Safari's */}
@@ -1409,7 +1413,10 @@ function LeadCard({ lead }: { lead: Lead }) {
         background: "linear-gradient(180deg, rgba(10,14,22,0.75) 0%, rgba(10,14,22,0.96) 30%, rgba(10,14,22,0.98) 100%)",
         backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
         borderTop: "1px solid rgba(200,170,90,0.22)",
-        padding: "8px 12px 8px",
+        // v14.79 — match top pad on bottom (was 8px top / 8px bottom, but the FAB
+        // pressed-in state still needed a hair more room to clear "Keep in Touch"
+        // in the middle column). Now 10px both sides.
+        padding: "10px 12px 10px",
       }}>
         <div style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "repeat(3, 1fr)", gap: 5 }}>
           {OUTCOMES.map(o => {
@@ -1421,10 +1428,18 @@ function LeadCard({ lead }: { lead: Lead }) {
                 style={{
                   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
                   padding: "6px 4px",
-                  background: isHovered ? o.hoverBg : o.bg,
+                  // v14.79 — fuller look: brighter tinted bg + subtle inner sheen so tiles feel
+                  // dimensional instead of flat against the dark card. Sheen is a light
+                  // top-highlight fading to the base tint (creates a soft "glass" feel).
+                  background: isHovered
+                    ? `linear-gradient(180deg, rgba(255,255,255,0.08) 0%, ${o.hoverBg} 65%)`
+                    : `linear-gradient(180deg, rgba(255,255,255,0.06) 0%, ${o.bg} 65%)`,
                   border: `1px solid ${isHovered ? o.text : o.border}`,
                   borderRadius: 9, cursor: "pointer",
                   transition: "all 0.18s ease", minHeight: 46,
+                  boxShadow: isHovered
+                    ? `0 2px 8px ${o.border}, inset 0 1px 0 rgba(255,255,255,0.08)`
+                    : `inset 0 1px 0 rgba(255,255,255,0.06)`,
                   opacity: outcomeMutation.isPending ? 0.6 : 1,
                 }}
               >
@@ -3085,27 +3100,33 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
               position: "relative", transition: "all 0.2s ease",
             }}>
               {/* Elevated pill under the Dial icon */}
+              {/* v14.79 — "GO MODE": when the Dial tab is currently active, the FAB
+                 recedes because the real dial button is already the hero of the page.
+                 Shrinks 52→38px, drops from -18px lift to -4px lift, softer gradient,
+                 inset shadow so it reads as "pressed in", and a slow 2.4s ring pulse.
+                 On other tabs, it stays big & raised as the CTA to enter dialing. */}
               {isDial ? (
                 <div style={{
                   position: "relative",
-                  width: 52, height: 52,
-                  marginTop: -18,
+                  width: active ? 38 : 52, height: active ? 38 : 52,
+                  marginTop: active ? -4 : -18,
                   borderRadius: "50%",
                   background: active
-                    ? "linear-gradient(135deg, #d4b76a 0%, #a8893a 100%)"
+                    ? "linear-gradient(135deg, #8a6f2a 0%, #6a5320 100%)"
                     : "linear-gradient(135deg, #c8aa5a 0%, #8a6f2a 100%)",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   boxShadow: active
-                    ? "0 6px 22px rgba(200,170,90,0.55), 0 0 0 3px rgba(6,6,6,0.98), 0 0 0 4px rgba(200,170,90,0.4)"
+                    ? "inset 0 2px 6px rgba(0,0,0,0.55), 0 0 0 2px rgba(6,6,6,0.98), 0 0 0 3px rgba(200,170,90,0.35)"
                     : "0 4px 16px rgba(200,170,90,0.35), 0 0 0 3px rgba(6,6,6,0.98)",
-                  transition: "all 0.2s ease",
+                  transition: "all 0.28s cubic-bezier(0.4, 0, 0.2, 1)",
+                  animation: active ? "goModePulse 2.4s ease-in-out infinite" : undefined,
                 }}>
-                  <Icon size={26} style={{ color: "#0a0700" }} />
+                  <Icon size={active ? 18 : 26} style={{ color: active ? "#c8aa5a" : "#0a0700", transition: "all 0.28s" }} />
                   {showBadge && (
                     /* v14.68 — Red dot only (no count). Signals "there is activity" without dread. */
                     <span style={{
-                      position: "absolute", top: -2, right: -2,
-                      width: 12, height: 12, borderRadius: "50%",
+                      position: "absolute", top: active ? -1 : -2, right: active ? -1 : -2,
+                      width: active ? 8 : 12, height: active ? 8 : 12, borderRadius: "50%",
                       background: "#ef4444",
                       boxShadow: "0 0 8px rgba(239,68,68,0.85), 0 0 0 2px rgba(6,6,6,0.98)",
                     }} />
@@ -3131,6 +3152,12 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.85)} }
+        /* v14.79 — "GO MODE" pulse: soft outer glow that breathes 2.4s. Signals
+           the FAB is "live and in the pocket" without shouting for attention. */
+        @keyframes goModePulse {
+          0%,100% { box-shadow: inset 0 2px 6px rgba(0,0,0,0.55), 0 0 0 2px rgba(6,6,6,0.98), 0 0 0 3px rgba(200,170,90,0.35), 0 0 0 4px rgba(200,170,90,0.0); }
+          50%     { box-shadow: inset 0 2px 6px rgba(0,0,0,0.55), 0 0 0 2px rgba(6,6,6,0.98), 0 0 0 4px rgba(200,170,90,0.55), 0 0 12px 4px rgba(200,170,90,0.18); }
+        }
         input::placeholder, textarea::placeholder { color: rgba(255,255,255,0.25); }
         input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6) sepia(1) saturate(2) hue-rotate(5deg); }
       `}</style>

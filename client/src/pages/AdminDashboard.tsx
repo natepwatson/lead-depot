@@ -1198,7 +1198,7 @@ export default function AdminDashboard({
     },
   });
 
-  // v14.78 — Hard-delete an inactive agent. Permanent, orphans historical
+  // v14.79 — Hard-delete an inactive agent. Permanent, orphans historical
   // activity rows to NULL agent_id, unassigns leads, deletes locks, removes
   // the agent row entirely. Requires a confirmation dialog before firing.
   const hardDeleteAgentMutation = useMutation({
@@ -1372,7 +1372,7 @@ export default function AdminDashboard({
     onError: () => toast({ title: "Error clearing queue", variant: "destructive" }),
   });
 
-  // v14.78 — Upload CSV tab now routes to the SAME smart server-side parser used
+  // v14.79 — Upload CSV tab now routes to the SAME smart server-side parser used
   // by "Import BatchLeads CSV": /api/admin/import-batchleads-csv. That parser
   // auto-detects LandVoice SkipTraced listing, LandVoice Expired listing, and
   // BatchLeads xlsx exports; extracts all phones (with per-phone DNC + rank),
@@ -1484,7 +1484,7 @@ export default function AdminDashboard({
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    // v14.78 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
+    // v14.79 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
     if (file && /\.(csv|xlsx|xls)$/i.test(file.name)) {
       processFile(file);
     } else {
@@ -1598,7 +1598,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.78
+              v14.79
             </p>
           </div>
         </div>
@@ -3554,7 +3554,7 @@ export default function AdminDashboard({
                       </div>
                       <div className="space-y-2">
                         {inactiveAgents.map((agent) => {
-                          // v14.78 — Removed the 7-day reactivate window. Deactivated timestamp is
+                          // v14.79 — Removed the 7-day reactivate window. Deactivated timestamp is
                           // shown for reference only — admins can reactivate OR hard-delete at any time.
                           const deactivatedAt = (agent as any).deactivatedAt ?? null;
                           const msSinceDeactivate = deactivatedAt ? Date.now() - deactivatedAt : null;
@@ -3626,7 +3626,7 @@ export default function AdminDashboard({
                                   >
                                     <Power size={11}/> Re-activate
                                   </Button>
-                                  {/* v14.78 — Hard-delete. Permanent removal with confirmation prompt. */}
+                                  {/* v14.79 — Hard-delete. Permanent removal with confirmation prompt. */}
                                   <Button
                                     variant="ghost" size="icon"
                                     className="h-7 w-7 text-muted-foreground hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -3702,7 +3702,7 @@ export default function AdminDashboard({
         />
       )}
 
-      {/* v14.78 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
+      {/* v14.79 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
       {hardResetOpen && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",

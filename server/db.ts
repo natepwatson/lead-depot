@@ -342,6 +342,77 @@ if (!agentColsV125.includes("territory_closed_notice"))  rawDb.prepare("ALTER TA
 // v13.9 — home_county for home-county-first lead serving
 const agentColsV139 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
 if (!agentColsV139.includes("home_county")) rawDb.prepare("ALTER TABLE agents ADD COLUMN home_county TEXT").run();
+
+// v14.59 Bucket 5 Phase B — Email hygiene / tombstone + pending_email
+//
+// merged_into_agent_id: nullable FK-like column. Set only on merge tombstones,
+// points at the surviving canonical agent id. Combined with the sentinel email
+// shape 'tombstone:<sourceId>:<origEmail>' this makes tombstones login-locked
+// (no real email will ever equal a `tombstone:*` string) AND easy to find
+// programmatically (WHERE merged_into_agent_id IS NOT NULL).
+//
+// pending_email + pending_email_token + pending_email_expires: staging area for
+// self-service agent email changes. Non-admin agent PATCHing their email doesn't
+// rewrite email immediately — we stash the new address here, mint a token, hash it,
+// send verification to the NEW address, and only flip email on token click before
+// expiry. Admin-initiated changes bypass this and apply instantly.
+const agentColsV1459 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
+if (!agentColsV1459.includes("merged_into_agent_id"))  rawDb.prepare("ALTER TABLE agents ADD COLUMN merged_into_agent_id INTEGER").run();
+if (!agentColsV1459.includes("pending_email"))         rawDb.prepare("ALTER TABLE agents ADD COLUMN pending_email TEXT").run();
+if (!agentColsV1459.includes("pending_email_token"))   rawDb.prepare("ALTER TABLE agents ADD COLUMN pending_email_token TEXT").run();
+if (!agentColsV1459.includes("pending_email_expires")) rawDb.prepare("ALTER TABLE agents ADD COLUMN pending_email_expires TEXT").run();
+
+// v14.59 — Retroactive tombstone conversion. Any row still carrying the legacy
+// `_merged_into_<targetId>_from_<sourceId>_<origEmail>` OR
+// `_merged_into_<targetId>_<origEmail>` sentinel gets rewritten to the new shape:
+//   email = 'tombstone:<sourceId>:<origEmail>'
+//   merged_into_agent_id = <targetId>
+// Idempotent — skips rows already in the new shape (email LIKE 'tombstone:%').
+try {
+  // SUBSTR match is safer than LIKE here because underscores in `_merged_into_`
+  // are LIKE wildcards. SUBSTR (email, 1, 13) = '_merged_into_' is a literal match.
+  const legacyTombstones = rawDb.prepare(
+    "SELECT id, email FROM agents WHERE SUBSTR(email, 1, 13) = '_merged_into_'"
+  ).all() as Array<{ id: number; email: string }>;
+  let converted = 0;
+  for (const row of legacyTombstones) {
+    // Try v14.58 shape first: `_merged_into_<targetId>_from_<sourceId>_<origEmail>`
+    let m = row.email.match(/^_merged_into_(\d+)_from_(\d+)_(.+)$/);
+    let targetId: number | null = null;
+    let sourceId: number = row.id; // fallback: the row's own id
+    let origEmail = "unknown";
+    if (m) {
+      targetId = parseInt(m[1]);
+      sourceId = parseInt(m[2]);
+      origEmail = m[3];
+    } else {
+      // Older shape: `_merged_into_<targetId>_<origEmail>`
+      m = row.email.match(/^_merged_into_(\d+)_(.+)$/);
+      if (m) {
+        targetId = parseInt(m[1]);
+        origEmail = m[2];
+      }
+    }
+    if (targetId === null) continue; // unparseable — leave alone
+    const newEmail = `tombstone:${sourceId}:${origEmail}`;
+    // Guard against unique-constraint collision on the rewrite (extremely unlikely,
+    // but two rows with identical parsed sourceIds would collide). Use ROWID id as
+    // the ultimate disambiguator.
+    let candidate = newEmail;
+    let attempt = 0;
+    while (rawDb.prepare("SELECT 1 FROM agents WHERE email = ? AND id <> ?").get(candidate, row.id)) {
+      attempt++;
+      candidate = `${newEmail}#${attempt}`;
+      if (attempt > 5) break;
+    }
+    rawDb.prepare("UPDATE agents SET email = ?, merged_into_agent_id = ? WHERE id = ?")
+      .run(candidate, targetId, row.id);
+    converted++;
+  }
+  if (converted > 0) console.log(`[db] v14.59 tombstone migration: converted ${converted} legacy _merged_into_ row(s) to new shape`);
+} catch (err) {
+  console.error("[db] v14.59 tombstone migration failed:", err);
+}
 // One-shot backfill: copy legacy territory into territory1 for any agent that
 // hasn't been migrated yet. Safe to re-run — only fills when territory1 is null.
 rawDb.prepare(`

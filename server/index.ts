@@ -6,6 +6,8 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { initWebSocket } from "./ws";
 import { createServer } from "node:http";
+import cookieParser from "cookie-parser";
+import { attachSession } from "./auth";
 
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
 const compression = require("compression");
@@ -51,6 +53,12 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
+
+// v14.58 — Phase A: parse cookies + attach session (non-blocking).
+// Routes that need auth check req.currentAgent themselves via requireSession /
+// requireSelfOrAdmin / requireAdmin.
+app.use(cookieParser());
+app.use(attachSession);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

@@ -7,6 +7,21 @@ import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence } from "./fub";
+import {
+  initAuthSchema,
+  migrateLegacyPasswords,
+  purgeOldSessions,
+  hashPassword,
+  verifyPassword,
+  createSession,
+  revokeSession,
+  revokeAllSessionsForAgent,
+  setSessionCookie,
+  clearSessionCookie,
+  requireSession,
+  requireSelfOrAdmin,
+  SESSION_COOKIE,
+} from "./auth";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
 import multer from "multer";
@@ -292,7 +307,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.57 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.58 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -351,7 +366,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.57 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.58 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -636,7 +651,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.57 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.58 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -706,6 +721,21 @@ function toApiLead(r: any): any {
 }
 
 export function registerRoutes(httpServer: ReturnType<typeof createServer>, app: Express) {
+
+  // ─── v14.58 — Phase A: Auth schema + bcrypt migration (fire-and-forget) ───
+  // initAuthSchema is idempotent (CREATE IF NOT EXISTS). The password migration
+  // runs async so we don't block server startup on hashing existing rows.
+  initAuthSchema();
+  purgeOldSessions();
+  migrateLegacyPasswords()
+    .then(({ migrated, alreadyHashed }) => {
+      if (migrated > 0) {
+        console.log(`[v14.58 auth] bcrypt-migrated ${migrated} legacy plaintext password(s); ${alreadyHashed} already hashed`);
+      } else {
+        console.log(`[v14.58 auth] all ${alreadyHashed} agent password(s) already bcrypt-hashed`);
+      }
+    })
+    .catch(err => console.error("[v14.58 auth] migration failed:", err));
 
   // ─── v14.10 — RETIRE-ON-DEPLOY SWEEP (one-time, runs on every boot) ──────
   // Any active lead with attemptCount >= 6 flips to status='retired'. Applies
@@ -841,21 +871,49 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     next();
   }
 
-  app.post("/api/login", (req, res) => {
+  app.post("/api/login", async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Missing credentials" });
     const agent = storage.getAgentByEmail(email.toLowerCase().trim());
-    if (!agent || agent.password !== password) {
-      return res.status(401).json({ error: "Invalid email or password" });
+    if (!agent) return res.status(401).json({ error: "Invalid email or password" });
+
+    // v14.58 — Phase A: bcrypt verify with legacy plaintext fallback.
+    // If the row is still legacy plaintext at login time (e.g. boot migration
+    // hasn't finished yet), verifyPassword returns ok + needsRehash so we
+    // upgrade on the fly.
+    const { ok, needsRehash } = await verifyPassword(password, (agent as any).password);
+    if (!ok) return res.status(401).json({ error: "Invalid email or password" });
+    if (needsRehash) {
+      try {
+        const h = await hashPassword(password);
+        rawDb.prepare(`UPDATE agents SET password = ? WHERE id = ?`).run(h, agent.id);
+      } catch (e) { console.error("[v14.58 auth] on-the-fly rehash failed:", e); }
     }
     if (!agent.isActive) {
       return res.status(403).json({ error: "Your account has been deactivated. Contact an admin." });
     }
+
+    // Mint a server-side session and set httpOnly cookie. Client also gets a
+    // legacy user payload for localStorage compatibility with existing UI.
+    const { token } = createSession(agent.id, {
+      userAgent: (req.headers["user-agent"] as string) ?? undefined,
+      ip: (req.ip || (req.socket && req.socket.remoteAddress)) ?? undefined,
+    });
+    setSessionCookie(res, token);
+
     res.json({ agent: {
       id: agent.id, name: agent.name, email: agent.email, role: agent.role,
       headshotUrl: (agent as any).headshotUrl || (agent as any).headshot_url || null,
       homeCounty: (agent as any).homeCounty || (agent as any).home_county || null,
     } });
+  });
+
+  // v14.58 — Phase A: explicit logout revokes the current session.
+  app.post("/api/logout", (req, res) => {
+    const token = (req as any).cookies?.[SESSION_COOKIE];
+    if (token) revokeSession(token);
+    clearSessionCookie(res);
+    res.json({ ok: true });
   });
 
   // ─── FORGOT PASSWORD ─────────────────────────────────────────────────────
@@ -913,22 +971,35 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ id: agent.id, name: agent.name, email: agent.email });
   });
 
-  // POST /api/reset-password/:token — set new password
-  app.post("/api/reset-password/:token", (req, res) => {
+  // POST /api/reset-password/:token — set new password (bcrypt-hashed)
+  app.post("/api/reset-password/:token", async (req, res) => {
     const { token } = req.params;
     const { password } = req.body;
     if (!password || password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
     const agent = rawDb.prepare("SELECT id, setup_expires FROM agents WHERE setup_token = ?").get(token);
     if (!agent) return res.status(404).json({ error: "Invalid or expired reset link" });
     if (new Date(agent.setup_expires) < new Date()) return res.status(410).json({ error: "Link expired" });
+    const hash = await hashPassword(password);
     rawDb.prepare("UPDATE agents SET password = ?, setup_token = NULL, setup_expires = NULL WHERE id = ?")
-      .run(password, agent.id);
+      .run(hash, agent.id);
+    // Password change from an unauthenticated reset flow revokes all existing
+    // sessions for that agent — forces the attacker off if this was a takeover.
+    revokeAllSessionsForAgent(agent.id);
     res.json({ success: true });
   });
 
   // Session validation — called on app load to verify stored user is still active
+  // v14.58 — Phase A: prefers the httpOnly session cookie when present; falls
+  // back to :id-lookup only when the caller session is that :id OR is admin
+  // OR there is no session yet (transition compatibility for existing
+  // localStorage-only clients that haven't logged in since v14.58 shipped).
   app.get("/api/me/:id", (req, res) => {
     const id = parseInt(req.params.id);
+    // If session is present but points at a different agent (and caller is not
+    // admin), reject — the client's stored id is stale/spoofed.
+    if (req.currentAgent && req.currentAgent.id !== id && req.currentAgent.role !== "admin") {
+      return res.status(403).json({ error: "Session mismatch — please log in again" });
+    }
     const agent = storage.getAgentById(id);
     if (!agent) return res.status(404).json({ error: "Not found" });
     if (!agent.isActive) return res.status(403).json({ error: "Account deactivated" });
@@ -951,14 +1022,17 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json(all.map(a => ({ ...a, password: undefined })));
   });
 
-  app.post("/api/agents", (req, res) => {
+  app.post("/api/agents", async (req, res) => {
     const { name, email, password, role } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: "Missing fields" });
+    // v14.58 — Phase A: legacy admin-create endpoint (unused by current UI, kept
+    // for backwards compat + test tooling). Hash the password like every other path.
+    const hash = await hashPassword(password);
     try {
       const agent = storage.createAgent({
         name,
         email: email.toLowerCase().trim(),
-        password,
+        password: hash,
         role: role || "agent",
         roundRobinOrder: 0,
         isActive: true,
@@ -986,7 +1060,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
     if (Object.keys(patch).length === 0) return res.status(400).json({ error: "No valid fields to update" });
 
-    // v14.57 — Email hygiene on agent edits. Login resolves via
+    // v14.58 — Email hygiene on agent edits. Login resolves via
     // storage.getAgentByEmail(email.toLowerCase().trim()), so we (a) normalize the
     // stored value to lowercase+trim to keep it canonical, and (b) block any change
     // that would collide with a different agent's login. Without this guard, an admin
@@ -1025,7 +1099,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const existing = rawDb.prepare("SELECT id FROM agents WHERE LOWER(email) = ?").get(cleanEmail);
     if (existing) return res.status(409).json({ error: "An agent with this email already exists" });
 
-    // v14.57 — Same-name duplicate warning. Merged rows have their email renamed to
+    // v14.58 — Same-name duplicate warning. Merged rows have their email renamed to
     // `_merged_into_<targetId>_from_<sourceId>_<oldEmail>`, so the email uniqueness
     // check above passes for a re-invite with the pre-merge email. This lets
     // duplicates slip through if an admin re-invites the same person after a merge.
@@ -1045,8 +1119,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
     }
 
-    // Create account with random temp password (they'll set their own)
+    // Create account with random temp password (they'll set their own via /setup link)
+    // v14.58 — Phase A: hash the throwaway too so no plaintext ever hits disk.
     const tempPass = randomBytes(12).toString("hex");
+    const tempHash = await hashPassword(tempPass);
     const token = randomBytes(32).toString("hex");
     const expires = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(); // 72h
 
@@ -1055,7 +1131,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       agent = storage.createAgent({
         name,
         email: cleanEmail,
-        password: tempPass,
+        password: tempHash,
         role: assignedRole,
         roundRobinOrder: 0,
         isActive: true,
@@ -1126,6 +1202,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (agent.onboarded) return res.status(410).json({ error: "Already set up" });
     if (new Date(agent.setup_expires) < new Date()) return res.status(410).json({ error: "Link expired" });
 
+    // v14.58 — Phase A: bcrypt-hash the chosen password before persisting.
+    const passwordHash = await hashPassword(password);
+
     // Update agent — set real password + profile + mark onboarded, clear token
     rawDb.prepare(`
       UPDATE agents SET
@@ -1138,7 +1217,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         setup_token = NULL,
         setup_expires = NULL
       WHERE id = ?
-    `).run(password, phone ?? "", brokerage ?? "", homeAddress ?? "", headshotUrl ?? "", agent.id);
+    `).run(passwordHash, phone ?? "", brokerage ?? "", homeAddress ?? "", headshotUrl ?? "", agent.id);
+
+    // Fresh setup wipes any stale session for this agent (defense-in-depth).
+    revokeAllSessionsForAgent(agent.id);
 
     res.json({ success: true, name: agent.name, email: agent.email });
   });
@@ -1207,7 +1289,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ...updated, password: undefined, reassigned, callbackHeld, preserved });
   });
 
-  // v14.57 — Admin-only agent merge endpoint. Merges a duplicate/stale agent record
+  // v14.58 — Admin-only agent merge endpoint. Merges a duplicate/stale agent record
   // into a canonical agent record: reassigns every child row that references the source
   // agent to point at the target, then deactivates + hides the source. All in a single
   // SQLite transaction so we never leave orphaned FKs behind.
@@ -1269,7 +1351,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // be logged into. Keep the row (for foreign-key referential integrity of any
       // future rows we may have missed) but make it invisible + login-locked.
       //
-      // v14.57 hotfix: when merging multiple sources into the same target, the
+      // v14.58 hotfix: when merging multiple sources into the same target, the
       // simple `_merged_into_<targetId>_<email>` pattern collides with earlier
       // merged rows that had the same email. Suffix with sourceId to guarantee
       // uniqueness across repeated merges. The agents.email UNIQUE constraint is
@@ -1342,16 +1424,39 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ...updated, password: undefined });
   });
 
-  // Change own password
-  app.patch("/api/agents/:id/password", (req, res) => {
+  // Change own password — v14.58 Phase A: requires session, verifies caller
+  // matches :id, bcrypt-compares currentPassword, bcrypt-hashes newPassword,
+  // and revokes all OTHER sessions on success (keeps current cookie live).
+  // Min length unified to 8 across setup / reset / self-change.
+  app.patch("/api/agents/:id/password", async (req, res) => {
     const id = parseInt(req.params.id);
+    if (!requireSelfOrAdmin(req, res, id)) return;
+
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) return res.status(400).json({ error: "Missing fields" });
-    if (newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+    if (newPassword.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+
     const agent = storage.getAgentById(id);
     if (!agent) return res.status(404).json({ error: "Agent not found" });
-    if (agent.password !== currentPassword) return res.status(401).json({ error: "Current password is incorrect" });
-    const updated = storage.updateAgent(id, { password: newPassword });
+
+    // Verify current password via bcrypt (legacy plaintext also accepted for
+    // the one-deploy overlap window).
+    const { ok } = await verifyPassword(currentPassword, (agent as any).password);
+    if (!ok) return res.status(401).json({ error: "Current password is incorrect" });
+
+    const newHash = await hashPassword(newPassword);
+    storage.updateAgent(id, { password: newHash });
+
+    // Revoke all sessions for this agent EXCEPT the caller's current session.
+    // Simpler + safer: revoke everything, then mint a fresh session for the
+    // current cookie so the user stays logged in.
+    revokeAllSessionsForAgent(id);
+    const { token } = createSession(id, {
+      userAgent: (req.headers["user-agent"] as string) ?? undefined,
+      ip: (req.ip || (req.socket && req.socket.remoteAddress)) ?? undefined,
+    });
+    setSessionCookie(res, token);
+
     res.json({ ok: true });
   });
 
@@ -4326,7 +4431,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.57 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.58 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -4537,7 +4642,7 @@ Brothers Group Real Estate Team at Momentum Realty
       results.app_url = { ok: false, detail: e.message };
     }
 
-    // v14.57 — BatchLeads probe removed. The BatchLeads auto-pipeline was killed
+    // v14.58 — BatchLeads probe removed. The BatchLeads auto-pipeline was killed
     // permanently in v14.46; the vendor's live API was still being probed here and
     // was returning HTTP 500 for hours at a time, which dragged /api/health to 207
     // "degraded" and turned every browser-matrix row red on phase 6. There is no
@@ -4558,7 +4663,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.57",
+      version: "v14.58",
       services: results,
     });
   });

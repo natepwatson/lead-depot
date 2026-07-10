@@ -91,7 +91,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
   // Fetch full profile on mount
   useState(() => {
     if (!user?.id) return;
-    fetch(`/api/me/${user.id}`)
+    fetch(`/api/me/${user.id}`, { credentials: "include" })
       .then(r => r.json())
       .then(d => {
         if (d.agent) {

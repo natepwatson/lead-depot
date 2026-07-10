@@ -32,6 +32,7 @@ export async function apiRequest(
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
+    credentials: "include", // v14.58 — Phase A: send httpOnly session cookie on every API request
   });
 
   await throwIfResNotOk(res);
@@ -46,6 +47,7 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const res = await fetch(`${API_BASE}${queryKey.join("/")}`, {
       headers: getAgentIdHeader(),
+      credentials: "include", // v14.58 — Phase A: send httpOnly session cookie on every API request
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

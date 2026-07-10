@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const stored = loadUser();
     if (!stored) return;
-    fetch(`/api/me/${stored.id}`)
+    fetch(`/api/me/${stored.id}`, { credentials: "include" })
       .then(r => {
         if (r.status === 403 || r.status === 404) {
           // Account deactivated or deleted — sign out
@@ -64,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
+        credentials: "include", // v14.58 — Phase A: receive session cookie
       });
       const data = await res.json();
       if (!res.ok) return { error: data.error || "Login failed" };
@@ -76,6 +77,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    // v14.58 — Phase A: revoke server-side session too (best-effort).
+    fetch("/api/logout", { method: "POST", credentials: "include" }).catch(() => {});
     saveUser(null);
     setUser(null);
   };

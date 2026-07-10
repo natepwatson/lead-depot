@@ -899,6 +899,43 @@ function LeadCard({ lead }: { lead: Lead }) {
             for max visual relief. The header above already shows `LINE 1 OF 5 · 5/5 viable` so counts
             aren't lost; struck/no-answer state is surfaced via the header “N struck / N tried today” chips. ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+          {/* v14.74 — "Who am I calling?" chip above the Dial button. Pulls from
+              extra.phoneMeta[] (populated by the LandVoice/BatchLeads importer)
+              and shows the person's name + role + DNC badge for the current line. */}
+          {activePhone && Array.isArray(extra.phoneMeta) && (() => {
+            const meta = extra.phoneMeta.find((m: any) => (m.number || "").replace(/\D/g, "").slice(-10) === (activePhone || "").replace(/\D/g, "").slice(-10));
+            if (!meta) return null;
+            return (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                padding: "6px 12px",
+                background: "rgba(200,170,90,0.06)",
+                border: "1px solid rgba(200,170,90,0.18)",
+                borderRadius: 8, marginBottom: 4,
+                flexWrap: "wrap",
+              }}>
+                {meta.personName && (
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", fontWeight: 600 }}>
+                    {meta.personName}
+                  </span>
+                )}
+                {meta.role && (
+                  <span style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)" }}>
+                    {meta.role}
+                  </span>
+                )}
+                {meta.dnc && (
+                  <span style={{
+                    padding: "2px 8px", borderRadius: 999,
+                    background: "rgba(252,165,165,0.15)", border: "1px solid rgba(252,165,165,0.4)",
+                    fontSize: 10, letterSpacing: "0.12em", color: "#fca5a5", fontWeight: 700,
+                  }}>
+                    DNC — do not call
+                  </span>
+                )}
+              </div>
+            );
+          })()}
           {/* Gold Dial button — the only phone-line UI element on the card */}
           {activePhone && (() => {
             const activeIdx = allPhones.findIndex(p => p === activePhone);
@@ -1103,6 +1140,100 @@ function LeadCard({ lead }: { lead: Lead }) {
             {lead.attemptCount} previous attempt{lead.attemptCount !== 1 ? "s" : ""}
           </p>
         )}
+
+        {/* v14.74 — LANDVOICE INTEL PANEL. Shows MLS pitch context, DOM,
+            status, list agent, remarks, mailing-address flag, and per-phone
+            owner + DNC badges. Rendered only when the CSV import provided
+            these fields (LandVoice Expired / Listing / BatchLeads). */}
+        {(extra.mlsNumber || extra.mlsStatus || extra.daysOnMarket != null || extra.listAgent || extra.ownerMailing || extra.remarks) && (() => {
+          const propCity = (lead.city || "").trim().toLowerCase();
+          const mailCity = (extra.ownerMailing?.city || "").trim().toLowerCase();
+          const mailState = (extra.ownerMailing?.state || "").trim().toUpperCase();
+          const outOfArea = mailCity && propCity && mailCity !== propCity;
+          const outOfState = mailState && mailState !== "FL";
+          const investorFlag = outOfState || outOfArea;
+          return (
+            <div style={{
+              marginBottom: 12, padding: "12px 14px",
+              background: "rgba(147,197,253,0.06)",
+              border: "1px solid rgba(147,197,253,0.22)",
+              borderRadius: 8,
+            }}>
+              <div style={{
+                fontSize: 9, letterSpacing: "0.22em", textTransform: "uppercase",
+                color: "rgba(147,197,253,0.7)", fontWeight: 700, marginBottom: 8,
+              }}>Listing Intel</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px" }}>
+                {extra.mlsNumber && (
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
+                    MLS <span style={{ color: "rgba(255,255,255,0.85)", fontWeight: 600 }}>#{extra.mlsNumber}</span>
+                  </div>
+                )}
+                {extra.mlsStatus && (
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
+                    Status <span style={{ color: "#fca5a5", fontWeight: 600 }}>{extra.mlsStatus}</span>
+                  </div>
+                )}
+                {extra.daysOnMarket != null && (
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
+                    DOM <span style={{ color: "rgba(255,255,255,0.85)", fontWeight: 600 }}>{extra.daysOnMarket} days</span>
+                  </div>
+                )}
+                {extra.beds != null && extra.baths != null && (
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
+                    <span style={{ color: "rgba(255,255,255,0.85)" }}>{extra.beds}bd / {extra.baths}ba{extra.sqft ? ` · ${extra.sqft.toLocaleString()} sf` : ""}</span>
+                  </div>
+                )}
+                {extra.yearBuilt && (
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
+                    Built <span style={{ color: "rgba(255,255,255,0.85)" }}>{extra.yearBuilt}</span>
+                  </div>
+                )}
+                {extra.listAgent && (
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", gridColumn: "1 / -1" }}>
+                    Prev agent <span style={{ color: "rgba(255,255,255,0.85)" }}>{extra.listAgent}</span>
+                    {extra.listOffice && <span style={{ color: "rgba(255,255,255,0.55)" }}> · {extra.listOffice}</span>}
+                  </div>
+                )}
+                {extra.relisted && (
+                  <div style={{ fontSize: 11, color: "#fcd34d", gridColumn: "1 / -1" }}>
+                    ⚠️ Previously relisted — check for competing listings
+                  </div>
+                )}
+                {extra.ownerIsAgent && (
+                  <div style={{ fontSize: 11, color: "#fca5a5", gridColumn: "1 / -1" }}>
+                    ⚠️ Owner is a licensed agent — approach as peer
+                  </div>
+                )}
+                {investorFlag && (
+                  <div style={{
+                    gridColumn: "1 / -1", marginTop: 4,
+                    padding: "6px 10px", borderRadius: 6,
+                    background: "rgba(196,181,253,0.08)", border: "1px solid rgba(196,181,253,0.3)",
+                    fontSize: 11, color: "#c4b5fd", fontWeight: 600,
+                  }}>
+                    🏠 {outOfState ? `Out-of-state investor (${mailState})` : `Absentee owner — lives in ${extra.ownerMailing.city}`}
+                  </div>
+                )}
+                {extra.ownerOccupied === true && (
+                  <div style={{ fontSize: 11, color: "#86efac", gridColumn: "1 / -1" }}>
+                    ✓ Owner-occupied
+                  </div>
+                )}
+              </div>
+              {extra.remarks && (
+                <div style={{
+                  marginTop: 10, paddingTop: 10,
+                  borderTop: "1px solid rgba(147,197,253,0.15)",
+                  fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.5,
+                  fontStyle: "italic",
+                }}>
+                  “{extra.remarks.length > 220 ? extra.remarks.slice(0, 220) + "…" : extra.remarks}”
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <GoldDivider />

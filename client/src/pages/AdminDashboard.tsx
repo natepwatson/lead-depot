@@ -1351,25 +1351,35 @@ export default function AdminDashboard({
     onError: () => toast({ title: "Error clearing queue", variant: "destructive" }),
   });
 
+  // v14.74 — Upload CSV tab now routes to the SAME smart server-side parser used
+  // by "Import BatchLeads CSV": /api/admin/import-batchleads-csv. That parser
+  // auto-detects LandVoice SkipTraced listing, LandVoice Expired listing, and
+  // BatchLeads xlsx exports; extracts all phones (with per-phone DNC + rank),
+  // MLS number, DOM, remarks, list agent, and mailing address; and infers
+  // county from zip. The old client-side parseCSV + /api/leads/upload path
+  // silently dropped LandVoice rows whose top-level Primary Phone was empty.
   const processFile = async (file: File) => {
     if (!file) return;
     setUploading(true);
     setUploadRowCount(null);
     try {
-      const text = await file.text();
-      const rows = parseCSV(text);
-      if (!rows.length) throw new Error("No valid rows found in CSV");
-      setUploadRowCount(rows.length);
-      const batchId = `batch_${Date.now()}`;
-      const res = await apiRequest("POST", "/api/leads/upload", {
-        leads: rows, leadType: uploadType, uploadedBy: user?.id, batchId,
+      const fd = new FormData();
+      fd.append("file", file);
+      const agentId = (window as any).localStorage?.getItem("agentId") || String(user?.id || "1");
+      const res = await fetch("/api/admin/import-batchleads-csv", {
+        method: "POST", body: fd, headers: { "x-agent-id": agentId },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
-      const typeLabels: Record<string,string> = { expired:"Expired Listings" };
-      const disqNote = data.disqualified > 0 ? ` ${data.disqualified} skipped (missing name or phone).` : "";
-      toast({ title: `${data.created} leads uploaded`, description: `Distributed via round-robin as ${typeLabels[uploadType] || uploadType}.${disqNote}` });
-      setUploadRowCount(null);
+      if (!res.ok || !data.ok) throw new Error(data.error || res.statusText || "Upload failed");
+      setUploadRowCount(data.rowsInFile ?? null);
+      const byC = Object.entries(data.byCounty || {}).map(([k, v]) => `${k}: ${v}`).join(", ");
+      const byT = Object.entries(data.byType || {}).map(([k, v]) => `${k}: ${v}`).join(", ");
+      const dupNote = data.skippedDuplicate ? ` · ${data.skippedDuplicate} duplicates skipped` : "";
+      toast({
+        title: `Imported ${data.inserted} of ${data.rowsInFile} leads`,
+        description: `${byT ? `Types: ${byT}. ` : ""}${byC ? `Counties: ${byC}. ` : ""}Leads are in the shared pool — agents pull via Work My Leads.${dupNote}`,
+      });
+      setTimeout(() => setUploadRowCount(null), 8000);
       qc.invalidateQueries({ queryKey: ["/api/leads"] });
       qc.invalidateQueries({ queryKey: ["/api/leads/stats"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/pipeline"] });
@@ -1451,10 +1461,11 @@ export default function AdminDashboard({
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    if (file && file.name.endsWith(".csv")) {
+    // v14.74 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
+    if (file && /\.(csv|xlsx|xls)$/i.test(file.name)) {
       processFile(file);
     } else {
-      toast({ title: "Please drop a .csv file", variant: "destructive" });
+      toast({ title: "Please drop a .csv, .xlsx, or .xls file", variant: "destructive" });
     }
   };
 
@@ -1564,7 +1575,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.73
+              v14.74
             </p>
           </div>
         </div>
@@ -2754,7 +2765,7 @@ export default function AdminDashboard({
                           Expected columns: Address, Owner Name, Phone, Email, Motivation
                         </p>
                       </div>
-                      <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleUpload} data-testid="input-csv-file" />
+                      <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleUpload} data-testid="input-csv-file" />
                     </div>
                     <div style={{
                       background: "rgba(255,255,255,0.02)",
@@ -3654,7 +3665,7 @@ export default function AdminDashboard({
         />
       )}
 
-      {/* v14.73 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
+      {/* v14.74 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
       {hardResetOpen && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",

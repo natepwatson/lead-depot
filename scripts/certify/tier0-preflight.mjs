@@ -137,8 +137,10 @@ function checkGrepGuards() {
     // Debug leftovers
     { pattern: /console\.log\(\s*["'`]DEBUG/,          name: 'DEBUG console.log',               where: ['server/', 'client/src/'] },
     { pattern: /throw new Error\("unimplemented/,      name: 'unimplemented stub',              where: ['server/', 'client/src/'] },
-    // My-pipeline endpoint (deleted v14.38)
-    { pattern: /app\.get\("\/api\/leads\/my-pipeline/, name: 'my-pipeline endpoint resurrection', where: ['server/routes.ts'] },
+    // My-pipeline endpoint was deleted v14.38, RESTORED v14.68 without the
+    // 60-day filter. The rule below guards the OLD implementation (which had
+    // a `sixtyDaysAgo` clause). New endpoint is legitimate.
+    { pattern: /sixtyDaysAgo|SIXTY_DAY_MS|60\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000.*pipeline/, name: 'sixty-day pipeline filter resurrection', where: ['server/routes.ts'] },
   ];
   let hits = 0;
   for (const rule of DENYLIST) {

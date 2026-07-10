@@ -13,7 +13,7 @@ import {
   TrendingUp, ChevronLeft, ChevronDown,
   Trophy, Users, Send, UserPlus, Heart,
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
-  Home, Voicemail,
+  Home, Voicemail, Layers, Calendar,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import TutorialModal from "../components/TutorialModal";
@@ -1342,10 +1342,15 @@ interface AgentStat {
 export function CallbackLookupModal({ onClose, onPickLead }: { onClose: () => void; onPickLead?: (leadId: number) => void }) {
   const [digits, setDigits] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const currentAgentId = (user as any)?.id;
+  const [claiming, setClaiming] = useState<number | null>(null);
 
   const cleanDigits = digits.replace(/\D/g, "");
   const shouldFetch = submitted && cleanDigits.length >= 4;
-  const { data, isLoading, isError } = useQuery<any>({
+  const { data, isLoading, isError, refetch } = useQuery<any>({
     queryKey: ["/api/leads/callback-lookup", cleanDigits],
     queryFn: () => apiRequest("GET", `/api/leads/callback-lookup?last4=${cleanDigits}`).then(r => r.json()),
     enabled: shouldFetch,
@@ -1353,6 +1358,43 @@ export function CallbackLookupModal({ onClose, onPickLead }: { onClose: () => vo
   });
 
   const results: any[] = Array.isArray(data?.results) ? data.results : [];
+
+  // v14.68 — First-lookup-wins claim. Sends the lead's original primary phone
+  // (from the search result) so the Dial page opens on the number that called back.
+  async function claimLead(r: any) {
+    if (!currentAgentId) return;
+    setClaiming(r.leadId);
+    try {
+      const resp = await apiRequest("POST", `/api/leads/${r.leadId}/claim-callback`, {
+        agentId: currentAgentId,
+        phone: r.phone,
+      });
+      const j = await resp.json();
+      if (resp.status === 409) {
+        toast({
+          title: "Already claimed",
+          description: j?.owner?.name ? `${j.owner.name} owns this lead.` : "This lead is owned by another agent.",
+          variant: "destructive",
+        });
+      } else if (j.claimed) {
+        toast({ title: "Lead claimed — opening in Dial", description: r.ownerName || r.address || "" });
+        qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+        qc.invalidateQueries({ queryKey: ["/api/leads/my-count/3"] });
+        qc.invalidateQueries({ queryKey: ["/api/leads/my-pipeline"] });
+        if (onPickLead) onPickLead(r.leadId);
+        onClose();
+      } else if (j.reason === "already_yours") {
+        toast({ title: "Already yours", description: "Opening lead card…" });
+        if (onPickLead) onPickLead(r.leadId);
+        onClose();
+      }
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Claim failed", description: e?.message || "Try again in a moment.", variant: "destructive" });
+    } finally {
+      setClaiming(null);
+    }
+  }
 
   return (
     <div
@@ -1457,17 +1499,46 @@ export function CallbackLookupModal({ onClose, onPickLead }: { onClose: () => vo
                     {r.lastOutcomeByAgent ? ` by ${r.lastOutcomeByAgent}` : ""}.</>
                   )}
                 </div>
-                {onPickLead && (
+                {/* v14.68 — If the lead is in the shared pool (no owner), the agent
+                    can CLAIM it right from the lookup. First lookup wins. */}
+                {r.assignedAgentId == null ? (
                   <button
-                    onClick={() => onPickLead(r.leadId)}
+                    onClick={() => claimLead(r)}
+                    disabled={claiming === r.leadId}
                     style={{
-                      marginTop: 10, width: "100%", padding: "9px",
-                      background: "linear-gradient(135deg,#c8aa5a,#a8893a)",
-                      color: "#0a0700", border: "none", borderRadius: 8,
-                      fontSize: 12, fontWeight: 700, letterSpacing: "0.1em",
-                      textTransform: "uppercase", cursor: "pointer",
+                      marginTop: 10, width: "100%", padding: "11px",
+                      background: claiming === r.leadId
+                        ? "rgba(200,170,90,0.35)"
+                        : "linear-gradient(135deg,#10b981,#059669)",
+                      color: "#fff", border: "none", borderRadius: 8,
+                      fontSize: 12, fontWeight: 800, letterSpacing: "0.12em",
+                      textTransform: "uppercase", cursor: claiming === r.leadId ? "wait" : "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                     }}
-                  >Open Lead Card →</button>
+                  >
+                    {claiming === r.leadId ? "Claiming…" : <>✓ Claim &amp; Open in Dial</>}
+                  </button>
+                ) : r.assignedAgentId === currentAgentId ? (
+                  onPickLead && (
+                    <button
+                      onClick={() => { onPickLead(r.leadId); onClose(); }}
+                      style={{
+                        marginTop: 10, width: "100%", padding: "9px",
+                        background: "linear-gradient(135deg,#c8aa5a,#a8893a)",
+                        color: "#0a0700", border: "none", borderRadius: 8,
+                        fontSize: 12, fontWeight: 700, letterSpacing: "0.1em",
+                        textTransform: "uppercase", cursor: "pointer",
+                      }}
+                    >Open in Dial →</button>
+                  )
+                ) : (
+                  <div style={{
+                    marginTop: 10, padding: "9px 10px", borderRadius: 8,
+                    background: "rgba(255,255,255,0.04)",
+                    fontSize: 11, color: "rgba(255,255,255,0.55)", textAlign: "center", lineHeight: 1.4,
+                  }}>
+                    Owned by <b style={{ color: "#c8aa5a" }}>{r.assignedAgentName || "another agent"}</b> — reach out to them.
+                  </div>
                 )}
               </div>
             ))}
@@ -1826,7 +1897,149 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
 // KIT is a FUB commitment — long-term nurture lives in Follow Up Boss
 // workflows, not Lead Depot. Callback outcome was retired in v14.14.
 // Nav shrank from 5 tabs to 4 (Dashboard / Dial / Refer / Profile).
-// Pipeline interfaces, PipelineCard, and MyLeadsTab removed — see git history.
+// v14.68 — RESTORED (no 60-day filter). See MyLeadsTab component just below.
+
+interface PipelineLead {
+  id: number;
+  owner_name?: string | null;
+  ownerName?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  status?: string | null;
+  lead_type?: string | null;
+  follow_up_timing?: string | null;
+  last_outcome?: string | null;
+  last_activity_at?: string | null;
+}
+
+function PipelineCard({ lead, kind }: { lead: PipelineLead; kind: "appt" | "kit" | "network" }) {
+  const accent = kind === "appt" ? "#10b981" : kind === "kit" ? "#c8aa5a" : "#8b7cff";
+  const kindLabel = kind === "appt" ? "APPT SET" : kind === "kit" ? "KEEP IN TOUCH" : "MY NETWORK LEAD";
+  const name = lead.owner_name || lead.ownerName || "Unknown";
+  const location = [lead.address, lead.city, lead.state].filter(Boolean).join(", ") || "No address on file";
+  const when = lead.last_activity_at
+    ? new Date(lead.last_activity_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+    : null;
+  return (
+    <div style={{
+      padding: "14px 16px",
+      background: "rgba(255,255,255,0.03)",
+      border: "1px solid rgba(200,170,90,0.14)",
+      borderLeft: `3px solid ${accent}`,
+      borderRadius: 10,
+      display: "flex", flexDirection: "column", gap: 4,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", letterSpacing: "0.01em" }}>{name}</div>
+        <div style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
+          color: accent, padding: "3px 8px",
+          background: `${accent}18`, borderRadius: 999,
+        }}>{kindLabel}</div>
+      </div>
+      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", lineHeight: 1.5 }}>{location}</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 4 }}>
+        {lead.phone && (
+          <div style={{ fontSize: 11, color: "rgba(200,170,90,0.85)", letterSpacing: "0.03em" }}>{lead.phone}</div>
+        )}
+        {when && (
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", letterSpacing: "0.02em" }}>Last touch · {when}</div>
+        )}
+      </div>
+      {lead.follow_up_timing && kind === "kit" && (
+        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>
+          Follow up: <b style={{ color: "rgba(255,255,255,0.75)" }}>{lead.follow_up_timing}</b>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MyLeadsTab() {
+  const { user } = useAuth();
+  const agentId = (user as any)?.id;
+  const { data, isLoading, isError } = useQuery<any>({
+    queryKey: ["/api/leads/my-pipeline", agentId],
+    queryFn: () => apiRequest("GET", `/api/leads/my-pipeline?agentId=${agentId}`).then(r => r.json()),
+    enabled: !!agentId,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+  const counts = data?.counts || { appts: 0, kit: 0, network: 0, total: 0 };
+  const appts: PipelineLead[] = data?.appts || [];
+  const kit: PipelineLead[]   = data?.kit || [];
+  const network: PipelineLead[] = data?.network || [];
+  return (
+    <div style={{ padding: "22px 18px 120px", maxWidth: 640, margin: "0 auto", color: "#fff" }}>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{
+          fontFamily: "'Cormorant Garamond','Georgia',serif",
+          fontSize: "1.9rem", fontWeight: 400, letterSpacing: "0.01em", marginBottom: 4,
+        }}>My Pipeline</h1>
+        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", letterSpacing: "0.02em" }}>
+          Every appointment, keep-in-touch, and network lead you own. Nothing expires.
+        </p>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 22 }}>
+        <div style={{ padding: "14px 12px", background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.25)", borderRadius: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 24, fontWeight: 700, color: "#10b981", lineHeight: 1 }}>{counts.appts}</div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: "rgba(16,185,129,0.9)", marginTop: 6 }}>APPTS</div>
+        </div>
+        <div style={{ padding: "14px 12px", background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.25)", borderRadius: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 24, fontWeight: 700, color: "#c8aa5a", lineHeight: 1 }}>{counts.kit}</div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: "rgba(200,170,90,0.9)", marginTop: 6 }}>KIT</div>
+        </div>
+        <div style={{ padding: "14px 12px", background: "rgba(139,124,255,0.08)", border: "1px solid rgba(139,124,255,0.25)", borderRadius: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 24, fontWeight: 700, color: "#8b7cff", lineHeight: 1 }}>{counts.network}</div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: "rgba(139,124,255,0.9)", marginTop: 6 }}>NETWORK</div>
+        </div>
+      </div>
+      {isLoading && (<div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Loading your pipeline…</div>)}
+      {isError && (<div style={{ padding: 40, textAlign: "center", color: "rgb(252,165,165)", fontSize: 13 }}>Failed to load pipeline. Pull down to refresh.</div>)}
+      {!isLoading && !isError && counts.total === 0 && (
+        <div style={{ padding: "40px 20px", textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13, lineHeight: 1.6, border: "1px dashed rgba(255,170,90,0.2)", borderRadius: 12 }}>
+          Nothing here yet. Once you set an appointment or keep-in-touch on a call, it will live here forever.
+        </div>
+      )}
+      {appts.length > 0 && (
+        <section style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <Calendar size={14} color="#10b981" />
+            <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: "#10b981", textTransform: "uppercase" }}>Appointments · {appts.length}</h2>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {appts.map(l => <PipelineCard key={l.id} lead={l} kind="appt" />)}
+          </div>
+        </section>
+      )}
+      {kit.length > 0 && (
+        <section style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <Heart size={14} color="#c8aa5a" />
+            <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: "#c8aa5a", textTransform: "uppercase" }}>Keep In Touch · {kit.length}</h2>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {kit.map(l => <PipelineCard key={l.id} lead={l} kind="kit" />)}
+          </div>
+        </section>
+      )}
+      {network.length > 0 && (
+        <section style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <UserPlus size={14} color="#8b7cff" />
+            <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: "#8b7cff", textTransform: "uppercase" }}>My Network Leads · {network.length}</h2>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {network.map(l => <PipelineCard key={l.id} lead={l} kind="network" />)}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
 
 
 // ─── Referrals Hub (v14.50) ─────────────────────────────────────────────────
@@ -2100,9 +2313,12 @@ const inputStyle: React.CSSProperties = {
 
 // ─── Nav tabs ─────────────────────────────────────────────────────────────────
 // v14.38 — "my-leads" tab removed. KIT lives in FUB.
-type Tab = "leads" | "leaderboard" | "refer" | "profile";
+type Tab = "leads" | "leaderboard" | "pipeline" | "refer" | "profile";
+// v14.68 — Pipeline tab restored between Dial and Referrals. Nav order matters:
+// the middle slot (Dial) gets the prominent, elevated styling in the bottom nav.
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "leaderboard", label: "Dashboard", icon: Trophy },
+  { id: "pipeline",    label: "Pipeline", icon: Layers },
   { id: "leads",       label: "Dial",      icon: Phone },
   { id: "refer",       label: "Referrals", icon: UserPlus },
   { id: "profile",     label: "Profile",   icon: UserCircle2 },
@@ -2689,6 +2905,8 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
           </div>
         )}
 
+        {tab === "pipeline" && <MyLeadsTab />}
+
         {tab === "refer" && <ReferralsHub />}
 
         {/* v14.50 — Global Who called me? modal (rendered from AgentView, works on every tab) */}
@@ -2720,35 +2938,54 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
           const Icon = n.icon;
           const active = tab === n.id;
           const showBadge = n.id === "leads" && hasLeads;
+          // v14.68 — Dial gets prominent, elevated treatment (raised, gold gradient).
+          const isDial = n.id === "leads";
           return (
             <button key={n.id} onClick={() => setTab(n.id)} style={{
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
-              gap: 5, padding: "12px 8px 14px",
-              background: active ? "rgba(200,170,90,0.07)" : "transparent",
-              borderTop: active ? "2px solid #c8aa5a" : "2px solid transparent",
+              gap: isDial ? 3 : 5,
+              padding: isDial ? "6px 8px 14px" : "12px 8px 14px",
+              background: (!isDial && active) ? "rgba(200,170,90,0.07)" : "transparent",
+              borderTop: (!isDial && active) ? "2px solid #c8aa5a" : "2px solid transparent",
               border: "none", cursor: "pointer",
               position: "relative", transition: "all 0.2s ease",
             }}>
-              {showBadge && (
-                /* v14.54 — red notification badge (was gold, blended with the theme).
-                   Alex: "could we have a red notification thing on it when a lead(s) are ready?"
-                   Now shows the count so agents know how many leads are queued at a glance. */
-                <span style={{
-                  position: "absolute", top: 6, right: "calc(50% - 22px)",
-                  minWidth: 16, height: 16, borderRadius: 8,
-                  padding: "0 4px",
-                  background: "#ef4444",
-                  boxShadow: "0 0 10px rgba(239,68,68,0.75), 0 0 0 2px rgba(6,6,6,0.98)",
-                  color: "#fff", fontSize: 9, fontWeight: 800,
+              {/* Elevated pill under the Dial icon */}
+              {isDial ? (
+                <div style={{
+                  position: "relative",
+                  width: 52, height: 52,
+                  marginTop: -18,
+                  borderRadius: "50%",
+                  background: active
+                    ? "linear-gradient(135deg, #d4b76a 0%, #a8893a 100%)"
+                    : "linear-gradient(135deg, #c8aa5a 0%, #8a6f2a 100%)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  lineHeight: 1, letterSpacing: 0,
-                }}>{queueCount > 99 ? "99+" : queueCount}</span>
+                  boxShadow: active
+                    ? "0 6px 22px rgba(200,170,90,0.55), 0 0 0 3px rgba(6,6,6,0.98), 0 0 0 4px rgba(200,170,90,0.4)"
+                    : "0 4px 16px rgba(200,170,90,0.35), 0 0 0 3px rgba(6,6,6,0.98)",
+                  transition: "all 0.2s ease",
+                }}>
+                  <Icon size={26} style={{ color: "#0a0700" }} />
+                  {showBadge && (
+                    /* v14.68 — Red dot only (no count). Signals "there is activity" without dread. */
+                    <span style={{
+                      position: "absolute", top: -2, right: -2,
+                      width: 12, height: 12, borderRadius: "50%",
+                      background: "#ef4444",
+                      boxShadow: "0 0 8px rgba(239,68,68,0.85), 0 0 0 2px rgba(6,6,6,0.98)",
+                    }} />
+                  )}
+                </div>
+              ) : (
+                <Icon size={22} style={{ color: active ? "#c8aa5a" : "rgba(255,255,255,0.35)", transition: "color 0.15s" }} />
               )}
-              <Icon size={22} style={{ color: active ? "#c8aa5a" : "rgba(255,255,255,0.35)", transition: "color 0.15s" }} />
               <span style={{
                 fontSize: 10, letterSpacing: "0.08em",
-                color: active ? "#c8aa5a" : "rgba(255,255,255,0.35)",
-                fontWeight: active ? 700 : 400,
+                color: isDial
+                  ? "#c8aa5a"
+                  : (active ? "#c8aa5a" : "rgba(255,255,255,0.35)"),
+                fontWeight: isDial ? 700 : (active ? 700 : 400),
                 transition: "color 0.15s",
               }}>
                 {n.label}

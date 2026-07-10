@@ -310,7 +310,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.67 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.68 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -369,7 +369,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.67 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.68 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -654,7 +654,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.67 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.68 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1692,7 +1692,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.67</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v14.68</p>
             </div>
           `,
         });
@@ -1854,7 +1854,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.67 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v14.68 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -4474,12 +4474,121 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json({ ...updated, password: undefined });
   });
 
-  // ─── MY PIPELINE (removed v14.38) ─────────────────────────────────────────
-  // v14.38 — My Pipeline tab retired. KIT is a FUB commitment (long-term nurture
-  // lives in Follow Up Boss workflows, not Lead Depot). Callback outcome was
-  // retired in v14.14. Appointments live in FUB / agent calendar once booked.
-  // Endpoint removed to shed dead surface area. If a client still calls it,
-  // 404 is the correct answer.
+  // ─── MY PIPELINE (restored v14.68, no date filter) ────────────────────────
+  // v14.68 — Alex: agents keep their pipeline page so they can see all their
+  // team success and keep clients in mind. Bringing back the endpoint WITHOUT
+  // the old 60-day rolling window (v14.38 killed both; the window was a legacy
+  // artifact and doesn't reflect that some clients don't transact for a year).
+  //
+  // Ownership rules mirror the outcome branches:
+  //   • keep_in_touch          → assigned_agent_id = agent (persists forever)
+  //   • contacted_appointment  → assigned_agent_id = agent (persists forever)
+  //   • network lead by agent  → uploadedBy = agent (always visible to them)
+  //   • no_answer / recycle / wrong_number → NOT owned (assigned_agent_id null)
+  //
+  // Read-only over existing columns — does NOT touch routing/assignment SQL.
+  app.get("/api/leads/my-pipeline", (req, res) => {
+    const agentId = parseInt(String(req.query.agentId || ""));
+    if (!agentId || isNaN(agentId)) return res.status(400).json({ error: "agentId required" });
+
+    // Owned pipeline: KIT + Appt Set leads currently assigned to this agent,
+    // plus network leads they submitted (regardless of current status — their
+    // own referral, they should always see it).
+    const owned: any[] = rawDb.prepare(`
+      SELECT l.*,
+             (SELECT outcome    FROM lead_activity WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) AS last_outcome,
+             (SELECT created_at FROM lead_activity WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) AS last_activity_at
+        FROM leads l
+       WHERE l.assigned_agent_id = ?
+         AND l.status IN ('keep_in_touch','contacted_appointment')
+
+      UNION
+
+      SELECT l.*,
+             (SELECT outcome    FROM lead_activity WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) AS last_outcome,
+             (SELECT created_at FROM lead_activity WHERE lead_id = l.id ORDER BY id DESC LIMIT 1) AS last_activity_at
+        FROM leads l
+       WHERE l.uploaded_by = ?
+         AND l.lead_type = 'network'
+       ORDER BY last_activity_at DESC
+    `).all(agentId, agentId);
+
+    const appts   = owned.filter(l => l.status === 'contacted_appointment');
+    const kit     = owned.filter(l => l.status === 'keep_in_touch');
+    const network = owned.filter(l => l.lead_type === 'network' && l.status !== 'keep_in_touch' && l.status !== 'contacted_appointment');
+
+    res.json({
+      counts: { appts: appts.length, kit: kit.length, network: network.length, total: owned.length },
+      appts, kit, network,
+    });
+  });
+
+  // ─── CLAIM A CALLBACK (v14.68) ────────────────────────────────────────────
+  // v14.68 — Alex: "With the phone-number look-up I want anyone to grab it if
+  // they call back that agent." Rule: FIRST LOOKUP WINS if lead is unassigned.
+  //
+  // Preconditions to claim:
+  //   • Lead exists
+  //   • Lead is NOT in an owned state (KIT / Appt) with a different agent
+  // Effect:
+  //   • assigned_agent_id = agentId, status = 'assigned'
+  //   • lead.phone flipped to the callback number so Dial page shows the right one
+  //   • Release any lead_lock
+  //   • Log lookup_claimed activity
+  //   • Broadcast lead_updated for realtime
+  //
+  // If already owned by another agent → 409, no-op (owner protection).
+  // If already owned by THIS agent    → 200 with reason='already_yours' + full lead.
+  app.post("/api/leads/:id/claim-callback", (req, res) => {
+    const leadId = parseInt(req.params.id);
+    const { agentId, phone } = req.body || {};
+    const parsedAgentId = parseInt(String(agentId || ""));
+    if (!parsedAgentId || isNaN(parsedAgentId)) return res.status(400).json({ error: "agentId required" });
+    if (!leadId || isNaN(leadId)) return res.status(400).json({ error: "lead id required" });
+
+    const lead: any = storage.getLeadById(leadId);
+    if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+    const OWNED_STATES = new Set(["keep_in_touch", "contacted_appointment"]);
+    const alreadyOwned = OWNED_STATES.has(lead.status) && lead.assignedAgentId != null;
+
+    if (alreadyOwned && lead.assignedAgentId !== parsedAgentId) {
+      const owner: any = storage.getAgentById(lead.assignedAgentId);
+      return res.status(409).json({
+        claimed: false,
+        reason: "owned_by_other",
+        owner: owner ? { id: owner.id, name: owner.name, email: owner.email } : null,
+      });
+    }
+
+    if (alreadyOwned && lead.assignedAgentId === parsedAgentId) {
+      return res.json({ claimed: false, reason: "already_yours", lead });
+    }
+
+    // Claim it.
+    const nowIso = new Date().toISOString();
+
+    // Flip primary phone to the callback number (if provided) so the Dial page
+    // opens on the right line immediately.
+    if (phone && typeof phone === "string" && phone.trim()) {
+      rawDb.prepare(`UPDATE leads SET phone = ?, status = 'assigned', assigned_agent_id = ? WHERE id = ?`).run(phone, parsedAgentId, leadId);
+    } else {
+      rawDb.prepare(`UPDATE leads SET status = 'assigned', assigned_agent_id = ? WHERE id = ?`).run(parsedAgentId, leadId);
+    }
+
+    rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+    rawDb.prepare(`
+      INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
+      VALUES (?, ?, 'lookup_claimed', ?, NULL, ?)
+    `).run(leadId, parsedAgentId,
+      phone ? `Claimed via who-called-me lookup — callback from ${phone}` : `Claimed via who-called-me lookup`,
+      nowIso);
+
+    broadcast({ type: "lead_updated", leadId });
+
+    const full = storage.getLeadById(leadId);
+    res.json({ claimed: true, lead: full });
+  });
 
   // ─── RECYCLE LEAD ──────────────────────────────────────────────────────────
   // v14.8 — PULL MODE: recycled leads return to the shared pool.
@@ -4968,7 +5077,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.67 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.68 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5200,7 +5309,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v14.67",
+      version: "v14.68",
       services: results,
     });
   });
@@ -6330,7 +6439,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v14.67</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.68</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

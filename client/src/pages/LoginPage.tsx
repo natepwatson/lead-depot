@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { apiRequest } from "@/lib/queryClient";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import coachingTips from "../data/coaching-tips.json";
 
 // ─── Forgot Password inline component ───────────────────────────────────────────
@@ -99,11 +100,53 @@ function GoldRule() {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function LoginPage() {
   const { login } = useAuth();
+  // v14.50 — pull-to-refresh on the login screen too.
+  usePullToRefresh(() => window.location.reload());
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState("");
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+
+  // v14.50 — "Who called me?" lookup right on the login screen.
+  // Agent types the last 4+ digits of the incoming caller ID, we look up the
+  // lead, and stash the leadId in sessionStorage so AgentView jumps straight
+  // to the Work-the-Lead card once they sign in.
+  const [lookupDigits, setLookupDigits] = useState("");
+  const [lookupOpen, setLookupOpen]     = useState(false);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupResults, setLookupResults] = useState<any[]>([]);
+  const [lookupError, setLookupError]   = useState("");
+
+  const runLookup = async (digits: string) => {
+    const clean = digits.replace(/\D/g, "");
+    if (clean.length < 4) {
+      setLookupError("Enter at least 4 digits.");
+      return;
+    }
+    setLookupLoading(true);
+    setLookupError("");
+    try {
+      const res = await fetch(`/api/leads/callback-lookup?last4=${encodeURIComponent(clean)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Lookup failed");
+      setLookupResults(data.results || []);
+      setLookupOpen(true);
+      if ((data.results || []).length === 1) {
+        // Single match — pre-select automatically so login jumps straight there.
+        try { sessionStorage.setItem("pending_lead_jump", String(data.results[0].leadId)); } catch {}
+      }
+    } catch (e: any) {
+      setLookupError(e?.message || "Lookup failed");
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  const pickMatch = (leadId: number) => {
+    try { sessionStorage.setItem("pending_lead_jump", String(leadId)); } catch {}
+    setLookupOpen(false);
+  };
 
   // Pick one random tip per login session
   const tip = useMemo(() => {
@@ -141,6 +184,17 @@ export default function LoginPage() {
     if (!email.trim() || !password.trim()) {
       setError("Please enter your email and password.");
       return;
+    }
+    // v14.50 — If the agent typed a lookup number but never clicked Search,
+    // run the lookup silently and stash the single match (if any) before login.
+    if (lookupDigits.replace(/\D/g, "").length >= 4 && lookupResults.length === 0) {
+      try {
+        const res = await fetch(`/api/leads/callback-lookup?last4=${encodeURIComponent(lookupDigits.replace(/\D/g, ""))}`);
+        const data = await res.json();
+        if (res.ok && data.results?.length === 1) {
+          sessionStorage.setItem("pending_lead_jump", String(data.results[0].leadId));
+        }
+      } catch { /* non-blocking */ }
     }
     setLoading(true);
     setError("");
@@ -300,6 +354,138 @@ export default function LoginPage() {
 
             <GoldRule />
 
+            {/* v14.50 — "Who called me?" quick lookup (pre-login) */}
+            <div style={{
+              marginBottom: 18,
+              padding: "14px 14px 12px",
+              background: "rgba(200,170,90,0.06)",
+              border: "1px solid rgba(200,170,90,0.28)",
+              borderRadius: 12,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <p style={{ fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700, margin: 0 }}>
+                  Who called me?
+                </p>
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", margin: 0 }}>Last 4+ digits</p>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  className="ld-login-input"
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="1234"
+                  value={lookupDigits}
+                  onChange={e => { setLookupDigits(e.target.value); setLookupError(""); }}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); runLookup(lookupDigits); } }}
+                  style={{ flex: 1, padding: "11px 14px", fontSize: 15 }}
+                  maxLength={15}
+                />
+                <button
+                  type="button"
+                  onClick={() => runLookup(lookupDigits)}
+                  disabled={lookupLoading}
+                  style={{
+                    padding: "0 16px",
+                    background: "linear-gradient(135deg,#c8aa5a,#a8893a)",
+                    color: "#0a0700", border: "none", borderRadius: 12,
+                    fontSize: 12, fontWeight: 700, letterSpacing: "0.08em",
+                    textTransform: "uppercase", cursor: lookupLoading ? "wait" : "pointer",
+                  }}>
+                  {lookupLoading ? "…" : "Find"}
+                </button>
+              </div>
+              {lookupError && (
+                <p style={{ fontSize: 11, color: "#f87171", margin: "8px 0 0" }}>{lookupError}</p>
+              )}
+              <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", margin: "8px 0 0", lineHeight: 1.4 }}>
+                Type the last 4 digits of the caller and sign in — the lead card opens instantly.
+              </p>
+            </div>
+
+            {/* v14.50 — Lookup results modal */}
+            {lookupOpen && (
+              <div
+                onClick={() => setLookupOpen(false)}
+                style={{
+                  position: "fixed", inset: 0, zIndex: 100,
+                  background: "rgba(0,0,0,0.72)",
+                  display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+                }}>
+                <div
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    width: "100%", maxWidth: 440, maxHeight: "85vh", overflowY: "auto",
+                    background: "#0c0b0a",
+                    border: "1px solid rgba(200,170,90,0.4)",
+                    borderRadius: 16,
+                    padding: "20px 20px 16px",
+                    boxShadow: "0 24px 60px rgba(0,0,0,0.8)",
+                  }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <p style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 22, color: "#fff", margin: 0 }}>
+                      {lookupResults.length} match{lookupResults.length === 1 ? "" : "es"}
+                    </p>
+                    <button onClick={() => setLookupOpen(false)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+                  </div>
+                  {lookupResults.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", padding: "18px 0" }}>
+                      No leads match those digits. Try more digits from the caller ID.
+                    </p>
+                  ) : lookupResults.length === 1 ? (
+                    <div>
+                      <p style={{ fontSize: 13, color: "rgba(200,170,90,0.85)", marginBottom: 12, lineHeight: 1.5 }}>
+                        We found this lead. Sign in and it will open automatically.
+                      </p>
+                      <div style={{
+                        padding: 14, background: "rgba(200,170,90,0.08)",
+                        border: "1px solid rgba(200,170,90,0.28)", borderRadius: 10, marginBottom: 12,
+                      }}>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: "#fff", margin: 0 }}>{lookupResults[0].ownerName || "(no name)"}</p>
+                        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", margin: "4px 0 0" }}>{lookupResults[0].address || "(no address)"}</p>
+                        {lookupResults[0].assignedAgentName && (
+                          <p style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", margin: "6px 0 0" }}>Owned by {lookupResults[0].assignedAgentName}</p>
+                        )}
+                        {lookupResults[0].lastOutcome && (
+                          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", margin: "4px 0 0" }}>
+                            Last outcome: {lookupResults[0].lastOutcome.replace(/_/g, " ")}
+                          </p>
+                        )}
+                      </div>
+                      <button onClick={() => setLookupOpen(false)} style={{
+                        width: "100%", padding: "12px", background: "linear-gradient(135deg,#c8aa5a,#a8893a)",
+                        border: "none", borderRadius: 10, color: "#0a0700", fontSize: 13, fontWeight: 700,
+                        letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer",
+                      }}>Sign in →</button>
+                    </div>
+                  ) : (
+                    <div>
+                      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 10, lineHeight: 1.5 }}>
+                        Multiple matches (most recent first). Pick the right one — use the area code or middle digits to disambiguate.
+                      </p>
+                      {lookupResults.map((r: any) => (
+                        <button
+                          key={r.leadId}
+                          onClick={() => pickMatch(r.leadId)}
+                          style={{
+                            width: "100%", textAlign: "left", padding: "12px 14px", marginBottom: 8,
+                            background: "rgba(255,255,255,0.03)",
+                            border: "1px solid rgba(200,170,90,0.2)",
+                            borderRadius: 10, cursor: "pointer",
+                          }}>
+                          <p style={{ fontSize: 14, fontWeight: 700, color: "#fff", margin: 0 }}>{r.ownerName || "(no name)"}</p>
+                          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", margin: "3px 0 0" }}>{r.address || "(no address)"} · {r.phone}</p>
+                          <p style={{ fontSize: 10, color: "rgba(200,170,90,0.7)", margin: "3px 0 0" }}>
+                            {r.assignedAgentName ? `Owned by ${r.assignedAgentName}` : "Pool"}
+                            {r.lastOutcomeAt ? ` · ${new Date(r.lastOutcomeAt).toLocaleDateString()}` : ""}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Form */}
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
@@ -405,7 +591,7 @@ export default function LoginPage() {
               fontSize: 10, color: "rgba(255,255,255,0.15)", textAlign: "center",
               marginTop: 16, marginBottom: 0, letterSpacing: "0.08em",
             }}>
-              Lead Depot v14.49
+              Lead Depot v14.50
             </p>
           </div>
 

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import ActivityFeed from "../components/ld/ActivityFeed";
 import ProfilePage from "./ProfilePage";
 import ScriptEditor from "../components/ScriptEditor";
@@ -52,7 +53,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function TypeBadge({ type }: { type: string }) {
   const labels: Record<string, string> = {
-    expired: "Expired", absentee: "Absentee", network: "Network",
+    expired: "Expired", network: "Network",
   };
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium type-${type}`}>{labels[type] || type}</span>;
 }
@@ -855,6 +856,8 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   useRealtimeUpdates();
   const { toast } = useToast();
   const qc = useQueryClient();
+  // v14.50 — pull-to-refresh site-wide.
+  usePullToRefresh(() => qc.invalidateQueries());
   const fileRef = useRef<HTMLInputElement>(null);
   // Activity Feed
   const [feedOpen, setFeedOpen] = useState(false);
@@ -875,7 +878,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
   const [uploading, setUploading] = useState(false);
   const [uploadRowCount, setUploadRowCount] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [uploadType, setUploadType] = useState<"expired" | "absentee">("expired");
+  const [uploadType, setUploadType] = useState<"expired">("expired");
   // Agent recruiting state
   const agentLeadFileRef = useRef<HTMLInputElement>(null);
   const [agentLeadDragOver, setAgentLeadDragOver] = useState(false);
@@ -1270,7 +1273,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
-      const typeLabels: Record<string,string> = { expired:"Expired Listings", absentee:"Absentee Owners" };
+      const typeLabels: Record<string,string> = { expired:"Expired Listings" };
       const disqNote = data.disqualified > 0 ? ` ${data.disqualified} skipped (missing name or phone).` : "";
       toast({ title: `${data.created} leads uploaded`, description: `Distributed via round-robin as ${typeLabels[uploadType] || uploadType}.${disqNote}` });
       setUploadRowCount(null);
@@ -1466,7 +1469,7 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.49
+              v14.50
             </p>
           </div>
         </div>
@@ -2633,7 +2636,6 @@ export default function AdminDashboard({ onWorkMyLeads }: { onWorkMyLeads?: () =
                   <div className="flex flex-wrap gap-2">
                     {([
                       { key: "expired", label: "Expired" },
-                      { key: "absentee", label: "Absentee" },
                     ] as const).map(({ key, label }) => (
                       <button key={key} onClick={() => setUploadType(key)}
                         style={{

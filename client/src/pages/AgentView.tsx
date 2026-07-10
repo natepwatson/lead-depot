@@ -4,6 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -152,7 +153,7 @@ function ApptModal({
     stage && intentions.length > 0;
 
   const sourceLabel: Record<string, string> = {
-    expired: "Expired Listing", absentee: "Absentee Owner", network: "Network / Inbound",
+    expired: "Expired Listing", network: "Network / Inbound",
   };
 
   const inputStyle: React.CSSProperties = {
@@ -750,7 +751,7 @@ function LeadCard({ lead }: { lead: Lead }) {
     : null;
 
   const typeLabel: Record<string, string> = {
-    expired: "Expired", absentee: "Absentee", network: "Network",
+    expired: "Expired", network: "Network",
   };
 
   return (
@@ -1363,14 +1364,16 @@ interface AgentStat {
 
 // v14.16 — "Who called me?" modal. Agent types last 4 digits, gets back matching leads with owner/address/agent-of-record.
 // v14.49 — Exported so AdminDashboard can reuse the same modal.
-export function CallbackLookupModal({ onClose }: { onClose: () => void }) {
-  const [last4, setLast4] = useState("");
+// v14.50 — Accepts 4–15 digits (for disambiguation) and optional onPickLead for jump-to-lead.
+export function CallbackLookupModal({ onClose, onPickLead }: { onClose: () => void; onPickLead?: (leadId: number) => void }) {
+  const [digits, setDigits] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
-  const shouldFetch = submitted && /^\d{4}$/.test(last4);
+  const cleanDigits = digits.replace(/\D/g, "");
+  const shouldFetch = submitted && cleanDigits.length >= 4;
   const { data, isLoading, isError } = useQuery<any>({
-    queryKey: ["/api/leads/callback-lookup", last4],
-    queryFn: () => apiRequest("GET", `/api/leads/callback-lookup?last4=${last4}`).then(r => r.json()),
+    queryKey: ["/api/leads/callback-lookup", cleanDigits],
+    queryFn: () => apiRequest("GET", `/api/leads/callback-lookup?last4=${cleanDigits}`).then(r => r.json()),
     enabled: shouldFetch,
     staleTime: 0,
   });
@@ -1402,35 +1405,34 @@ export function CallbackLookupModal({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 20 }}>×</button>
         </div>
         <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 14, lineHeight: 1.5 }}>
-          Enter the <b style={{ color: "#c8aa5a" }}>last 4 digits</b> of the number that just called you. We'll look up any matching lead in your depot.
+          Enter the <b style={{ color: "#c8aa5a" }}>last 4+ digits</b> of the number that just called you. Type more digits to narrow down when multiple leads match.
         </p>
 
         <form
-          onSubmit={e => { e.preventDefault(); if (/^\d{4}$/.test(last4)) setSubmitted(true); }}
+          onSubmit={e => { e.preventDefault(); if (cleanDigits.length >= 4) setSubmitted(true); }}
           style={{ display: "flex", gap: 8, marginBottom: 16 }}
         >
           <input
             inputMode="numeric"
-            pattern="\d{4}"
-            maxLength={4}
-            value={last4}
-            onChange={e => { setLast4(e.target.value.replace(/\D/g, "").slice(0, 4)); setSubmitted(false); }}
+            maxLength={15}
+            value={digits}
+            onChange={e => { setDigits(e.target.value.replace(/\D/g, "").slice(0, 15)); setSubmitted(false); }}
             placeholder="1234"
             autoFocus
             style={{
-              flex: 1, padding: "12px 14px", fontSize: 16, letterSpacing: "0.3em",
+              flex: 1, padding: "12px 14px", fontSize: 16, letterSpacing: "0.24em",
               background: "rgba(255,255,255,0.05)", color: "#fff",
               border: "1px solid rgba(200,170,90,0.25)", borderRadius: 8, textAlign: "center", fontWeight: 600,
             }}
           />
           <button
             type="submit"
-            disabled={!/^\d{4}$/.test(last4)}
+            disabled={cleanDigits.length < 4}
             style={{
               padding: "0 18px", fontSize: 13, fontWeight: 700,
-              background: /^\d{4}$/.test(last4) ? "#c8aa5a" : "rgba(200,170,90,0.3)",
+              background: cleanDigits.length >= 4 ? "#c8aa5a" : "rgba(200,170,90,0.3)",
               color: "#0a0a0a", border: "none", borderRadius: 8,
-              cursor: /^\d{4}$/.test(last4) ? "pointer" : "not-allowed",
+              cursor: cleanDigits.length >= 4 ? "pointer" : "not-allowed",
             }}
           >
             Look up
@@ -1445,7 +1447,7 @@ export function CallbackLookupModal({ onClose }: { onClose: () => void }) {
         )}
         {shouldFetch && !isLoading && !isError && results.length === 0 && (
           <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", textAlign: "center", padding: 20, lineHeight: 1.5 }}>
-            No lead in your depot with a phone ending in <b>{last4}</b>.<br />It's probably a personal call.
+            No lead in your depot with a phone containing <b>{cleanDigits}</b>.<br />It's probably a personal call.
           </p>
         )}
         {shouldFetch && results.length > 0 && (
@@ -1481,6 +1483,18 @@ export function CallbackLookupModal({ onClose }: { onClose: () => void }) {
                     {r.lastOutcomeByAgent ? ` by ${r.lastOutcomeByAgent}` : ""}.</>
                   )}
                 </div>
+                {onPickLead && (
+                  <button
+                    onClick={() => onPickLead(r.leadId)}
+                    style={{
+                      marginTop: 10, width: "100%", padding: "9px",
+                      background: "linear-gradient(135deg,#c8aa5a,#a8893a)",
+                      color: "#0a0700", border: "none", borderRadius: 8,
+                      fontSize: 12, fontWeight: 700, letterSpacing: "0.1em",
+                      textTransform: "uppercase", cursor: "pointer",
+                    }}
+                  >Open Lead Card →</button>
+                )}
               </div>
             ))}
           </div>
@@ -1761,8 +1775,8 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
         )}
       </div>
 
-      {/* ── Network lead (seller depot only — v12.5) ── */}
-      {mode === "seller" && (
+      {/* Network-lead card removed from Dashboard tab in v14.50 — lives under Referrals now */}
+      {false && mode === "seller" && (
       <div style={{
         padding: "22px 20px",
         background: "linear-gradient(135deg, rgba(200,170,90,0.08) 0%, rgba(200,170,90,0.03) 100%)",
@@ -1838,7 +1852,150 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
 // Pipeline interfaces, PipelineCard, and MyLeadsTab removed — see git history.
 
 
-// ─── Referral Tab ─────────────────────────────────────────────────────────────
+// ─── Referrals Hub (v14.50) ─────────────────────────────────────────────────
+// Consolidates Client Referral (network lead → auto-assigned to referring agent,
+// jumps to Work-the-Lead card immediately) and Agent Referral (recruiting).
+function ReferralsHub() {
+  const [sub, setSub] = useState<"client" | "agent">("client");
+  return (
+    <div style={{ width: "100%", padding: "0 0 20px" }}>
+      <div style={{
+        display: "flex", gap: 6, padding: 4, marginBottom: 16,
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(200,170,90,0.15)",
+        borderRadius: 12,
+      }}>
+        {([
+          { id: "client", label: "Client Referral" },
+          { id: "agent",  label: "Agent Referral" },
+        ] as const).map(t => (
+          <button
+            key={t.id}
+            onClick={() => setSub(t.id)}
+            style={{
+              flex: 1, padding: "11px 8px", borderRadius: 8, border: "none",
+              cursor: "pointer",
+              background: sub === t.id ? "linear-gradient(135deg,#c8aa5a,#a8893a)" : "transparent",
+              color: sub === t.id ? "#0a0700" : "rgba(255,255,255,0.55)",
+              fontSize: 12, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {sub === "client" ? <ClientReferralForm /> : <ReferralTab />}
+    </div>
+  );
+}
+
+// ─── Client Referral Form (v14.50) ────────────────────────────────────────
+function ClientReferralForm() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [netName, setNetName]   = useState("");
+  const [netPhone, setNetPhone] = useState("");
+  const [netEmail, setNetEmail] = useState("");
+  const [netAddr, setNetAddr]   = useState("");
+  const [netNotes, setNetNotes] = useState("");
+  const [netSending, setNetSending] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!netName.trim() || !netPhone.trim()) {
+      toast({ title: "Name and phone required", variant: "destructive" }); return;
+    }
+    setNetSending(true);
+    try {
+      const r = await apiRequest("POST", "/api/leads/network", {
+        ownerName: netName.trim(), phone: netPhone.trim(),
+        email: netEmail.trim(), address: netAddr.trim(),
+        notes: netNotes.trim(),
+        submittedBy: user?.id, submittedByName: user?.name,
+      });
+      const data = await r.json();
+      if (r.ok && data.leadId) {
+        toast({ title: "Client referral submitted", description: "Opening Work-the-Lead card…" });
+        setNetName(""); setNetPhone(""); setNetEmail(""); setNetAddr(""); setNetNotes("");
+        try { sessionStorage.setItem("pending_lead_jump", String(data.leadId)); } catch {}
+        window.dispatchEvent(new Event("pending_lead_jump_changed"));
+        qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+      } else {
+        toast({ title: "Failed to submit", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Failed to submit", variant: "destructive" });
+    } finally {
+      setNetSending(false);
+    }
+  };
+
+  return (
+    <div style={{
+      padding: "22px 20px",
+      background: "linear-gradient(135deg, rgba(200,170,90,0.08) 0%, rgba(200,170,90,0.03) 100%)",
+      border: "1px solid rgba(200,170,90,0.28)", borderRadius: 14,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: "50%",
+          background: "rgba(200,170,90,0.15)", border: "1px solid rgba(200,170,90,0.3)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <Users size={14} style={{ color: "#c8aa5a" }} />
+        </div>
+        <div>
+          <p style={{ fontSize: 13, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700, margin: 0 }}>
+            Submit a Client Lead
+          </p>
+          <p style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(200,170,90,0.45)", fontWeight: 500, marginTop: 2 }}>
+            You'll be dropped straight into their Work the Lead card
+          </p>
+        </div>
+      </div>
+      <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 18, lineHeight: 1.55 }}>
+        Know someone thinking about selling or buying? Drop their info here — the lead is auto-assigned to you and opens instantly.
+      </p>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>Name *</label>
+            <input value={netName} onChange={e => setNetName(e.target.value)} placeholder="John Smith" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Phone *</label>
+            <input value={netPhone} onChange={e => setNetPhone(e.target.value)} placeholder="(904) 555-0100" type="tel" style={inputStyle} />
+          </div>
+        </div>
+        <div>
+          <label style={labelStyle}>Email</label>
+          <input value={netEmail} onChange={e => setNetEmail(e.target.value)} placeholder="john@email.com" type="email" style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Property Address</label>
+          <input value={netAddr} onChange={e => setNetAddr(e.target.value)} placeholder="123 Oak St, Fernandina Beach, FL" style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Notes</label>
+          <textarea value={netNotes} onChange={e => setNetNotes(e.target.value)} placeholder="Any context about their situation…" rows={2}
+            style={{ ...inputStyle, resize: "none", lineHeight: 1.5 }} />
+        </div>
+        <button type="submit" disabled={netSending} style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          padding: "14px 20px", marginTop: 4,
+          background: netSending ? "rgba(200,170,90,0.3)" : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+          border: "none", borderRadius: 8, cursor: netSending ? "not-allowed" : "pointer",
+          fontSize: 13, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
+          color: "#080808",
+        }}>
+          <Send size={14} /> {netSending ? "Submitting…" : "Submit & Open Lead"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ─── Referral Tab (agent recruiting) ─────────────────────────────────────
 function ReferralTab() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -1970,7 +2127,7 @@ type Tab = "leads" | "leaderboard" | "refer" | "profile";
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "leaderboard", label: "Dashboard", icon: Trophy },
   { id: "leads",       label: "Dial",      icon: Phone },
-  { id: "refer",       label: "Refer",     icon: UserPlus },
+  { id: "refer",       label: "Referrals", icon: UserPlus },
   { id: "profile",     label: "Profile",   icon: UserCircle2 },
 ];
 
@@ -1981,6 +2138,8 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
   const [showTutorial, setShowTutorial] = useState(false);
   useRealtimeUpdates();
   const qc = useQueryClient();
+  // v14.50 — pull-to-refresh: swipe down from the very top to refetch every query.
+  usePullToRefresh(() => qc.invalidateQueries());
 
   // ── Prospecting mode ─────────────────────────────────────────────
   // v12.5 — mode drives which depot this AgentView renders. Recruiting is
@@ -2045,6 +2204,47 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
     enabled: !!user?.id,
   });
 
+  // v14.50 — "Who called me?" jump-to-lead. If sessionStorage has a pending lead
+  // id (set from LoginPage lookup, global top-bar lookup, or client-referral
+  // submission), fetch that lead by id and open its Work-the-Lead card on the
+  // Dial tab, overriding the pool pull.
+  const [pendingLeadId, setPendingLeadId] = useState<number | null>(() => {
+    try {
+      const raw = sessionStorage.getItem("pending_lead_jump");
+      return raw ? parseInt(raw, 10) : null;
+    } catch { return null; }
+  });
+  useEffect(() => {
+    // React to same-tab writes to sessionStorage via a custom event.
+    const handler = () => {
+      try {
+        const raw = sessionStorage.getItem("pending_lead_jump");
+        setPendingLeadId(raw ? parseInt(raw, 10) : null);
+      } catch { setPendingLeadId(null); }
+    };
+    window.addEventListener("pending_lead_jump_changed", handler);
+    return () => window.removeEventListener("pending_lead_jump_changed", handler);
+  }, []);
+  const { data: overrideLead } = useQuery<Lead | null>({
+    queryKey: ["/api/leads/by-id", pendingLeadId],
+    queryFn: () =>
+      apiRequest("GET", `/api/leads/${pendingLeadId}`).then(async r => {
+        if (!r.ok) return null;
+        return r.json();
+      }),
+    enabled: !!pendingLeadId && !!user?.id,
+  });
+  useEffect(() => {
+    if (pendingLeadId && overrideLead?.id) {
+      setTab("leads");
+    }
+  }, [pendingLeadId, overrideLead?.id]);
+  const clearPendingLead = () => {
+    try { sessionStorage.removeItem("pending_lead_jump"); } catch {}
+    setPendingLeadId(null);
+  };
+  const displayedLead: Lead | null | undefined = overrideLead || nextLead;
+
   const { data: myQueueData } = useQuery<{ count: number }>({
     queryKey: [`/api/leads/my-count/${user?.id}`],
     queryFn: () => apiRequest("GET", `/api/leads/my-count/${user?.id}`).then(r => r.json()),
@@ -2058,10 +2258,13 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
   // Scroll main back to top whenever a new lead loads
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    if (nextLead?.id) {
+    if (displayedLead?.id) {
       mainRef.current?.scrollTo({ top: 0, behavior: "instant" });
     }
-  }, [nextLead?.id]);
+  }, [displayedLead?.id]);
+
+  // v14.50 — Global "Who called me?" modal state (top-bar button, works on every tab)
+  const [globalLookupOpen, setGlobalLookupOpen] = useState(false);
 
   return (
     <div className="ld-bg-wrap" style={{ minHeight: "100dvh", background: "#080808", display: "flex", flexDirection: "column" }}>
@@ -2116,6 +2319,23 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* v14.50 — Global "Who called me?" button, visible on every tab */}
+          {mode === "seller" && (
+            <button
+              onClick={() => setGlobalLookupOpen(true)}
+              title="Who called me?"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "6px 10px", borderRadius: 8,
+                background: "linear-gradient(135deg, rgba(200,170,90,0.16), rgba(200,170,90,0.06))",
+                border: "1px solid rgba(200,170,90,0.35)",
+                color: "#c8aa5a", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em",
+                textTransform: "uppercase", cursor: "pointer",
+              }}
+            >
+              <Phone size={12} /> Who called?
+            </button>
+          )}
           <button
             onClick={() => setShowTutorial(true)}
             title="How to use Lead Depot"
@@ -2431,7 +2651,7 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
                   <div>
                     <Skeleton className="h-[480px] w-full rounded-2xl" style={{ background: "rgba(200,170,90,0.05)" }} />
                   </div>
-                ) : !nextLead ? (
+                ) : !displayedLead ? (
                   <div style={{ textAlign: "center", paddingTop: 60 }}>
                     <div style={{
                       width: 72, height: 72,
@@ -2466,14 +2686,48 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
                     )}
                   </div>
                 ) : (
-                  <LeadCard lead={nextLead} />
+                  <>
+                    {overrideLead && (
+                      <div style={{
+                        margin: "0 4px 10px",
+                        padding: "10px 12px",
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        background: "rgba(200,170,90,0.08)",
+                        border: "1px solid rgba(200,170,90,0.3)",
+                        borderRadius: 10,
+                      }}>
+                        <p style={{ fontSize: 11, color: "#c8aa5a", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", margin: 0 }}>
+                          Callback lookup — opened by "Who called me?"
+                        </p>
+                        <button onClick={clearPendingLead} style={{
+                          fontSize: 11, color: "rgba(255,255,255,0.6)",
+                          background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)",
+                          borderRadius: 8, padding: "4px 10px", cursor: "pointer",
+                        }}>Back to pool</button>
+                      </div>
+                    )}
+                    <LeadCard lead={displayedLead} />
+                  </>
                 )}
               </>
             )}
           </div>
         )}
 
-        {tab === "refer" && <ReferralTab />}
+        {tab === "refer" && <ReferralsHub />}
+
+        {/* v14.50 — Global Who called me? modal (rendered from AgentView, works on every tab) */}
+        {globalLookupOpen && (
+          <CallbackLookupModal
+            onClose={() => setGlobalLookupOpen(false)}
+            onPickLead={(leadId: number) => {
+              try { sessionStorage.setItem("pending_lead_jump", String(leadId)); } catch {}
+              setPendingLeadId(leadId);
+              setGlobalLookupOpen(false);
+              setTab("leads");
+            }}
+          />
+        )}
         {tab === "profile" && <ProfilePage onBack={() => setTab("leaderboard")} />}
       </main>
 

@@ -292,7 +292,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v14.49 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v14.50 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -351,7 +351,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.49 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.50 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -636,7 +636,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.49 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v14.50 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -723,6 +723,57 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   } catch (err) {
     console.error("[v14.10 retire-sweep] Failed:", err);
+  }
+
+  // ─── v14.50 — ASSIGNMENT-RULE SWEEP (one-time, runs on every boot) ─────
+  // NEW RULE: A lead is assigned to an agent ONLY IF the most recent activity
+  // outcome is `keep_in_touch` or `contacted_appointment`. Everything else
+  // (no_answer, wrong_number, left_voicemail, disconnected, email_sent,
+  // recycled, listed, contacted_not_interested, or NO activity at all) means
+  // the lead belongs to the shared pool.
+  //
+  // Also: preserve `contacted_appointment` closed leads as-is. This sweep only
+  // touches leads whose status is NOT terminal.
+  try {
+    const KEEP_OUTCOMES = ["keep_in_touch", "contacted_appointment"];
+    // Skip terminal statuses that shouldn't be touched.
+    const TERMINAL_STATUS = ["contacted_not_interested", "contacted_appointment", "retired", "listed", "deleted"];
+    const terminalPlaceholders = TERMINAL_STATUS.map(() => "?").join(",");
+    // Find every currently-assigned lead whose last activity outcome is NOT in KEEP_OUTCOMES.
+    const toUnassign: any[] = rawDb.prepare(`
+      SELECT l.id,
+             (SELECT la.outcome
+                FROM lead_activity la
+               WHERE la.lead_id = l.id
+               ORDER BY la.created_at DESC
+               LIMIT 1) AS last_outcome
+        FROM leads l
+       WHERE l.assigned_agent_id IS NOT NULL
+         AND l.status NOT IN (${terminalPlaceholders})
+    `).all(...TERMINAL_STATUS);
+    let unassigned = 0;
+    const unassignStmt = rawDb.prepare(`
+      UPDATE leads
+         SET assigned_agent_id = NULL,
+             status = 'unassigned'
+       WHERE id = ?
+    `);
+    const tx = rawDb.transaction((rows: any[]) => {
+      for (const r of rows) {
+        if (!r.last_outcome || !KEEP_OUTCOMES.includes(r.last_outcome)) {
+          unassignStmt.run(r.id);
+          unassigned++;
+        }
+      }
+    });
+    tx(toUnassign);
+    if (unassigned > 0) {
+      console.log(`[v14.50 assignment-sweep] Unassigned ${unassigned} leads whose last outcome was not KIT/Appt.`);
+    } else {
+      console.log("[v14.50 assignment-sweep] Nothing to unassign — all assignments align with new rule.");
+    }
+  } catch (err) {
+    console.error("[v14.50 assignment-sweep] Failed:", err);
   }
 
   // ─── v14.14 — CALLBACK-RETIRE SWEEP (one-time, runs on every boot) ─────
@@ -1088,36 +1139,23 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
 
       if (lead.status === "callback_requested") {
-        // Per user rule: callbacks immediately recycle on agent deactivation (no date/time hold)
-        const nextCbAgent = storage.getNextAgentInRotation(lead.leadType);
+        // v14.50 — PULL MODE: callback leads go back to the shared pool on deactivation.
         storage.createLeadActivity({
           leadId: lead.id,
           agentId: null,
           outcome: "recycled",
-          notes: `Agent deactivated. Callback lead immediately recycled and reassigned from ${updated.name}.`,
+          notes: `Agent deactivated. Callback lead returned to shared pool from ${updated.name}.`,
           lpmamabSnapshot: null,
           createdAt: new Date().toISOString(),
         });
-        if (nextCbAgent) {
-          storage.updateLead(lead.id, { assignedAgentId: nextCbAgent.id, status: "assigned" });
-          storage.updateRoundRobinState(nextCbAgent.id);
-          reassigned++;
-        } else {
-          storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
-        }
+        storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
         callbackHeld++;
         continue;
       }
 
-      // assigned / no_answer — redistribute immediately via round-robin
-      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-      if (nextAgent) {
-        storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
-        storage.updateRoundRobinState(nextAgent.id);
-        reassigned++;
-      } else {
-        storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
-      }
+      // v14.50 — PULL MODE: everything else also returns to the shared pool.
+      // Next agent will pick it up via Load Next Lead.
+      storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
     }
 
     broadcast({ type: "leads_updated" });
@@ -1267,13 +1305,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
          AND status NOT IN ('keep_in_touch','contacted_appointment')`
     ).all(id);
     for (const lead of leadsToRecycle) {
-      const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-      if (nextAgent) {
-        storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
-        storage.updateRoundRobinState(nextAgent.id);
-      } else {
-        storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
-      }
+      // v14.50 — PULL MODE: return recycled leads to the shared pool. Agents pull.
+      storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
     }
     // Soft-delete: mark inactive so activity history is preserved
     storage.updateAgent(id, { isActive: false, leadFlowOn: false });
@@ -1301,14 +1334,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       let skipped = 0;
       for (const lead of unseen) {
         try {
-          const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-          if (nextAgent) {
-            storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
-            storage.updateRoundRobinState(nextAgent.id);
-            reassigned++;
-          } else {
-            skipped++;
-          }
+          // v14.50 — PULL MODE: reset any assignment on unseen leads so anybody can grab them.
+          storage.updateLead(lead.id, { assignedAgentId: null, status: "unassigned" });
+          reassigned++;
+          if (false) { skipped++; }
         } catch (leadErr) {
           console.error(`[redistribute-unseen] Failed on lead ${lead.id}:`, leadErr);
           skipped++;
@@ -4151,7 +4180,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v14.44 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v14.50 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));

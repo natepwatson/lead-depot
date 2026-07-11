@@ -7,9 +7,6 @@ interface AuthUser {
   role: "admin" | "agent" | "recruiter";
   headshotUrl?: string | null;
   homeCounty?: string | null;
-  // v14.81 — onboarding gate flags
-  profileCompletedAt?: string | null;
-  tutorialCompletedAt?: string | null;
 }
 
 interface AuthContextType {
@@ -18,10 +15,6 @@ interface AuthContextType {
   logout: () => void;
   setHeadshot: (url: string) => void;
   setHomeCounty: (county: string) => void;
-  // v14.81 — onboarding gate setters
-  setProfileCompleted: (iso: string) => void;
-  setTutorialCompleted: (iso: string | null) => void;
-  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -128,47 +121,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  // v14.81 — onboarding gate setters. Update local + persisted user so
-  // App.tsx's gate checks (profileCompletedAt / tutorialCompletedAt) flip
-  // immediately without requiring a full re-login.
-  const setProfileCompleted = (iso: string) => {
-    setUser(prev => {
-      if (!prev) return prev;
-      const updated = { ...prev, profileCompletedAt: iso };
-      saveUser(updated);
-      return updated;
-    });
-  };
-
-  const setTutorialCompleted = (iso: string | null) => {
-    setUser(prev => {
-      if (!prev) return prev;
-      const updated = { ...prev, tutorialCompletedAt: iso };
-      saveUser(updated);
-      return updated;
-    });
-  };
-
-  // v14.81 — refetch /api/me/:id and merge fresh server fields into local
-  // user state. Used after reset-tutorial so the rewatch flow picks up the
-  // server's NULL without waiting for a full page reload.
-  const refreshUser = async () => {
-    const current = user ?? loadUser();
-    if (!current?.id) return;
-    try {
-      const r = await fetch(`/api/me/${current.id}`, { credentials: "include" });
-      if (!r.ok) return;
-      const data = await r.json();
-      if (data?.agent) {
-        const merged = { ...current, ...data.agent };
-        saveUser(merged);
-        setUser(merged);
-      }
-    } catch { /* network error — keep stale state */ }
-  };
-
   return (
-    <AuthContext.Provider value={{ user, login, logout, setHeadshot, setHomeCounty, setProfileCompleted, setTutorialCompleted, refreshUser }}>
+    <AuthContext.Provider value={{ user, login, logout, setHeadshot, setHomeCounty }}>
       {children}
     </AuthContext.Provider>
   );

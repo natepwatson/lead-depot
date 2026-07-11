@@ -56,12 +56,6 @@ export const agents = sqliteTable("agents", {
   // window. Legacy rows deactivated before v14.61 have NULL here — they can be
   // reactivated unconditionally (grandfathered).
   deactivatedAt: integer("deactivated_at"),
-  // v14.81 — Onboarding gates. profileCompletedAt: set once the agent completes
-  // the mandatory ProfileGate (name/phone/brokerage/homeAddress). tutorialCompletedAt:
-  // set once the agent finishes (or skips, on rewatch) the 7-chapter TutorialFlow.
-  // Both nullable ISO timestamps. NULL = gate still shows on next login.
-  profileCompletedAt: text("profile_completed_at"),
-  tutorialCompletedAt: text("tutorial_completed_at"),
 });
 
 export const insertAgentSchema = createInsertSchema(agents).omit({ id: true });

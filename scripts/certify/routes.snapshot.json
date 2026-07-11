@@ -24,6 +24,7 @@
   "GET /api/agents/:id/territory-notice",
   "GET /api/agents/setup/:token",
   "GET /api/agents/verify-email/:token",
+  "GET /api/boot-info",
   "GET /api/export/activity",
   "GET /api/export/leads",
   "GET /api/health",

@@ -34,9 +34,20 @@ async function testHealth() {
     const r = await httpJson('GET', '/api/health');
     if (r.status !== 200) return [false, `http=${r.status}`];
     const j = r.json;
-    const versionOk = EXPECT_VERSION ? j.version === EXPECT_VERSION : /^v14\.\d+$/.test(j.version || '');
+    const versionOk = EXPECT_VERSION ? j.version === EXPECT_VERSION : /^v14\.\d+(?:\.\d+)?$/.test(j.version || '');
     const svcOk = j.services && Object.values(j.services).every(s => s.ok);
     return [versionOk && svcOk && j.status === 'healthy', `ver=${j.version} status=${j.status} services=${Object.keys(j.services || {}).length}`];
+  });
+
+  // v14.81.3 — New crash-diagnostic endpoint added in v14.81.2. Should always
+  // be 200 with a shape of { lastFatal, bootTime, nodeVersion, pid, uptime }.
+  // lastFatal is null when the process booted cleanly.
+  await assert('health · /api/boot-info returns diagnostics', { critical: false }, async () => {
+    const r = await httpJson('GET', '/api/boot-info');
+    if (r.status !== 200) return [false, `http=${r.status}`];
+    const j = r.json || {};
+    const shapeOk = 'bootTime' in j && 'nodeVersion' in j && 'pid' in j && 'uptime' in j && 'lastFatal' in j;
+    return [shapeOk, `uptime=${Math.round(j.uptime || 0)}s node=${j.nodeVersion} lastFatal=${j.lastFatal ? 'PRESENT' : 'null'}`];
   });
 }
 
@@ -57,6 +68,21 @@ async function testAuth() {
   await assert('auth · authenticated /api/agents works', { critical: true }, async () => {
     const r = await httpJson('GET', '/api/agents', { jar: adminJar });
     return [r.status === 200 && Array.isArray(r.json) && r.json.length > 0, `http=${r.status} agents=${r.json?.length}`];
+  });
+
+  // v14.81.3 — Login response must echo the two onboarding-gate fields added
+  // in v14.81.2. If either is missing, the client's ProfileGate/TutorialFlow
+  // will re-trigger every session (looks like an infinite tutorial loop).
+  // Admin should have tutorialCompletedAt set (backfilled during v14.81.2
+  // migration); profileCompletedAt may be null for admins who never filled
+  // out phone/brokerage/homeAddress — that's fine, the gate is UX not blocker.
+  await assert('auth · login response echoes onboarding gate fields', { critical: false }, async () => {
+    const jar = makeJar();
+    const j = await adminLogin(jar);
+    if (!j || !j.agent) return [false, 'no agent in login response'];
+    const hasProfile = 'profileCompletedAt' in j.agent;
+    const hasTutorial = 'tutorialCompletedAt' in j.agent;
+    return [hasProfile && hasTutorial, `profileField=${hasProfile} tutorialField=${hasTutorial} tutorialAt=${j.agent.tutorialCompletedAt ? 'set' : 'null'}`];
   });
 
   await assert('auth · logout revokes session', { critical: false }, async () => {

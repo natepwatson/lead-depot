@@ -104,14 +104,19 @@ export function git(cmd) {
 }
 
 // ─── Version-literal readers ───────────────────────────────────────────────
+// v14.81.3 — Regex now captures optional patch component (v14.81 OR v14.81.3).
+// Prior regex `v14\.\d+` only captured up to the second segment, so any patch
+// release like v14.81.3 was reported as "has v14.81 (want v14.81.3)" — false
+// negative in Tier 0 preflight even though every source spot was correctly
+// bumped and J4 browser render confirmed v14.81.3.
 export const VERSION_BUMP_SPOTS = [
-  { file: 'client/src/pages/LoginPage.tsx',      pattern: /Lead Depot (v14\.\d+)/,        label: 'LoginPage footer' },
+  { file: 'client/src/pages/LoginPage.tsx',      pattern: /Lead Depot (v14\.\d+(?:\.\d+)?)/,        label: 'LoginPage footer' },
   // AdminDashboard header renders as JSX text — no quotes
-  { file: 'client/src/pages/AdminDashboard.tsx', pattern: />\s*(v14\.\d+)\s*</,          label: 'AdminDashboard header pill' },
-  { file: 'client/public/sw.js',                 pattern: /SW_VERSION\s*=\s*"(v14\.\d+)"/, label: 'sw.js SW_VERSION' },
-  { file: 'server/routes.ts',                    pattern: /Lead Depot (v14\.\d+)/g,       label: 'routes.ts digest footer(s)', multi: true },
+  { file: 'client/src/pages/AdminDashboard.tsx', pattern: />\s*(v14\.\d+(?:\.\d+)?)\s*</,          label: 'AdminDashboard header pill' },
+  { file: 'client/public/sw.js',                 pattern: /SW_VERSION\s*=\s*"(v14\.\d+(?:\.\d+)?)"/, label: 'sw.js SW_VERSION' },
+  { file: 'server/routes.ts',                    pattern: /Lead Depot (v14\.\d+(?:\.\d+)?)/g,       label: 'routes.ts digest footer(s)', multi: true },
   // /api/health JSON: `version: "v14.66"` — no colon-space in JSON key form; source is JS object literal
-  { file: 'server/routes.ts',                    pattern: /version:\s*"(v14\.\d+)"/,      label: 'routes.ts /api/health JSON' },
+  { file: 'server/routes.ts',                    pattern: /version:\s*"(v14\.\d+(?:\.\d+)?)"/,      label: 'routes.ts /api/health JSON' },
 ];
 
 export function readVersionSpots(root = '.') {

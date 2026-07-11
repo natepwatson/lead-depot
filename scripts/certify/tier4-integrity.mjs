@@ -98,6 +98,30 @@ export async function runTier4() {
     return [bad.length === 0, `bad=${bad.map(b => b[0]).join(',') || 'none'}`];
   });
 
+  // Invariant 6 (v14.81.3): No stale audit rows without corresponding actions.
+  // Specifically catch the class of bug we fixed in v14.81.3: hard_deleted
+  // audit entries where the target agent row still exists. Before the fix,
+  // probe agent id=15 had 11 orphan hard_deleted entries. If this ever
+  // returns > 0 again, a hard-delete transaction is silently failing after
+  // the audit log write.
+  await inv('inv · no orphan hard_deleted audit rows (v14.81.3 regression guard)', { critical: false }, async () => {
+    const agentsRes = await httpJson('GET', '/api/agents', { jar });
+    const agentIds = new Set((agentsRes.json || []).map(a => a.id));
+    // Only admins have audit-log access. Sample recent agent ids and check
+    // whether any of them have hard_deleted audit rows despite the row still
+    // being present. Cheap heuristic: check first 20 known agents.
+    const sample = [...agentIds].slice(0, 20);
+    let orphans = 0;
+    for (const id of sample) {
+      const r = await httpJson('GET', `/api/admin/agents/${id}/audit-log`, { jar });
+      const entries = r.json?.entries || [];
+      const hardDeletes = entries.filter(e => e.event === 'hard_deleted');
+      // Agent still exists (in agentIds) but has hard_deleted rows = orphan.
+      if (hardDeletes.length > 0 && agentIds.has(id)) orphans += hardDeletes.length;
+    }
+    return [orphans === 0, `sampled=${sample.length} orphanRows=${orphans}`];
+  });
+
   return rec.all();
 }
 

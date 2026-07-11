@@ -9,7 +9,7 @@
 // which then broadcasts SW_UPDATED to every open tab and forces a reload.
 // This is the 6th mandatory version-bump spot in the deploy workflow.
 
-const SW_VERSION = "v14.9";
+const SW_VERSION = "v14.10";
 
 self.addEventListener("install", () => self.skipWaiting());
 

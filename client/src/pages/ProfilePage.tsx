@@ -13,6 +13,7 @@ import {
 // entries visible to agents so they see the app improving under them. Newest
 // at the top. Keep entries short — one line, agent-facing plain English.
 const CHANGELOG: { version: string; date: string; note: string }[] = [
+  { version: "v14.10",   date: "Jul 10", note: "Fixed tutorial layout on iPhone. BEGIN button no longer overlaps intro text. Scrollable on short viewports." },
   { version: "v14.9",    date: "Jul 10", note: "Replay Tutorial now works for admins. \u201CDialing now\u201D pill hides outside 8am\u20138pm ET. What\u2019s New card added." },
   { version: "v14.81.3", date: "Jul 10", note: "Fixed the \u201Cdatabase locked\u201D bug that blocked deactivating agents." },
   { version: "v14.81",   date: "Jul 10", note: "Onboarding: new agents fill their profile + walk through a 7-chapter tutorial before hitting Dial." },

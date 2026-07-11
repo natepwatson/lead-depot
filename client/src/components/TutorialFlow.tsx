@@ -30,12 +30,30 @@ import Confetti from "./Confetti";
 const GOLD = "#c8aa5a";
 const GOLD_DIM = "rgba(200,170,90,0.55)";
 
+// v14.10 — Mobile-safe chapter container.
+//
+// Previous version used `position: fixed, inset: 0, overflow: hidden` which
+// worked fine on desktop but broke on iPhone Safari because:
+//   1. `inset: 0` uses viewport height, but Safari's URL bar eats ~90px of
+//      space when scrolled/idle, compressing content into an overlap zone.
+//   2. `overflow: hidden` clipped the BEGIN button and Skip/Next controls
+//      off the bottom of the screen with no way to recover.
+//   3. Vertically-centered text + absolutely-positioned button collided on
+//      short viewports (see the Alex Watson 2026-07-10 screenshot: BEGIN
+//      button sat on top of "It reveals them.").
+//
+// Fix: use `100dvh` (dynamic viewport height — collapses correctly under
+// Safari's URL bar) with `overflow-y: auto` as a safety net. Chapters can
+// scroll on short viewports instead of clipping/overlapping.
 const chapterWrap: React.CSSProperties = {
-  position: "fixed", inset: 0, zIndex: 100,
+  position: "fixed", top: 0, left: 0, right: 0,
+  width: "100vw", height: "100dvh", minHeight: "100dvh",
+  zIndex: 100,
   background: "#080808",
   fontFamily: "'Switzer','Inter',sans-serif",
   display: "flex", flexDirection: "column",
-  overflow: "hidden",
+  overflowY: "auto", overflowX: "hidden",
+  WebkitOverflowScrolling: "touch",
 };
 
 // Mini nav icon config — mirrors AgentView's NAV array exactly.
@@ -201,47 +219,68 @@ function Chapter1({ onNext }: { onNext: () => void }) {
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
   }, []);
 
+  // v14.10 — Rebuilt as a proper 3-row flex layout so the BEGIN button can
+  // never overlap the text on short viewports (see IMG_9282 iPhone report).
+  // Row 1: flex-grow spacer w/ decorative rings. Row 2: the cinematic copy.
+  // Row 3: BEGIN button with reserved space. All three fit in a scrollable
+  // container thanks to the new chapterWrap.
   return (
-    <div style={{ ...chapterWrap, alignItems: "center", justifyContent: "center", position: "relative" }}>
-      {/* Subtle animated gold ring pulse in the background */}
+    <div style={{ ...chapterWrap, alignItems: "stretch", position: "relative" }}>
+      {/* Subtle animated gold ring pulse — decorative only, doesn't affect layout */}
       <div style={{
-        position: "absolute", width: 500, height: 500, borderRadius: "50%",
+        position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+        width: 500, height: 500, borderRadius: "50%",
         border: `1px solid rgba(200,170,90,0.15)`,
         animation: "goModePulseRing 3.2s ease-in-out infinite",
+        pointerEvents: "none",
       }} />
       <div style={{
-        position: "absolute", width: 340, height: 340, borderRadius: "50%",
+        position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+        width: 340, height: 340, borderRadius: "50%",
         border: `1px solid rgba(200,170,90,0.12)`,
         animation: "goModePulseRing 3.2s ease-in-out infinite 0.4s",
+        pointerEvents: "none",
       }} />
 
-      <div style={{ textAlign: "center", padding: "0 32px", maxWidth: 560, position: "relative", zIndex: 2 }}>
-        <p style={{
-          fontFamily: "'Cormorant Garamond','Georgia',serif", fontWeight: 400,
-          fontSize: "clamp(1.6rem,5vw,2.2rem)", color: "#fff", lineHeight: 1.5,
-          opacity: lineIdx >= 1 ? 1 : 0, transition: "opacity 700ms ease",
-          marginBottom: 4,
-        }}>
-          Lead Depot doesn't create producers.
-        </p>
-        <p style={{
-          fontFamily: "'Cormorant Garamond','Georgia',serif", fontWeight: 500,
-          fontSize: "clamp(1.6rem,5vw,2.2rem)", color: GOLD, lineHeight: 1.5,
-          opacity: lineIdx >= 2 ? 1 : 0, transition: "opacity 700ms ease",
-          marginBottom: 24,
-        }}>
-          It reveals them.
-        </p>
-        <p style={{
-          fontFamily: "'Switzer','Inter',sans-serif", fontWeight: 400,
-          fontSize: "clamp(1rem,3vw,1.2rem)", color: "rgba(255,255,255,0.75)", lineHeight: 1.6,
-          opacity: lineIdx >= 3 ? 1 : 0, transition: "opacity 700ms ease",
-        }}>
-          Around here, effort is visible and results are public.
-        </p>
+      {/* Copy — centered vertically inside a flex-grow region */}
+      <div style={{
+        flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "48px 32px 24px", minHeight: 0,
+      }}>
+        <div style={{ textAlign: "center", maxWidth: 560, position: "relative", zIndex: 2 }}>
+          <p style={{
+            fontFamily: "'Cormorant Garamond','Georgia',serif", fontWeight: 400,
+            fontSize: "clamp(1.4rem,5vw,2.2rem)", color: "#fff", lineHeight: 1.5,
+            opacity: lineIdx >= 1 ? 1 : 0, transition: "opacity 700ms ease",
+            marginBottom: 4, marginTop: 0,
+          }}>
+            Lead Depot doesn't create producers.
+          </p>
+          <p style={{
+            fontFamily: "'Cormorant Garamond','Georgia',serif", fontWeight: 500,
+            fontSize: "clamp(1.4rem,5vw,2.2rem)", color: GOLD, lineHeight: 1.5,
+            opacity: lineIdx >= 2 ? 1 : 0, transition: "opacity 700ms ease",
+            marginBottom: 24, marginTop: 0,
+          }}>
+            It reveals them.
+          </p>
+          <p style={{
+            fontFamily: "'Switzer','Inter',sans-serif", fontWeight: 400,
+            fontSize: "clamp(0.95rem,3vw,1.2rem)", color: "rgba(255,255,255,0.75)", lineHeight: 1.6,
+            opacity: lineIdx >= 3 ? 1 : 0, transition: "opacity 700ms ease",
+            marginTop: 0, marginBottom: 0,
+          }}>
+            Around here, effort is visible and results are public.
+          </p>
+        </div>
       </div>
 
-      <div style={{ position: "absolute", bottom: 56, left: 0, right: 0, display: "flex", justifyContent: "center" }}>
+      {/* BEGIN button — always in its own row at the bottom, never overlapping copy */}
+      <div style={{
+        flexShrink: 0, display: "flex", justifyContent: "center",
+        padding: "20px 0 max(44px, env(safe-area-inset-bottom))",
+        position: "relative", zIndex: 3,
+      }}>
         <GoldPillButton onClick={onNext} disabled={!canBegin} testId="tutorial-begin">
           BEGIN
         </GoldPillButton>
@@ -249,8 +288,8 @@ function Chapter1({ onNext }: { onNext: () => void }) {
 
       <style>{`
         @keyframes goModePulseRing {
-          0%,100% { transform: scale(0.94); opacity: 0.5; }
-          50%     { transform: scale(1.04); opacity: 0.9; }
+          0%,100% { transform: translate(-50%,-50%) scale(0.94); opacity: 0.5; }
+          50%     { transform: translate(-50%,-50%) scale(1.04); opacity: 0.9; }
         }
       `}</style>
     </div>
@@ -889,7 +928,13 @@ export default function TutorialFlow({ isFirstTime, onComplete }: { isFirstTime:
 
   return (
     <div data-testid="tutorial-flow" style={{ position: "fixed", inset: 0, zIndex: 100 }}>
-      <div style={{ position: "absolute", bottom: 12, left: 0, right: 0, zIndex: 101, pointerEvents: "none" }}>
+      {/* v14.10 — ProgressDots overlay respects iPhone home-indicator safe area
+          so it doesn't collide with the tap target of BEGIN/NEXT/FINISH. */}
+      <div style={{
+        position: "absolute",
+        bottom: "max(4px, env(safe-area-inset-bottom))",
+        left: 0, right: 0, zIndex: 101, pointerEvents: "none",
+      }}>
         <ProgressDots total={TOTAL_CHAPTERS} current={chapter} />
       </div>
 

@@ -728,16 +728,16 @@ function Chapter6({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: 
           <FakeLeadCard name="SARAH SAMPLE" address="456 Practice Dr, Fernandina Beach" score={91} phone="904-555-SARA" tag="PRACTICE LEAD" />
 
           <div style={{ position: "relative", width: "100%", maxWidth: 380 }}>
-            {/* v15.0 — callout pill repositioned. Appt Set now sits at grid */}
-            {/* index 6 (Row 3 Col 1, bottom-LEFT of the 3×3). The pill points */}
-            {/* down at that tile from just above Row 3. Previously it sat at */}
-            {/* the top-center where the old (wrong) Appt Set position was. */}
+            {/* v15.0 — callout pill points UP at Appt Set (Row 3 Col 1). Placed */}
+            {/* below the grid so it doesn't overlap any tile above the target. */}
+            {/* Left-aligned to first column so the pill and arrow both sit under */}
+            {/* the Appt Set tile column. */}
             {!showModal && (
               <CalloutPill style={{
                 position: "absolute", zIndex: 5,
-                bottom: 44, left: "16.66%", transform: "translateX(-50%)",
+                bottom: -34, left: "16.66%", transform: "translateX(-50%)",
               }}>
-                Tap Appt Set ↓
+                ↑ Tap Appt Set
               </CalloutPill>
             )}
             {/* v15.0 — render the full 9-tile production grid. The 8 non-Appt- */}

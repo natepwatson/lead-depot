@@ -13,6 +13,7 @@ import {
 // entries visible to agents so they see the app improving under them. Newest
 // at the top. Keep entries short — one line, agent-facing plain English.
 const CHANGELOG: { version: string; date: string; note: string }[] = [
+  { version: "v15.1",    date: "Jul 10", note: "Tutorial cleanup: the ‘Tap Appt Set’ callout now sits below the grid pointing up, so it no longer overlaps the Not Interested tile in Chapter 6." },
   { version: "v15.0",    date: "Jul 10", note: "Tutorial now matches the real dial screen: the 3\u00d73 outcome grid you see under every lead is what the tutorial teaches. Also fixed tutorial layout on iPhone and added breathing room under the outcome buttons." },
   { version: "v14.9",    date: "Jul 10", note: "Replay Tutorial now works for admins. \u201CDialing now\u201D pill hides outside 8am\u20138pm ET. What\u2019s New card added." },
   { version: "v14.81.3", date: "Jul 10", note: "Fixed the \u201Cdatabase locked\u201D bug that blocked deactivating agents." },

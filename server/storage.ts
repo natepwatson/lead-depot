@@ -374,6 +374,7 @@ export class Storage implements IStorage {
     status?: string;
     agentId?: number;
     search?: string;
+    intent?: string; // v15.3 — filter by lead.intent (sell_only | buy_only | sell_and_buy)
     limit?: number;
     offset?: number;
   }): { rows: Lead[]; total: number } {
@@ -391,6 +392,16 @@ export class Storage implements IStorage {
     if (opts.agentId) {
       conditions.push("assigned_agent_id = ?");
       params.push(opts.agentId);
+    }
+    // v15.3 — Intent filter. "unset" surfaces leads without any intent recorded yet
+    // (useful for admins auditing which uploads still need script tagging).
+    if (opts.intent && opts.intent !== "all") {
+      if (opts.intent === "unset") {
+        conditions.push("(intent IS NULL OR intent = '')");
+      } else if (["sell_only", "buy_only", "sell_and_buy"].includes(opts.intent)) {
+        conditions.push("intent = ?");
+        params.push(opts.intent);
+      }
     }
     if (opts.search) {
       const s = `%${opts.search.toLowerCase()}%`;

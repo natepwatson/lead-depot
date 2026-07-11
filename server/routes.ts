@@ -311,7 +311,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.2 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.3 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -370,7 +370,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.2 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.3 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -655,7 +655,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.2 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.3 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1172,6 +1172,39 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   app.get("/api/agents", (req, res) => {
     const all = storage.getAllAgents();
     res.json(all.map(a => ({ ...a, password: undefined })));
+  });
+
+  // v15.3 — REAL dialing-now presence. Replaces the v14.9 vibe count (active_count + random_bump)
+  // that was showing '6 dialing now' 24/7 even when nobody was on the phone.
+  // TRUTH: an agent is "dialing now" iff they've inserted a lead_activity row in the last 10 min.
+  // Any outcome logged (no_answer, wrong_number, appt, kit, etc.) counts as proof of a live dial.
+  app.get("/api/agents/live-count", (req, res) => {
+    try {
+      const windowMs = 10 * 60 * 1000; // 10 minutes
+      const cutoff = new Date(Date.now() - windowMs).toISOString();
+      const row: any = rawDb.prepare(
+        `SELECT COUNT(DISTINCT la.agent_id) AS cnt
+         FROM lead_activity la
+         JOIN agents a ON a.id = la.agent_id
+         WHERE la.created_at >= ?
+           AND a.is_active = 1
+           AND a.role = 'agent'
+           AND la.agent_id IS NOT NULL`
+      ).get(cutoff);
+      const dialingNow = Number(row?.cnt) || 0;
+      // Last outcome timestamp (for "last activity 3m ago" tooltip)
+      const lastRow: any = rawDb.prepare(
+        `SELECT MAX(created_at) AS ts FROM lead_activity WHERE agent_id IS NOT NULL`
+      ).get();
+      res.json({
+        dialingNow,
+        windowMinutes: 10,
+        lastActivityAt: lastRow?.ts || null,
+      });
+    } catch (e) {
+      console.error("[live-count] failed:", e);
+      res.json({ dialingNow: 0, windowMinutes: 10, lastActivityAt: null });
+    }
   });
 
   app.post("/api/agents", async (req, res) => {
@@ -1703,7 +1736,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.2</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.3</p>
             </div>
           `,
         });
@@ -1863,7 +1896,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.2 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.3 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2380,8 +2413,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const status = String(req.query.status || "all");
     const search = String(req.query.search || "").trim();
     const agentId = req.query.agentId ? parseInt(String(req.query.agentId)) : undefined;
+    const intent = String(req.query.intent || "all"); // v15.3
 
-    const { rows, total } = storage.getLeadsPaginated({ status, agentId, search, limit, offset });
+    const { rows, total } = storage.getLeadsPaginated({ status, agentId, search, intent, limit, offset });
 
     // Enrich with agent name
     const allAgents = storage.getAllAgents();
@@ -3591,6 +3625,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     awardPoints(agentId, outcome, leadId);
     // Broadcast activity event for live feed (v11.40)
     const actingAgent = storage.getAgentById(agentId);
+    // v15.3 — include intent so live feed can badge SELL / BUY / SELL&BUY next to the address.
+    const broadcastIntent =
+      (lpmamab as any)?.intent ||
+      (updatedLead as any)?.intent ||
+      (lead as any).intent ||
+      null;
     broadcast({
       type: "activity_event",
       event: {
@@ -3600,6 +3640,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         agentHeadshot: actingAgent?.headshotUrl || null,
         leadId,
         address: updatedLead?.address || lead.address,
+        intent: broadcastIntent, // v15.3
         ts: new Date().toISOString(),
       }
     });
@@ -5257,7 +5298,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.2 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.3 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5489,7 +5530,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.2",
+      version: "v15.3",
       services: results,
     });
   });
@@ -6434,8 +6475,22 @@ async function sendDailyDigest() {
   // ── Per-agent breakdown ───────────────────────────────────────────────────
   const activeAgents: any[] = allAgentsRaw.filter((a: any) => a.is_active && a.role === "agent");
 
+  // v15.3 — Intent breakdown per agent (from the lead they dialed, not the activity row).
+  // Uses meaningful outcomes only (appt / kit / not-interested) to avoid inflating with no-answers.
+  const leadIntentById: Record<number, string | null> = {};
+  for (const l of allLeadsRaw) leadIntentById[l.id] = l.intent || null;
   const agentStats = activeAgents.map((agent: any) => {
     const acts = activities.filter((a: any) => a.agent_id === agent.id && a.outcome !== "email_sent");
+    const meaningfulActs = acts.filter((a: any) =>
+      ["contacted_appointment", "keep_in_touch", "contacted_not_interested"].includes(a.outcome)
+    );
+    const intentCounts = { sell: 0, buy: 0, both: 0 };
+    for (const a of meaningfulActs) {
+      const intent = leadIntentById[a.lead_id];
+      if (intent === "buy_only") intentCounts.buy++;
+      else if (intent === "sell_and_buy") intentCounts.both++;
+      else intentCounts.sell++; // sell_only OR null (defaults to seller script)
+    }
     return {
       name: agent.name,
       dials:      acts.length,
@@ -6447,6 +6502,7 @@ async function sendDailyDigest() {
       notInt:     acts.filter((a: any) => a.outcome === "contacted_not_interested").length,
       wrongNum:   acts.filter((a: any) => a.outcome === "wrong_number").length,
       recycled:   acts.filter((a: any) => a.outcome === "recycled").length,
+      intentCounts, // v15.3
     };
   }).filter((s: any) => s.dials > 0 || s.emails > 0);
 
@@ -6552,8 +6608,20 @@ async function sendDailyDigest() {
   const agentRows = agentStats.length > 0
     ? agentStats.sort((a: any, b: any) => b.appts - a.appts || b.dials - a.dials).map((a: any) => {
         const contactRate = a.dials > 0 ? Math.round(((a.appts + a.kit + a.notInt) / a.dials) * 100) : 0;
+        // v15.3 — Intent breakdown sub-line: only render when at least one meaningful outcome had a
+        // non-default intent, so agents dialing pure expired lists don't get a noisy "3 sell" line.
+        const ic = a.intentCounts || { sell: 0, buy: 0, both: 0 };
+        const totalMeaningful = ic.sell + ic.buy + ic.both;
+        const showIntent = totalMeaningful > 0 && (ic.buy > 0 || ic.both > 0);
+        const intentLine = showIntent
+          ? `<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px;letter-spacing:0.04em">
+               ${ic.sell > 0 ? `<span style=\"color:#c8aa5a\">${ic.sell} sell</span>` : ""}
+               ${ic.buy > 0 ? ` · <span style=\"color:#93c5fd\">${ic.buy} buy</span>` : ""}
+               ${ic.both > 0 ? ` · <span style=\"color:#f0f0f0\">${ic.both} sell&amp;buy</span>` : ""}
+             </div>`
+          : "";
         return `<tr style="border-bottom:1px solid rgba(200,170,90,0.08)">
-          <td style="padding:10px 14px;font-size:13px;color:#f0f0f0">${a.name}</td>
+          <td style="padding:10px 14px;font-size:13px;color:#f0f0f0">${a.name}${intentLine}</td>
           <td style="padding:10px 14px;font-size:14px;font-weight:700;color:#86efac;text-align:center">${a.appts}</td>
           <td style="padding:10px 14px;font-size:13px;color:#c8aa5a;text-align:center">${a.kit}</td>
           <td style="padding:10px 14px;font-size:13px;color:#93c5fd;text-align:center">${a.callbacks}</td>
@@ -6634,7 +6702,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.2</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.3</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

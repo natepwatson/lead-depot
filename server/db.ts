@@ -76,6 +76,14 @@ if (!leadCols.includes("l_buy"))           rawDb.prepare("ALTER TABLE leads ADD 
 if (!leadCols.includes("also_buying"))     rawDb.prepare("ALTER TABLE leads ADD COLUMN also_buying INTEGER DEFAULT 0").run();
 // v14.53 — 3-way intent selector: 'sell_only' | 'sell_and_buy' | 'buy_only'. Null defaults to 'sell_only'.
 if (!leadCols.includes("intent"))          rawDb.prepare("ALTER TABLE leads ADD COLUMN intent TEXT").run();
+// v15.3 — Backfill intent from legacy also_buying flag once per boot (idempotent).
+// Rows with also_buying=1 and no intent set become 'sell_and_buy'; also_buying=0/null with no intent stay null (UI defaults to sell_only).
+try {
+  const backfilled = rawDb.prepare(
+    "UPDATE leads SET intent = 'sell_and_buy' WHERE intent IS NULL AND also_buying = 1"
+  ).run();
+  if (backfilled.changes > 0) console.log(`[db] v15.3 backfill: set intent='sell_and_buy' on ${backfilled.changes} legacy rows`);
+} catch (e) { console.error("[db] v15.3 intent backfill failed:", e); }
 if (!leadCols.includes("b_location"))      rawDb.prepare("ALTER TABLE leads ADD COLUMN b_location TEXT").run();
 if (!leadCols.includes("b_price"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN b_price TEXT").run();
 if (!leadCols.includes("b_motivation"))    rawDb.prepare("ALTER TABLE leads ADD COLUMN b_motivation TEXT").run();

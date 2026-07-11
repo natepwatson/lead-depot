@@ -232,8 +232,20 @@ const INTENTION_TAG_MAP: Record<string, string[]> = {
 };
 
 // ─── TAG BUILDER ─────────────────────────────────────────────────────────────
-function buildTags(leadType: string, outcome: string, source?: string, intention?: string): string[] {
+function buildTags(
+  leadType: string,
+  outcome: string,
+  source?: string,
+  intention?: string,
+  intent?: "sell_only" | "sell_and_buy" | "buy_only",
+): string[] {
   const tags: string[] = [];
+
+  // v15.3 — Intent tags per INTENT_SPEC Q5 (plain English, no prefix).
+  // These sit alongside intention-derived tags so FUB smart lists can key off intent alone.
+  if (intent === "sell_only")    tags.push("Seller");
+  if (intent === "buy_only")     tags.push("Buyer");
+  if (intent === "sell_and_buy") tags.push("Buy&Sell");
 
   // Lead type → FUB source-style tag
   const typeMap: Record<string, string> = {
@@ -408,6 +420,8 @@ export interface FubOutcomePayload {
     lBuy?: string;
     // v14.20 — Buyer LPMAMA
     alsoBuying?: boolean;
+    // v15.3 — persisted intent on the lead row (fall-through when lpmamab.intent absent)
+    intent?: "sell_only" | "sell_and_buy" | "buy_only";
     bLocation?: string;
     bPrice?: string;
     bMotivation?: string;
@@ -458,7 +472,9 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
 
   const fubType = outcomeToFubType(outcome, lead.leadType);
   const fubStage = outcomeToFubStage(outcome);
-  const tags = buildTags(lead.leadType, outcome, lead.source, intention);
+  // v15.3 — pass intent so buildTags can add Seller / Buyer / Buy&Sell tag per INTENT_SPEC Q5
+  const effectiveIntent = (lpmamab as any)?.intent || (lead as any).intent || undefined;
+  const tags = buildTags(lead.leadType, outcome, lead.source, intention, effectiveIntent);
   const fubSource = getFubSource(lead.leadType, lead.source);
 
   // Parse name

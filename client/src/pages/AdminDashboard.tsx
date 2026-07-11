@@ -940,6 +940,7 @@ export default function AdminDashboard({
   const [selectedLead, setSelectedLead] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [intentFilter, setIntentFilter] = useState("all"); // v15.3
   const [drilldownAgent, setDrilldownAgent] = useState<{ id: number; name: string } | null>(null);
 
   // Paginated leads state (v11.70)
@@ -993,12 +994,13 @@ export default function AdminDashboard({
 
   // Paginated lead list query (v11.70) — replaces full pipeline load for Lead Pool tab
   const paginatedLeadsQuery = useQuery<any>({
-    queryKey: ["/api/leads/paginated", statusFilter, searchTerm, leadsPage],
+    queryKey: ["/api/leads/paginated", statusFilter, intentFilter, searchTerm, leadsPage],
     queryFn: () => {
       const params = new URLSearchParams({
         limit: String(LEADS_PAGE_SIZE),
         offset: String(leadsPage * LEADS_PAGE_SIZE),
         status: statusFilter,
+        intent: intentFilter,
         ...(searchTerm ? { search: searchTerm } : {}),
       });
       return apiRequest("GET", `/api/leads/paginated?${params}`).then(r => r.json());
@@ -1008,14 +1010,20 @@ export default function AdminDashboard({
 
   // Reset to page 0 when filters change
   const prevStatusFilter = useRef(statusFilter);
+  const prevIntentFilter = useRef(intentFilter);
   const prevSearchTerm = useRef(searchTerm);
   useEffect(() => {
-    if (prevStatusFilter.current !== statusFilter || prevSearchTerm.current !== searchTerm) {
+    if (
+      prevStatusFilter.current !== statusFilter ||
+      prevIntentFilter.current !== intentFilter ||
+      prevSearchTerm.current !== searchTerm
+    ) {
       setLeadsPage(0);
       prevStatusFilter.current = statusFilter;
+      prevIntentFilter.current = intentFilter;
       prevSearchTerm.current = searchTerm;
     }
-  }, [statusFilter, searchTerm]);
+  }, [statusFilter, intentFilter, searchTerm]);
 
   // Leaderboard history (v11.70)
   const { data: lbHistory = [] } = useQuery<any[]>({
@@ -1600,7 +1608,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.2
+              v15.3
             </p>
           </div>
         </div>
@@ -2450,6 +2458,19 @@ export default function AdminDashboard({
                         <SelectItem value="wrong_number">Wrong #</SelectItem>
                       </SelectContent>
                     </Select>
+                    {/* v15.3 — Intent filter (Sell / Buy / Sell&Buy / Unset). Server-side via /api/leads/paginated?intent=. */}
+                    <Select value={intentFilter} onValueChange={setIntentFilter}>
+                      <SelectTrigger className="w-40 bg-secondary border-border text-sm" data-testid="select-intent-filter">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Intents</SelectItem>
+                        <SelectItem value="sell_only">Sell only</SelectItem>
+                        <SelectItem value="buy_only">Buy only</SelectItem>
+                        <SelectItem value="sell_and_buy">Sell &amp; Buy</SelectItem>
+                        <SelectItem value="unset">Unset</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <Button variant="outline" size="sm"
                       onClick={() => qc.invalidateQueries({ queryKey: ["/api/leads/paginated"] })}
                       className="gap-1 text-xs border-border">
@@ -2492,6 +2513,26 @@ export default function AdminDashboard({
                             <div className="flex items-center gap-1.5 flex-wrap mb-1">
                               <TypeBadge type={lead.leadType} />
                               <StatusBadge status={lead.status} />
+                              {/* v15.3 — Intent chip (matches AgentView badge palette). */}
+                              {(() => {
+                                const raw = lead.intent || (lead.alsoBuying ? "sell_and_buy" : null);
+                                if (!raw) return null;
+                                const map: Record<string, { bg: string; fg: string; label: string; border: string }> = {
+                                  sell_only:    { bg: "rgba(200,170,90,0.16)", fg: "#c8aa5a", label: "Sell",      border: "rgba(200,170,90,0.5)" },
+                                  buy_only:     { bg: "rgba(147,197,253,0.18)", fg: "#93c5fd", label: "Buy",       border: "rgba(59,130,246,0.5)" },
+                                  sell_and_buy: { bg: "linear-gradient(90deg, rgba(200,170,90,0.22) 0%, rgba(147,197,253,0.22) 100%)", fg: "#f0f0f0", label: "Sell & Buy", border: "rgba(200,170,90,0.5)" },
+                                };
+                                const s = map[raw];
+                                if (!s) return null;
+                                return (
+                                  <span data-testid={`intent-chip-${raw}`} style={{
+                                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                    height: 18, padding: "0 7px",
+                                    borderRadius: 9, fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                                    background: s.bg, color: s.fg, border: `1px solid ${s.border}`, whiteSpace: "nowrap",
+                                  }}>{s.label}</span>
+                                );
+                              })()}
                               <CooldownPill until={lead.recycleCooldownUntil} compact />
                               {lead.attemptCount > 0 && <span className="text-xs text-muted-foreground">{lead.attemptCount} attempt{lead.attemptCount !== 1 ? "s" : ""}</span>}
                               {lead.score > 0 && (

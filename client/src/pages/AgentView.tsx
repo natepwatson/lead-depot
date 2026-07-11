@@ -19,6 +19,7 @@ import ProfilePage from "./ProfilePage";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
 import { playSound } from "@/lib/sounds";
 import AnimatedNumber from "../components/AnimatedNumber";
+import { computeCallHeat } from "@/lib/callHeat";
 import type { Lead as LeadRow } from "@shared/schema";
 
 // v14.81 — myAttemptsToday is a synthetic field the server attaches on top of
@@ -836,6 +837,37 @@ function LeadCard({ lead }: { lead: Lead }) {
           }}>
             {typeLabel[lead.leadType] || lead.leadType}
           </span>
+          {/* v15.3 — Intent badge (per INTENT_SPEC Q2): Gold=Sell, Blue=Buy,
+              Gold→Blue gradient=Sell&Buy. Reads from lead.intent (or legacy alsoBuying).
+              Only shows when intent is explicitly set so unlogged leads stay clean. */}
+          {(() => {
+            const rawIntent = (lead as any).intent as string | null | undefined;
+            const derived = rawIntent || ((lead as any).alsoBuying ? "sell_and_buy" : null);
+            if (!derived) return null;
+            const styles: Record<string, { bg: string; fg: string; border: string; label: string; title: string }> = {
+              sell_only:    { bg: "rgba(200,170,90,0.18)", fg: "#c8aa5a", border: "rgba(200,170,90,0.55)", label: "SELL",       title: "Seller intent — CPMAMA script" },
+              buy_only:     { bg: "rgba(147,197,253,0.18)", fg: "#93c5fd", border: "rgba(59,130,246,0.55)", label: "BUY",       title: "Buyer intent — Buyer LPMAMA script" },
+              sell_and_buy: { bg: "linear-gradient(90deg, rgba(200,170,90,0.22) 0%, rgba(147,197,253,0.22) 100%)", fg: "#f0f0f0", border: "rgba(200,170,90,0.5)", label: "SELL & BUY", title: "Multi-transaction — CPMAMA + Buyer LPMAMA" },
+            };
+            const s = styles[derived];
+            if (!s) return null;
+            return (
+              <span
+                title={s.title}
+                data-testid="intent-badge"
+                style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  height: 20, padding: "0 8px",
+                  borderRadius: 10, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em",
+                  background: s.bg,
+                  color: s.fg,
+                  border: `1px solid ${s.border}`,
+                  cursor: "default", whiteSpace: "nowrap",
+                }}>
+                {s.label}
+              </span>
+            );
+          })()}
           {/* Score badge — only show for leads with a BatchLeads/pipeline score */}
           {(lead as any).score > 0 && (
             <span title={`Lead score: ${(lead as any).score} — higher = more motivated seller`} style={{
@@ -1736,6 +1768,93 @@ export function CallbackLookupModal({ onClose, onPickLead }: { onClose: () => vo
   );
 }
 
+// v15.3 — Optimal call-time meter. Displays receptivity right now (0-100),
+// tier label (PRIME TIME / GOOD / OK / COLD), and a one-line reason drawn from
+// the MIT/InsideSales, PhoneBurner, CallHippo, and Cognism studies. See
+// client/src/lib/callHeat.ts for the full weight table + citations.
+function CallHeatMeter() {
+  // Re-compute every 60s so the meter drifts up/down without needing a manual refresh.
+  const [tick, setTick] = React.useState(0);
+  React.useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+  const heat = React.useMemo(() => computeCallHeat(), [tick]);
+  const tierBg: Record<string, string> = {
+    hot:  "linear-gradient(135deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.06) 100%)",
+    warm: "linear-gradient(135deg, rgba(245,158,11,0.14) 0%, rgba(245,158,11,0.05) 100%)",
+    cool: "linear-gradient(135deg, rgba(200,170,90,0.10) 0%, rgba(200,170,90,0.04) 100%)",
+    cold: "linear-gradient(135deg, rgba(107,114,128,0.10) 0%, rgba(107,114,128,0.03) 100%)",
+  };
+  const tierBorder: Record<string, string> = {
+    hot:  "rgba(239,68,68,0.45)",
+    warm: "rgba(245,158,11,0.35)",
+    cool: "rgba(200,170,90,0.28)",
+    cold: "rgba(255,255,255,0.10)",
+  };
+  return (
+    <div
+      data-testid="call-heat-meter"
+      style={{
+        margin: "0 20px 16px",
+        padding: "12px 14px",
+        background: tierBg[heat.tier],
+        border: `1px solid ${tierBorder[heat.tier]}`,
+        borderRadius: 12,
+      }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{
+            display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+            background: heat.color,
+            boxShadow: heat.tier === "hot" ? `0 0 8px ${heat.color}` : "none",
+            animation: heat.tier === "hot" ? "livePulse 1.6s ease-in-out infinite" : "none",
+          }} />
+          <span style={{
+            fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase",
+            color: heat.color, fontWeight: 700,
+          }}>
+            {heat.label}
+          </span>
+        </div>
+        <span style={{
+          fontSize: 10, color: "rgba(255,255,255,0.4)", letterSpacing: "0.06em",
+          fontVariantNumeric: "tabular-nums",
+        }}>
+          {heat.score}/100 receptivity
+        </span>
+      </div>
+      {/* Meter bar */}
+      <div style={{
+        position: "relative", height: 6, borderRadius: 3,
+        background: "rgba(255,255,255,0.05)", overflow: "hidden", marginBottom: 8,
+      }}>
+        <div style={{
+          width: `${heat.score}%`, height: "100%",
+          background: heat.color,
+          borderRadius: 3,
+          transition: "width 300ms ease",
+        }} />
+      </div>
+      <p style={{
+        margin: 0, fontSize: 12, lineHeight: 1.4,
+        color: "rgba(255,255,255,0.75)",
+        fontFamily: "'Switzer','Inter',sans-serif",
+      }}>
+        {heat.reason}
+      </p>
+      {heat.nextHotWindow && (
+        <p style={{
+          margin: "4px 0 0", fontSize: 11,
+          color: "rgba(200,170,90,0.65)", fontStyle: "italic",
+        }}>
+          {heat.nextHotWindow}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -1862,6 +1981,10 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
         </div>
       )}
       {lookupOpen && <CallbackLookupModal onClose={() => setLookupOpen(false)} />}
+
+      {/* v15.3 — Optimal call-time meter (seller depot only). Hot/Warm/Cool/Cold
+          receptivity weighted from MIT/InsideSales, CallHippo, PhoneBurner, Cognism. */}
+      {mode === "seller" && <CallHeatMeter />}
 
       {/* ── Personal stats — v14.24: Appts hero (big), then Points, Dials, Emails ── */}
       {myStats && (
@@ -2588,33 +2711,18 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
   const { connected: wsConnected } = useRealtimeUpdates();
   const qc = useQueryClient();
 
-  // v14.80 — Tier 1 aliveness: "N dialing now" pulse pill. No true WS presence
-  // channel exists yet, so we fall back to a client-side proxy: count of active
-  // agents from /api/agents. Cheap, always-fresh via the 60s poll, and never
-  // wrong in the "zero activity" direction the way a stale timestamp could be.
-  const { data: agentsForPulse } = useQuery<any[]>({
-    queryKey: ["/api/agents"],
-    queryFn: () => apiRequest("GET", "/api/agents").then(r => r.json()),
-    refetchInterval: 60000,
-    staleTime: 30000,
+  // v15.3 — REAL dialing-now indicator. Replaces v14.9 vibe count that showed
+  // "6 dialing now" 24/7 based on active_agents_count + random bump.
+  // Source of truth: /api/agents/live-count returns COUNT(DISTINCT agent_id) with
+  // a lead_activity insert in the last 10 minutes. Zero means zero — no fudging.
+  const { data: liveCountData } = useQuery<{ dialingNow: number; windowMinutes: number; lastActivityAt: string | null }>({
+    queryKey: ["/api/agents/live-count"],
+    queryFn: () => apiRequest("GET", "/api/agents/live-count").then(r => r.json()),
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
-  // v14.9 — Real presence proxy w/ business-hours gate + deterministic 0-2 bump.
-  // Prior version (v14.80) blindly showed "6 dialing now" 24/7 even when nobody was
-  // logged in. Now: hide entirely outside 8am-8pm ET, otherwise show active-count +
-  // a bump that rotates on a 5-minute cadence so the number feels alive without
-  // over-claiming. Zero active agents = always hidden.
-  const dialingNowCount = (() => {
-    if (!Array.isArray(agentsForPulse)) return 0;
-    const active = agentsForPulse.filter((a: any) => a.isActive && a.role === "agent").length;
-    if (active === 0) return 0;
-    const hourET = parseInt(
-      new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }),
-      10,
-    );
-    if (isNaN(hourET) || hourET < 8 || hourET >= 20) return 0;
-    const bump = Math.floor(Date.now() / (5 * 60 * 1000)) % 3; // 0, 1, or 2
-    return active + bump;
-  })();
+  const dialingNowCount = liveCountData?.dialingNow ?? 0;
+  const lastActivityAt = liveCountData?.lastActivityAt || null;
   // v14.50 — pull-to-refresh: swipe down from the very top to refetch every query.
   // v14.52 — destructure indicator so the pull gesture has visible feedback (gold chip at top)
   const { indicator: ptrIndicator } = usePullToRefresh(() => qc.invalidateQueries());
@@ -2828,24 +2936,41 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* v14.80 — Tier 1 aliveness: live team pulse pill + WS heartbeat dot */}
-          {mode === "seller" && dialingNowCount > 0 && (
-            <div style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "5px 9px", borderRadius: 20,
-              background: "rgba(34,197,94,0.08)",
-              border: "1px solid rgba(34,197,94,0.25)",
-              fontSize: 10, color: "rgba(134,239,172,0.9)", fontWeight: 600, letterSpacing: "0.03em",
-              whiteSpace: "nowrap",
-            }} data-testid="pill-dialing-now">
-              <span style={{
-                width: 6, height: 6, borderRadius: "50%", background: "#4ade80",
-                boxShadow: "0 0 6px rgba(74,222,128,0.8)",
-                animation: "livePulse 1.8s ease-in-out infinite",
-              }} />
-              {dialingNowCount} dialing now
-            </div>
-          )}
+          {/* v15.3 — REAL dialing-now pill. Green + pulse when ≥ 1 agent has
+              logged a call outcome in the last 10 min; gray + static when quiet.
+              Tap-hold title shows "last activity Xm ago" so Alex can sanity-check. */}
+          {mode === "seller" && (() => {
+            const isLive = dialingNowCount > 0;
+            const lastMin = lastActivityAt
+              ? Math.max(0, Math.round((Date.now() - new Date(lastActivityAt).getTime()) / 60000))
+              : null;
+            const title = isLive
+              ? `${dialingNowCount} agent${dialingNowCount === 1 ? "" : "s"} logged a call in the last 10 min`
+              : lastMin !== null
+                ? `Quiet — last team dial ${lastMin < 60 ? `${lastMin}m` : `${Math.round(lastMin/60)}h`} ago`
+                : "Quiet — no recent dials";
+            return (
+              <div title={title} style={{
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "5px 9px", borderRadius: 20,
+                background: isLive ? "rgba(34,197,94,0.08)" : "rgba(255,255,255,0.04)",
+                border: isLive ? "1px solid rgba(34,197,94,0.25)" : "1px solid rgba(255,255,255,0.10)",
+                fontSize: 10,
+                color: isLive ? "rgba(134,239,172,0.9)" : "rgba(255,255,255,0.45)",
+                fontWeight: 600, letterSpacing: "0.03em", whiteSpace: "nowrap",
+              }} data-testid="pill-dialing-now">
+                <span style={{
+                  width: 6, height: 6, borderRadius: "50%",
+                  background: isLive ? "#4ade80" : "rgba(255,255,255,0.3)",
+                  boxShadow: isLive ? "0 0 6px rgba(74,222,128,0.8)" : "none",
+                  animation: isLive ? "livePulse 1.8s ease-in-out infinite" : "none",
+                }} />
+                {isLive
+                  ? `${dialingNowCount} dialing now`
+                  : "Quiet — be the first"}
+              </div>
+            );
+          })()}
           <span
             title={wsConnected ? "Live" : "Reconnecting\u2026"}
             data-testid="ws-heartbeat-dot"

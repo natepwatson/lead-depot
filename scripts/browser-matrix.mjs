@@ -79,7 +79,8 @@ async function runRow(row) {
     await page.goto(BASE + '/' + nc(), { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForTimeout(2000);
     const rootSize1 = await page.evaluate(() => document.getElementById('root')?.innerHTML?.length || 0);
-    const versionText = await page.evaluate(() => document.body.innerText.match(/v14\.\d+/)?.[0] || null);
+    // v14.81.2+ — allow optional patch suffix (e.g. v14.81.2 not just v14.81)
+    const versionText = await page.evaluate(() => document.body.innerText.match(/v14\.\d+(?:\.\d+)?/)?.[0] || null);
     set('login_renders', rootSize1 > 100 && errs.length === 0, true, `root=${rootSize1}`);
     set('version_marker', EXPECT_VERSION ? versionText === EXPECT_VERSION : !!versionText, true, `${versionText || 'none'}`);
 
@@ -93,8 +94,9 @@ async function runRow(row) {
     set('login_flow', rootSize2 > 5000 && errsAfterLogin === 0, true, `root=${rootSize2}`);
 
     // Phase 4: Admin bottom nav (v14.51+)
+    // v14.80+ shipped 5-button admin nav: Dashboard | Pipeline | Dial | Referrals | Profile
     const bottomNavBtns = await page.$$('[data-testid^="admin-bottom-nav-"]');
-    set('admin_bottom_nav', bottomNavBtns.length === 4, false, `btns=${bottomNavBtns.length}`);
+    set('admin_bottom_nav', bottomNavBtns.length === 5, false, `btns=${bottomNavBtns.length}`);
 
     // Phase 5: Leaderboard populated
     const bodyText = await page.evaluate(() => document.body.innerText);

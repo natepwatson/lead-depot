@@ -39,7 +39,8 @@ async function run() {
     await page.goto(BASE + '/' + nc(), { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(1500);
     const rootSize1 = await page.evaluate(() => document.getElementById('root')?.innerHTML?.length || 0);
-    const versionText = await page.evaluate(() => document.body.innerText.match(/v14\.\d+/)?.[0] || null);
+    // v14.81.2+ — allow optional patch suffix (e.g. v14.81.2 not just v14.81)
+    const versionText = await page.evaluate(() => document.body.innerText.match(/v14\.\d+(?:\.\d+)?/)?.[0] || null);
     const versionOk = EXPECT_VERSION ? versionText === EXPECT_VERSION : !!versionText;
     add('1. Login page renders', rootSize1 > 100 && errs.length === 0, true, `root=${rootSize1} ver=${versionText} errs=${errs.length}`);
     add('2. Version marker present', versionOk, true, EXPECT_VERSION ? `expected ${EXPECT_VERSION} got ${versionText}` : `${versionText}`);
@@ -53,14 +54,17 @@ async function run() {
     const loginErrs = errs.length;
     add('3. Login succeeds → Admin dashboard', rootSize2 > 5000 && loginErrs === 0, true, `root=${rootSize2} errs=${loginErrs}`);
 
-    // ─── Phase 4: Admin bottom nav (v14.51+) ────────────────────────────
+    // ─── Phase 4: Admin bottom nav (v14.80+: 5 buttons — Pipeline added) ─────
+    // v14.80 intentionally shipped a 5-button admin nav: Dashboard | Pipeline |
+    // Dial | Referrals | Profile. Pipeline routes into AgentView pipeline tab.
     const bottomNavBtns = await page.$$('[data-testid^="admin-bottom-nav-"]');
     const bottomNavLabels = [];
     for (const b of bottomNavBtns) bottomNavLabels.push((await b.textContent()).trim());
-    const navOk = bottomNavLabels.length === 4 &&
-      bottomNavLabels.includes('Dashboard') && bottomNavLabels.includes('Dial') &&
-      bottomNavLabels.includes('Referrals') && bottomNavLabels.includes('Profile');
-    add('4. Admin bottom nav (4 buttons)', navOk, false, `[${bottomNavLabels.join(',')}]`);
+    const navOk = bottomNavLabels.length === 5 &&
+      bottomNavLabels.includes('Dashboard') && bottomNavLabels.includes('Pipeline') &&
+      bottomNavLabels.includes('Dial') && bottomNavLabels.includes('Referrals') &&
+      bottomNavLabels.includes('Profile');
+    add('4. Admin bottom nav (5 buttons)', navOk, false, `[${bottomNavLabels.join(',')}]`);
 
     // ─── Phase 5: Leaderboard populated with agents ──────────────────────
     // Admin default tab is leaderboard; wait for agent rows

@@ -6,7 +6,8 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubCreateCandidate, ENTRY_PATH_CONFIG, type CandidateEntryPath } from "./fub";
+import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubCreateCandidate, fubPostQuestionnaireNote, ENTRY_PATH_CONFIG, type CandidateEntryPath } from "./fub";
+import { computeRecommendation, formatQuestionnaireForHumans } from "./recommendation";
 import QRCode from "qrcode";
 import {
   initAuthSchema,
@@ -312,7 +313,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.5 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.6 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -371,7 +372,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.5 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -656,7 +657,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.5 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1737,7 +1738,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.5</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.6</p>
             </div>
           `,
         });
@@ -1897,7 +1898,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.5 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.6 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -5389,7 +5390,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.5 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.6 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5621,7 +5622,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.5",
+      version: "v15.6",
       services: results,
     });
   });
@@ -6528,7 +6529,7 @@ Brothers Group Real Estate Team at Momentum Realty
   });
 
 
-  // ─── v15.5 — ONBOARDING CANDIDATES ─────────────────────────────────────────
+  // ─── v15.6 — ONBOARDING CANDIDATES ─────────────────────────────────────────
   // Admin invites candidates who said "yes" in a real-world conversation.
   // Flow: pick entry path (7) → pick delivery mode (4) → generate token + FUB push → deliver
   // Token TTL 14d. FUB errors are non-blocking; invite always succeeds.
@@ -6727,7 +6728,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.5`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.6`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -6838,6 +6839,15 @@ Brothers Group Real Estate Team at Momentum Realty
     }
 
     // Return a safe subset (no admin-only fields)
+    let draftAnswers: any = null;
+    let draftCurrentSection: number | null = null;
+    if (row.questionnaire_draft_json) {
+      try {
+        const parsed = JSON.parse(row.questionnaire_draft_json);
+        draftAnswers = parsed && typeof parsed === "object" ? (parsed.answers || parsed) : null;
+        draftCurrentSection = typeof parsed?.currentSection === "number" ? parsed.currentSection : null;
+      } catch {}
+    }
     res.json({
       ok: true,
       candidate: {
@@ -6850,6 +6860,7 @@ Brothers Group Real Estate Team at Momentum Realty
         fubStage: row.fub_stage,
         status,
         tokenExpiresAt: row.token_expires_at,
+        draft: draftAnswers ? { answers: draftAnswers, currentSection: draftCurrentSection, updatedAt: row.questionnaire_draft_updated_at } : null,
       },
     });
   });
@@ -6867,6 +6878,212 @@ Brothers Group Real Estate Team at Momentum Realty
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
     }
+  });
+
+  // POST /api/candidates/by-token/:token/save-progress  (PUBLIC) ────────────
+  // Persists a partial questionnaire so the candidate can resume later.
+  // Not scored, not FUB-pushed. Only saves if candidate is still in an editable status.
+  app.post("/api/candidates/by-token/:token/save-progress", (req: any, res) => {
+    const token = String(req.params.token || "").trim();
+    if (!token) return res.status(400).json({ error: "token required" });
+    const row = rawDb.prepare(`SELECT * FROM candidates WHERE token = ? LIMIT 1`).get(token) as any;
+    if (!row) return res.status(404).json({ error: "not_found" });
+
+    const status = candidateStatusFromTokenExpiry(row);
+    if (status === "expired") return res.status(410).json({ error: "expired" });
+    if (status === "submitted" || status === "approved" || status === "declined") {
+      return res.status(409).json({ error: "already_submitted", status });
+    }
+
+    const draft = req.body && typeof req.body === "object" ? req.body : {};
+    if (!draft.answers || typeof draft.answers !== "object") {
+      return res.status(400).json({ error: "invalid_body", detail: "expected { answers, currentSection }" });
+    }
+    const nowIso = new Date().toISOString();
+    rawDb.prepare(
+      `UPDATE candidates
+         SET questionnaire_draft_json = ?, questionnaire_draft_updated_at = ?, last_activity_at = ?
+       WHERE id = ?`
+    ).run(JSON.stringify(draft), nowIso, nowIso, row.id);
+    res.json({ ok: true, savedAt: nowIso });
+  });
+
+  // POST /api/candidates/by-token/:token/submit  (PUBLIC) ───────────────────
+  // Candidate submits the completed 28-question form. We save, score, notify.
+  app.post("/api/candidates/by-token/:token/submit", async (req: any, res) => {
+    const token = String(req.params.token || "").trim();
+    if (!token) return res.status(400).json({ error: "token required" });
+    const row = rawDb.prepare(`SELECT * FROM candidates WHERE token = ? LIMIT 1`).get(token) as any;
+    if (!row) return res.status(404).json({ error: "not_found" });
+
+    const status = candidateStatusFromTokenExpiry(row);
+    if (status === "expired") return res.status(410).json({ error: "expired" });
+    if (status === "submitted" || status === "approved" || status === "declined") {
+      return res.status(409).json({ error: "already_submitted", status });
+    }
+
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const answers = body.answers && typeof body.answers === "object" ? body.answers : null;
+    if (!answers) {
+      return res.status(400).json({ error: "invalid_body", detail: "expected { answers }" });
+    }
+
+    // Validate required fields (spec Section 1 + agreements)
+    const required = ["full_name", "city_county", "license_status", "agreement_team_ethic", "agreement_verify"];
+    const missing = required.filter(k => {
+      const v = (answers as any)[k];
+      if (k.startsWith("agreement_")) return v !== true && v !== "true" && v !== 1;
+      return v === undefined || v === null || String(v).trim() === "";
+    });
+    if (missing.length) {
+      return res.status(400).json({ error: "missing_fields", missing });
+    }
+
+    // Compute recommendation
+    const rec = computeRecommendation(answers);
+
+    // Persist
+    const nowIso = new Date().toISOString();
+    const candidateName = `${row.first_name} ${row.last_name}`.trim();
+    rawDb.prepare(
+      `UPDATE candidates
+         SET status = 'submitted',
+             questionnaire_json = ?,
+             questionnaire_submitted_at = ?,
+             questionnaire_draft_json = NULL,
+             recommendation = ?,
+             recommendation_score = ?,
+             recommendation_reason = ?,
+             last_activity_at = ?
+       WHERE id = ?`
+    ).run(
+      JSON.stringify(answers),
+      nowIso,
+      rec.category,
+      rec.score,
+      rec.reason,
+      nowIso,
+      row.id
+    );
+
+    // Non-blocking side effects
+    const humansBody = formatQuestionnaireForHumans(answers);
+
+    // 1. Push to FUB (note + tag)
+    if (row.fub_person_id) {
+      try {
+        await fubPostQuestionnaireNote({
+          fubPersonId: row.fub_person_id,
+          candidateName,
+          recommendation: rec.category,
+          score: rec.score,
+          reason: rec.reason,
+          questionnaireBody: humansBody,
+        });
+      } catch (err: any) {
+        console.warn("[candidates/submit] FUB push failed (non-blocking):", err?.message || err);
+      }
+    } else {
+      console.warn(`[candidates/submit] Candidate ${row.id} has no fub_person_id — skipping FUB push`);
+    }
+
+    // 2. Auto-reply to candidate
+    if (resend && row.email) {
+      try {
+        const firstName = row.first_name || "there";
+        const bodyText = [
+          `Hey ${firstName},`,
+          ``,
+          `We got your application — thanks for taking the time to walk us through it.`,
+          ``,
+          `Alex will personally review your answers and be back in touch within 2 business days. If anything comes up in the meantime, just reply to this email or text either of us directly.`,
+          ``,
+          `Talk soon,`,
+          `— Alex Watson`,
+        ].join("\n");
+        const html = renderBrandedEmail({
+          bodyText,
+          agentName: "Alex Watson",
+          agentTitle: "Broker · Brothers Group Real Estate Team · Momentum Realty",
+          agentEmail: "alex@watsonbrothersgroup.com",
+        });
+        await resend.emails.send({
+          from: "Brothers Group <noreply@watsonbrothersgroup.com>",
+          to: [row.email],
+          replyTo: "alex@watsonbrothersgroup.com",
+          subject: "We got your application — Brothers Group Real Estate",
+          html,
+          text: bodyText,
+        });
+        console.log(`[candidates/submit] Auto-reply sent to ${row.email}`);
+      } catch (err: any) {
+        console.warn("[candidates/submit] Auto-reply email failed (non-blocking):", err?.message || err);
+      }
+    }
+
+    // 3. Admin review email to alex@ + nate@
+    if (resend) {
+      try {
+        const cityLabel = String((answers as any).city_county || "").trim() || "unknown";
+        const badgeMap: Record<string, string> = {
+          STRONG_FIT: "[STRONG FIT]",
+          WORTH_A_CALL: "[WORTH A CALL]",
+          SOFT_PASS: "[SOFT PASS]",
+          HARD_PASS: "[HARD PASS]",
+        };
+        const subject = `${badgeMap[rec.category] || "[Candidate]"} ${candidateName} — ${cityLabel}`;
+        const reviewUrl = `${(process.env.APP_URL || "https://depot.watsonbrothersgroup.com").replace(/\/$/, "")}/#/admin`;
+        const bodyText = [
+          `New candidate submission — ${candidateName}.`,
+          ``,
+          `Recommendation: ${rec.category} (${rec.score}/100)`,
+          `Reason: ${rec.reason}`,
+          ``,
+          `Contact:`,
+          `• Phone: ${row.phone || "—"}`,
+          `• Email: ${row.email || "—"}`,
+          `• Entry path: ${row.entry_path} (${row.temperature})`,
+          ``,
+          `── Full questionnaire ──`,
+          humansBody,
+          ``,
+          `Review in Admin Dashboard → ${reviewUrl}`,
+          ``,
+          `— Lead Depot`,
+        ].join("\n");
+        const html = renderBrandedEmail({
+          bodyText,
+          agentName: "Lead Depot",
+          agentTitle: "Onboarding notifications",
+          agentEmail: "noreply@watsonbrothersgroup.com",
+        });
+        await resend.emails.send({
+          from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+          to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+          replyTo: row.email || "alex@watsonbrothersgroup.com",
+          subject,
+          html,
+          text: bodyText,
+        });
+        console.log(`[candidates/submit] Admin review email sent for candidate ${row.id}`);
+      } catch (err: any) {
+        console.warn("[candidates/submit] Admin review email failed (non-blocking):", err?.message || err);
+      }
+    }
+
+    // 4. Broadcast so admin dashboard live-updates the Candidates tab
+    try {
+      broadcast({ type: "candidate_submitted", candidateId: row.id, recommendation: rec.category, score: rec.score });
+    } catch {}
+
+    res.json({
+      ok: true,
+      candidateId: row.id,
+      recommendation: rec.category,
+      score: rec.score,
+      reason: rec.reason,
+      submittedAt: nowIso,
+    });
   });
 
   // DELETE /api/candidates/:id  (admin — hard delete before questionnaire) ──
@@ -7150,7 +7367,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.5</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.6</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

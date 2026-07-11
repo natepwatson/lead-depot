@@ -194,6 +194,14 @@ try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates
 try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_phone ON candidates(phone) WHERE phone IS NOT NULL`); } catch {}
 try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_temp ON candidates(temperature)`); } catch {}
 
+// v15.6 — Phase 2 columns on candidates (mirror of db.ts).
+try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN recommendation TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN recommendation_score INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN recommendation_reason TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN admin_notes TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN questionnaire_draft_json TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN questionnaire_draft_updated_at TEXT`); } catch {}
+
 try { sqlite.exec(`CREATE TABLE IF NOT EXISTS onboarding_checklist (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   agent_id INTEGER NOT NULL,

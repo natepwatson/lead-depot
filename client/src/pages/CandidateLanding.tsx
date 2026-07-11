@@ -1,16 +1,18 @@
 /**
- * CandidateLanding — v15.5 public onboarding welcome page
+ * CandidateLanding — v15.6 public onboarding page
  * URL: /join/:token
  *
- * Flow:
+ * Flow (v15.6):
  *   1) Fetch /api/candidates/by-token/:token (server auto-marks 'started' on first open)
  *   2) Show personalized welcome ("Hi <first>") with entry-path-aware copy
- *   3) "Start Application" → stub for v15.6 questionnaire
+ *   3) "Start Application" → mount the 28-question form inline
+ *   4) On successful submit → show thank-you card with recommendation-agnostic copy
  *
- * Handles states: loading | invited | started | submitted | approved | expired | error
+ * States: loading | ready | filling | submitted | expired | error
  */
 import { useEffect, useState } from "react";
 import { useRoute } from "wouter";
+import CandidateQuestionnaire from "./CandidateQuestionnaire";
 
 const GOLD = "#c8aa5a";
 const GOLD_SOFT = "#8a6a20";
@@ -19,17 +21,20 @@ const BG = "linear-gradient(180deg, #0d0b08 0%, #17130c 55%, #0d0b08 100%)";
 interface CandidatePublic {
   firstName: string;
   lastName: string;
+  email?: string;
+  phone?: string;
   entryPath: string;
   temperature: "nurture" | "hot_prospect" | "vendor";
   fubStage: string;
   status: string;
   tokenExpiresAt?: string;
+  draft?: { answers: Record<string, any>; currentSection: number | null; updatedAt?: string } | null;
 }
 
 export default function CandidateLanding() {
   const [, params] = useRoute("/join/:token");
   const token = params?.token || "";
-  const [state, setState] = useState<"loading" | "ready" | "expired" | "error">("loading");
+  const [state, setState] = useState<"loading" | "ready" | "filling" | "submitted" | "expired" | "error">("loading");
   const [candidate, setCandidate] = useState<CandidatePublic | null>(null);
   const [errMsg, setErrMsg] = useState<string>("");
 
@@ -53,7 +58,12 @@ export default function CandidateLanding() {
         }
         const j = await r.json();
         setCandidate(j.candidate);
-        setState("ready");
+        // If already submitted/approved, jump straight to the submitted state.
+        if (j.candidate.status === "submitted" || j.candidate.status === "approved" || j.candidate.status === "active") {
+          setState("submitted");
+        } else {
+          setState("ready");
+        }
       } catch (err: any) {
         setErrMsg(err?.message || "Network error. Please try again.");
         setState("error");
@@ -74,7 +84,7 @@ export default function CandidateLanding() {
   };
 
   const cardStyle: React.CSSProperties = {
-    maxWidth: 560,
+    maxWidth: 620,
     width: "100%",
     background: "rgba(255,255,255,0.04)",
     border: `1px solid ${GOLD_SOFT}55`,
@@ -146,8 +156,63 @@ export default function CandidateLanding() {
     );
   }
 
-  const submitted = candidate.status === "submitted" || candidate.status === "approved" || candidate.status === "active";
+  if (state === "submitted") {
+    return (
+      <div style={containerStyle}>
+        <div style={brandStyle}>Brothers Group</div>
+        <div style={subStyle}>Real Estate Team · Momentum Realty</div>
+        <div style={cardStyle}>
+          <div style={{ fontSize: 13, letterSpacing: 2, textTransform: "uppercase", color: GOLD, marginBottom: 8 }}>
+            All done
+          </div>
+          <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 500, fontSize: 32, margin: "0 0 20px 0", lineHeight: 1.2 }}>
+            Thanks, {candidate.firstName}.
+          </h1>
+          <p style={{ lineHeight: 1.7, fontSize: 16, marginBottom: 16 }}>
+            We have your application. Alex will personally read through it and be in touch within two business days.
+          </p>
+          <p style={{ lineHeight: 1.7, fontSize: 15, opacity: 0.75 }}>
+            You should have a confirmation email in your inbox already. If anything comes up in the meantime, just reply to that email or reach out any time.
+          </p>
+          <div style={{ marginTop: 24, padding: 14, background: "rgba(200,170,90,0.08)", borderLeft: `3px solid ${GOLD}`, borderRadius: 4 }}>
+            <div style={{ fontSize: 14 }}>Alex Watson</div>
+            <div style={{ fontSize: 13, opacity: 0.8 }}>alex@watsonbrothersgroup.com</div>
+            <div style={{ fontSize: 13, opacity: 0.8 }}>(904) 800-8846</div>
+          </div>
+          <div style={{ marginTop: 28, paddingTop: 20, borderTop: `1px solid ${GOLD_SOFT}33`, fontSize: 12, opacity: 0.6, textAlign: "center" }}>
+            Lead Depot v15.6 · depot.watsonbrothersgroup.com
+          </div>
+        </div>
+      </div>
+    );
+  }
 
+  if (state === "filling") {
+    return (
+      <div style={containerStyle}>
+        <div style={brandStyle}>Brothers Group</div>
+        <div style={subStyle}>Real Estate Team · Momentum Realty</div>
+        <div style={cardStyle}>
+          <CandidateQuestionnaire
+            token={token}
+            firstName={candidate.firstName}
+            lastName={candidate.lastName}
+            prefillEmail={candidate.email}
+            prefillPhone={candidate.phone}
+            initialAnswers={candidate.draft?.answers || null}
+            initialSection={candidate.draft?.currentSection ?? null}
+            onSubmitted={() => setState("submitted")}
+          />
+          <div style={{ marginTop: 28, paddingTop: 20, borderTop: `1px solid ${GOLD_SOFT}33`, fontSize: 12, opacity: 0.6, textAlign: "center" }}>
+            Lead Depot v15.6 · depot.watsonbrothersgroup.com
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // state === "ready" — landing card
+  const hasDraft = !!candidate.draft && candidate.draft.answers && Object.keys(candidate.draft.answers || {}).length > 0;
   return (
     <div style={containerStyle}>
       <div style={brandStyle}>Brothers Group</div>
@@ -161,55 +226,45 @@ export default function CandidateLanding() {
           Hi {candidate.firstName} —
         </h1>
 
-        {submitted ? (
-          <>
-            <p style={{ lineHeight: 1.7, fontSize: 16, marginBottom: 20 }}>
-              We have your application on file. Alex will be in touch personally within two business days.
-            </p>
-            <p style={{ lineHeight: 1.7, fontSize: 15, opacity: 0.75 }}>
-              If it's been longer than that, reach out any time.
-            </p>
-          </>
-        ) : (
-          <>
-            <p style={{ lineHeight: 1.7, fontSize: 16, marginBottom: 16 }}>
-              Good talking with you. Below is the application — it takes about 10 minutes. It covers your license, experience, and how you like to work.
-            </p>
-            <p style={{ lineHeight: 1.7, fontSize: 16, marginBottom: 24 }}>
-              Once you send it back, Alex reviews personally and will be in touch within two business days.
-            </p>
+        <p style={{ lineHeight: 1.7, fontSize: 16, marginBottom: 16 }}>
+          Good talking with you. Below is the application — it takes about 10 minutes and covers your license, experience, and how you like to work.
+        </p>
+        <p style={{ lineHeight: 1.7, fontSize: 16, marginBottom: 24 }}>
+          Once you send it back, Alex reviews personally and will be in touch within two business days.
+        </p>
 
-            <button
-              onClick={() => {
-                // v15.6 stub — questionnaire lives in a future release
-                alert("The full application questionnaire ships in v15.6. Alex has been notified that you opened your invitation and will follow up personally.");
-              }}
-              style={{
-                width: "100%",
-                background: `linear-gradient(180deg, ${GOLD} 0%, ${GOLD_SOFT} 100%)`,
-                color: "#0d0b08",
-                fontFamily: "'Switzer','Inter',sans-serif",
-                fontWeight: 600,
-                fontSize: 15,
-                letterSpacing: 1,
-                textTransform: "uppercase",
-                padding: "16px 20px",
-                border: "none",
-                borderRadius: 8,
-                cursor: "pointer",
-                boxShadow: "0 6px 20px rgba(200,170,90,0.25)",
-              }}
-            >
-              Start Application
-            </button>
-            <div style={{ marginTop: 12, textAlign: "center", fontSize: 12, opacity: 0.6 }}>
-              About 10 minutes · 28 questions · save as you go
-            </div>
-          </>
+        {hasDraft && (
+          <div style={{ marginBottom: 16, padding: 12, background: "rgba(200,170,90,0.08)", borderLeft: `3px solid ${GOLD}`, borderRadius: 4, fontSize: 14 }}>
+            We saved your progress from earlier — pick up where you left off.
+          </div>
         )}
 
+        <button
+          onClick={() => setState("filling")}
+          style={{
+            width: "100%",
+            background: `linear-gradient(180deg, ${GOLD} 0%, ${GOLD_SOFT} 100%)`,
+            color: "#0d0b08",
+            fontFamily: "'Switzer','Inter',sans-serif",
+            fontWeight: 600,
+            fontSize: 15,
+            letterSpacing: 1,
+            textTransform: "uppercase",
+            padding: "16px 20px",
+            border: "none",
+            borderRadius: 8,
+            cursor: "pointer",
+            boxShadow: "0 6px 20px rgba(200,170,90,0.25)",
+          }}
+        >
+          {hasDraft ? "Continue Application" : "Start Application"}
+        </button>
+        <div style={{ marginTop: 12, textAlign: "center", fontSize: 12, opacity: 0.6 }}>
+          About 10 minutes · 28 questions · save as you go
+        </div>
+
         <div style={{ marginTop: 28, paddingTop: 20, borderTop: `1px solid ${GOLD_SOFT}33`, fontSize: 12, opacity: 0.6, textAlign: "center" }}>
-          Lead Depot v15.5 · depot.watsonbrothersgroup.com
+          Lead Depot v15.6 · depot.watsonbrothersgroup.com
         </div>
       </div>
     </div>

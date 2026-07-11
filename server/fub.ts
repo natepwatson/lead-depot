@@ -872,3 +872,61 @@ export async function fubCreateCandidate(data: CandidateFubPayload): Promise<num
 
   return personId;
 }
+
+// ─── v15.6 — Post questionnaire submission note + tag update ────────────────
+// Called from POST /api/candidates/by-token/:token/submit after saving locally.
+// NON-BLOCKING — caller catches errors.
+export interface CandidateSubmitFubPayload {
+  fubPersonId: number;
+  candidateName: string;
+  recommendation: string;        // STRONG_FIT | WORTH_A_CALL | SOFT_PASS | HARD_PASS
+  score: number;                 // 0..100
+  reason: string;                // one-line
+  questionnaireBody: string;     // formatted answer dump
+}
+
+export async function fubPostQuestionnaireNote(payload: CandidateSubmitFubPayload): Promise<boolean> {
+  if (!FUB_API_KEY) {
+    console.warn("[FUB] FUB_API_KEY not set — skipping fubPostQuestionnaireNote");
+    return false;
+  }
+
+  const noteBody = [
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `Lead Depot — Application Submitted`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `Recommendation: ${payload.recommendation} (${payload.score}/100)`,
+    `Reason: ${payload.reason}`,
+    ``,
+    `Submitted: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} EDT`,
+    `Candidate: ${payload.candidateName}`,
+    ``,
+    `── QUESTIONNAIRE ──────────────`,
+    payload.questionnaireBody,
+    ``,
+    `Review in Admin Dashboard: https://depot.watsonbrothersgroup.com`,
+  ].join("\n");
+
+  const noteRes = await fubRequest("POST", "/notes", {
+    personId: payload.fubPersonId,
+    body: noteBody,
+    isHtml: false,
+  });
+  if (!noteRes.ok) {
+    console.error("[FUB] Failed to post questionnaire note:", noteRes.data);
+    return false;
+  }
+  console.log(`[FUB] Questionnaire note posted — person ${payload.fubPersonId}`);
+
+  // Refresh tags: fetch current, add "Application Submitted", keep the rest
+  const getRes = await fubRequest("GET", `/people/${payload.fubPersonId}`, undefined);
+  const existingTags: string[] = Array.isArray(getRes.data?.tags) ? getRes.data.tags : [];
+  const nextTags = Array.from(new Set([...existingTags, "Application Submitted"]));
+  const putRes = await fubRequest("PUT", `/people/${payload.fubPersonId}`, { tags: nextTags });
+  if (!putRes.ok) {
+    console.warn("[FUB] Failed to update tags after submit:", putRes.data);
+    return false;
+  }
+  console.log(`[FUB] Tags updated — person ${payload.fubPersonId} (added Application Submitted)`);
+  return true;
+}

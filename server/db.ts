@@ -843,6 +843,16 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates(ema
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_phone ON candidates(phone) WHERE phone IS NOT NULL`).run();
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_temp ON candidates(temperature)`).run();
 
+// v15.6 — Phase 2 columns for questionnaire submission flow.
+// Idempotent adds so existing prod DB gets them on next boot.
+const candColsV156 = rawDb.prepare("PRAGMA table_info(candidates)").all().map((c: any) => c.name);
+if (!candColsV156.includes("recommendation"))       rawDb.prepare("ALTER TABLE candidates ADD COLUMN recommendation TEXT").run();          // STRONG_FIT | WORTH_A_CALL | SOFT_PASS | HARD_PASS
+if (!candColsV156.includes("recommendation_score")) rawDb.prepare("ALTER TABLE candidates ADD COLUMN recommendation_score INTEGER").run(); // 0..100
+if (!candColsV156.includes("recommendation_reason")) rawDb.prepare("ALTER TABLE candidates ADD COLUMN recommendation_reason TEXT").run();  // one-line why
+if (!candColsV156.includes("admin_notes"))          rawDb.prepare("ALTER TABLE candidates ADD COLUMN admin_notes TEXT").run();
+if (!candColsV156.includes("questionnaire_draft_json"))       rawDb.prepare("ALTER TABLE candidates ADD COLUMN questionnaire_draft_json TEXT").run();       // partial answers, saved as they type
+if (!candColsV156.includes("questionnaire_draft_updated_at")) rawDb.prepare("ALTER TABLE candidates ADD COLUMN questionnaire_draft_updated_at TEXT").run();
+
 // onboarding_checklist: the 13-item post-approval task list (Phase 3).
 // Rows are inserted when Alex approves a candidate and creates their agent row.
 // The Nate brief email fires on approval and links here.

@@ -110,13 +110,13 @@ export function git(cmd) {
 // negative in Tier 0 preflight even though every source spot was correctly
 // bumped and J4 browser render confirmed v14.81.3.
 export const VERSION_BUMP_SPOTS = [
-  { file: 'client/src/pages/LoginPage.tsx',      pattern: /Lead Depot (v14\.\d+(?:\.\d+)?)/,        label: 'LoginPage footer' },
+  { file: 'client/src/pages/LoginPage.tsx',      pattern: /Lead Depot (v\d+\.\d+(?:\.\d+)?)/,        label: 'LoginPage footer' },
   // AdminDashboard header renders as JSX text — no quotes
-  { file: 'client/src/pages/AdminDashboard.tsx', pattern: />\s*(v14\.\d+(?:\.\d+)?)\s*</,          label: 'AdminDashboard header pill' },
-  { file: 'client/public/sw.js',                 pattern: /SW_VERSION\s*=\s*"(v14\.\d+(?:\.\d+)?)"/, label: 'sw.js SW_VERSION' },
-  { file: 'server/routes.ts',                    pattern: /Lead Depot (v14\.\d+(?:\.\d+)?)/g,       label: 'routes.ts digest footer(s)', multi: true },
+  { file: 'client/src/pages/AdminDashboard.tsx', pattern: />\s*(v\d+\.\d+(?:\.\d+)?)\s*</,          label: 'AdminDashboard header pill' },
+  { file: 'client/public/sw.js',                 pattern: /SW_VERSION\s*=\s*"(v\d+\.\d+(?:\.\d+)?)"/, label: 'sw.js SW_VERSION' },
+  { file: 'server/routes.ts',                    pattern: /Lead Depot (v\d+\.\d+(?:\.\d+)?)/g,       label: 'routes.ts digest footer(s)', multi: true },
   // /api/health JSON: `version: "v14.66"` — no colon-space in JSON key form; source is JS object literal
-  { file: 'server/routes.ts',                    pattern: /version:\s*"(v14\.\d+(?:\.\d+)?)"/,      label: 'routes.ts /api/health JSON' },
+  { file: 'server/routes.ts',                    pattern: /version:\s*"(v\d+\.\d+(?:\.\d+)?)"/,      label: 'routes.ts /api/health JSON' },
 ];
 
 export function readVersionSpots(root = '.') {

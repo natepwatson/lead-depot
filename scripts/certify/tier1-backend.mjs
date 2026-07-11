@@ -34,7 +34,11 @@ async function testHealth() {
     const r = await httpJson('GET', '/api/health');
     if (r.status !== 200) return [false, `http=${r.status}`];
     const j = r.json;
-    const versionOk = EXPECT_VERSION ? j.version === EXPECT_VERSION : /^v14\.\d+(?:\.\d+)?$/.test(j.version || '');
+    // v15.2 — accept any v<major>.<minor>[.<patch>] shape, not just v14.x.
+    // Previous regex was hardcoded to /^v14\.\d+(?:\.\d+)?$/ which triggered a
+    // false CRITICAL FAIL after the v14 → v15 rebase even though the app was
+    // fully healthy. Future major bumps should just work.
+    const versionOk = EXPECT_VERSION ? j.version === EXPECT_VERSION : /^v\d+\.\d+(?:\.\d+)?$/.test(j.version || '');
     const svcOk = j.services && Object.values(j.services).every(s => s.ok);
     return [versionOk && svcOk && j.status === 'healthy', `ver=${j.version} status=${j.status} services=${Object.keys(j.services || {}).length}`];
   });

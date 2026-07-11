@@ -1,0 +1,13 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newPage();
+await page.goto('https://depot.watsonbrothersgroup.com/', { waitUntil: 'networkidle' });
+await page.fill('input[type="email"]', 'alex@watsonbrothersgroup.com');
+await page.fill('input[type="password"]', 'brothers2026');
+await page.click('button[type="submit"]');
+await page.waitForTimeout(2000);
+const btns = await page.$$('[data-testid^="admin-bottom-nav-"]');
+const labels = [];
+for (const b of btns) labels.push((await b.textContent()).trim());
+console.log(JSON.stringify(labels));
+await browser.close();

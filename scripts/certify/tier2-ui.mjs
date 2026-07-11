@@ -58,7 +58,7 @@ async function journey1() {
     const root = await page.evaluate(() => document.getElementById('root')?.innerHTML?.length || 0);
     const versionOk = EXPECT_VERSION
       ? (await page.content()).includes(EXPECT_VERSION)
-      : /v14\.\d+/.test(await page.content());
+      : /v\d+\.\d+/.test(await page.content());
     return [root > 100 && errors.length === 0 && versionOk, `root=${root} errs=${errors.length} verOk=${versionOk}`];
   }));
 }
@@ -100,7 +100,7 @@ async function journey4() {
   await assertUI('J4 · version literal renders on login page', { critical: true }, () => withPage(null, async (page, errors) => {
     await page.goto(`${BASE}/?nc=${Date.now()}`, { waitUntil: 'networkidle' });
     const html = await page.content();
-    const target = EXPECT_VERSION || (html.match(/v14\.\d+/) || [null])[0];
+    const target = EXPECT_VERSION || (html.match(/v\d+\.\d+/) || [null])[0];
     const ok = !!target && html.includes(target) && errors.length === 0;
     return [ok, `target=${target} errs=${errors.length}`];
   }));

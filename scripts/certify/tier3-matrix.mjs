@@ -56,7 +56,7 @@ async function runRow(row) {
         await page.waitForLoadState('networkidle').catch(() => {});
       }
     }
-    const versionOk = EXPECT_VERSION ? html.includes(EXPECT_VERSION) : /v14\.\d+/.test(html);
+    const versionOk = EXPECT_VERSION ? html.includes(EXPECT_VERSION) : /v\d+\.\d+/.test(html);
 
     // Login
     await page.fill('input[type="email"], input[name="email"]', ADMIN_EMAIL);

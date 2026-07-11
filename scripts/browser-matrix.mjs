@@ -80,7 +80,7 @@ async function runRow(row) {
     await page.waitForTimeout(2000);
     const rootSize1 = await page.evaluate(() => document.getElementById('root')?.innerHTML?.length || 0);
     // v14.81.2+ — allow optional patch suffix (e.g. v14.81.2 not just v14.81)
-    const versionText = await page.evaluate(() => document.body.innerText.match(/v14\.\d+(?:\.\d+)?/)?.[0] || null);
+    const versionText = await page.evaluate(() => document.body.innerText.match(/v\d+\.\d+(?:\.\d+)?/)?.[0] || null);
     set('login_renders', rootSize1 > 100 && errs.length === 0, true, `root=${rootSize1}`);
     set('version_marker', EXPECT_VERSION ? versionText === EXPECT_VERSION : !!versionText, true, `${versionText || 'none'}`);
 

@@ -78,6 +78,13 @@ export function checkPassword(
     }
   }
 
+  // v15.10 — broader ban: any "brothers<4-digits>" or "watson<4-digits>" pattern.
+  // This catches brothers2027, brothers2028, watson1234, etc. without having to
+  // enumerate every year in BANNED_LITERALS.
+  if (/(brothers|watson|leaddepot|momentum)\s*\d{2,}/i.test(pw)) {
+    errors.push("Cannot contain your team name followed by digits");
+  }
+
   const email = (ctx.email || "").toLowerCase();
   if (email) {
     const local = email.split("@")[0];

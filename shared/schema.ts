@@ -19,12 +19,6 @@ export const agents = sqliteTable("agents", {
   minDialsPerWeek: integer("min_dials_per_week").notNull().default(0),
   // Agent profile fields
   phone: text("phone"),
-  // v15.8 — Optional distinct "public" phone shown in cold outreach templates.
-  // Rationale: Alex's real published/business line is 904-785-8147 but the
-  // `phone` field is his personal cell used elsewhere in the app. Cold emails
-  // (Flow 1 templates) render `publishedPhone` when set, otherwise fall back
-  // to `phone` — preserves current behavior for anyone who hasn't set it.
-  publishedPhone: text("published_phone"),
   brokerage: text("brokerage"),
   homeAddress: text("home_address"),
   headshotUrl: text("headshot_url"),

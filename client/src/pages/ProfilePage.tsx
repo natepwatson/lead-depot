@@ -13,7 +13,6 @@ import {
 // entries visible to agents so they see the app improving under them. Newest
 // at the top. Keep entries short — one line, agent-facing plain English.
 const CHANGELOG: { version: string; date: string; note: string }[] = [
-  { version: "v15.8",    date: "Jul 11", note: "Phone-sales polish batch: bottom nav no longer covers modals (Recycle sheet + Close Lead sheet now click-through); the false 'Quiet \u2014 be the first' pill is hidden whenever a live dial is happening; 'Left VM' outcome renamed to 'Owner - No Answer' (icon swapped, meaning corrected); KIT promoted above Emails in every leaderboard (KIT is a real conversation win); cold-outreach emails now use an optional 'Published Phone' from Profile (falls back to Phone) and no longer shout ALL-CAPS names; admin 'Weekly Dials' tile finally shows real numbers (query was joining the wrong reason column); and a pulsing 'Prime Time in ~30 min' banner + optional push notification warns you when a hot call window is about to open." },
   { version: "v15.7",    date: "Jul 11", note: "Momentum Realty story woven into recruiting: candidate landing page now leads with the RealTrends 500 (#440 in the U.S.) trajectory — 4 agents in Jan 2020 → 268 agents / $583M volume — followed by the 100% / $12K / $0 economics block and the founder-access line ('Founder-owned. Founder-led. Two operators who still answer their own phones.'). Invitation email rewritten to open with the same trajectory + founder story before the application ask." },
   { version: "v15.6",    date: "Jul 11", note: "Onboarding Phase 2 shipped: candidates can now open their /join link and fill a 28-question application in six sections with save-as-you-go and mobile-first design. On submit, the system scores the candidate (STRONG_FIT → HARD_PASS), pushes a full summary + tag to Follow Up Boss, sends the candidate a confirmation email, and drops a review email in Alex + Nate's inbox." },
   { version: "v15.5",    date: "Jul 11", note: "Onboarding candidates — Alex can invite a candidate (7 entry paths → 3 FUB stages) after a real-world \"yes\" conversation and deliver via QR scan / text link / email / create-only. Auto-pushes to Follow Up Boss with the right stage + tags." },
@@ -64,8 +63,6 @@ interface AgentProfile {
   name: string;
   email: string;
   phone: string;
-  // v15.8 — optional phone shown in cold outreach; falls back to `phone` when empty
-  publishedPhone: string;
   brokerage: string;
   homeAddress: string;
   headshotUrl: string;
@@ -88,7 +85,6 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
     name: user?.name ?? "",
     email: user?.email ?? "",
     phone: "",
-    publishedPhone: "",
     brokerage: "",
     homeAddress: "",
     headshotUrl: "",
@@ -160,7 +156,6 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
             name:        d.agent.name        ?? p.name,
             email:       d.agent.email       ?? p.email,
             phone:       d.agent.phone       ?? "",
-            publishedPhone: d.agent.publishedPhone ?? d.agent.published_phone ?? "",
             brokerage:   d.agent.brokerage   ?? "",
             homeAddress: d.agent.homeAddress ?? d.agent.home_address ?? "",
             headshotUrl: d.agent.headshotUrl ?? d.agent.headshot_url ?? "",
@@ -184,7 +179,6 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
         name: profile.name,
         email: profile.email,
         phone: profile.phone,
-        publishedPhone: profile.publishedPhone,
         brokerage: profile.brokerage,
         homeAddress: profile.homeAddress,
       });
@@ -405,17 +399,8 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
               <input style={inp} type="email" value={profile.email} onChange={e => setProfile(p => ({ ...p, email: e.target.value }))} placeholder="your@email.com" />
             </div>
             <div>
-              <label style={lbl}><Phone size={9} style={{ display: "inline", marginRight: 5 }} />Phone (personal / internal)</label>
+              <label style={lbl}><Phone size={9} style={{ display: "inline", marginRight: 5 }} />Phone</label>
               <input style={inp} type="tel" value={profile.phone} onChange={e => setProfile(p => ({ ...p, phone: e.target.value }))} placeholder="(904) 555-0100" />
-            </div>
-            {/* v15.8 — Published phone rendered in Flow 1 cold outreach templates. When blank
-                the app falls back to `phone` so nothing breaks for agents who don't set it. */}
-            <div>
-              <label style={lbl}><Phone size={9} style={{ display: "inline", marginRight: 5 }} />Published Phone (shown in cold outreach)</label>
-              <input style={inp} type="tel" value={profile.publishedPhone} onChange={e => setProfile(p => ({ ...p, publishedPhone: e.target.value }))} placeholder="(904) 785-8147 — leave blank to use Phone above" />
-              <p style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 4 }}>
-                Optional. Set this to a distinct business/DID line if you don't want your personal cell in cold emails.
-              </p>
             </div>
             <div>
               <label style={lbl}><Building2 size={9} style={{ display: "inline", marginRight: 5 }} />Brokerage</label>

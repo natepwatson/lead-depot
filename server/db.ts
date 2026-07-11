@@ -843,7 +843,7 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates(ema
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_phone ON candidates(phone) WHERE phone IS NOT NULL`).run();
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_temp ON candidates(temperature)`).run();
 
-// v15.7 — Phase 2 columns for questionnaire submission flow.
+// v15.6 — Phase 2 columns for questionnaire submission flow.
 // Idempotent adds so existing prod DB gets them on next boot.
 const candColsV156 = rawDb.prepare("PRAGMA table_info(candidates)").all().map((c: any) => c.name);
 if (!candColsV156.includes("recommendation"))       rawDb.prepare("ALTER TABLE candidates ADD COLUMN recommendation TEXT").run();          // STRONG_FIT | WORTH_A_CALL | SOFT_PASS | HARD_PASS
@@ -884,12 +884,6 @@ if (!agentColsV155.includes("candidate_id"))     rawDb.prepare("ALTER TABLE agen
 if (!agentColsV155.includes("onboarding_started_at")) rawDb.prepare("ALTER TABLE agents ADD COLUMN onboarding_started_at TEXT").run();
 if (!agentColsV155.includes("onboarding_completed_at")) rawDb.prepare("ALTER TABLE agents ADD COLUMN onboarding_completed_at TEXT").run();
 if (!agentColsV155.includes("tcpa_consent_at")) rawDb.prepare("ALTER TABLE agents ADD COLUMN tcpa_consent_at TEXT").run();
-
-// v15.8 — optional distinct published phone for cold email templates. Falls
-// back to `phone` when null. Alex needed this because his personal cell in
-// `phone` shouldn't be exposed in cold outreach to strangers.
-const agentColsV158 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
-if (!agentColsV158.includes("published_phone")) rawDb.prepare("ALTER TABLE agents ADD COLUMN published_phone TEXT").run();
 
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");

@@ -1609,7 +1609,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.8
+              v15.7
             </p>
           </div>
         </div>
@@ -2013,23 +2013,19 @@ export default function AdminDashboard({
                   {/* v14.29 — Unified column order: APPTS first & bold gold (the #1 goal), Points second, Dials third. Then supporting metrics. */}
                   {lbTab === "today" ? (
                     <>
-                      {/* v15.8 — Alex: KIT above emails in leaderboard ranking. KIT is
-                          promoted to a PRIMARY column (drops .ld-lb-supporting) and moved
-                          ahead of Emails, because a Keep-in-Touch is worth more than a
-                          cold email fire-and-forget. Column order: Pts, Appts, Dials, KIT,
-                          Emails, Refs. Refs stays supporting (hidden on phones). */}
+                      {/* v14.55 — Alex: "points should be the main indicator of first place. From left to
+                          right: points, appts, dials, email." Emails is now a PRIMARY column (not
+                          supporting). KIT/Refs are demoted to .ld-lb-supporting (hidden on phones,
+                          shown on tablets+). Pts is the hero cell — gold pill, biggest number. */}
                       <div style={{ width: 48, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                       <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
                       <div style={{ width: 40, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
+                      <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
                       <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
                   ) : (
                     <>
-                      {/* v15.8 — Week view keeps KIT hidden on mobile (Conv% is the
-                          week-view supporting column). If Alex wants KIT here too we
-                          can bump it up in v15.9. */}
                       <div style={{ width: 48, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                       <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
                       <div style={{ width: 40, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
@@ -2169,12 +2165,11 @@ export default function AdminDashboard({
                                 <div style={{ width: 40 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
                                 </div>
-                                {/* v15.8 — KIT promoted to primary and moved ahead of Emails */}
-                                <div style={{ width: 44 }}>
-                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#c4b5fd" }}>{s.kit}</div>
-                                </div>
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
+                                </div>
+                                <div className="ld-lb-supporting" style={{ width: 44 }}>
+                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#c4b5fd" }}>{s.kit}</div>
                                 </div>
                                 <div className="ld-lb-supporting" style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>

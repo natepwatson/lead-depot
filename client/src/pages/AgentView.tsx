@@ -16,16 +16,11 @@ import {
   Home, Voicemail, Layers, Calendar,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
+import TutorialModal from "../components/TutorialModal";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
 import { playSound } from "@/lib/sounds";
 import AnimatedNumber from "../components/AnimatedNumber";
-import type { Lead as LeadRow } from "@shared/schema";
-
-// v14.81 — myAttemptsToday is a synthetic field the server attaches on top of
-// the real lead row (see server/routes.ts countMyAttemptsToday call sites) —
-// it's never a DB column, so it doesn't belong in shared/schema.ts's Drizzle-
-// inferred Lead type. Extend it locally so LeadCard can read it type-safely.
-type Lead = LeadRow & { myAttemptsToday?: number };
+import type { Lead } from "@shared/schema";
 
 // ─── LPMAMA fields config ─────────────────────────────────────────────────────
 // v14.56 — removed dead LogoIcon component (last usage stripped in v14.54 header cleanup).
@@ -2576,6 +2571,7 @@ const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
 export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }: { onBackToAdmin?: () => void; initialTab?: Tab; mode?: "seller" | "recruiting" } = {}) {
   const { user, logout } = useAuth();
   const [tab, setTab] = useState<Tab>(initialTab ?? "leaderboard");
+  const [showTutorial, setShowTutorial] = useState(false);
   const { connected: wsConnected } = useRealtimeUpdates();
   const qc = useQueryClient();
 
@@ -3379,6 +3375,7 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
       `}</style>
 
       {/* Tutorial modal */}
+      {showTutorial && <TutorialModal onClose={() => setShowTutorial(false)} />}
     </div>
   );
 }

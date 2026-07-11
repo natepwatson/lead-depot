@@ -12,14 +12,12 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import HeadshotGate from "./components/ld/HeadshotGate";
 import HomeCountyGate from "./components/ld/HomeCountyGate";
 import WatsonEmailNudge from "./components/ld/WatsonEmailNudge";
-import ProfileGate from "./components/ProfileGate";
-import TutorialFlow from "./components/TutorialFlow";
 import NotFound from "./pages/not-found";
 import JoinPage from "./pages/JoinPage";
 import { useEffect, useState } from "react";
 
 function AppRoutes() {
-  const { user, setHeadshot, setHomeCounty, setTutorialCompleted, refreshUser } = useAuth();
+  const { user, setHeadshot, setHomeCounty } = useAuth();
   // v14.51 — admin bottom nav can jump to any agent-side tab, not just leads.
   // null = show AdminDashboard. "leads"/"refer"/"leaderboard"/"profile" = show AgentView on that tab.
   const [adminAgentTab, setAdminAgentTab] = useState<null | "leads" | "refer" | "leaderboard" | "profile" | "pipeline">(null);
@@ -45,30 +43,6 @@ function AppRoutes() {
   // v14.7 — Headshot no longer blocks. Agents can work immediately;
   // headshot upload is available from the Profile tab.
   // (HeadshotGate kept in imports for future opt-in nag, but not rendered.)
-
-  // v14.81 — Two new onboarding gates for agents, in order after HomeCounty
-  // (the most fundamental / pre-existing gate). Admins (Alex + Nate) are
-  // pre-marked complete for both via the startup backfill migration, so this
-  // never blocks them. A rewatch (triggered from Profile) sets tutorialCompletedAt
-  // back to null server-side but flags sessionStorage so TutorialFlow knows
-  // it's not the agent's first time (enables the Skip button).
-  if (isAgent && !user.profileCompletedAt) {
-    return <ProfileGate onComplete={() => refreshUser()} />;
-  }
-  if (isAgent && !user.tutorialCompletedAt) {
-    const isRewatch = (() => {
-      try { return sessionStorage.getItem("ld_tutorial_rewatch") === "true"; } catch { return false; }
-    })();
-    return (
-      <TutorialFlow
-        isFirstTime={!isRewatch}
-        onComplete={() => {
-          try { sessionStorage.removeItem("ld_tutorial_rewatch"); } catch {}
-          setTutorialCompleted(new Date().toISOString());
-        }}
-      />
-    );
-  }
 
   // v12.5 — Recruiting Depot is admin-only. Non-admin at #/recruiting → redirect.
   const onRecruiting = location.startsWith("/recruiting");

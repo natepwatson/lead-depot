@@ -387,51 +387,6 @@ rawDb.exec(`
   CREATE INDEX IF NOT EXISTS idx_agent_audit_log_target ON agent_audit_log(target_id, ts DESC);
 `);
 
-// ─── v14.81 — Onboarding: profile_completed_at + tutorial_completed_at ───────
-// profile_completed_at: nullable ISO timestamp. Set once the agent completes
-// the mandatory ProfileGate (name/phone/brokerage/home_address all filled).
-// tutorial_completed_at: nullable ISO timestamp. Set once the agent finishes
-// (or, on rewatch, skips) the 7-chapter TutorialFlow. NULL on either column
-// means the corresponding gate still shows on next login. Wrapped in
-// try/catch — ALTER TABLE ADD COLUMN is safe to re-run but we guard anyway
-// per the codebase's convention for schema-touching migrations.
-try {
-  const agentColsV1481 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
-  if (!agentColsV1481.includes("profile_completed_at")) {
-    rawDb.prepare("ALTER TABLE agents ADD COLUMN profile_completed_at TEXT").run();
-  }
-  if (!agentColsV1481.includes("tutorial_completed_at")) {
-    rawDb.prepare("ALTER TABLE agents ADD COLUMN tutorial_completed_at TEXT").run();
-  }
-} catch (err) {
-  console.error("[db] v14.81 onboarding column migration failed:", err);
-}
-
-// v14.81 — Backfill on startup. Existing agents who already have name+phone
-// on file have effectively already "completed" the profile step manually —
-// don't gate them retroactively. Alex + Nate (admins who built the tutorial)
-// are marked tutorial-complete too so they aren't shown their own onboarding
-// flow; every other existing agent still sees the tutorial once on next login
-// (their tutorial_completed_at stays NULL here).
-try {
-  const nowIso = new Date().toISOString();
-  rawDb.prepare(`
-    UPDATE agents
-       SET profile_completed_at = ?
-     WHERE profile_completed_at IS NULL
-       AND name IS NOT NULL
-       AND phone IS NOT NULL
-  `).run(nowIso);
-  rawDb.prepare(`
-    UPDATE agents
-       SET tutorial_completed_at = ?
-     WHERE email IN ('alex@watsonbrothersgroup.com', 'nate@watsonbrothersgroup.com')
-       AND tutorial_completed_at IS NULL
-  `).run(nowIso);
-} catch (err) {
-  console.error("[db] v14.81 onboarding backfill failed:", err);
-}
-
 // v14.61 — One-shot FK normalization for the Denise Jacobs tombstones.
 //
 // Legacy state (before v14.61): agent rows 11, 12, 13 are tombstones with

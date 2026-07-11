@@ -90,7 +90,7 @@ function CooldownPill({ until, onThaw, compact = false }: { until?: number | nul
 }
 
 function StatCard({ label, value, sub, accent }: { label: string; value: number | string; sub?: string; accent?: string }) {
-  // v14.80 — Tier 2 aliveness: numeric values tween 0→n over 600ms on mount/change.
+  // v14.81.1 — Tier 2 aliveness: numeric values tween 0→n over 600ms on mount/change.
   return (
     <div style={{
       background: "linear-gradient(135deg, #0f0f0f 0%, #0a0a0a 100%)",
@@ -1200,7 +1200,7 @@ export default function AdminDashboard({
     },
   });
 
-  // v14.80 — Hard-delete an inactive agent. Permanent, orphans historical
+  // v14.81.1 — Hard-delete an inactive agent. Permanent, orphans historical
   // activity rows to NULL agent_id, unassigns leads, deletes locks, removes
   // the agent row entirely. Requires a confirmation dialog before firing.
   const hardDeleteAgentMutation = useMutation({
@@ -1374,7 +1374,7 @@ export default function AdminDashboard({
     onError: () => toast({ title: "Error clearing queue", variant: "destructive" }),
   });
 
-  // v14.80 — Upload CSV tab now routes to the SAME smart server-side parser used
+  // v14.81.1 — Upload CSV tab now routes to the SAME smart server-side parser used
   // by "Import BatchLeads CSV": /api/admin/import-batchleads-csv. That parser
   // auto-detects LandVoice SkipTraced listing, LandVoice Expired listing, and
   // BatchLeads xlsx exports; extracts all phones (with per-phone DNC + rank),
@@ -1486,7 +1486,7 @@ export default function AdminDashboard({
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    // v14.80 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
+    // v14.81.1 — accept .csv, .xlsx, and .xls (BatchLeads Excel exports).
     if (file && /\.(csv|xlsx|xls)$/i.test(file.name)) {
       processFile(file);
     } else {
@@ -1600,7 +1600,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v14.80
+              v14.81.1
             </p>
           </div>
         </div>
@@ -2349,7 +2349,7 @@ export default function AdminDashboard({
 
           {/* ── ALL LEADS ───────────────────────────────────────────────────── */}
           <TabsContent value="leads" className="mt-5 space-y-3">
-            {/* v14.80 — Pipeline tab deleted; its 8 stage tiles now live here at the
+            {/* v14.81.1 — Pipeline tab deleted; its 8 stage tiles now live here at the
                top of Lead Pool, plus an "All" tile as a 9th at the front. Tapping a
                tile drives the SAME statusFilter state used by the paginated table
                below (and by the Status dropdown), so the two stay in sync either way. */}
@@ -3534,7 +3534,7 @@ export default function AdminDashboard({
                       </div>
                       <div className="space-y-2">
                         {inactiveAgents.map((agent) => {
-                          // v14.80 — Removed the 7-day reactivate window. Deactivated timestamp is
+                          // v14.81.1 — Removed the 7-day reactivate window. Deactivated timestamp is
                           // shown for reference only — admins can reactivate OR hard-delete at any time.
                           const deactivatedAt = (agent as any).deactivatedAt ?? null;
                           const msSinceDeactivate = deactivatedAt ? Date.now() - deactivatedAt : null;
@@ -3606,7 +3606,7 @@ export default function AdminDashboard({
                                   >
                                     <Power size={11}/> Re-activate
                                   </Button>
-                                  {/* v14.80 — Hard-delete. Permanent removal with confirmation prompt. */}
+                                  {/* v14.81.1 — Hard-delete. Permanent removal with confirmation prompt. */}
                                   <Button
                                     variant="ghost" size="icon"
                                     className="h-7 w-7 text-muted-foreground hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -3682,7 +3682,7 @@ export default function AdminDashboard({
         />
       )}
 
-      {/* v14.80 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
+      {/* v14.81.1 — Hard Reset modal (hoisted to top level so it renders on every tab) */}
       {hardResetOpen && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
@@ -3903,7 +3903,7 @@ export default function AdminDashboard({
       {/* v14.51 — Spacer to clear the bottom nav so page content isn't hidden behind it. */}
       <div style={{ height: "calc(62px + env(safe-area-inset-bottom, 0px))" }} />
 
-      {/* v14.80 — Admin bottom nav is now IDENTICAL to AgentView's nav: 5 slots
+      {/* v14.81.1 — Admin bottom nav is now IDENTICAL to AgentView's nav: 5 slots
          (Dashboard, Pipeline, Dial, Referrals, Profile), Dial is a raised gold
          FAB with a subtle red dot when this admin has queued leads. The old
          "99+" count badge is gone — Alex asked for a red dot only ("signals
@@ -3979,7 +3979,7 @@ export default function AdminDashboard({
         })}
       </nav>
 
-      {/* v14.80 — GO MODE pulse for the admin Dial FAB (louder + faster than v14.80).
+      {/* v14.81.1 — GO MODE pulse for the admin Dial FAB (louder + faster than v14.81.1).
          Tier 4 fabBreathe (client/src/pages/AgentView.tsx) is intentionally NOT applied
          here: the admin Dial FAB already runs goModePulseIdle continuously (no idle/active
          split like AgentView), so layering a second background-animating class would fight

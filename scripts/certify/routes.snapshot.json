@@ -1,6 +1,7 @@
 [
   "DELETE /api/agent-leads/:id",
   "DELETE /api/agents/:id",
+  "DELETE /api/agents/:id/hard-delete",
   "DELETE /api/agents/:id/self",
   "GET /api/admin/activity-feed",
   "GET /api/admin/agent-inactivity",
@@ -82,6 +83,9 @@
   "POST /api/agent-leads/bulk-upload",
   "POST /api/agent-leads/manual-add",
   "POST /api/agent-leads/public",
+  "POST /api/agent/complete-profile",
+  "POST /api/agent/complete-tutorial",
+  "POST /api/agent/reset-tutorial",
   "POST /api/agents",
   "POST /api/agents/:id/headshot",
   "POST /api/agents/:id/territory-notice/clear",

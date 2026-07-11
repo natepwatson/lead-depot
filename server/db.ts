@@ -563,6 +563,12 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_dbpr_license ON agent_
 // WAL mode — concurrent reads during writes, prevents DB lock contention
 rawDb.pragma("journal_mode = WAL");
 
+// v14.81.3 — busy_timeout on rawDb. Paired with the same setting in storage.ts
+// so the two connections (rawDb here, storage.ts's own sqlite handle) retry
+// briefly on contention instead of failing immediately with "database is
+// locked". Root cause of probe agent id=15 hard-delete failures.
+rawDb.pragma("busy_timeout = 5000");
+
 // Enforce foreign key constraints at the SQLite level
 rawDb.pragma("foreign_keys = ON");
 

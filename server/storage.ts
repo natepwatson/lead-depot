@@ -22,6 +22,12 @@ sqlite.exec(`
   PRAGMA journal_mode=WAL;
 `);
 
+// v14.81.3 — busy_timeout on storage's connection. storage.ts owns its own
+// SQLite handle separate from rawDb; without a timeout, any contention with
+// rawDb (e.g. during transactions in routes.ts) fails immediately with
+// "database is locked". 5s is plenty of headroom for legitimate write bursts.
+sqlite.pragma("busy_timeout = 5000");
+
 // ─── MIGRATION RULE ─────────────────────────────────────────────────────────
 // ANY new column added to schema.ts or the CREATE TABLE below MUST also have
 // an ALTER TABLE migration here AND in server/db.ts before it can be queried.

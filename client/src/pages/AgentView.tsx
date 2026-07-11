@@ -72,7 +72,13 @@ const OUTCOMES = [
   // Row 3 — wins
   { key: "contacted_appointment",   label: "Appt Set",      icon: CheckCircle2,  bg: "rgba(34,197,94,0.22)",   border: "rgba(34,197,94,0.55)",    text: "rgb(134,239,172)",      hoverBg: "rgba(34,197,94,0.34)" },
   { key: "keep_in_touch",           label: "Keep in Touch", icon: Heart,         bg: "rgba(236,72,153,0.22)",  border: "rgba(236,72,153,0.55)",   text: "rgb(249,168,212)",      hoverBg: "rgba(236,72,153,0.34)" },
-  { key: "left_voicemail",          label: "Left VM",       icon: Voicemail,     bg: "rgba(59,130,246,0.22)",  border: "rgba(59,130,246,0.55)",   text: "rgb(147,197,253)",      hoverBg: "rgba(59,130,246,0.34)" },
+  // v15.8 — Renamed from "Left VM" to "Confirmed Owner - No Answer". Alex
+  // clarified voicemail isn't actually happening here — this outcome fires when
+  // the agent confirmed the identity of the owner (e.g. through a spouse, or
+  // partial pickup) but couldn't get a full conversation. Backend key stays
+  // `left_voicemail` for historical data continuity; icon swapped from Voicemail
+  // to PhoneOff so the visual matches the corrected meaning.
+  { key: "left_voicemail",          label: "Owner - No Answer", icon: PhoneOff,      bg: "rgba(59,130,246,0.22)",  border: "rgba(59,130,246,0.55)",   text: "rgb(147,197,253)",      hoverBg: "rgba(59,130,246,0.34)" },
 ] as const;
 
 // ─── Gold divider ─────────────────────────────────────────────────────────────
@@ -157,6 +163,12 @@ function ApptModal({
   const sourceLabel: Record<string, string> = {
     expired: "Expired Listing", network: "Network / Inbound",
   };
+
+  // v15.8 — hide bottom nav while this modal is open (see RecycleModal).
+  React.useEffect(() => {
+    document.body.classList.add("ld-modal-open");
+    return () => document.body.classList.remove("ld-modal-open");
+  }, []);
 
   const inputStyle: React.CSSProperties = {
     width: "100%", background: "rgba(255,255,255,0.06)",
@@ -338,6 +350,13 @@ function RecycleModal({
   onSubmit: () => void;
   isPending: boolean;
 }) {
+  // v15.8 — hide the bottom nav (which uses backdrop-filter / creates its own
+  // iOS Safari stacking context that punches through zIndex ordering) while
+  // this modal is open. See BUGLIST 15.8 nav-z fix.
+  React.useEffect(() => {
+    document.body.classList.add("ld-modal-open");
+    return () => document.body.classList.remove("ld-modal-open");
+  }, []);
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 100,
@@ -525,7 +544,7 @@ function LeadCard({ lead }: { lead: Lead }) {
     // v14.16 — 9-outcome grid additions
     disconnected:             { label: "Disconnected — Logged",    color: "rgb(203,213,225)" },
     listed:                   { label: "Listed — Closed Out",      color: "rgb(196,181,253)" },
-    left_voicemail:           { label: "Voicemail — Logged",       color: "rgb(147,197,253)" },
+    left_voicemail:           { label: "Confirmed Owner — No Answer", color: "rgb(147,197,253)" },
   };
 
   // v14.14 — Recycle hits /api/leads/:id/recycle. One tap, no date, no strings.
@@ -1780,6 +1799,42 @@ function CallHeatMeter() {
     return () => clearInterval(id);
   }, []);
   const heat = React.useMemo(() => computeCallHeat(), [tick]);
+
+  // v15.8 — Prime-time proximity banner. Look 30 minutes into the future; if the
+  // upcoming window is HOT and we're not already in one, show a pulsing warning
+  // so the agent can clear their calendar and breathe before the sprint. Also
+  // fire a browser notification once per hot window (dedup key = YYYY-MM-DD-HH).
+  const upcoming = React.useMemo(
+    () => computeCallHeat(new Date(Date.now() + 30 * 60 * 1000)),
+    [tick],
+  );
+  const isPrimeIncoming = upcoming.tier === "hot" && heat.tier !== "hot";
+
+  // Ask for notification permission once (idempotent — browsers cache the answer).
+  React.useEffect(() => {
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "default") {
+        Notification.requestPermission().catch(() => {});
+      }
+    } catch { /* SSR/private-mode safe */ }
+  }, []);
+
+  // Fire the push exactly once per (date, hour) hot window.
+  React.useEffect(() => {
+    if (!isPrimeIncoming) return;
+    try {
+      if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+      const now = new Date();
+      const key = `ld_prime_notified_${now.getFullYear()}-${now.getMonth()}-${now.getDate()}_${now.getHours()}`;
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, "1");
+      new Notification("Prime call sprint in ~30 min", {
+        body: "Clear your schedule. Breathe. Owner-answer rates peak in this window.",
+        icon: "/icons/apple-touch-icon.png",
+        tag: "ld-prime-time",
+      });
+    } catch { /* private mode or blocked — in-app banner still shows */ }
+  }, [isPrimeIncoming]);
   const tierBg: Record<string, string> = {
     hot:  "linear-gradient(135deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.06) 100%)",
     warm: "linear-gradient(135deg, rgba(245,158,11,0.14) 0%, rgba(245,158,11,0.05) 100%)",
@@ -1793,6 +1848,41 @@ function CallHeatMeter() {
     cold: "rgba(255,255,255,0.10)",
   };
   return (
+    <>
+      {/* v15.8 — Prime-time proximity banner. Shows only when a HOT window is ~30 min away. */}
+      {isPrimeIncoming && (
+        <div
+          data-testid="prime-time-banner"
+          style={{
+            margin: "0 20px 12px",
+            padding: "14px 16px",
+            borderRadius: 12,
+            background: "linear-gradient(135deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.08) 100%)",
+            border: "1px solid rgba(239,68,68,0.55)",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            animation: "livePulse 2s ease-in-out infinite",
+          }}
+        >
+          <span style={{
+            display: "inline-block", width: 10, height: 10, borderRadius: "50%",
+            background: "#ef4444", boxShadow: "0 0 12px #ef4444", flexShrink: 0,
+          }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase",
+              color: "#ef4444", fontWeight: 700, marginBottom: 2,
+            }}>Prime Time in ~30 min</div>
+            <div style={{
+              fontSize: 13, color: "rgba(255,255,255,0.85)",
+              fontFamily: "'Switzer','Inter',sans-serif", lineHeight: 1.35,
+            }}>
+              Clear your schedule. Breathe. This is when owners answer.
+            </div>
+          </div>
+        </div>
+      )}
     <div
       data-testid="call-heat-meter"
       style={{
@@ -1852,6 +1942,7 @@ function CallHeatMeter() {
         </p>
       )}
     </div>
+    </>
   );
 }
 
@@ -1989,12 +2080,16 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
       {/* ── Personal stats — v14.24: Appts hero (big), then Points, Dials, Emails ── */}
       {myStats && (
         <>
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr", gap: 8, marginBottom: apptsGap > 0 || pointsGap > 0 ? 10 : 28 }}>
+        {/* v15.8 — KIT above Emails: KIT is a real conversation win, cold Emails
+            are fire-and-forget. Order: Appts (hero), Points, Total Calls, KIT, Emails.
+            Grid columns bumped to 5 to fit both KIT and Emails without dropping either. */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: apptsGap > 0 || pointsGap > 0 ? 10 : 28 }}>
           {[
-            { label: "Appts Set",   value: myStats.appointmentsSet,      hero: true },
-            { label: "Points",      value: myStats.points ?? 0,           hero: false },
-            { label: "Total Calls", value: myStats.totalAttempts,         hero: false },
-            { label: "Emails",      value: myStats.emailsSent ?? 0,       hero: false },
+            { label: "Appts Set",   value: myStats.appointmentsSet,                             hero: true },
+            { label: "Points",      value: myStats.points ?? 0,                                   hero: false },
+            { label: "Total Calls", value: myStats.totalAttempts,                                 hero: false },
+            { label: "KIT",         value: (myStats.outcomes?.keep_in_touch) ?? 0,                hero: false },
+            { label: "Emails",      value: myStats.emailsSent ?? 0,                               hero: false },
           ].map(s => (
             <div key={s.label} style={{
               padding: s.hero ? "18px 8px" : "14px 8px", textAlign: "center",
@@ -2140,6 +2235,11 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                     <div style={{ textAlign: "right", minWidth: 30 }}>
                       <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.7)", lineHeight: 1 }}>{s.totalAttempts}</p>
                       <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>DIALS</p>
+                    </div>
+                    {/* v15.8 — KIT above Emails: KIT is a real conversation win vs. cold email fire-and-forget */}
+                    <div style={{ textAlign: "right", minWidth: 30 }}>
+                      <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(249,168,212,0.85)", lineHeight: 1 }}>{(s.outcomes?.keep_in_touch) ?? 0}</p>
+                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>KIT</p>
                     </div>
                     <div style={{ textAlign: "right", minWidth: 30 }}>
                       <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(147,197,253,0.85)", lineHeight: 1 }}>{s.emailsSent ?? 0}</p>
@@ -2940,34 +3040,32 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
               logged a call outcome in the last 10 min; gray + static when quiet.
               Tap-hold title shows "last activity Xm ago" so Alex can sanity-check. */}
           {mode === "seller" && (() => {
+            // v15.8 — hide the pill entirely when the team is quiet. The green
+            // ws-heartbeat dot to the right already signals "connection live";
+            // showing a second "Quiet — be the first" pill next to it created a
+            // visual contradiction (green heartbeat + "quiet" copy on the same
+            // row). Only render when the team is actively dialing, so it reads
+            // as pure positive social proof.
             const isLive = dialingNowCount > 0;
-            const lastMin = lastActivityAt
-              ? Math.max(0, Math.round((Date.now() - new Date(lastActivityAt).getTime()) / 60000))
-              : null;
-            const title = isLive
-              ? `${dialingNowCount} agent${dialingNowCount === 1 ? "" : "s"} logged a call in the last 10 min`
-              : lastMin !== null
-                ? `Quiet — last team dial ${lastMin < 60 ? `${lastMin}m` : `${Math.round(lastMin/60)}h`} ago`
-                : "Quiet — no recent dials";
+            if (!isLive) return null;
+            const title = `${dialingNowCount} agent${dialingNowCount === 1 ? "" : "s"} logged a call in the last 10 min`;
             return (
               <div title={title} style={{
                 display: "flex", alignItems: "center", gap: 5,
                 padding: "5px 9px", borderRadius: 20,
-                background: isLive ? "rgba(34,197,94,0.08)" : "rgba(255,255,255,0.04)",
-                border: isLive ? "1px solid rgba(34,197,94,0.25)" : "1px solid rgba(255,255,255,0.10)",
+                background: "rgba(34,197,94,0.08)",
+                border: "1px solid rgba(34,197,94,0.25)",
                 fontSize: 10,
-                color: isLive ? "rgba(134,239,172,0.9)" : "rgba(255,255,255,0.45)",
+                color: "rgba(134,239,172,0.9)",
                 fontWeight: 600, letterSpacing: "0.03em", whiteSpace: "nowrap",
               }} data-testid="pill-dialing-now">
                 <span style={{
                   width: 6, height: 6, borderRadius: "50%",
-                  background: isLive ? "#4ade80" : "rgba(255,255,255,0.3)",
-                  boxShadow: isLive ? "0 0 6px rgba(74,222,128,0.8)" : "none",
-                  animation: isLive ? "livePulse 1.8s ease-in-out infinite" : "none",
+                  background: "#4ade80",
+                  boxShadow: "0 0 6px rgba(74,222,128,0.8)",
+                  animation: "livePulse 1.8s ease-in-out infinite",
                 }} />
-                {isLive
-                  ? `${dialingNowCount} dialing now`
-                  : "Quiet — be the first"}
+                {`${dialingNowCount} dialing now`}
               </div>
             );
           })()}
@@ -3400,7 +3498,11 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
       </main>
 
       {/* ── Bottom nav ── */}
-      <nav style={{
+      {/* v15.8 — data-ld-nav="bottom" so modals (RecycleModal etc.) can hide
+          the nav via body.ld-modal-open (see <style> block below). Fixes iOS
+          Safari backdrop-filter stacking-context bug where nav punched through
+          modals despite lower zIndex. */}
+      <nav data-ld-nav="bottom" style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
         display: "flex",
         background: "linear-gradient(180deg, rgba(10,10,10,0.98) 0%, rgba(6,6,6,0.99) 100%)",
@@ -3480,6 +3582,11 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
       </nav>
 
       <style>{`
+        /* v15.8 — hide the bottom nav while any full-screen modal is open. iOS
+           Safari's backdrop-filter creates its own stacking context on the nav
+           that ignores parent zIndex ordering; the safe universal fix is to
+           remove the nav from paint entirely while a modal owns the screen. */
+        body.ld-modal-open nav[data-ld-nav="bottom"] { display: none !important; }
         @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.85)} }
         /* v14.79 — "GO MODE" pulse: soft outer glow that breathes 2.4s. Signals
            the FAB is "live and in the pocket" without shouting for attention. */

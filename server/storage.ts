@@ -227,6 +227,12 @@ try { sqlite.exec(`ALTER TABLE agents ADD COLUMN onboarding_started_at TEXT`); }
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN onboarding_completed_at TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN tcpa_consent_at TEXT`); } catch {}
 
+// v15.8 — Published phone for cold email outreach (falls back to `phone`).
+// MUST run here (in storage.ts) because Drizzle bakes schema column names
+// into query builders at module init — before db.ts's PRAGMA-guarded migrations
+// have a chance to run. Skipping this line = SqliteError at boot on Railway.
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN published_phone TEXT`); } catch {}
+
 try { sqlite.exec(`ALTER TABLE agent_points ADD COLUMN scope TEXT NOT NULL DEFAULT 'seller'`); } catch {}
 // DBPR fields (v11.71, renamed from FREC in v13.4 — in case table was created before these existed)
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN dbpr_license_id TEXT`); } catch {}

@@ -109,7 +109,43 @@ if (!leadCols.includes("uploaded_by"))      rawDb.prepare("ALTER TABLE leads ADD
 if (!leadCols.includes("batch_id"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN batch_id TEXT").run();
 
 // ─── Recycle cooldown (v14.39) — unified 14d on-ice timer for Expired + Absentee ─
+// v15.4 — RETIRED. Column kept for backward compatibility but never read/written by app.
+// Boot sweep below thaws any leads still on cooldown from before v15.4.
 if (!leadCols.includes("recycle_cooldown_until")) rawDb.prepare("ALTER TABLE leads ADD COLUMN recycle_cooldown_until INTEGER").run();
+try {
+  const thawed = rawDb.prepare("UPDATE leads SET recycle_cooldown_until = NULL WHERE recycle_cooldown_until IS NOT NULL").run().changes;
+  if (thawed > 0) console.log(`[v15.4 thaw] Cleared cooldown on ${thawed} leads. Recycle cooldown is retired.`);
+} catch (err) {
+  console.error("[v15.4 thaw] Sweep failed (non-fatal):", err);
+}
+
+// ─── v15.4 — Phone attempt outcome tracker ───────────────────────────────────
+// Logs the fate of each phone line that hits the 12-attempt strike cap so we can
+// answer: "of lines struck at 12, what happens next?" (auto-delete? other line
+// connects? recycled back and later contacted?).
+// After 2 weeks of data we'll know whether 12 is the right floor or whether it's
+// worth pushing to 16. Written from the no_answer path in server/routes.ts.
+try {
+  rawDb.exec(`
+    CREATE TABLE IF NOT EXISTS phone_attempt_outcomes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER NOT NULL,
+      phone TEXT NOT NULL,
+      lead_type TEXT NOT NULL,
+      struck_at INTEGER NOT NULL,
+      struck_by_agent_id INTEGER,
+      lead_score INTEGER,
+      resolution TEXT,
+      resolution_at INTEGER,
+      resolution_notes TEXT,
+      UNIQUE(lead_id, phone)
+    )
+  `);
+  rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_phone_attempt_outcomes_resolution ON phone_attempt_outcomes(resolution)`);
+  rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_phone_attempt_outcomes_lead ON phone_attempt_outcomes(lead_id)`);
+} catch (err) {
+  console.error("[v15.4 phone_attempt_outcomes] Migration failed:", err);
+}
 
 // ─── Per-line no-answer counter (v14.40) — 6 attempts per phone before it's struck ─
 // JSON object mapping phone → attempt count, e.g. {"9041234567": 3, "9047654321": 6}

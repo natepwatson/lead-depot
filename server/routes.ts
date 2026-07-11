@@ -311,7 +311,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.3 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.4 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -370,7 +370,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -655,7 +655,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1736,7 +1736,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.3</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.4</p>
             </div>
           `,
         });
@@ -1896,7 +1896,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.3 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.4 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2258,19 +2258,56 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
-  // v14.39 — THAW: manually clear a lead's Recycle cooldown so it's eligible again immediately.
-  // POST /api/admin/leads/:id/clear-cooldown
-  //   Admin-only override for the 14d on-ice timer set by the Recycle outcome.
-  //   Idempotent — clears the timer whether or not one was set.
-  app.post("/api/admin/leads/:id/clear-cooldown", (req, res) => {
-    const leadId = parseInt(req.params.id);
-    if (!leadId || isNaN(leadId)) return res.status(400).json({ error: "Invalid lead id" });
-    const result = rawDb.prepare(
-      `UPDATE leads SET recycle_cooldown_until = NULL WHERE id = ?`
-    ).run(leadId);
-    if (result.changes === 0) return res.status(404).json({ error: "Lead not found" });
-    broadcast({ type: "leads_updated" });
-    res.json({ ok: true, leadId, cooldownCleared: true });
+  // v14.39 — THAW: (retired v15.4) recycle cooldown was removed. Endpoint kept as
+  // a 410 Gone shim for a release in case any admin UI still calls it, so clients
+  // don't error opaquely. Recycled leads now re-enter the shared pool immediately
+  // — no thaw needed. Remove entirely in v15.6.
+  app.post("/api/admin/leads/:id/clear-cooldown", (_req, res) => {
+    res.status(410).json({
+      ok: false,
+      error: "gone",
+      message: "Recycle cooldown was removed in v15.4. Recycled leads re-enter the pool immediately — no thaw needed.",
+    });
+  });
+
+  // v15.4 — Phone attempt cap review data.
+  // GET /api/admin/phone-attempts/stats
+  //   Returns aggregate resolution breakdown for lines struck at PHONE_ATTEMPT_CAP.
+  //   Feeds the "is 12 the right cap or should we push to 16?" decision after ~2 weeks.
+  app.get("/api/admin/phone-attempts/stats", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const rows: any[] = rawDb.prepare(`
+        SELECT resolution, COUNT(*) as count
+        FROM phone_attempt_outcomes
+        GROUP BY resolution
+        ORDER BY count DESC
+      `).all();
+      const total = rows.reduce((s, r) => s + r.count, 0);
+      const byLeadType: any[] = rawDb.prepare(`
+        SELECT lead_type, resolution, COUNT(*) as count
+        FROM phone_attempt_outcomes
+        GROUP BY lead_type, resolution
+        ORDER BY lead_type, count DESC
+      `).all();
+      const oldestPending: any = rawDb.prepare(`
+        SELECT lead_id, phone, struck_at
+        FROM phone_attempt_outcomes
+        WHERE resolution = 'pending'
+        ORDER BY struck_at ASC
+        LIMIT 1
+      `).get();
+      res.json({
+        cap: 12,
+        total_struck_lines: total,
+        resolutions: rows,
+        by_lead_type: byLeadType,
+        oldest_pending: oldestPending || null,
+        note: "Resolutions: pending (line struck, lead still open) | exhausted_deleted (all lines struck, lead auto-deleted) | other_line_connected_appt (different line closed appointment) | other_line_connected_not_interested (different line got the NI) | other_line_connected_kit (different line got KIT). Push cap to 16 only if pending stays high AND other_line_connected stays low after 2 weeks.",
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Toggle admin as lead receiver
@@ -2705,9 +2742,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const TYPE_ORDER = ["expired", "absentee"];
 
     // Helper: pull next unassigned+unlocked lead matching WHERE. Sorted score DESC.
-    // v14.39 — excludes leads under active Recycle cooldown ("on ice"). Applies uniformly
-    // to Expired + Absentee. Grandfathered rows have recycle_cooldown_until = NULL and pass.
-    const nowMs = Date.now();
+    // v15.4 — Recycle cooldown filter REMOVED. Recycled leads re-enter the pool
+    // immediately (status='unassigned', lock deleted) and are eligible on the next
+    // Load Next call. The recycle_cooldown_until column is retained for backward
+    // compatibility but no longer read.
     const pullPool = (leadType: string, countyClause: string, countyParams: any[]): any => {
       return rawDb.prepare(`
         SELECT l.* FROM leads l
@@ -2715,11 +2753,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         WHERE l.lead_type = ?
           AND l.status = 'unassigned'
           AND lk.lead_id IS NULL
-          AND (l.recycle_cooldown_until IS NULL OR l.recycle_cooldown_until <= ?)
           ${countyClause}
         ORDER BY l.score DESC, l.uploaded_at ASC, l.id ASC
         LIMIT 1
-      `).get(leadType, nowMs, ...countyParams);
+      `).get(leadType, ...countyParams);
     };
 
     let next: any = null;
@@ -3114,28 +3151,46 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       newAssignedId = outcome === "contacted_appointment" ? agentId : null;
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
+      // v15.4 — Any pending struck lines on this lead now resolve as 'other_line_connected'
+      // (someone reached the owner despite this line being dead). Data feeds the 12–16 cap review.
+      try {
+        const resolutionLabel = outcome === "contacted_appointment" ? "other_line_connected_appt" : "other_line_connected_not_interested";
+        rawDb.prepare(`
+          UPDATE phone_attempt_outcomes
+          SET resolution = ?, resolution_at = ?,
+              resolution_notes = 'Different phone line connected; struck line stays retired.'
+          WHERE lead_id = ? AND resolution = 'pending'
+        `).run(resolutionLabel, Date.now(), leadId);
+      } catch (err) {
+        console.error("[v15.4 phone_attempt_outcomes] Contact-resolve failed:", err);
+      }
+
     } else if (outcome === "recycled" || outcome === "callback_requested") {
       // v14.14 — Callback retired. Recycle is the successor: one-tap unassign to pool.
       // v14.45 — `callback_requested` still accepted for stale clients but treated as recycled.
       //          NETWORK ORPHAN FIX: Network leads have no shared pool (TYPE_ORDER excludes
       //          "network"), so recycling would strand them. Instead, restore assignment to
       //          the original submitter (uploaded_by) — they stay owned by the referrer.
-      //          Cooldown is skipped for network leads (referrer-owned, not pool leads).
       // v14.18 — Release the lock so my-next doesn't hand this lead right back.
-      // v14.39 — Unified 14d cooldown for Expired + Absentee "on ice" behavior.
+      // v15.4 — 14d Recycle cooldown REMOVED. Recycled leads now re-enter the shared
+      //         pool immediately with status='unassigned' + no lock. Any agent whose
+      //         home-county matches (or admin killer-mode) can pull it on their next
+      //         Load Next. The recycle_cooldown_until column is kept for backward
+      //         compatibility but never written; the boot sweep in server/db.ts thaws
+      //         all currently-frozen leads. Pool sort order (score DESC, uploaded_at ASC,
+      //         id ASC) means high-score recycled leads re-appear near the top.
       const isNetwork = lead.leadType === "network";
       const referrerId = (lead as any).uploadedBy || (lead as any).uploaded_by || null;
       if (isNetwork && referrerId) {
         newStatus = "assigned";
         newAssignedId = referrerId;
         newCallbackDate = null;
+        console.log(`[v15.4 recycle] lead=${leadId} type=network → returned to referrer agentId=${referrerId}`);
       } else {
         newStatus = "unassigned";
         newAssignedId = null;
         newCallbackDate = null;
-        const COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
-        const cooldownUntil = Date.now() + COOLDOWN_MS;
-        rawDb.prepare(`UPDATE leads SET recycle_cooldown_until = ? WHERE id = ?`).run(cooldownUntil, leadId);
+        console.log(`[v15.4 recycle] lead=${leadId} type=${lead.leadType} → returned to shared pool score=${lead.score ?? 0} immediately eligible`);
       }
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
@@ -3158,6 +3213,18 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         phoneAttempts[currentPhone] = (phoneAttempts[currentPhone] || 0) + 1;
         if (phoneAttempts[currentPhone] >= PHONE_ATTEMPT_CAP) {
           newPhoneStates[currentPhone] = "struck";
+          // v15.4 — Log this strike to phone_attempt_outcomes so we can later answer:
+          // "of lines struck at 12, what's the eventual outcome?" Resolution is written
+          // later when the lead exhausts, converts, or another line connects.
+          try {
+            rawDb.prepare(`
+              INSERT OR IGNORE INTO phone_attempt_outcomes
+                (lead_id, phone, lead_type, struck_at, struck_by_agent_id, lead_score, resolution)
+              VALUES (?, ?, ?, ?, ?, ?, 'pending')
+            `).run(leadId, currentPhone, lead.leadType || "unknown", Date.now(), agentId || null, lead.score ?? 0);
+          } catch (err) {
+            console.error("[v15.4 phone_attempt_outcomes] Strike log failed:", err);
+          }
         } else {
           newPhoneStates[currentPhone] = "no_answer_today";
         }
@@ -3169,6 +3236,17 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // If every viable phone is now struck → exhaustion delete (parity with Wrong #).
       const anyViable = newPhones.some((p: string) => newPhoneStates[p] !== "struck");
       if (!anyViable) {
+        // v15.4 — Resolve every pending struck line for this lead as 'exhausted_deleted'.
+        try {
+          rawDb.prepare(`
+            UPDATE phone_attempt_outcomes
+            SET resolution = 'exhausted_deleted', resolution_at = ?,
+                resolution_notes = 'All lines struck at cap; lead auto-deleted.'
+            WHERE lead_id = ? AND resolution = 'pending'
+          `).run(Date.now(), leadId);
+        } catch (err) {
+          console.error("[v15.4 phone_attempt_outcomes] Exhaustion resolve failed:", err);
+        }
         // Log activity BEFORE deleting so daily-digest "Retired — all lines struck" can pick it up.
         rawDb.prepare(`
           INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
@@ -3209,6 +3287,18 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       newStatus = "keep_in_touch";
       newAssignedId = agentId;
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+
+      // v15.4 — If any struck lines exist for this lead, mark them 'other_line_connected_kit'.
+      try {
+        rawDb.prepare(`
+          UPDATE phone_attempt_outcomes
+          SET resolution = 'other_line_connected_kit', resolution_at = ?,
+              resolution_notes = 'Different phone line reached the owner; KIT logged.'
+          WHERE lead_id = ? AND resolution = 'pending'
+        `).run(Date.now(), leadId);
+      } catch (err) {
+        console.error("[v15.4 phone_attempt_outcomes] KIT-resolve failed:", err);
+      }
 
       // v14.18 — Persist the follow-up timing selection so the agent's My Leads
       // pipeline can filter/segment KIT leads by follow-up window.
@@ -5298,7 +5388,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.3 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.4 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5530,7 +5620,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.3",
+      version: "v15.4",
       services: results,
     });
   });
@@ -6702,7 +6792,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.3</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.4</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

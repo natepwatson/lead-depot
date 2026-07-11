@@ -125,6 +125,23 @@ try { sqlite.exec(`ALTER TABLE agents ADD COLUMN deactivated_at INTEGER`); } cat
 // Verified crash log: SqliteError: no such column: "profile_completed_at".
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN profile_completed_at TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN tutorial_completed_at TEXT`); } catch {}
+// v15.4 — Phone attempt outcome tracker. Kept in sync with server/db.ts migrations so
+// storage.ts's schema-typed prepare() calls don't crash on Railway boot.
+try { sqlite.exec(`CREATE TABLE IF NOT EXISTS phone_attempt_outcomes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lead_id INTEGER NOT NULL,
+  phone TEXT NOT NULL,
+  lead_type TEXT NOT NULL,
+  struck_at INTEGER NOT NULL,
+  struck_by_agent_id INTEGER,
+  lead_score INTEGER,
+  resolution TEXT,
+  resolution_at INTEGER,
+  resolution_notes TEXT,
+  UNIQUE(lead_id, phone)
+)`); } catch {}
+try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_phone_attempt_outcomes_resolution ON phone_attempt_outcomes(resolution)`); } catch {}
+try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_phone_attempt_outcomes_lead ON phone_attempt_outcomes(lead_id)`); } catch {}
 try { sqlite.exec(`CREATE TABLE IF NOT EXISTS agent_audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts INTEGER NOT NULL,

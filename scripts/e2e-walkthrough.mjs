@@ -80,7 +80,10 @@ async function run() {
         return { status: r.status, version: j.version, apiStatus: j.status };
       } catch (e) { return { error: String(e) }; }
     }, BASE);
-    const healthOk = health.status === 200 && (health.apiStatus === 'healthy' || health.apiStatus === 'degraded');
+    // v15.9: 207 + degraded is acceptable — that means non-critical warnings
+    // (e.g. default admin password still in use, backup snapshot pending) but
+    // db + resend are healthy. Only 503 or a network error is a real failure.
+    const healthOk = (health.status === 200 || health.status === 207) && (health.apiStatus === 'healthy' || health.apiStatus === 'degraded');
     add('6. /api/health responds', healthOk, true, `http=${health.status} status=${health.apiStatus} ver=${health.version}`);
 
     // ─── Phase 7: /api/agent/leaderboard returns data ────────────────────

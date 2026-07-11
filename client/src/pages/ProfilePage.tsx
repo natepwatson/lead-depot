@@ -13,6 +13,7 @@ import {
 // entries visible to agents so they see the app improving under them. Newest
 // at the top. Keep entries short — one line, agent-facing plain English.
 const CHANGELOG: { version: string; date: string; note: string }[] = [
+  { version: "v15.10",   date: "Jul 11", note: "Password rules module: change-password now enforces at least 10 characters with both letters and numbers, plus either an uppercase letter or a symbol; also blocks passwords that contain your name, your email, or common defaults like brothers2026. Live strength meter (weak / fair / strong) with per-rule feedback appears as you type. Same rules apply to the initial-setup, forgot-password, and admin-reset flows so nothing can slip through the side doors. Login itself is unchanged — this only kicks in when you set a new password." },
   { version: "v15.9",    date: "Jul 11", note: "Security + backup hardening. Three admin endpoints that could wipe every lead (seller-hard-reset, recruiting-hard-reset, leaderboard-reset) now require an admin session \u2014 they were fully unguarded before. The ingest endpoint no longer accepts a hardcoded fallback secret; it fails closed if the Railway env var is missing. Every response now sets HSTS, CSP, X-Frame-Options DENY, and nosniff. Two-tier backups are LIVE: an hourly on-volume snapshot of data.db + headshots keeps 48 rolling copies at /app/data/backups; a daily 5:05 AM EDT job emails a gzip'd tar of the most recent snapshot to alex@ + nate@ so a full Railway volume loss is recoverable from your inbox. Admin \u2192 backup-status endpoint + admin \u2192 backup-now trigger available. Health check now surfaces backup freshness and warns if any seeded admin still uses the default password." },
   { version: "v15.8",    date: "Jul 11", note: "Phone-sales polish batch: bottom nav no longer covers modals (Recycle sheet + Close Lead sheet now click-through); the false 'Quiet \u2014 be the first' pill is hidden whenever a live dial is happening; 'Left VM' outcome renamed to 'Owner - No Answer' (icon swapped, meaning corrected); KIT promoted above Emails in every leaderboard (KIT is a real conversation win); cold-outreach emails now use an optional 'Published Phone' from Profile (falls back to Phone) and no longer shout ALL-CAPS names; admin 'Weekly Dials' tile finally shows real numbers (query was joining the wrong reason column); and a pulsing 'Prime Time in ~30 min' banner + optional push notification warns you when a hot call window is about to open." },
   { version: "v15.7",    date: "Jul 11", note: "Momentum Realty story woven into recruiting: candidate landing page now leads with the RealTrends 500 (#440 in the U.S.) trajectory — 4 agents in Jan 2020 → 268 agents / $583M volume — followed by the 100% / $12K / $0 economics block and the founder-access line ('Founder-owned. Founder-led. Two operators who still answer their own phones.'). Invitation email rewritten to open with the same trajectory + founder story before the application ask." },
@@ -250,6 +251,8 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
   };
 
   // ── Change password ───────────────────────────────────────────────────────
+  // v15.10 — live rule feedback (must stay in sync with server via shared/password-rules.ts)
+  const pwCheck = checkPassword(newPw, { email: user?.email, name: user?.name });
   const handlePasswordChange = async () => {
     if (!currentPw || !newPw || !confirmPw) {
       toast({ title: "All password fields required", variant: "destructive" }); return;
@@ -257,8 +260,8 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
     if (newPw !== confirmPw) {
       toast({ title: "New passwords don't match", variant: "destructive" }); return;
     }
-    if (newPw.length < 6) {
-      toast({ title: "Password must be at least 6 characters", variant: "destructive" }); return;
+    if (!pwCheck.ok) {
+      toast({ title: pwCheck.errors[0], variant: "destructive" }); return;
     }
     setPwSaving(true);
     try {
@@ -501,7 +504,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
             <div>
               <label style={lbl}>New Password</label>
               <div style={{ position: "relative" }}>
-                <input style={{ ...inp, paddingRight: 42 }} type={showPw ? "text" : "password"} value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="At least 6 characters" />
+                <input style={{ ...inp, paddingRight: 42 }} type={showPw ? "text" : "password"} value={newPw} onChange={e => setNewPw(e.target.value)} placeholder={`At least ${MIN_PASSWORD_LEN} characters, letters + numbers`} />
                 <button onClick={() => setShowPw(s => !s)} style={{
                   position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
                   background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)",
@@ -517,6 +520,41 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
                 borderColor: confirmPw && newPw !== confirmPw ? "rgba(239,68,68,0.5)" : "rgba(200,170,90,0.2)",
               }} type={showPw ? "text" : "password"} value={confirmPw} onChange={e => setConfirmPw(e.target.value)} placeholder="Repeat new password" />
             </div>
+            {newPw && (
+              <div style={{
+                background: "rgba(0,0,0,0.35)",
+                border: "1px solid rgba(200,170,90,0.15)",
+                borderRadius: 6,
+                padding: "10px 12px",
+                fontSize: 11,
+                lineHeight: 1.55,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ letterSpacing: "0.18em", textTransform: "uppercase", fontSize: 9, color: "rgba(200,170,90,0.6)", fontWeight: 600 }}>Strength</span>
+                  <span style={{
+                    fontSize: 10,
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    fontWeight: 700,
+                    color: pwCheck.strength === "strong" ? "#4ade80" : pwCheck.strength === "fair" ? "#facc15" : "#f87171",
+                    background: pwCheck.strength === "strong" ? "rgba(74,222,128,0.12)" : pwCheck.strength === "fair" ? "rgba(250,204,21,0.12)" : "rgba(239,68,68,0.12)",
+                  }}>{pwCheck.strength.toUpperCase()}</span>
+                </div>
+                {pwCheck.errors.length === 0 ? (
+                  <div style={{ color: "#4ade80", display: "flex", alignItems: "center", gap: 6 }}>
+                    <Check size={12} /> Meets all requirements
+                  </div>
+                ) : (
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 3 }}>
+                    {pwCheck.errors.map((e, i) => (
+                      <li key={i} style={{ color: "#f87171", display: "flex", alignItems: "center", gap: 6 }}>
+                        <AlertTriangle size={11} /> {e}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
           <button
             onClick={handlePasswordChange}

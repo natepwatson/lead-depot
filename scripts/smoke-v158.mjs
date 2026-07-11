@@ -1,0 +1,13 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newPage();
+const errs = [];
+page.on('pageerror', e => errs.push(e.message));
+page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+await page.goto('https://depot.watsonbrothersgroup.com/?nc=' + Date.now(), { waitUntil: 'networkidle' });
+await page.waitForTimeout(3000);
+const rootSize = await page.evaluate(() => document.getElementById('root')?.innerHTML?.length || 0);
+console.log('errs:', JSON.stringify(errs));
+console.log('rootSize:', rootSize);
+console.log('PASS:', errs.length === 0 && rootSize > 100);
+await browser.close();

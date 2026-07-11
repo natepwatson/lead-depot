@@ -109,7 +109,8 @@ async function runRow(row) {
         return { status: r.status, version: j.version, apiStatus: j.status }; }
       catch (e) { return { error: String(e) }; }
     }, BASE);
-    set('api_health', health.status === 200 && (health.apiStatus === 'healthy' || health.apiStatus === 'degraded'), true, `${health.status}/${health.apiStatus}`);
+    // v15.9: 207 + degraded is acceptable — default admin password + fresh backup surface non-critical warnings.
+    set('api_health', (health.status === 200 || health.status === 207) && (health.apiStatus === 'healthy' || health.apiStatus === 'degraded'), true, `${health.status}/${health.apiStatus}`);
 
     // Phase 7: /api/agent/leaderboard
     const lb = await page.evaluate(async (base) => {

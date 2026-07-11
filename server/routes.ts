@@ -28,6 +28,7 @@ import {
 } from "./auth";
 import { logAgentEvent, getAgentAuditLog, isWithinReactivateWindow } from "./audit";
 import { getBackupStatus, runDailyOffVolumeBackup } from "./backup";
+import { checkPassword } from "../shared/password-rules";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
 // @ts-expect-error — no @types/multer installed; runtime-only import
@@ -314,7 +315,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.9 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.10 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -373,7 +374,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.9 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.10 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -658,7 +659,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.9 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.10 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1115,10 +1116,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   app.post("/api/reset-password/:token", async (req, res) => {
     const { token } = req.params;
     const { password } = req.body;
-    if (!password || password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
-    const agent = rawDb.prepare("SELECT id, setup_expires FROM agents WHERE setup_token = ?").get(token);
+    if (!password) return res.status(400).json({ error: "Missing password" });
+    const agent = rawDb.prepare("SELECT id, email, name, setup_expires FROM agents WHERE setup_token = ?").get(token);
     if (!agent) return res.status(404).json({ error: "Invalid or expired reset link" });
     if (new Date(agent.setup_expires) < new Date()) return res.status(410).json({ error: "Link expired" });
+    // v15.10 — shared password rules
+    const pwCheck = checkPassword(password, { email: agent.email, name: agent.name });
+    if (!pwCheck.ok) return res.status(400).json({ error: pwCheck.errors[0], errors: pwCheck.errors });
     const hash = await hashPassword(password);
     rawDb.prepare("UPDATE agents SET password = ?, setup_token = NULL, setup_expires = NULL WHERE id = ?")
       .run(hash, agent.id);
@@ -1407,12 +1411,16 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   app.post("/api/agents/setup/:token", async (req, res) => {
     const { token } = req.params;
     const { password, phone, brokerage, homeAddress, headshotUrl } = req.body;
-    if (!password || password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+    if (!password) return res.status(400).json({ error: "Missing password" });
 
     const agent = rawDb.prepare("SELECT id, name, email, setup_expires, onboarded FROM agents WHERE setup_token = ?").get(token);
     if (!agent) return res.status(404).json({ error: "Invalid or expired setup link" });
     if (agent.onboarded) return res.status(410).json({ error: "Already set up" });
     if (new Date(agent.setup_expires) < new Date()) return res.status(410).json({ error: "Link expired" });
+
+    // v15.10 — shared password rules
+    const pwCheck = checkPassword(password, { email: agent.email, name: agent.name });
+    if (!pwCheck.ok) return res.status(400).json({ error: pwCheck.errors[0], errors: pwCheck.errors });
 
     // v14.58 — Phase A: bcrypt-hash the chosen password before persisting.
     const passwordHash = await hashPassword(password);
@@ -1741,7 +1749,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.9</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.10</p>
             </div>
           `,
         });
@@ -1901,7 +1909,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.9 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.10 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2019,10 +2027,20 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) return res.status(400).json({ error: "Missing fields" });
-    if (newPassword.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
 
     const agent = storage.getAgentById(id);
     if (!agent) return res.status(404).json({ error: "Agent not found" });
+
+    // v15.10 — Shared password rules (see shared/password-rules.ts). Server
+    // enforces; the client uses the same module for live feedback so the two
+    // never drift.
+    const pwCheck = checkPassword(newPassword, {
+      email: (agent as any).email,
+      name: (agent as any).name,
+    });
+    if (!pwCheck.ok) {
+      return res.status(400).json({ error: pwCheck.errors[0], errors: pwCheck.errors });
+    }
 
     // Verify current password via bcrypt (legacy plaintext also accepted for
     // the one-deploy overlap window).
@@ -5411,7 +5429,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.9 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.10 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5718,7 +5736,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.9",
+      version: "v15.10",
       services: results,
     });
   });
@@ -6836,7 +6854,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.9`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.10`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -7475,7 +7493,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.9</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.10</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

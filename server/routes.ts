@@ -6580,6 +6580,14 @@ Brothers Group Real Estate Team at Momentum Realty
       lastActivityAt: row.last_activity_at,
       nextNurtureAt: row.next_nurture_at,
       applicationUrl: row.token ? candidateAppUrl(row.token) : null,
+      // v15.6 — Phase 2 fields
+      recommendation: row.recommendation || null,
+      recommendationScore: row.recommendation_score ?? null,
+      recommendationReason: row.recommendation_reason || null,
+      adminNotes: row.admin_notes || null,
+      questionnaireJson: row.questionnaire_json || null,
+      questionnaireDraftJson: row.questionnaire_draft_json || null,
+      questionnaireDraftUpdatedAt: row.questionnaire_draft_updated_at || null,
     };
   }
 

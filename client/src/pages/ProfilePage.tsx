@@ -6,8 +6,19 @@ import { apiRequest } from "@/lib/queryClient";
 import { soundsEnabled, setSoundsEnabled, playSound } from "@/lib/sounds";
 import {
   User, Mail, Phone, Lock, Home, Building2, Trash2, MapPin,
-  Camera, ChevronLeft, Check, AlertTriangle, Eye, EyeOff, Volume2, PlayCircle,
+  Camera, ChevronLeft, Check, AlertTriangle, Eye, EyeOff, Volume2, PlayCircle, Sparkles,
 } from "lucide-react";
+
+// v14.9 — Static changelog. Curated by hand each release. Keeps the last 5
+// entries visible to agents so they see the app improving under them. Newest
+// at the top. Keep entries short — one line, agent-facing plain English.
+const CHANGELOG: { version: string; date: string; note: string }[] = [
+  { version: "v14.9",    date: "Jul 10", note: "Replay Tutorial now works for admins. \u201CDialing now\u201D pill hides outside 8am\u20138pm ET. What\u2019s New card added." },
+  { version: "v14.81.3", date: "Jul 10", note: "Fixed the \u201Cdatabase locked\u201D bug that blocked deactivating agents." },
+  { version: "v14.81",   date: "Jul 10", note: "Onboarding: new agents fill their profile + walk through a 7-chapter tutorial before hitting Dial." },
+  { version: "v14.80",   date: "Jul 10", note: "Opt-in sound effects toggle (default off). Live \u201Cdialing now\u201D pill added." },
+  { version: "v14.74",   date: "Jul 09", note: "Unified LandVoice + BatchLeads CSV importer. Supports all three LandVoice export shapes." },
+];
 
 const COUNTIES = ["Nassau", "Duval", "St Johns"] as const;
 
@@ -570,6 +581,41 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
           >
             <PlayCircle size={13} /> {rewatching ? "Loading…" : "Replay Tutorial"}
           </button>
+        </div>
+
+        {/* ── What's New (v14.9) ── */}
+        <div style={sectionCard} data-testid="whats-new-card">
+          <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(200,170,90,0.75)", marginBottom: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+            <Sparkles size={12} /> What's New
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {CHANGELOG.map((entry) => (
+              <div key={entry.version} style={{
+                display: "flex",
+                gap: 12,
+                paddingBottom: 10,
+                borderBottom: "1px solid rgba(255,255,255,0.05)",
+              }}>
+                <div style={{
+                  minWidth: 68,
+                  fontSize: 11,
+                  color: "rgba(200,170,90,0.85)",
+                  fontWeight: 600,
+                  fontVariantNumeric: "tabular-nums",
+                }}>
+                  {entry.version}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", lineHeight: 1.55, margin: 0 }}>
+                    {entry.note}
+                  </p>
+                  <p style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: 3, marginBottom: 0 }}>
+                    {entry.date}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* ── Delete account ── */}

@@ -52,10 +52,14 @@ function AppRoutes() {
   // never blocks them. A rewatch (triggered from Profile) sets tutorialCompletedAt
   // back to null server-side but flags sessionStorage so TutorialFlow knows
   // it's not the agent's first time (enables the Skip button).
-  if (isAgent && !user.profileCompletedAt) {
+  // v14.9 — Onboarding gates now fire for BOTH agents and admins. Original
+  // v14.81 gated on isAgent only, which meant the Profile "Replay Tutorial"
+  // button was a silent no-op for admins (Alex/Nate) because App.tsx skipped
+  // straight past the TutorialFlow mount. Admins can now rewatch too.
+  if (!user.profileCompletedAt) {
     return <ProfileGate onComplete={() => refreshUser()} />;
   }
-  if (isAgent && !user.tutorialCompletedAt) {
+  if (!user.tutorialCompletedAt) {
     const isRewatch = (() => {
       try { return sessionStorage.getItem("ld_tutorial_rewatch") === "true"; } catch { return false; }
     })();

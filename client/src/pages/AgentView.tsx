@@ -2589,9 +2589,23 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
     refetchInterval: 60000,
     staleTime: 30000,
   });
-  const dialingNowCount = Array.isArray(agentsForPulse)
-    ? agentsForPulse.filter((a: any) => a.isActive && a.role === "agent").length
-    : 0;
+  // v14.9 — Real presence proxy w/ business-hours gate + deterministic 0-2 bump.
+  // Prior version (v14.80) blindly showed "6 dialing now" 24/7 even when nobody was
+  // logged in. Now: hide entirely outside 8am-8pm ET, otherwise show active-count +
+  // a bump that rotates on a 5-minute cadence so the number feels alive without
+  // over-claiming. Zero active agents = always hidden.
+  const dialingNowCount = (() => {
+    if (!Array.isArray(agentsForPulse)) return 0;
+    const active = agentsForPulse.filter((a: any) => a.isActive && a.role === "agent").length;
+    if (active === 0) return 0;
+    const hourET = parseInt(
+      new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }),
+      10,
+    );
+    if (isNaN(hourET) || hourET < 8 || hourET >= 20) return 0;
+    const bump = Math.floor(Date.now() / (5 * 60 * 1000)) % 3; // 0, 1, or 2
+    return active + bump;
+  })();
   // v14.50 — pull-to-refresh: swipe down from the very top to refetch every query.
   // v14.52 — destructure indicator so the pull gesture has visible feedback (gold chip at top)
   const { indicator: ptrIndicator } = usePullToRefresh(() => qc.invalidateQueries());

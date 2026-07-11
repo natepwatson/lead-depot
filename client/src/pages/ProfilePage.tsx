@@ -13,6 +13,7 @@ import {
 // entries visible to agents so they see the app improving under them. Newest
 // at the top. Keep entries short — one line, agent-facing plain English.
 const CHANGELOG: { version: string; date: string; note: string }[] = [
+  { version: "v15.5",    date: "Jul 11", note: "Onboarding candidates — Alex can invite a candidate (7 entry paths → 3 FUB stages) after a real-world \"yes\" conversation and deliver via QR scan / text link / email / create-only. Auto-pushes to Follow Up Boss with the right stage + tags." },
   { version: "v15.4",    date: "Jul 11", note: "Recycle cooldown retired — recycled leads re-enter the shared pool immediately (no 14d freeze). Plus a phone-attempt outcome tracker: every line struck at the 12-cap now logs its eventual fate (exhausted vs. other line connected) so we can decide whether to push the cap to 16 with real data." },
   { version: "v15.3",    date: "Jul 11", note: "Bucket 3 closed: real-time “live now” dial indicator (green/gray, no fake counts), optimal call-time heat meter (Hot/Warm/Cool/Cold sourced from MIT and industry data), intent badges on every lead + admin filter + daily digest breakdown, and FUB Seller/Buyer/Buy&Sell tag automation." },
   { version: "v15.2",    date: "Jul 11", note: "Certify test infrastructure now accepts any version number — the nightly health check was still hardcoded to v14.x and fired a false alarm after the v15 rebase." },

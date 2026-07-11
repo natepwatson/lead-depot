@@ -694,3 +694,181 @@ export async function fubCreateAgentRecruit(data: AgentRecruitPayload): Promise<
 
   return personId;
 }
+
+// ─── v15.5 — Onboarding candidate (Stage 4: post-yes) ────────────────────
+// Different from fubCreateAgentRecruit (which handles Stage-1 cold inquiries
+// from the public /join form). This is for the admin-initiated invite AFTER
+// a real-world conversation ended in "yes, I want to look at this seriously".
+//
+// Entry path drives FUB stage + tags per the locked grid:
+//   1) dbpr_phone_kit         → Agent Recruit Lead  (Nurture tier)
+//   2) f2f_nurture            → Agent Recruit Lead  (Nurture tier)
+//   3) phone_tell_me_more     → Agent Prospect      (Hot Prospect tier)
+//   4) f2f_hot_prospect       → Agent Prospect      (Hot Prospect tier)
+//   5) marketing_phone_yes    → Vendor              (Vendor tier)
+//   6) f2f_sit_down_yes       → Vendor              (Vendor tier)
+//   7) referral_yes           → Vendor              (Vendor tier)
+export type CandidateEntryPath =
+  | "dbpr_phone_kit"
+  | "f2f_nurture"
+  | "phone_tell_me_more"
+  | "f2f_hot_prospect"
+  | "marketing_phone_yes"
+  | "f2f_sit_down_yes"
+  | "referral_yes";
+
+export type CandidateTemperature = "nurture" | "hot_prospect" | "vendor";
+
+export interface EntryPathConfig {
+  temperature: CandidateTemperature;
+  fubStage: string;      // exact label matching Alex's FUB pipeline
+  fubStageId?: number;   // known IDs (Agent Recruit Lead = 31); others left undefined —
+                         // stage NAME will be sent and FUB usually honors it. If not,
+                         // Alex corrects in FUB manually. Non-blocking.
+  extraTags: string[];   // path-specific tags added on top of default recruiting tags
+  humanLabel: string;    // shown in admin UI + Nate brief
+}
+
+export const ENTRY_PATH_CONFIG: Record<CandidateEntryPath, EntryPathConfig> = {
+  dbpr_phone_kit: {
+    temperature: "nurture",
+    fubStage: "Agent Recruit Lead",
+    fubStageId: 31,
+    extraTags: ["DBPR List", "Phone", "Nurture"],
+    humanLabel: "DBPR list → phone KIT",
+  },
+  f2f_nurture: {
+    temperature: "nurture",
+    fubStage: "Agent Recruit Lead",
+    fubStageId: 31,
+    extraTags: ["F2F", "Networking", "Nurture"],
+    humanLabel: "F2F networking — dream alive",
+  },
+  phone_tell_me_more: {
+    temperature: "hot_prospect",
+    fubStage: "Agent Prospect",
+    extraTags: ["Phone", "Warm"],
+    humanLabel: "Phone — tell me more",
+  },
+  f2f_hot_prospect: {
+    temperature: "hot_prospect",
+    fubStage: "Agent Prospect",
+    extraTags: ["F2F", "Warm"],
+    humanLabel: "F2F — hot prospect",
+  },
+  marketing_phone_yes: {
+    temperature: "vendor",
+    fubStage: "Vendor",
+    extraTags: ["Marketing-primed", "Phone", "BGRE Agent - Onboarding"],
+    humanLabel: "Marketing-primed — phone yes",
+  },
+  f2f_sit_down_yes: {
+    temperature: "vendor",
+    fubStage: "Vendor",
+    extraTags: ["F2F", "BGRE Agent - Onboarding"],
+    humanLabel: "F2F sit-down — said yes",
+  },
+  referral_yes: {
+    temperature: "vendor",
+    fubStage: "Vendor",
+    extraTags: ["Referral", "BGRE Agent - Onboarding"],
+    humanLabel: "Referral — said yes",
+  },
+};
+
+export interface CandidateFubPayload {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  entryPath: CandidateEntryPath;
+  invitedByName?: string;    // "Alex Watson" or "Nate Watson" for the note
+  applicationUrl: string;    // the /join/:token URL Alex generated
+}
+
+// Creates the FUB person, sets the right stage, tags it per the entry path,
+// and posts a structured onboarding-intake note. Returns FUB person ID.
+// NON-BLOCKING per invitation flow — caller catches errors and continues.
+export async function fubCreateCandidate(data: CandidateFubPayload): Promise<number | null> {
+  if (!FUB_API_KEY) {
+    console.warn("[FUB] FUB_API_KEY not set — skipping fubCreateCandidate");
+    return null;
+  }
+
+  const cfg = ENTRY_PATH_CONFIG[data.entryPath];
+  if (!cfg) {
+    console.error(`[FUB] Unknown entry path: ${data.entryPath}`);
+    return null;
+  }
+
+  const tags = ["Recruiting", "Candidate", ...cfg.extraTags];
+
+  const noteLines = [
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `Lead Depot — Onboarding Candidate Invited`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `Invited: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} EDT`,
+    `Invited by: ${data.invitedByName || "Lead Depot admin"}`,
+    ``,
+    `── ENTRY PATH ────────────────`,
+    `Path: ${cfg.humanLabel}`,
+    `Temperature: ${cfg.temperature.replace("_", " ")}`,
+    `Stage: ${cfg.fubStage}`,
+    ``,
+    `── NEXT STEP ────────────────`,
+    `Application link: ${data.applicationUrl}`,
+    ``,
+    `Application status will be updated in Lead Depot as they progress.`,
+    `Source: depot.watsonbrothersgroup.com`,
+  ];
+
+  const eventPayload: any = {
+    source: "Lead Depot Onboarding",
+    system: FUB_SYSTEM,
+    type: "Agent Inquiry",
+    message: `Onboarding candidate invited — ${data.firstName} ${data.lastName} (${cfg.humanLabel})`,
+    sourceUrl: "https://depot.watsonbrothersgroup.com",
+    person: {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      stage: cfg.fubStage,
+      tags,
+      assignedTo: "Alex Watson",
+    },
+  };
+
+  if (data.phone) eventPayload.person.phones = [{ value: data.phone }];
+  if (data.email) eventPayload.person.emails = [{ value: data.email }];
+
+  console.log(`[FUB] Pushing candidate: ${data.firstName} ${data.lastName} (${cfg.humanLabel} → ${cfg.fubStage})`);
+  const result = await fubRequest("POST", "/events", eventPayload);
+
+  if (!result.ok) {
+    console.error("[FUB] Failed to push candidate:", result.data);
+    return null;
+  }
+
+  const personId = result.data?.person?.id ?? null;
+
+  if (personId) {
+    // Force stage via PUT if we know the ID (name-only can be silently ignored)
+    if (cfg.fubStageId) {
+      await fubRequest("PUT", `/people/${personId}`, { stageId: cfg.fubStageId });
+      console.log(`[FUB] Candidate stage forced → ${cfg.fubStage} (id=${cfg.fubStageId}) for person ${personId}`);
+    } else {
+      // No known ID — rely on stage name from POST. Try PUT with stage string as fallback.
+      const putRes = await fubRequest("PUT", `/people/${personId}`, { stage: cfg.fubStage });
+      console.log(`[FUB] Candidate stage set via name → ${cfg.fubStage} for person ${personId} (put ok=${putRes.ok})`);
+    }
+
+    // Post the intake note
+    await fubRequest("POST", "/notes", {
+      personId,
+      body: noteLines.join("\n"),
+      isHtml: false,
+    });
+    console.log(`[FUB] Candidate note posted — person ${personId}`);
+  }
+
+  return personId;
+}

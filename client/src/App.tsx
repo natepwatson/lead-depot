@@ -16,6 +16,7 @@ import ProfileGate from "./components/ProfileGate";
 import TutorialFlow from "./components/TutorialFlow";
 import NotFound from "./pages/not-found";
 import JoinPage from "./pages/JoinPage";
+import CandidateLanding from "./pages/CandidateLanding";
 import { useEffect, useState } from "react";
 
 function AppRoutes() {
@@ -113,6 +114,8 @@ export default function App() {
         <Router hook={useHashLocation}>
           <Switch>
             {/* Public recruiting form — no auth required */}
+            {/* v15.5 — candidate landing must be checked BEFORE the generic /join route */}
+            <Route path="/join/:token" component={CandidateLanding} />
             <Route path="/join" component={JoinPage} />
             {/* Account setup — no auth required, token-gated */}
             <Route path="/setup/:token" component={AccountSetupPage} />

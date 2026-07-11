@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import ActivityFeed from "../components/ld/ActivityFeed";
+import CandidatesTab from "../components/ld/CandidatesTab";
 import ProfilePage from "./ProfilePage";
 import ScriptEditor from "../components/ScriptEditor";
 import MapView from "./MapView";
@@ -1608,7 +1609,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.4
+              v15.5
             </p>
           </div>
         </div>
@@ -1702,6 +1703,7 @@ export default function AdminDashboard({
               { value: "reports",     icon: BarChart2,   label: "Reports" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "recruiting",  icon: Users,       label: "Recruiting" },
+              { value: "candidates",  icon: UserPlus,    label: "Candidates" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
               { value: "profile",     icon: Settings,    label: "My Profile" },
@@ -3694,6 +3696,11 @@ export default function AdminDashboard({
                 </>
               );
             })()}
+          </TabsContent>
+
+          {/* ── CANDIDATES (v15.5) ─────────────────────── */}
+          <TabsContent value="candidates">
+            <CandidatesTab />
           </TabsContent>
 
           {/* ── SCRIPTS ─────────────────────────────────────────────────────── */}

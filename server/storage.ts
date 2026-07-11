@@ -153,6 +153,72 @@ try { sqlite.exec(`CREATE TABLE IF NOT EXISTS agent_audit_log (
   notes TEXT
 )`); } catch {}
 try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_agent_audit_log_target ON agent_audit_log(target_id, ts DESC)`); } catch {}
+
+// ─── v15.5 — Onboarding candidates (mirror of db.ts) ──────────────────────
+// MUST be a byte-for-byte mirror of the DDL in server/db.ts. storage.ts opens
+// its own drizzle handle to the same SQLite file; if db.ts adds a column that
+// storage.ts doesn't, any drizzle query against the affected table crashes
+// with "no such column". Kept in both places since v14.81 crash lesson.
+try { sqlite.exec(`CREATE TABLE IF NOT EXISTS candidates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  email TEXT,
+  phone TEXT,
+  entry_path TEXT NOT NULL,
+  temperature TEXT NOT NULL,
+  fub_stage TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'invited',
+  token TEXT UNIQUE,
+  token_expires_at TEXT,
+  delivery_mode TEXT NOT NULL DEFAULT 'create_only',
+  invited_by_agent_id INTEGER,
+  referred_by_agent_id INTEGER,
+  fub_person_id INTEGER,
+  fub_synced_at TEXT,
+  questionnaire_json TEXT,
+  questionnaire_submitted_at TEXT,
+  approved_at TEXT,
+  approved_by_agent_id INTEGER,
+  resulting_agent_id INTEGER,
+  declined_at TEXT,
+  declined_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT '',
+  first_opened_at TEXT,
+  last_activity_at TEXT,
+  next_nurture_at TEXT
+)`); } catch {}
+try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status)`); } catch {}
+try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_token ON candidates(token) WHERE token IS NOT NULL`); } catch {}
+try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates(email) WHERE email IS NOT NULL`); } catch {}
+try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_phone ON candidates(phone) WHERE phone IS NOT NULL`); } catch {}
+try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_temp ON candidates(temperature)`); } catch {}
+
+try { sqlite.exec(`CREATE TABLE IF NOT EXISTS onboarding_checklist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id INTEGER NOT NULL,
+  item_key TEXT NOT NULL,
+  item_label TEXT NOT NULL,
+  item_order INTEGER NOT NULL,
+  completed_at TEXT,
+  completed_by_agent_id INTEGER,
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT ''
+)`); } catch {}
+try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_onboarding_agent ON onboarding_checklist(agent_id)`); } catch {}
+try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_onboarding_pending ON onboarding_checklist(agent_id) WHERE completed_at IS NULL`); } catch {}
+
+// agents — 9 new columns (v15.5)
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN bio TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN license_status TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN license_number TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN license_state TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN years_experience TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN candidate_id INTEGER`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN onboarding_started_at TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN onboarding_completed_at TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN tcpa_consent_at TEXT`); } catch {}
+
 try { sqlite.exec(`ALTER TABLE agent_points ADD COLUMN scope TEXT NOT NULL DEFAULT 'seller'`); } catch {}
 // DBPR fields (v11.71, renamed from FREC in v13.4 — in case table was created before these existed)
 try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN dbpr_license_id TEXT`); } catch {}

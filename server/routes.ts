@@ -6,7 +6,8 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence } from "./fub";
+import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubCreateCandidate, ENTRY_PATH_CONFIG, type CandidateEntryPath } from "./fub";
+import QRCode from "qrcode";
 import {
   initAuthSchema,
   migrateLegacyPasswords,
@@ -311,7 +312,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.4 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.5 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -370,7 +371,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.5 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -655,7 +656,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.5 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1736,7 +1737,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.4</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.5</p>
             </div>
           `,
         });
@@ -1896,7 +1897,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.4 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.5 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -5388,7 +5389,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.4 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.5 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5620,7 +5621,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.4",
+      version: "v15.5",
       services: results,
     });
   });
@@ -6526,6 +6527,349 @@ Brothers Group Real Estate Team at Momentum Realty
     }
   });
 
+
+  // ─── v15.5 — ONBOARDING CANDIDATES ─────────────────────────────────────────
+  // Admin invites candidates who said "yes" in a real-world conversation.
+  // Flow: pick entry path (7) → pick delivery mode (4) → generate token + FUB push → deliver
+  // Token TTL 14d. FUB errors are non-blocking; invite always succeeds.
+  const CANDIDATE_TOKEN_TTL_DAYS = 14;
+  const APP_BASE_URL = process.env.APP_URL || "https://depot.watsonbrothersgroup.com";
+
+  function candidateAppUrl(token: string): string {
+    return `${APP_BASE_URL.replace(/\/$/, "")}/#/join/${token}`;
+  }
+
+  function candidateStatusFromTokenExpiry(row: any): string {
+    if (!row) return "unknown";
+    if (row.status && row.status !== "invited") return row.status;
+    if (row.token_expires_at) {
+      const exp = typeof row.token_expires_at === "string" ? new Date(row.token_expires_at).getTime() : Number(row.token_expires_at);
+      if (Number.isFinite(exp) && exp < Date.now()) return "expired";
+    }
+    return row.status || "invited";
+  }
+
+  function shapeCandidate(row: any): any {
+    if (!row) return null;
+    return {
+      id: row.id,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      email: row.email,
+      phone: row.phone,
+      entryPath: row.entry_path,
+      temperature: row.temperature,
+      fubStage: row.fub_stage,
+      status: candidateStatusFromTokenExpiry(row),
+      token: row.token,
+      tokenExpiresAt: row.token_expires_at,
+      deliveryMode: row.delivery_mode,
+      invitedByAgentId: row.invited_by_agent_id,
+      referredByAgentId: row.referred_by_agent_id,
+      fubPersonId: row.fub_person_id,
+      fubSyncedAt: row.fub_synced_at,
+      questionnaireSubmittedAt: row.questionnaire_submitted_at,
+      approvedAt: row.approved_at,
+      approvedByAgentId: row.approved_by_agent_id,
+      resultingAgentId: row.resulting_agent_id,
+      declinedAt: row.declined_at,
+      declinedReason: row.declined_reason,
+      createdAt: row.created_at,
+      firstOpenedAt: row.first_opened_at,
+      lastActivityAt: row.last_activity_at,
+      nextNurtureAt: row.next_nurture_at,
+      applicationUrl: row.token ? candidateAppUrl(row.token) : null,
+    };
+  }
+
+  // POST /api/candidates/invite ─────────────────────────────────────────────
+  // Body: { firstName, lastName, email?, phone?, entryPath, deliveryMode, referredByAgentId? }
+  // At least one of email/phone required.
+  app.post("/api/candidates/invite", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+
+    try {
+      const {
+        firstName,
+        lastName,
+        email,
+        phone,
+        entryPath,
+        deliveryMode,
+        referredByAgentId,
+      } = req.body || {};
+
+      if (!firstName || !lastName) {
+        return res.status(400).json({ error: "firstName and lastName required" });
+      }
+      if (!email && !phone) {
+        return res.status(400).json({ error: "email or phone required" });
+      }
+      const cfg = ENTRY_PATH_CONFIG[entryPath as CandidateEntryPath];
+      if (!cfg) {
+        return res.status(400).json({ error: `unknown entryPath: ${entryPath}` });
+      }
+      const validModes = ["show_qr", "text", "email", "create_only"];
+      const dmode = validModes.includes(deliveryMode) ? deliveryMode : "create_only";
+
+      const normEmail = email ? String(email).trim().toLowerCase() : null;
+      const normPhone = phone ? String(phone).replace(/\D+/g, "") : null;
+
+      // Duplicate check (open candidates only)
+      const dupRow = rawDb.prepare(`
+        SELECT id, first_name, last_name, email, phone, status FROM candidates
+        WHERE (
+          (? IS NOT NULL AND lower(email) = ?)
+          OR (? IS NOT NULL AND replace(replace(replace(replace(phone,' ',''),'-',''),'(',''),')','') = ?)
+        )
+        AND status IN ('invited','started','submitted','approved')
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).get(normEmail, normEmail, normPhone, normPhone) as any;
+
+      if (dupRow) {
+        return res.status(409).json({
+          error: "duplicate_candidate",
+          existing: {
+            id: dupRow.id,
+            firstName: dupRow.first_name,
+            lastName: dupRow.last_name,
+            email: dupRow.email,
+            phone: dupRow.phone,
+            status: dupRow.status,
+          },
+        });
+      }
+
+      const token = randomBytes(24).toString("hex");
+      const now = new Date().toISOString();
+      const tokenExpiresAt = new Date(Date.now() + CANDIDATE_TOKEN_TTL_DAYS * 86400_000).toISOString();
+
+      const insertResult = rawDb.prepare(`
+        INSERT INTO candidates (
+          first_name, last_name, email, phone,
+          entry_path, temperature, fub_stage,
+          status, token, token_expires_at,
+          delivery_mode, invited_by_agent_id, referred_by_agent_id,
+          created_at, last_activity_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'invited', ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        firstName,
+        lastName,
+        normEmail,
+        normPhone,
+        entryPath,
+        cfg.temperature,
+        cfg.fubStage,
+        token,
+        tokenExpiresAt,
+        dmode,
+        req.currentAgent?.id ?? null,
+        referredByAgentId ?? null,
+        now,
+        now,
+      );
+
+      const candidateId = Number(insertResult.lastInsertRowid);
+      const appUrl = candidateAppUrl(token);
+
+      // FUB push — non-blocking
+      let fubPersonId: number | null = null;
+      try {
+        fubPersonId = await fubCreateCandidate({
+          firstName,
+          lastName,
+          email: normEmail || undefined,
+          phone: normPhone || undefined,
+          entryPath: entryPath as CandidateEntryPath,
+          invitedByName: req.currentAgent?.name || "Lead Depot admin",
+          applicationUrl: appUrl,
+        });
+        if (fubPersonId) {
+          rawDb.prepare(`UPDATE candidates SET fub_person_id = ?, fub_synced_at = ? WHERE id = ?`).run(fubPersonId, new Date().toISOString(), candidateId);
+        }
+      } catch (fubErr) {
+        console.error("[candidate] FUB push failed (non-blocking):", fubErr);
+      }
+
+      // Delivery
+      const invitationBody = [
+        `Hi ${firstName},`,
+        ``,
+        `Good talking with you. Here's the application — about 10 minutes, covers license, experience, and how you work. Once you send it back I'll review personally and be in touch within 2 business days.`,
+        ``,
+        `Start here: ${appUrl}`,
+        ``,
+        `This link expires in 14 days.`,
+        ``,
+        `— Alex`,
+      ].join("\n");
+
+      const smsBody = `Hi ${firstName}, good talking with you. Here's the BGRE application — 10 min, expires in 14 days: ${appUrl} — Alex`;
+
+      let deliveryPayload: any = { mode: dmode };
+
+      if (dmode === "email") {
+        if (!normEmail) {
+          return res.status(400).json({ error: "delivery_mode 'email' requires an email address" });
+        }
+        if (resend) {
+          try {
+            const html = renderBrandedEmail({
+              bodyText: invitationBody,
+              agentName: "Alex Watson",
+              agentTitle: "Team Lead · Brothers Group Real Estate Team at Momentum Realty",
+              agentPhone: "(904) 800-8846",
+              agentEmail: "alex@watsonbrothersgroup.com",
+              agentHeadshotUrl: "/headshots/alex-watson.jpg",
+              publicHost: APP_BASE_URL,
+            });
+            await resend.emails.send({
+              from: "Alex Watson <noreply@watsonbrothersgroup.com>",
+              to: normEmail,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.5`,
+              html,
+              text: invitationBody,
+              reply_to: "alex@watsonbrothersgroup.com",
+            });
+            deliveryPayload.emailSent = true;
+          } catch (mailErr) {
+            console.error("[candidate] email delivery failed:", mailErr);
+            deliveryPayload.emailSent = false;
+            deliveryPayload.emailError = String(mailErr);
+          }
+        } else {
+          deliveryPayload.emailSent = false;
+          deliveryPayload.emailError = "RESEND_API_KEY not set";
+        }
+      } else if (dmode === "text") {
+        if (!normPhone) {
+          return res.status(400).json({ error: "delivery_mode 'text' requires a phone number" });
+        }
+        // We don't have an outbound SMS provider yet. Return a deep link the admin taps
+        // on their phone to open Messages with the number + body prefilled.
+        deliveryPayload.smsLink = `sms:${normPhone}?&body=${encodeURIComponent(smsBody)}`;
+        deliveryPayload.smsBody = smsBody;
+      } else if (dmode === "show_qr") {
+        try {
+          const qrDataUrl = await QRCode.toDataURL(appUrl, { width: 512, margin: 2, errorCorrectionLevel: "M" });
+          deliveryPayload.qrDataUrl = qrDataUrl;
+          deliveryPayload.shortUrl = appUrl;
+        } catch (qrErr) {
+          console.error("[candidate] QR generation failed:", qrErr);
+          deliveryPayload.qrDataUrl = null;
+          deliveryPayload.shortUrl = appUrl;
+        }
+      }
+      // create_only → no delivery action
+
+      const row = rawDb.prepare(`SELECT * FROM candidates WHERE id = ?`).get(candidateId);
+      const shaped = shapeCandidate(row);
+
+      broadcast("candidate_invited", { candidateId, entryPath, deliveryMode: dmode });
+
+      res.json({
+        ok: true,
+        candidate: shaped,
+        delivery: deliveryPayload,
+        fubPersonId,
+      });
+    } catch (err: any) {
+      console.error("[candidate] invite failed:", err);
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  // GET /api/candidates/list  (admin) ────────────────────────────────────────
+  app.get("/api/candidates/list", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const status = typeof req.query.status === "string" ? req.query.status : null;
+    let sql = `SELECT * FROM candidates`;
+    const args: any[] = [];
+    if (status && status !== "all") {
+      sql += ` WHERE status = ?`;
+      args.push(status);
+    }
+    sql += ` ORDER BY created_at DESC LIMIT 500`;
+    const rows = rawDb.prepare(sql).all(...args) as any[];
+    res.json({ ok: true, candidates: rows.map(shapeCandidate) });
+  });
+
+  // GET /api/candidates/:id  (admin) ─────────────────────────────────────────
+  app.get("/api/candidates/:id", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = Number(req.params.id);
+    const row = rawDb.prepare(`SELECT * FROM candidates WHERE id = ?`).get(id) as any;
+    if (!row) return res.status(404).json({ error: "not_found" });
+    res.json({ ok: true, candidate: shapeCandidate(row) });
+  });
+
+  // GET /api/candidates/by-token/:token  (PUBLIC — for landing page) ────────
+  app.get("/api/candidates/by-token/:token", (req, res) => {
+    const token = String(req.params.token || "").trim();
+    if (!token) return res.status(400).json({ error: "token required" });
+    const row = rawDb.prepare(`SELECT * FROM candidates WHERE token = ? LIMIT 1`).get(token) as any;
+    if (!row) return res.status(404).json({ error: "not_found" });
+
+    const status = candidateStatusFromTokenExpiry(row);
+    if (status === "expired") {
+      return res.status(410).json({ error: "expired", candidate: { firstName: row.first_name, status: "expired" } });
+    }
+
+    // Track first-open
+    const nowIso = new Date().toISOString();
+    if (!row.first_opened_at) {
+      rawDb.prepare(`UPDATE candidates SET first_opened_at = ?, last_activity_at = ?, status = CASE WHEN status = 'invited' THEN 'started' ELSE status END WHERE id = ?`)
+        .run(nowIso, nowIso, row.id);
+    } else {
+      rawDb.prepare(`UPDATE candidates SET last_activity_at = ? WHERE id = ?`).run(nowIso, row.id);
+    }
+
+    // Return a safe subset (no admin-only fields)
+    res.json({
+      ok: true,
+      candidate: {
+        firstName: row.first_name,
+        lastName: row.last_name,
+        email: row.email,
+        phone: row.phone,
+        entryPath: row.entry_path,
+        temperature: row.temperature,
+        fubStage: row.fub_stage,
+        status,
+        tokenExpiresAt: row.token_expires_at,
+      },
+    });
+  });
+
+  // GET /api/candidates/:id/qr  (admin — regenerate QR) ─────────────────────
+  app.get("/api/candidates/:id/qr", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = Number(req.params.id);
+    const row = rawDb.prepare(`SELECT token FROM candidates WHERE id = ?`).get(id) as any;
+    if (!row || !row.token) return res.status(404).json({ error: "not_found" });
+    const url = candidateAppUrl(row.token);
+    try {
+      const qrDataUrl = await QRCode.toDataURL(url, { width: 512, margin: 2, errorCorrectionLevel: "M" });
+      res.json({ ok: true, qrDataUrl, url });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  // ENTRY PATH CATALOG (for the invite dialog) ───────────────────────────────
+  app.get("/api/candidates/entry-paths", (_req, res) => {
+    const paths = Object.entries(ENTRY_PATH_CONFIG).map(([key, cfg]) => ({
+      key,
+      label: cfg.humanLabel,
+      temperature: cfg.temperature,
+      fubStage: cfg.fubStage,
+      tags: cfg.extraTags,
+    }));
+    res.json({ ok: true, paths });
+  });
+
+
   return httpServer;
 }
 
@@ -6792,7 +7136,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.4</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.5</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

@@ -770,5 +770,111 @@ try {
   console.error("[db] Expired script seed failed:", e.message);
 }
 
+// ─── v15.5 — Bucket 5 Half 2, Phase 1: Onboarding candidate ingress ────────
+// New tables + agents columns to support the Stage-4 application flow:
+//   1) Admin invites a candidate (name/phone/email + entry path) after a
+//      real-world yes (F2F meet, phone yes, marketing-primed yes, referral).
+//   2) Candidate row + FUB HOT PROSPECT / AGENT RECRUIT LEAD / VENDOR created
+//      (stage depends on entry path — see server/fub.ts fubCreateCandidate).
+//   3) Admin picks delivery mode: Show QR on phone, Text link (sms: deep
+//      link), Email link, or Create only (Nurture default).
+//   4) Candidate opens /join/:token, completes 28-question form (Phase 2),
+//      Alex approves, agent row is created, onboarding_checklist rows fire.
+//
+// See references/ONBOARDING_SPEC.md for the full spec and 7-path entry grid.
+
+// candidates: the row backing the whole flow. status transitions:
+//   invited → started → submitted → approved → active  (happy path)
+//              ↘ ghosted (48h no-open) ↘ expired (14d no-submit) ↘ declined
+if (!rawDb.prepare("PRAGMA table_info(candidates)").all().length) {
+  rawDb.exec(`
+    CREATE TABLE IF NOT EXISTS candidates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      -- identity (3 fields captured at invite time)
+      first_name TEXT NOT NULL,
+      last_name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      -- entry path (locks in FUB stage + tags): dbpr_phone_kit | f2f_nurture |
+      -- phone_tell_me_more | f2f_hot_prospect | marketing_phone_yes |
+      -- f2f_sit_down_yes | referral_yes
+      entry_path TEXT NOT NULL,
+      -- temperature tier derived from entry_path (nurture | hot_prospect | vendor)
+      temperature TEXT NOT NULL,
+      -- FUB stage label applied on create (Agent Recruit Lead | Agent Prospect | Vendor)
+      fub_stage TEXT NOT NULL,
+      -- current lifecycle status
+      status TEXT NOT NULL DEFAULT 'invited',
+      -- one-time token for /join/:token public landing + questionnaire
+      token TEXT UNIQUE,
+      token_expires_at TEXT,
+      -- delivery mode picked at invite: show_qr | text | email | create_only
+      delivery_mode TEXT NOT NULL DEFAULT 'create_only',
+      -- attribution
+      invited_by_agent_id INTEGER,
+      referred_by_agent_id INTEGER,
+      -- FUB sync
+      fub_person_id INTEGER,
+      fub_synced_at TEXT,
+      -- 28-question form (Phase 2) — stored as JSON blob when submitted
+      questionnaire_json TEXT,
+      questionnaire_submitted_at TEXT,
+      -- Alex's approval
+      approved_at TEXT,
+      approved_by_agent_id INTEGER,
+      -- If approved, the resulting agents.id (foreign key back once agent row created)
+      resulting_agent_id INTEGER,
+      -- decline path
+      declined_at TEXT,
+      declined_reason TEXT,
+      -- lifecycle timestamps
+      created_at TEXT NOT NULL DEFAULT '',
+      first_opened_at TEXT,
+      last_activity_at TEXT,
+      -- nurture nudge scheduling (30/90/180d admin reminders)
+      next_nurture_at TEXT
+    )
+  `);
+  console.log("[db] v15.5 candidates table created");
+}
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_token ON candidates(token) WHERE token IS NOT NULL`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates(email) WHERE email IS NOT NULL`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_phone ON candidates(phone) WHERE phone IS NOT NULL`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_temp ON candidates(temperature)`).run();
+
+// onboarding_checklist: the 13-item post-approval task list (Phase 3).
+// Rows are inserted when Alex approves a candidate and creates their agent row.
+// The Nate brief email fires on approval and links here.
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS onboarding_checklist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    item_key TEXT NOT NULL,          -- e.g. "team_agreement_signed", "headshot_uploaded", "personal_address"
+    item_label TEXT NOT NULL,        -- human label shown in the checklist UI
+    item_order INTEGER NOT NULL,     -- display order 1..13
+    completed_at TEXT,               -- NULL until done
+    completed_by_agent_id INTEGER,   -- who checked it off (Alex/Nate or the agent themselves)
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT ''
+  )
+`);
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_onboarding_agent ON onboarding_checklist(agent_id)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_onboarding_pending ON onboarding_checklist(agent_id) WHERE completed_at IS NULL`).run();
+
+// agents: 9 new columns to hold the onboarding-derived fields.
+// These come from the 28-question form + Alex's approve step + FUB post-approve push.
+const agentColsV155 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
+if (!agentColsV155.includes("bio"))              rawDb.prepare("ALTER TABLE agents ADD COLUMN bio TEXT").run();
+if (!agentColsV155.includes("license_status"))   rawDb.prepare("ALTER TABLE agents ADD COLUMN license_status TEXT").run();  // "active" | "inactive" | "pending" | "pre_license"
+if (!agentColsV155.includes("license_number"))   rawDb.prepare("ALTER TABLE agents ADD COLUMN license_number TEXT").run();
+if (!agentColsV155.includes("license_state"))    rawDb.prepare("ALTER TABLE agents ADD COLUMN license_state TEXT").run();
+if (!agentColsV155.includes("years_experience")) rawDb.prepare("ALTER TABLE agents ADD COLUMN years_experience TEXT").run();
+if (!agentColsV155.includes("candidate_id"))     rawDb.prepare("ALTER TABLE agents ADD COLUMN candidate_id INTEGER").run();
+if (!agentColsV155.includes("onboarding_started_at")) rawDb.prepare("ALTER TABLE agents ADD COLUMN onboarding_started_at TEXT").run();
+if (!agentColsV155.includes("onboarding_completed_at")) rawDb.prepare("ALTER TABLE agents ADD COLUMN onboarding_completed_at TEXT").run();
+if (!agentColsV155.includes("tcpa_consent_at")) rawDb.prepare("ALTER TABLE agents ADD COLUMN tcpa_consent_at TEXT").run();
+
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");
+console.log("[db] v15.5 onboarding candidate schema ready (candidates + onboarding_checklist + 9 agents cols)");

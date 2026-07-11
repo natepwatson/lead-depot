@@ -27,6 +27,7 @@ import {
   SESSION_COOKIE,
 } from "./auth";
 import { logAgentEvent, getAgentAuditLog, isWithinReactivateWindow } from "./audit";
+import { getBackupStatus, runDailyOffVolumeBackup } from "./backup";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
 // @ts-expect-error — no @types/multer installed; runtime-only import
@@ -313,7 +314,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.8 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.9 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -372,7 +373,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.9 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -657,7 +658,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.9 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1740,7 +1741,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.8</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.9</p>
             </div>
           `,
         });
@@ -1900,7 +1901,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.8 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.9 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2382,8 +2383,16 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       ingestSecret,
     } = req.body;
 
-    // Simple shared-secret auth so only our cron can hit this endpoint
-    const INGEST_SECRET = process.env.INGEST_SECRET || "ms-ingest-2026";
+    // v15.9 SECURITY: shared-secret auth for cron ingest. No fallback default —
+    // if INGEST_SECRET is unset in Railway env, we FAIL CLOSED. Prior fallback
+    // ("ms-ingest-2026") was exposed in the public GitHub repo and turned this
+    // endpoint into a public write. v15.9 refuses to accept ingest unless the
+    // env var is set to a non-empty string AND matches the caller's value.
+    const INGEST_SECRET = process.env.INGEST_SECRET;
+    if (!INGEST_SECRET) {
+      console.error("[ingest] INGEST_SECRET env var unset — refusing all ingest calls");
+      return res.status(503).json({ error: "Ingest disabled: server missing INGEST_SECRET" });
+    }
     if (ingestSecret !== INGEST_SECRET) {
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -5051,6 +5060,7 @@ Brothers Group Real Estate Team at Momentum Realty
   // ─── LEADERBOARD RESET (v11.57: snapshots scores before wiping) ──────────
   // v12.5 — accepts ?scope=seller|recruiting so each depot's leaderboard resets independently.
   app.post("/api/admin/leaderboard-reset", (req: any, res: any) => {
+    if (!requireAdmin(req, res)) return; // v15.9 SECURITY: was fully unguarded before v15.9
     const now = new Date().toISOString();
     const scope = (String(req.query.scope || "seller") === "recruiting") ? "recruiting" : "seller";
     const resetKey = scope === "recruiting" ? "leaderboard_reset_at_recruiting" : "leaderboard_reset_at";
@@ -5206,6 +5216,7 @@ Brothers Group Real Estate Team at Momentum Realty
   // next scheduled cron. Requires typed confirmation to prevent misfires.
   // ═══════════════════════════════════════════════════════════════════════════
   app.post("/api/admin/seller-hard-reset", (req: any, res) => {
+    if (!requireAdmin(req, res)) return; // v15.9 SECURITY: was fully unguarded before v15.9
     if (req.body?.confirm !== "RESET") {
       return res.status(400).json({ error: 'Must send { "confirm": "RESET" } in body' });
     }
@@ -5232,6 +5243,7 @@ Brothers Group Real Estate Team at Momentum Realty
   });
 
   app.post("/api/admin/recruiting-hard-reset", (req: any, res) => {
+    if (!requireAdmin(req, res)) return; // v15.9 SECURITY: was fully unguarded before v15.9
     if (req.body?.confirm !== "RESET") {
       return res.status(400).json({ error: 'Must send { "confirm": "RESET" } in body' });
     }
@@ -5399,7 +5411,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.8 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.9 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5573,6 +5585,30 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json({ agents: rows, weekStart: isoStart });
   });
 
+  // v15.9 SECURITY: admin-only backup status. Reports last successful hourly
+  // and daily backup timestamps + current on-volume snapshot count/size.
+  app.get("/api/admin/backup-status", (req: any, res: any) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      res.json({ ok: true, ...getBackupStatus() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  // v15.9 SECURITY: admin-only manual backup trigger. Runs the daily off-volume
+  // (email) backup on demand — handy for testing or right before a risky
+  // migration. Always calls hourly snapshot first so today's email is fresh.
+  app.post("/api/admin/backup-now", async (req: any, res: any) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const result = await runDailyOffVolumeBackup();
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
   app.get("/api/health", async (req, res) => {
     const results: Record<string, { ok: boolean; latencyMs?: number; detail?: string }> = {};
 
@@ -5634,6 +5670,45 @@ Brothers Group Real Estate Team at Momentum Realty
       detail: "WS server active (broadcast available)",
     };
 
+    // v15.9 SECURITY: default-admin-password check. If either seeded admin
+    // still authenticates against the literal "brothers2026", flag it here so
+    // it's visible in health output and the nightly Certify sweep alerts.
+    try {
+      const { verifyPassword } = await import("./auth");
+      const seededEmails = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"];
+      const stillDefault: string[] = [];
+      for (const e of seededEmails) {
+        const row = rawDb.prepare(`SELECT password FROM agents WHERE email = ?`).get(e) as any;
+        if (!row?.password) continue;
+        const { ok } = await verifyPassword("brothers2026", row.password);
+        if (ok) stillDefault.push(e);
+      }
+      results.default_passwords = {
+        ok: stillDefault.length === 0,
+        detail: stillDefault.length === 0
+          ? "All seeded admin passwords have been rotated"
+          : `INSECURE — accounts still using default password: ${stillDefault.join(", ")}"`,
+      };
+    } catch (e: any) {
+      results.default_passwords = { ok: false, detail: "check failed: " + (e?.message || String(e)) };
+    }
+
+    // v15.9 SECURITY: backup freshness. Warn if the most recent hourly snapshot
+    // is older than 3 hours (allows for one missed hour + jitter).
+    try {
+      const bs = getBackupStatus();
+      const lastMs = bs.hourly.newest ? Date.parse(bs.hourly.newest.mtime) : 0;
+      const ageH = lastMs ? (Date.now() - lastMs) / 3_600_000 : Infinity;
+      results.backups = {
+        ok: ageH < 3 && !!bs.hourly.newest,
+        detail: bs.hourly.newest
+          ? `Last snapshot ${ageH.toFixed(1)}h ago (${bs.hourly.snapshotCount} on-volume, ${(bs.hourly.totalBytes / 1024 / 1024).toFixed(1)}MB)`
+          : "No snapshots yet — first backup runs 1 minute after boot",
+      };
+    } catch (e: any) {
+      results.backups = { ok: false, detail: "backup status failed: " + (e?.message || String(e)) };
+    }
+
     const allOk = Object.values(results).every(r => r.ok);
     const criticalOk = results.database.ok && results.resend.ok;
 
@@ -5643,7 +5718,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.8",
+      version: "v15.9",
       services: results,
     });
   });
@@ -6761,7 +6836,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.8`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.9`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -7400,7 +7475,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.8</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.9</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

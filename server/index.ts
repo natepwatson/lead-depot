@@ -8,6 +8,8 @@ import { initWebSocket } from "./ws";
 import { createServer } from "node:http";
 import cookieParser from "cookie-parser";
 import { attachSession } from "./auth";
+import { securityHeaders } from "./security";
+import { startBackupScheduler } from "./backup";
 
 // v14.81.1 — CRASH OBSERVABILITY. Capture any uncaught exception or unhandled
 // rejection to stderr + memory so /api/health can surface it. This is the ONLY
@@ -57,6 +59,10 @@ app.use((req: any, res: any, next: any) => {
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
+
+// v15.9 SECURITY: HSTS + CSP + nosniff + no-frame + referrer policy on every
+// response. Zero-dependency (see server/security.ts).
+app.use(securityHeaders);
 
 // Compression first — before ALL routes including API, at level 1 (fast)
 app.use(compression({ level: 1, threshold: 1024 }));
@@ -155,6 +161,14 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      // v15.9 SECURITY: start the backup scheduler AFTER the HTTP server is
+      // listening so a boot failure in backup code can't take the whole app
+      // down. Hourly on-volume snapshots + daily 05:00 EDT off-volume email.
+      try {
+        startBackupScheduler();
+      } catch (e) {
+        console.error("[boot] backup scheduler failed to start:", e);
+      }
     },
   );
 })();

@@ -108,6 +108,17 @@ try { sqlite.exec(`ALTER TABLE agents ADD COLUMN pending_email_expires TEXT`); }
 // Same MUST-BE-HERE rationale as v14.59: Drizzle's SELECT * FROM agents at module
 // eval will fail if this column is missing. v14.59 crash lesson locked in.
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN deactivated_at INTEGER`); } catch {}
+// v14.81 — Bucket 2: onboarding profile + tutorial completion timestamps.
+// SAME MUST-BE-HERE RATIONALE as v14.59/v14.61: Drizzle prepares SELECT statements
+// against the agents table at module-eval (see the top-level db.select().from(agents)
+// calls further down). If profile_completed_at or tutorial_completed_at are missing
+// on Railway boot, Drizzle's prepare() throws SqliteError and the process dies
+// BEFORE Express binds a port. v14.81 initial deploy crashed exactly this way
+// because the migration was only added to server/db.ts (which runs first, yes,
+// but storage.ts's schema-typed queries need the columns visible for prepare()).
+// Verified crash log: SqliteError: no such column: "profile_completed_at".
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN profile_completed_at TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN tutorial_completed_at TEXT`); } catch {}
 try { sqlite.exec(`CREATE TABLE IF NOT EXISTS agent_audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts INTEGER NOT NULL,

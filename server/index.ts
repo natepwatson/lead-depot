@@ -9,6 +9,24 @@ import { createServer } from "node:http";
 import cookieParser from "cookie-parser";
 import { attachSession } from "./auth";
 
+// v14.81.1 — CRASH OBSERVABILITY. Capture any uncaught exception or unhandled
+// rejection to stderr + memory so /api/health can surface it. This is the ONLY
+// way to see why the process died when Railway logs aren't accessible from
+// the sandbox.
+(globalThis as any).__lastFatal = null;
+process.on("uncaughtException", (err) => {
+  const msg = `[FATAL uncaughtException] ${(err as any)?.message || err}\n${(err as any)?.stack || ""}`;
+  console.error(msg);
+  (globalThis as any).__lastFatal = { type: "uncaughtException", ts: new Date().toISOString(), message: (err as any)?.message || String(err), stack: (err as any)?.stack || null };
+});
+process.on("unhandledRejection", (reason: any) => {
+  const msg = `[FATAL unhandledRejection] ${reason?.message || reason}\n${reason?.stack || ""}`;
+  console.error(msg);
+  (globalThis as any).__lastFatal = { type: "unhandledRejection", ts: new Date().toISOString(), message: reason?.message || String(reason), stack: reason?.stack || null };
+});
+(globalThis as any).__bootTime = new Date().toISOString();
+console.log("[boot] v14.81.1 crash observability installed at", (globalThis as any).__bootTime);
+
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
 const compression = require("compression");
 

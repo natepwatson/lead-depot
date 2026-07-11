@@ -6,7 +6,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { soundsEnabled, setSoundsEnabled, playSound } from "@/lib/sounds";
 import {
   User, Mail, Phone, Lock, Home, Building2, Trash2, MapPin,
-  Camera, ChevronLeft, Check, AlertTriangle, Eye, EyeOff, Volume2,
+  Camera, ChevronLeft, Check, AlertTriangle, Eye, EyeOff, Volume2, PlayCircle,
 } from "lucide-react";
 
 const COUNTIES = ["Nassau", "Duval", "St Johns"] as const;
@@ -52,10 +52,13 @@ interface AgentProfile {
 }
 
 export default function ProfilePage({ onBack }: { onBack: () => void }) {
-  const { user, logout, setHomeCounty } = useAuth();
+  const { user, logout, setHomeCounty, setTutorialCompleted, refreshUser } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // v14.81 — Rewatch tutorial
+  const [rewatching, setRewatching] = useState(false);
 
   // Profile fields — initialised from user context (extended data fetched below)
   const [profile, setProfile] = useState<AgentProfile>({
@@ -88,6 +91,28 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
 
   // Upload state
   const [uploading, setUploading]   = useState(false);
+
+  // v14.81 — "Replay tutorial" from Profile. Flags sessionStorage BEFORE
+  // reset-tutorial so TutorialFlow (mounted fresh by App.tsx once
+  // tutorialCompletedAt flips to null) reads isFirstTime=false and shows
+  // the Skip button on Chapters 2–7.
+  const handleReplayTutorial = async () => {
+    if (rewatching) return;
+    setRewatching(true);
+    try {
+      sessionStorage.setItem("ld_tutorial_rewatch", "true");
+    } catch { /* private browsing — rewatch will behave like first-time, acceptable fallback */ }
+    try {
+      await apiRequest("POST", "/api/agent/reset-tutorial", {});
+      setTutorialCompleted(null);
+      await refreshUser();
+    } catch {
+      toast({ title: "Could not start tutorial replay. Try again.", variant: "destructive" });
+      try { sessionStorage.removeItem("ld_tutorial_rewatch"); } catch {}
+    } finally {
+      setRewatching(false);
+    }
+  };
 
   // v14.80 — Opt-in sound effects toggle (default OFF)
   const [soundsOn, setSoundsOn] = useState(false);
@@ -509,6 +534,42 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
               }} />
             </button>
           </div>
+        </div>
+
+        {/* ── Onboarding (v14.81) ── */}
+        <div style={sectionCard}>
+          <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(200,170,90,0.6)", marginBottom: 16, fontWeight: 600 }}>
+            Onboarding
+          </p>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: "50%",
+                background: "rgba(200,170,90,0.1)", border: "1px solid rgba(200,170,90,0.25)",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              }}>
+                <PlayCircle size={14} style={{ color: "#c8aa5a" }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 13, color: "#fff", fontWeight: 500 }}>Tutorial</p>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 1 }}>
+                  Watch the onboarding walkthrough again
+                </p>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleReplayTutorial}
+            disabled={rewatching}
+            data-testid="replay-tutorial-button"
+            style={{
+              ...goldBtn,
+              background: rewatching ? "rgba(200,170,90,0.25)" : goldBtn.background,
+              cursor: rewatching ? "not-allowed" : "pointer",
+            }}
+          >
+            <PlayCircle size={13} /> {rewatching ? "Loading…" : "Replay Tutorial"}
+          </button>
         </div>
 
         {/* ── Delete account ── */}

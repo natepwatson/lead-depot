@@ -561,6 +561,29 @@ export default function CandidatesTab() {
                   </Button>
                 </div>
               )}
+              {(detailModal.status === "invited" || detailModal.status === "started" || detailModal.status === "expired") && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(200,170,90,0.15)", display: "flex", justifyContent: "flex-end" }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    style={{ color: "#c67c7c" }}
+                    onClick={async () => {
+                      if (!confirm(`Delete ${detailModal.firstName} ${detailModal.lastName}? This can't be undone. The candidate has not submitted a questionnaire yet.`)) return;
+                      const res = await fetch(`/api/candidates/${detailModal.id}`, { method: "DELETE", credentials: "include" });
+                      if (res.ok) {
+                        toast({ title: "Candidate deleted" });
+                        setDetailModal(null);
+                        refreshList();
+                      } else {
+                        const err = await res.json().catch(() => ({}));
+                        toast({ title: "Couldn't delete", description: err.detail || err.error || "Unknown error", variant: "destructive" });
+                      }
+                    }}
+                  >
+                    Delete candidate
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>

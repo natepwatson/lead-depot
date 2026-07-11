@@ -6869,6 +6869,20 @@ Brothers Group Real Estate Team at Momentum Realty
     }
   });
 
+  // DELETE /api/candidates/:id  (admin — hard delete before questionnaire) ──
+  app.delete("/api/candidates/:id", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = Number(req.params.id);
+    const row = rawDb.prepare(`SELECT id, status FROM candidates WHERE id = ?`).get(id) as any;
+    if (!row) return res.status(404).json({ error: "not_found" });
+    // Guard: don't delete candidates who already submitted the questionnaire — they should be declined instead
+    if (row.status === "submitted" || row.status === "approved") {
+      return res.status(409).json({ error: "cannot_delete", detail: "Use decline instead — candidate already submitted questionnaire" });
+    }
+    rawDb.prepare(`DELETE FROM candidates WHERE id = ?`).run(id);
+    res.json({ ok: true, deleted: id });
+  });
+
 
   return httpServer;
 }

@@ -1413,7 +1413,10 @@ function LeadCard({ lead }: { lead: Lead }) {
 
       {/* v14.43 ── spacer: 3-row sticky outcomes bar (~200px) + bottom nav (~62px) + safe area */}
       {/* v14.79 — slightly taller to match new grid bottom padding */}
-      <div aria-hidden style={{ height: 274 }} />
+      {/* v15.0 — bumped from 274 → 288 to match the extra 14px of container
+          bottom padding on the sticky outcomes bar (10 → 24). Keeps the pipeline
+          scroll from clipping under the bar. */}
+      <div aria-hidden style={{ height: 288 }} />
 
       {/* v14.42 ── STICKY OUTCOMES BAR — 3x3, ALL rows above mobile chrome */}
       {/* Fix: prior version rendered a 3rd row that landed under iPhone Safari's */}
@@ -1432,7 +1435,13 @@ function LeadCard({ lead }: { lead: Lead }) {
         // v14.79 — match top pad on bottom (was 8px top / 8px bottom, but the FAB
         // pressed-in state still needed a hair more room to clear "Keep in Touch"
         // in the middle column). Now 10px both sides.
-        padding: "10px 12px 10px",
+        // v15.0 — increased bottom pad from 10px to 24px so Row 3 (Appt Set /
+        // KIT / Left VM) has visible breathing room above the Dashboard/Dial/
+        // Referrals nav. Top gets a soft gradient fade-in that reads as ~40px
+        // of visual room; bottom used to hit the nav bar edge with no gap.
+        // Matches Alex's IMG_9286 report: "padding wasn't added under the
+        // outcome buttons like we discussed. equal to the padding above."
+        padding: "10px 12px 24px",
       }}>
         <div style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "repeat(3, 1fr)", gap: 5 }}>
           {OUTCOMES.map(o => {

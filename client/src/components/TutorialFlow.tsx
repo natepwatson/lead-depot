@@ -20,7 +20,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   Trophy, Layers, Phone, UserPlus, UserCircle2, ChevronDown,
   PhoneMissed, AlertTriangle, PhoneOff, XCircle, RefreshCw, Heart,
-  CheckCircle2, Voicemail,
+  CheckCircle2, Voicemail, Home,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { playSound, forceTutorialSounds } from "@/lib/sounds";
@@ -76,15 +76,40 @@ const TAB_COPY: Record<string, string> = {
   profile:     "Your headshot, rank, and identity on the team.",
 };
 
+// v15.0 — Tutorial OUTCOME_TILES now mirrors AgentView's OUTCOMES array
+// EXACTLY (same 9 tiles, same order, same colors). This is the production
+// 3x3 grid an agent sees the moment they exit the tutorial. Keeping the
+// two in sync prevents the drift Alex caught in IMG_9283/9284/9285 (tutorial
+// showed 7 tiles in the wrong order; the real app has 9 in a different
+// order).
+//
+// Grid position mapping (0-indexed, row-major):
+//   [0] No Answer     [1] Wrong #       [2] Disconnected
+//   [3] Not Interest. [4] Recycle       [5] Listed
+//   [6] Appt Set      [7] Keep in Touch [8] Left VM
+//
+// If AgentView's OUTCOMES ever changes, this array MUST change too. There's
+// no runtime import because the tutorial's tile spec (icon + color + desc)
+// diverges from AgentView's (bg/border/hoverBg) — they're intentionally
+// separate types, but the labels/keys/order/positions are contract.
 const OUTCOME_TILES = [
-  { key: "no_answer",    label: "No Answer",     icon: PhoneMissed,   color: "#facc15", desc: "Most common. Queued for another try later." },
-  { key: "wrong_number",  label: "Wrong #",       icon: AlertTriangle, color: "#f87171", desc: "Dead phone. Lead moves on. No harm done." },
-  { key: "recycled",     label: "Recycle",        icon: RefreshCw,     color: "#67e8f9", desc: "Called them, want to revisit later. Lead returns to the pool." },
-  { key: "keep_in_touch", label: "Keep in Touch", icon: Heart,         color: "#f9a8d4", desc: "They're interested but not ready. This goes into YOUR pipeline forever." },
-  { key: "not_interested",label: "Not Interested",icon: XCircle,       color: "#fca5a5", desc: "Real \u2018no.\u2019 We respect it and move on." },
-  { key: "left_voicemail",label: "Left VM",       icon: Voicemail,     color: "#93c5fd", desc: "Voicemail left. Counts as contact attempt." },
-  { key: "disconnected", label: "Disconnected",   icon: PhoneOff,      color: "#cbd5e1", desc: "Number doesn't work. System flags the phone." },
+  // Row 1 — fast per-line taps
+  { key: "no_answer",                label: "No Answer",     icon: PhoneMissed,   color: "#facc15", desc: "Most common. Queued for another try later." },
+  { key: "wrong_number",             label: "Wrong #",       icon: AlertTriangle, color: "#f87171", desc: "Dead phone. Lead moves on. No harm done." },
+  { key: "disconnected",             label: "Disconnected",  icon: PhoneOff,      color: "#cbd5e1", desc: "Number doesn't work. System flags the phone." },
+  // Row 2 — lead-level decisions
+  { key: "contacted_not_interested", label: "Not Interested",icon: XCircle,       color: "#fca5a5", desc: "Real \u2018no.\u2019 We respect it and move on." },
+  { key: "recycled",                 label: "Recycle",       icon: RefreshCw,     color: "#67e8f9", desc: "Called them, revisit later. Lead returns to the pool." },
+  { key: "listed",                   label: "Listed",        icon: Home,          color: "#c4b5fd", desc: "Already listed with another agent. We check back after expiry." },
+  // Row 3 — wins
+  { key: "contacted_appointment",    label: "Appt Set",      icon: CheckCircle2,  color: "#86efac", desc: "The green one. Set the appointment. Commission in motion." },
+  { key: "keep_in_touch",            label: "Keep in Touch", icon: Heart,         color: "#f9a8d4", desc: "They're interested but not ready. Goes into YOUR pipeline forever." },
+  { key: "left_voicemail",           label: "Left VM",       icon: Voicemail,     color: "#93c5fd", desc: "Voicemail left. Counts as a contact attempt." },
 ] as const;
+
+// v15.0 — Grid position index for Appt Set. Used by Chapter 6 to glow the
+// correct tile at its real production location (Row 3 Col 1 = index 6).
+const APPT_SET_IDX = 6;
 
 function ProgressDots({ total, current }: { total: number; current: number }) {
   return (
@@ -533,21 +558,26 @@ function Chapter4({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: 
             <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: GOLD_DIM, textAlign: "center", marginBottom: 10 }}>
               Pick an outcome
             </p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-              {OUTCOME_TILES.slice(0, 6).map(o => {
+            {/* v15.0 — all 9 real production tiles in real order (was showing */}
+            {/* only the first 6, in the wrong order — IMG_9283 regression). */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+              {OUTCOME_TILES.map(o => {
                 const Icon = o.icon;
                 return (
                   <div key={o.key} style={{
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-                    padding: "10px 4px", borderRadius: 10,
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                    padding: "9px 3px", borderRadius: 10,
                     background: `${o.color}22`, border: `1px solid ${o.color}70`,
                   }}>
-                    <Icon size={16} style={{ color: o.color }} />
-                    <span style={{ fontSize: 9, color: o.color, fontWeight: 700, textAlign: "center" }}>{o.label}</span>
+                    <Icon size={14} style={{ color: o.color }} />
+                    <span style={{ fontSize: 9, color: o.color, fontWeight: 700, textAlign: "center", lineHeight: 1.1 }}>{o.label}</span>
                   </div>
                 );
               })}
             </div>
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", textAlign: "center", marginTop: 10, letterSpacing: "0.03em", lineHeight: 1.5 }}>
+              This is the exact grid you'll see under every dial.
+            </p>
           </div>
         )}
       </div>
@@ -576,88 +606,84 @@ function Chapter4({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: 
 // Chapter 5 — Outcomes Explained
 // ══════════════════════════════════════════════════════════════════════════
 function Chapter5({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: boolean; onSkip: () => void }) {
-  const [tapped, setTapped] = useState<boolean[]>(OUTCOME_TILES.map(() => false));
-  const [activeIdx, setActiveIdx] = useState<number | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState(45);
-  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const allTapped = tapped.every(Boolean);
-
+  // v15.0 — rewritten to Alex's Option B spec (IMG_9284 report). The prior
+  // version presented a "tap each tile to reveal" mini-game with only 7 of
+  // the 9 real outcomes, in the wrong grid positions. Agents finished the
+  // tutorial, hit Dial, and saw a completely different 3×3 layout.
+  //
+  // This version is static: renders the real production 3×3 grid in the
+  // real production order, then shows every outcome's meaning in a list
+  // below. No interactive puzzle — just read and move on.
+  //
+  // NEXT unlocks after a 6-second read timer (enough time to scan 9 items)
+  // so agents can't blitz past the explainer, but nobody has to sit through
+  // a 45-second countdown either.
+  const [secondsLeft, setSecondsLeft] = useState(6);
   useEffect(() => {
     const interval = setInterval(() => setSecondsLeft(s => Math.max(0, s - 1)), 1000);
     return () => clearInterval(interval);
   }, []);
-
-  const handleTap = (i: number) => {
-    if (tapped[i]) return;
-    setActiveIdx(i);
-    setTapped(t => t.map((v, idx) => idx === i ? true : v));
-    if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    advanceTimer.current = setTimeout(() => setActiveIdx(null), 2000);
-  };
-
-  const unlocked = allTapped || secondsLeft <= 0;
+  const unlocked = secondsLeft <= 0;
 
   return (
     <div style={{ ...chapterWrap, position: "relative" }}>
       {showSkip && <SkipButton onSkip={onSkip} />}
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px", gap: 18 }}>
-        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", textAlign: "center" }}>
-          Tap each tile to reveal what it means.
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 20px 20px", gap: 16 }}>
+        <p style={{ fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: GOLD_DIM, textAlign: "center" }}>
+          The Outcome Grid
+        </p>
+        <p style={{ fontSize: 14, color: "rgba(255,255,255,0.75)", textAlign: "center", maxWidth: 420, lineHeight: 1.5 }}>
+          Every dial ends with one of these nine taps. This is exactly what you'll see under every lead.
         </p>
 
-        <FakeLeadCard name="MICHAEL DEMO" address="123 Sample St, Jacksonville, FL" score={82} phone="904-555-DEMO" tag="PRACTICE LEAD" />
-
+        {/* Static production grid — not interactive. Mirrors AgentView's */}
+        {/* OUTCOMES layout: 3 rows, 3 columns, real colors, real order. */}
         <div style={{ width: "100%", maxWidth: 380 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-            {OUTCOME_TILES.map((o, i) => {
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+            {OUTCOME_TILES.map(o => {
               const Icon = o.icon;
-              const isActive = activeIdx === i;
-              const done = tapped[i];
               return (
-                <button
-                  key={o.key}
-                  data-testid={`tutorial-outcome-${o.key}`}
-                  onClick={() => handleTap(i)}
-                  style={{
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-                    padding: "12px 4px", borderRadius: 10, cursor: "pointer",
-                    background: isActive ? `${o.color}44` : done ? `${o.color}18` : `${o.color}22`,
-                    border: `1px solid ${isActive ? o.color : `${o.color}70`}`,
-                    boxShadow: isActive ? `0 0 18px ${o.color}66` : "none",
-                    transition: "all 0.2s ease",
-                  }}
-                >
-                  <Icon size={17} style={{ color: o.color }} />
-                  <span style={{ fontSize: 9, color: o.color, fontWeight: 700, textAlign: "center" }}>{o.label}</span>
-                </button>
+                <div key={o.key} style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                  padding: "11px 3px", borderRadius: 10,
+                  background: `${o.color}22`, border: `1px solid ${o.color}70`,
+                }}>
+                  <Icon size={15} style={{ color: o.color }} />
+                  <span style={{ fontSize: 9, color: o.color, fontWeight: 700, textAlign: "center", lineHeight: 1.1 }}>{o.label}</span>
+                </div>
               );
             })}
           </div>
-          {activeIdx !== null && (
-            <div style={{
-              marginTop: 12, padding: "12px 14px", borderRadius: 10,
-              background: "rgba(255,255,255,0.05)", border: `1px solid ${OUTCOME_TILES[activeIdx].color}55`,
-              animation: "cardSlideIn 200ms ease",
-            }}>
-              <p style={{ fontSize: 12, fontWeight: 700, color: OUTCOME_TILES[activeIdx].color, marginBottom: 4 }}>
-                {OUTCOME_TILES[activeIdx].label}
-              </p>
-              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.5 }}>
-                {OUTCOME_TILES[activeIdx].desc}
-              </p>
-            </div>
-          )}
-          {!allTapped && (
-            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", textAlign: "center", marginTop: 10, letterSpacing: "0.05em" }}>
-              tap tile to reveal · {OUTCOME_TILES.filter((_, i) => !tapped[i]).length} left
-            </p>
-          )}
+
+          {/* Description list — one line per outcome, colored by the tile. */}
+          <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 8 }}>
+            {OUTCOME_TILES.map(o => {
+              const Icon = o.icon;
+              return (
+                <div key={o.key} style={{
+                  display: "flex", alignItems: "flex-start", gap: 10,
+                  padding: "8px 12px", borderRadius: 8,
+                  background: `${o.color}0d`, border: `1px solid ${o.color}22`,
+                }}>
+                  <Icon size={13} style={{ color: o.color, flexShrink: 0, marginTop: 2 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: o.color, letterSpacing: "0.02em" }}>{o.label}</span>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", marginLeft: 6, lineHeight: 1.4 }}>— {o.desc}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "center", padding: "0 0 44px" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "0 0 max(44px, env(safe-area-inset-bottom))", flexShrink: 0 }}>
+        {!unlocked && (
+          <p style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.05em", margin: 0 }}>
+            take a moment · {secondsLeft}s
+          </p>
+        )}
         <GoldPillButton onClick={onNext} disabled={!unlocked} testId="tutorial-next">
           NEXT
         </GoldPillButton>
@@ -702,38 +728,56 @@ function Chapter6({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: 
           <FakeLeadCard name="SARAH SAMPLE" address="456 Practice Dr, Fernandina Beach" score={91} phone="904-555-SARA" tag="PRACTICE LEAD" />
 
           <div style={{ position: "relative", width: "100%", maxWidth: 380 }}>
+            {/* v15.0 — callout pill repositioned. Appt Set now sits at grid */}
+            {/* index 6 (Row 3 Col 1, bottom-LEFT of the 3×3). The pill points */}
+            {/* down at that tile from just above Row 3. Previously it sat at */}
+            {/* the top-center where the old (wrong) Appt Set position was. */}
             {!showModal && (
-              <CalloutPill style={{ top: -38, left: "50%", transform: "translateX(-50%)" }}>
-                Tap Appt Set
+              <CalloutPill style={{
+                position: "absolute", zIndex: 5,
+                bottom: 44, left: "16.66%", transform: "translateX(-50%)",
+              }}>
+                Tap Appt Set ↓
               </CalloutPill>
             )}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 30 }}>
-              {OUTCOME_TILES.slice(0, 5).map(o => {
+            {/* v15.0 — render the full 9-tile production grid. The 8 non-Appt- */}
+            {/* Set tiles are dimmed; Appt Set at its REAL production index (6, */}
+            {/* Row 3 Col 1) is the only interactive/glowing target. Previously */}
+            {/* rendered only 5 dim tiles + Appt Set in slot 6 (Row 3 Col 3), */}
+            {/* which did not match production and made Chapter 5 useless. */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginTop: 30 }}>
+              {OUTCOME_TILES.map((o, i) => {
                 const Icon = o.icon;
+                const isApptSet = i === APPT_SET_IDX;
+                if (isApptSet) {
+                  return (
+                    <button
+                      key={o.key}
+                      data-testid="tutorial-appt-set"
+                      onClick={() => setShowModal(true)}
+                      style={{
+                        display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                        padding: "11px 3px", borderRadius: 10, cursor: "pointer",
+                        background: "rgba(34,197,94,0.28)", border: "1px solid rgba(34,197,94,0.75)",
+                        animation: "apptTilePulse 1.6s ease-in-out infinite",
+                      }}
+                    >
+                      <Icon size={15} style={{ color: "rgb(134,239,172)" }} />
+                      <span style={{ fontSize: 9, color: "rgb(134,239,172)", fontWeight: 700, lineHeight: 1.1 }}>Appt Set</span>
+                    </button>
+                  );
+                }
                 return (
                   <div key={o.key} style={{
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-                    padding: "10px 4px", borderRadius: 10,
-                    background: `${o.color}18`, border: `1px solid ${o.color}55`, opacity: 0.5,
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                    padding: "11px 3px", borderRadius: 10,
+                    background: `${o.color}14`, border: `1px solid ${o.color}44`, opacity: 0.45,
                   }}>
-                    <Icon size={15} style={{ color: o.color }} />
-                    <span style={{ fontSize: 9, color: o.color, fontWeight: 700 }}>{o.label}</span>
+                    <Icon size={14} style={{ color: o.color }} />
+                    <span style={{ fontSize: 9, color: o.color, fontWeight: 700, lineHeight: 1.1 }}>{o.label}</span>
                   </div>
                 );
               })}
-              <button
-                data-testid="tutorial-appt-set"
-                onClick={() => setShowModal(true)}
-                style={{
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-                  padding: "10px 4px", borderRadius: 10, cursor: "pointer",
-                  background: "rgba(34,197,94,0.28)", border: "1px solid rgba(34,197,94,0.7)",
-                  animation: "apptTilePulse 1.6s ease-in-out infinite",
-                }}
-              >
-                <CheckCircle2 size={17} style={{ color: "rgb(134,239,172)" }} />
-                <span style={{ fontSize: 9, color: "rgb(134,239,172)", fontWeight: 700 }}>Appt Set</span>
-              </button>
             </div>
           </div>
 

@@ -6780,6 +6780,18 @@ Brothers Group Real Estate Team at Momentum Realty
     }
   });
 
+  // ENTRY PATH CATALOG (for the invite dialog) ───────────────────────────────
+  app.get("/api/candidates/entry-paths", (_req, res) => {
+    const paths = Object.entries(ENTRY_PATH_CONFIG).map(([key, cfg]) => ({
+      key,
+      label: cfg.humanLabel,
+      temperature: cfg.temperature,
+      fubStage: cfg.fubStage,
+      tags: cfg.extraTags,
+    }));
+    res.json({ ok: true, paths });
+  });
+
   // GET /api/candidates/list  (admin) ────────────────────────────────────────
   app.get("/api/candidates/list", (req: any, res) => {
     if (!requireAdmin(req, res)) return;
@@ -6855,18 +6867,6 @@ Brothers Group Real Estate Team at Momentum Realty
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
     }
-  });
-
-  // ENTRY PATH CATALOG (for the invite dialog) ───────────────────────────────
-  app.get("/api/candidates/entry-paths", (_req, res) => {
-    const paths = Object.entries(ENTRY_PATH_CONFIG).map(([key, cfg]) => ({
-      key,
-      label: cfg.humanLabel,
-      temperature: cfg.temperature,
-      fubStage: cfg.fubStage,
-      tags: cfg.extraTags,
-    }));
-    res.json({ ok: true, paths });
   });
 
 

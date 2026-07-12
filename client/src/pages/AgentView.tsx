@@ -739,71 +739,7 @@ function LeadCard({ lead }: { lead: Lead }) {
 
   const zillow = lead.address ? `https://www.zillow.com/homes/${encodeURIComponent(lead.address)}_rb/` : null;
 
-  // v14.26 — Mailto is now built from the editable Flow 1 template on the server.
-  // We render synchronously with a fallback (in case the fetch hasn't returned yet),
-  // and swap in the DB-rendered version once loaded.
-  const [mailtoOverride, setMailtoOverride] = useState<string | null>(null);
-  const [mailtoOverride3, setMailtoOverride3] = useState<string | null>(null);
-  // v14.28 — Email eligibility for Flow 3 button + 2nd-attempt badge
-  // v14.34 — Adds tap timestamp, 24h gate, and FUB evidence status
-  const [emailStatus, setEmailStatus] = useState<{
-    flow1Sent: boolean;
-    contactedYet: boolean;
-    emailedToday: boolean;
-    flow3Eligible: boolean;
-    secondAttemptBadge: boolean;
-    tappedAt: string | null;
-    unlockAt: string | null;
-    secondsUntilUnlock: number;
-    gateOpen: boolean;
-    evidenceConfirmed: boolean;
-    evidenceAt: string | null;
-  } | null>(null);
-  const [flow3Sending, setFlow3Sending] = useState(false);
-  // v14.34 — live countdown ticker for the locked 2nd-attempt button
-  const [nowMs, setNowMs] = useState<number>(Date.now());
-  const refreshEmailStatus = () => {
-    if (!lead?.id) return;
-    fetch(`/api/leads/${lead.id}/email-status`)
-      .then(r => r.ok ? r.json() : null)
-      .then(j => setEmailStatus(j))
-      .catch(() => {});
-  };
-  useEffect(() => { refreshEmailStatus(); }, [lead?.id]);
-  // v14.34 — Tick every second while a gate countdown is showing.
-  useEffect(() => {
-    if (!emailStatus?.unlockAt || emailStatus?.gateOpen) return;
-    const t = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [emailStatus?.unlockAt, emailStatus?.gateOpen]);
-  useEffect(() => {
-    if (!lead?.id || !lead?.email) { setMailtoOverride(null); setMailtoOverride3(null); return; }
-    const q = `agentId=${user?.id || ""}`;
-    fetch(`/api/leads/${lead.id}/email-template?flow=1&${q}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((j: any) => {
-        if (!j) return;
-        const s = encodeURIComponent(j.subject || "");
-        const b = encodeURIComponent(j.body || "");
-        setMailtoOverride(`mailto:${lead.email}?subject=${s}&body=${b}`);
-      })
-      .catch(() => {});
-    // v14.28 — Also prefetch Flow 3 template for the 2nd-attempt button (only rendered if eligible)
-    fetch(`/api/leads/${lead.id}/email-template?flow=3&${q}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((j: any) => {
-        if (!j) return;
-        const s = encodeURIComponent(j.subject || "");
-        const b = encodeURIComponent(j.body || "");
-        setMailtoOverride3(`mailto:${lead.email}?subject=${s}&body=${b}`);
-      })
-      .catch(() => {});
-  }, [lead?.id, lead?.email, user?.id]);
-  const _fallbackSubject = encodeURIComponent(`Regarding your property at ${lead.address}`);
-  const _fallbackBody = encodeURIComponent(`Hi ${lead.ownerName || "there"},\n\nI wanted to reach out about your property at ${lead.address}. I specialize in helping homeowners in your area and I'd love to connect.\n\nWould you be available for a quick call?\n\nBest,\nBrothers Group Real Estate Team at Momentum Realty`);
-  const mailtoLink = lead.email
-    ? (mailtoOverride || `mailto:${lead.email}?subject=${_fallbackSubject}&body=${_fallbackBody}`)
-    : null;
+  // v15.11.5 — All email affordances removed. No mailto, no Flow 1/2/3/4, no badges.
 
   const typeLabel: Record<string, string> = {
     expired: "Expired", network: "Network",
@@ -1065,128 +1001,20 @@ function LeadCard({ lead }: { lead: Lead }) {
           })()}
         </div>
 
-        {/* v14.28 — 2nd-attempt badge: shows when Flow 1 was previously sent but no contact yet */}
-        {emailStatus?.secondAttemptBadge && (
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            padding: "5px 10px", marginBottom: 10,
-            background: "rgba(158,197,254,0.12)", border: "1px solid rgba(158,197,254,0.35)",
-            borderRadius: 999, fontSize: 11, letterSpacing: "0.08em",
-            textTransform: "uppercase", color: "#9ec5fe", fontWeight: 600,
-          }}>
-            <Mail size={11} /> 2nd email attempt
-          </div>
-        )}
 
-        {/* v14.22 — Email + Zillow strip (outside the phone stack, below the Dial button) */}
-        {/* v14.28 — Adds Flow 3 "Send 2nd Attempt" button when eligible */}
-        {(mailtoLink || zillow || emailStatus?.flow3Eligible || (emailStatus?.flow1Sent && !emailStatus?.contactedYet && !emailStatus?.gateOpen)) && (
+        {/* v15.11.5 — All email affordances removed. Only Zillow link remains. */}
+        {zillow && (
           <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-            {mailtoLink && !emailStatus?.flow1Sent && (
-              <a
-                href={mailtoLink}
-                onClick={() => {
-                  fetch(`/api/leads/${lead.id}/email-sent`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ agentId: user?.id }),
-                  }).then(() => refreshEmailStatus()).catch(() => {});
-                }}
-                style={{
-                  flex: 1, minWidth: 140,
-                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-                  padding: "13px 18px",
-                  background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.18)",
-                  borderRadius: 8, textDecoration: "none",
-                  fontSize: 13, color: "rgba(255,255,255,0.7)", minHeight: 48,
-                }}
-              >
-                <Mail size={14} /> Email Owner
-              </a>
-            )}
-            {emailStatus?.flow3Eligible && (
-              <button
-                onClick={() => {
-                  if (flow3Sending) return;
-                  setFlow3Sending(true);
-                  fetch(`/api/leads/${lead.id}/email-flow3`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ agentId: user?.id }),
-                  })
-                    .then(async r => {
-                      const j = await r.json().catch(() => ({}));
-                      if (r.ok) {
-                        toast({ title: "2nd attempt email sent", description: "+5 pts (email_sent_value). Note pushed to FUB." });
-                      } else {
-                        toast({ title: "Send failed", description: j.error || r.statusText, variant: "destructive" });
-                      }
-                      refreshEmailStatus();
-                    })
-                    .catch(err => toast({ title: "Send failed", description: err?.message || String(err), variant: "destructive" }))
-                    .finally(() => setFlow3Sending(false));
-                }}
-                disabled={flow3Sending}
-                style={{
-                  flex: 1, minWidth: 140,
-                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-                  padding: "13px 18px",
-                  background: "linear-gradient(135deg, rgba(158,197,254,0.14) 0%, rgba(158,197,254,0.08) 100%)",
-                  border: "1px solid rgba(158,197,254,0.4)", cursor: flow3Sending ? "wait" : "pointer",
-                  borderRadius: 8, fontSize: 13, color: "rgba(200,220,255,0.95)",
-                  minHeight: 48, fontWeight: 600, letterSpacing: "0.02em",
-                  opacity: flow3Sending ? 0.6 : 1,
-                }}
-              >
-                <Mail size={14} /> {flow3Sending ? "Sending\u2026" : "Send 2nd Attempt"}
-              </button>
-            )}
-            {/* v14.34 — Locked 2nd-attempt button with live countdown. */}
-            {emailStatus?.flow1Sent && !emailStatus?.contactedYet && !emailStatus?.gateOpen && emailStatus?.unlockAt && (() => {
-              const unlockMs = new Date(emailStatus.unlockAt).getTime();
-              const remainingSec = Math.max(0, Math.round((unlockMs - nowMs) / 1000));
-              const h = Math.floor(remainingSec / 3600);
-              const m = Math.floor((remainingSec % 3600) / 60);
-              const s = remainingSec % 60;
-              const label = h > 0 ? `Available in ${h}h ${m}m` : (m > 0 ? `Available in ${m}m ${s}s` : `Available in ${s}s`);
-              return (
-                <div
-                  aria-disabled="true"
-                  title={`Unlocks at ${new Date(emailStatus.unlockAt).toLocaleString()}`}
-                  style={{
-                    flex: 1, minWidth: 140, textAlign: "center",
-                    padding: "13px 18px",
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px dashed rgba(200,170,90,0.35)",
-                    borderRadius: 8, cursor: "not-allowed",
-                    fontSize: 12, color: "rgba(255,255,255,0.55)", minHeight: 48,
-                    display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
-                  }}
-                >
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600, letterSpacing: "0.02em" }}>
-                    <Mail size={12} /> 2nd attempt — {label}
-                  </div>
-                  {emailStatus.evidenceConfirmed && (
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: "rgba(200,170,90,0.85)", letterSpacing: "0.05em" }}>
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgb(200,170,90)", boxShadow: "0 0 6px rgba(200,170,90,0.6)" }} />
-                      Confirmed by FUB
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-            {zillow && (
-              <a href={zillow} target="_blank" rel="noopener noreferrer" style={{
-                flex: 1, minWidth: 140,
-                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-                padding: "13px 18px",
-                background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)",
-                borderRadius: 8, textDecoration: "none",
-                fontSize: 13, color: "rgba(147,197,253,0.9)", minHeight: 48,
-              }}>
-                <TrendingUp size={13} /> Zillow
-              </a>
-            )}
+            <a href={zillow} target="_blank" rel="noopener noreferrer" style={{
+              flex: 1, minWidth: 140,
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+              padding: "13px 18px",
+              background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)",
+              borderRadius: 8, textDecoration: "none",
+              fontSize: 13, color: "rgba(147,197,253,0.9)", minHeight: 48,
+            }}>
+              <TrendingUp size={13} /> Zillow
+            </a>
           </div>
         )}
 

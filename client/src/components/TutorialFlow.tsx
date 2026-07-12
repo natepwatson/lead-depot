@@ -958,9 +958,26 @@ export default function TutorialFlow({ isFirstTime, onComplete }: { isFirstTime:
   }, []);
 
   const finish = async () => {
-    try {
-      await apiRequest("POST", "/api/agent/complete-tutorial", {});
-    } catch { /* best-effort — don't block the agent from entering the app */ }
+    // v15.11.7 — Persist to server FIRST. Only call onComplete (which flips
+    // local state to "completed") if the server actually saved it. Prior
+    // versions swallowed the error and marked completed only in localStorage,
+    // so every fresh login refetched a NULL tutorial_completed_at and the
+    // agent had to re-watch. Retry once on transient failure.
+    let saved = false;
+    for (let attempt = 0; attempt < 2 && !saved; attempt++) {
+      try {
+        const r = await apiRequest("POST", "/api/agent/complete-tutorial", {});
+        if (r?.ok !== false) saved = true;
+      } catch (e) {
+        if (attempt === 1) console.warn("[TutorialFlow] persist failed after 2 attempts:", e);
+        await new Promise(res => setTimeout(res, 800));
+      }
+    }
+    if (!saved) {
+      // Fall through anyway — don't wall the agent off from the app. The
+      // next login the tutorial will fire again, but at least they can work.
+      console.error("[TutorialFlow] tutorial completion NOT persisted server-side. Agent will re-watch next login.");
+    }
     onComplete();
   };
 

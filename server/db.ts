@@ -270,6 +270,23 @@ try {
   console.error("[v15.11.6 gabriel-marcano-reactivate] Failed:", e);
 }
 
+// v15.11.7 — One-shot backfill: 13 agents had NULL tutorial_completed_at because
+// their finish() call silently 401'd on iOS PWAs. Mark everyone who was already
+// added and active as tutorial-complete NOW so nobody has to re-watch. Idempotent —
+// only affects rows that are still NULL. New agents added after this deploy will
+// go through the tutorial normally.
+try {
+  const info = rawDb.prepare(`
+    UPDATE agents
+       SET tutorial_completed_at = ?
+     WHERE tutorial_completed_at IS NULL
+       AND is_active = 1
+  `).run(new Date().toISOString());
+  if (info.changes > 0) console.log(`[v15.11.7 tutorial-backfill] Marked ${info.changes} agents as tutorial-complete.`);
+} catch (e) {
+  console.error("[v15.11.7 tutorial-backfill] Failed:", e);
+}
+
 // v14.17 — One-shot reactivation: Noah was auto-deactivated by the boot sweep
 // (v11.54) because his slug wasn't in headshotMap yet. Now that he's mapped, flip him
 // back on so he receives leads again. Idempotent — only affects id=6 if still off.

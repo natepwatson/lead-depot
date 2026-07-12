@@ -36,8 +36,8 @@ async function probeEngines() {
 }
 
 const BASE = process.env.BASE || 'https://depot.watsonbrothersgroup.com';
-const EMAIL = process.env.LD_EMAIL || 'alex@watsonbrothersgroup.com';
-const PASS  = process.env.LD_PASS  || 'brothers2026';
+const EMAIL = process.env.LD_EMAIL || 'nate@watsonbrothersgroup.com';
+const PASS  = process.env.LD_PASS  || 'brothers2028Xyz!';
 const EXPECT_VERSION = process.env.EXPECT_VERSION;
 const CONCURRENCY = parseInt(process.env.CONCURRENCY || '3', 10);
 

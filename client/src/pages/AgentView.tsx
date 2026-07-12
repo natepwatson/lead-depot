@@ -488,6 +488,16 @@ function LeadCard({ lead }: { lead: Lead }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [notes, setNotes] = useState("");
+  // v15.11.2 — Live heat tier so we can block the gold dial button during
+  // Downtime. Re-computes every 60s so the button unlocks the moment we
+  // cross into Mid or Prime.
+  const [heatTick, setHeatTick] = useState(0);
+  React.useEffect(() => {
+    const id = setInterval(() => setHeatTick(t => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const cardHeat = React.useMemo(() => computeCallHeat(), [heatTick]);
+  const dialLocked = cardHeat.tier === "down";
   const [showScript, setShowScript] = useState(false);
   const [hoveredOutcome, setHoveredOutcome] = useState<string | null>(null);
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
@@ -1010,20 +1020,38 @@ function LeadCard({ lead }: { lead: Lead }) {
           {activePhone && (() => {
             const activeIdx = allPhones.findIndex(p => p === activePhone);
             return (
-              <a href={`tel:${activePhone}`} style={{
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                gap: 2, padding: "11px 18px",
-                background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-                borderRadius: 10, textDecoration: "none",
-                color: "#080808", minHeight: 56,
-                border: "1px solid #e8c96a",
-                boxShadow: "0 4px 14px rgba(200,170,90,0.28)",
-              }}>
+              <a
+                href={dialLocked ? undefined : `tel:${activePhone}`}
+                onClick={(e) => {
+                  if (dialLocked) {
+                    e.preventDefault();
+                    toast({
+                      title: "Downtime — do not cold-call",
+                      description: cardHeat.reason || "We're outside the industry-recommended calling windows. Save the lead for Prime Time.",
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                aria-disabled={dialLocked}
+                data-testid={dialLocked ? "dial-line-locked" : "dial-line"}
+                style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: 2, padding: "11px 18px",
+                  background: dialLocked
+                    ? "linear-gradient(135deg,#2a2a2a 0%,#1a1a1a 100%)"
+                    : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+                  borderRadius: 10, textDecoration: "none",
+                  color: dialLocked ? "#6b7280" : "#080808", minHeight: 56,
+                  border: `1px solid ${dialLocked ? "rgba(107,114,128,0.35)" : "#e8c96a"}`,
+                  boxShadow: dialLocked ? "none" : "0 4px 14px rgba(200,170,90,0.28)",
+                  opacity: dialLocked ? 0.7 : 1,
+                  cursor: dialLocked ? "not-allowed" : "pointer",
+                }}>
                 <span style={{
                   fontSize: 8, letterSpacing: "0.22em", fontWeight: 800,
-                  color: "rgba(8,8,8,0.6)",
+                  color: dialLocked ? "rgba(255,255,255,0.35)" : "rgba(8,8,8,0.6)",
                 }}>
-                  DIAL LINE {activeIdx + 1}
+                  {dialLocked ? "DOWNTIME — LOCKED" : `DIAL LINE ${activeIdx + 1}`}
                 </span>
                 <span style={{
                   fontSize: "clamp(1.15rem, 5.2vw, 1.55rem)", fontWeight: 800,

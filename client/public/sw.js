@@ -2,7 +2,7 @@
 // - Does NOT intercept fetch.
 // - On activate: purges any legacy caches AND asks every open client page to
 //   reload so stale PWA installs don't show old builds.
-// - Handles `push` events (v15.11.1) so agents get Prime Time alerts on
+// - Handles `push` events (v15.11.2) so agents get Prime Time alerts on
 //   locked phones and closed browsers.
 //
 // IMPORTANT: SW_VERSION must be bumped on EVERY deploy. Browsers only fetch a
@@ -10,7 +10,7 @@
 // same, an installed PWA can lag a build by many hours (until its next daily
 // SW check). This is the 6th mandatory version-bump spot in the deploy workflow.
 
-const SW_VERSION = "v15.11.1";
+const SW_VERSION = "v15.11.2";
 
 self.addEventListener("install", () => self.skipWaiting());
 
@@ -31,7 +31,7 @@ self.addEventListener("activate", (event) => {
   })());
 });
 
-// v15.11.1 — Web Push event. Payload is JSON: { title, body, url, tag }.
+// v15.11.2 — Web Push event. Payload is JSON: { title, body, url, tag }.
 self.addEventListener("push", (event) => {
   let payload = { title: "Lead Depot", body: "", url: "/", tag: "ld-generic" };
   try {
@@ -52,7 +52,7 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(payload.title, options));
 });
 
-// v15.11.1 — Focus/open the app when the notification is tapped.
+// v15.11.2 — Focus/open the app when the notification is tapped.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const targetUrl = (event.notification.data && event.notification.data.url) || "/";

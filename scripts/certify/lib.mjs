@@ -7,8 +7,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
 export const BASE           = process.env.BASE || 'https://depot.watsonbrothersgroup.com';
-export const ADMIN_EMAIL    = process.env.LD_EMAIL || 'alex@watsonbrothersgroup.com';
-export const ADMIN_PASSWORD = process.env.LD_PASS  || 'brothers2026';
+export const ADMIN_EMAIL    = process.env.LD_EMAIL || 'nate@watsonbrothersgroup.com';
+export const ADMIN_PASSWORD = process.env.LD_PASS  || 'brothers2028Xyz!';
 export const EXPECT_VERSION = process.env.EXPECT_VERSION || null;
 
 // Fixture markers. Any agent or lead created by certify carries is_test=1

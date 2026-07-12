@@ -1,12 +1,12 @@
-// v15.11 — ON AIR banner. Flashing broadcast-studio light pinned above the
-// entire app whenever we're inside a PRIME TIME window. This is the primary
-// motivator — every agent (and admin) sees the exact same visual, at the same
-// moment, so nobody can pretend they didn't know it was Prime.
+// v15.11.2 — Always-visible top status bar for the team-wide call schedule.
 //
-// Two states this component renders:
-//   1. Currently in PRIME → red "ON AIR — PRIME TIME" banner, flashing dot
-//   2. PRIME starts in <=30 min → amber "PRIME TIME IN ~30 MIN" pre-warning
-//   Otherwise: renders nothing.
+// Renders 24/7. Three states:
+//   PRIME   → red "ON AIR — PRIME TIME" plate, flashing broadcast light both ends
+//   MID     → amber "MID TIME — OK to dial" plate, static dots
+//   DOWN    → dark gray "DOWNTIME — do not cold-call" plate, static dot
+//
+// The banner is pinned to the top of every page. This IS the source of truth
+// for whether the whole team should be calling right now.
 
 import { useEffect, useMemo, useState } from "react";
 import { computeCallHeat } from "@/lib/callHeat";
@@ -25,14 +25,48 @@ export default function OnAirBanner() {
     [tick],
   );
 
-  const inPrime = heat.tier === "prime";
-  const primeIncoming = !inPrime && heatIn30.tier === "prime";
-
-  if (!inPrime && !primeIncoming) return null;
+  // Style tokens per tier.
+  const cfg = (() => {
+    if (heat.tier === "prime") {
+      return {
+        // Deep red with strong halo. Text is bright red so it POPS against a phone glance.
+        bg: "linear-gradient(90deg, #1a0202 0%, #4a0a0a 50%, #1a0202 100%)",
+        border: "rgba(239,68,68,0.55)",
+        dotColor: "#ef4444",
+        badgeColor: "#ef4444",
+        badgeText: "ON AIR",
+        subText: "PRIME TIME — call now. Industry-best window.",
+        anim: "ld-onair-blink 1.05s steps(1) infinite",
+      };
+    }
+    if (heat.tier === "mid") {
+      const soon = heatIn30.tier === "prime";
+      return {
+        bg: "linear-gradient(90deg, #1a1102 0%, #2f2004 50%, #1a1102 100%)",
+        border: "rgba(245,158,11,0.45)",
+        dotColor: "#f59e0b",
+        badgeColor: "#f59e0b",
+        badgeText: soon ? "STAND BY" : "MID TIME",
+        subText: soon
+          ? "PRIME TIME in ~30 min — wrap what you're on."
+          : "MID TIME — OK to dial, not the sprint window.",
+        anim: soon ? "ld-onair-pulse 2.2s ease-in-out infinite" : "none",
+      };
+    }
+    // DOWN
+    return {
+      bg: "linear-gradient(90deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)",
+      border: "rgba(107,114,128,0.35)",
+      dotColor: "#6b7280",
+      badgeColor: "#9ca3af",
+      badgeText: "DOWN TIME",
+      subText: heat.reason || "Downtime — do NOT cold-call. Save leads for Prime.",
+      anim: "none",
+    };
+  })();
 
   return (
     <>
-      {/* keyframes injected inline so this component is fully self-contained */}
       <style>{`
         @keyframes ld-onair-pulse {
           0%, 100% { opacity: 1;   box-shadow: 0 0 24px rgba(239,68,68,0.55), 0 0 4px rgba(239,68,68,0.9); }
@@ -44,78 +78,73 @@ export default function OnAirBanner() {
         }
       `}</style>
       <div
-        data-testid={inPrime ? "on-air-banner" : "prime-incoming-banner"}
-        role="alert"
+        data-testid={`onair-banner-${heat.tier}`}
+        data-tier={heat.tier}
+        role="status"
+        aria-live="polite"
         style={{
           position: "sticky",
           top: 0,
           zIndex: 9999,
           width: "100%",
-          padding: "10px 14px",
-          background: inPrime
-            ? "linear-gradient(90deg, #1a0202 0%, #3b0808 50%, #1a0202 100%)"
-            : "linear-gradient(90deg, #1a1102 0%, #2f2004 50%, #1a1102 100%)",
-          borderBottom: `1px solid ${inPrime ? "rgba(239,68,68,0.55)" : "rgba(245,158,11,0.45)"}`,
+          padding: "8px 14px",
+          background: cfg.bg,
+          borderBottom: `1px solid ${cfg.border}`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          gap: 14,
+          gap: 12,
           textAlign: "center",
         }}
       >
-        {/* Broadcast light — flashing red circle */}
+        {/* Broadcast light — left */}
         <span
           aria-hidden
           style={{
-            width: 14,
-            height: 14,
+            width: 12,
+            height: 12,
             borderRadius: "50%",
-            background: inPrime ? "#ef4444" : "#f59e0b",
-            animation: inPrime
-              ? "ld-onair-blink 1.05s steps(1) infinite"
-              : "ld-onair-pulse 2.2s ease-in-out infinite",
+            background: cfg.dotColor,
+            animation: cfg.anim,
             flexShrink: 0,
           }}
         />
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", justifyContent: "center", minWidth: 0 }}>
           <span
             style={{
               fontSize: 11,
               letterSpacing: "0.32em",
               textTransform: "uppercase",
               fontWeight: 800,
-              color: inPrime ? "#ef4444" : "#f59e0b",
+              color: cfg.badgeColor,
               fontFamily: "'Switzer','Inter',sans-serif",
+              whiteSpace: "nowrap",
             }}
           >
-            {inPrime ? "ON AIR" : "STAND BY"}
+            {cfg.badgeText}
           </span>
           <span
             style={{
-              fontSize: 13,
-              color: "rgba(255,255,255,0.92)",
+              fontSize: 12,
+              color: heat.tier === "down" ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.92)",
               fontFamily: "'Switzer','Inter',sans-serif",
               fontWeight: 600,
               letterSpacing: "0.02em",
             }}
           >
-            {inPrime
-              ? "PRIME TIME — call now. This is the industry-best window."
-              : "Prime Time in ~30 min — wrap what you're on and get ready."}
+            {cfg.subText}
           </span>
         </div>
-        {/* Right-side broadcast light for symmetry */}
+        {/* Broadcast light — right */}
         <span
           aria-hidden
           style={{
-            width: 14,
-            height: 14,
+            width: 12,
+            height: 12,
             borderRadius: "50%",
-            background: inPrime ? "#ef4444" : "#f59e0b",
-            animation: inPrime
-              ? "ld-onair-blink 1.05s steps(1) infinite"
-              : "ld-onair-pulse 2.2s ease-in-out infinite",
-            animationDelay: inPrime ? "0.55s" : "1.1s",
+            background: cfg.dotColor,
+            animation: cfg.anim,
+            animationDelay: heat.tier === "prime" ? "0.55s" : "1.1s",
             flexShrink: 0,
           }}
         />

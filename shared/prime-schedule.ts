@@ -47,3 +47,26 @@ export function listPrimeWindowStarts(_tz: string = "America/New_York"): Array<{
   }
   return starts;
 }
+
+/**
+ * v15.11.4 — return the current call-heat tier ("prime" | "mid" | "down") for a
+ * given timezone. Used server-side by awardPoints() to apply the 1.5x Prime
+ * bonus. Must stay in lockstep with client/src/lib/callHeat.ts.
+ */
+export function getCallHeatTier(tz: string = "America/New_York"): "prime" | "mid" | "down" {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", hour: "numeric", hour12: false }).formatToParts(now);
+  const wdStr = parts.find(p => p.type === "weekday")?.value ?? "Mon";
+  const hStr = parts.find(p => p.type === "hour")?.value ?? "0";
+  const dowMap: Record<string, number> = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+  const dow = dowMap[wdStr] ?? 1;
+  let hour = parseInt(hStr, 10);
+  if (hour === 24) hour = 0;
+  if (!withinLegalDialWindow(hour)) return "down";
+  const s = (HOUR_WEIGHTS[hour] ?? 0.05) * (DAY_MULTIPLIERS[dow] ?? 0.9)
+          * saturdayMorningBoost(hour, dow) * fridayAfternoonPenalty(hour, dow);
+  const score = Math.min(1, s) * 100;
+  if (score >= 75) return "prime";
+  if (score >= 40) return "mid";
+  return "down";
+}

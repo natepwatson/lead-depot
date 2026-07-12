@@ -28,7 +28,7 @@ import {
 } from "./auth";
 import { logAgentEvent, getAgentAuditLog, isWithinReactivateWindow } from "./audit";
 import { getBackupStatus, runDailyOffVolumeBackup } from "./backup";
-// v15.11.3 — web push module removed; replaced by prime-email-scheduler.
+// v15.11.4 — web push module removed; replaced by prime-email-scheduler.
 import { checkPassword } from "../shared/password-rules";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
@@ -87,8 +87,18 @@ function awardPoints(
     email_sent:                 3,   // v14.18 Stage 1 email (aka cold outreach)
     // any other outcome falls back to base dial (2)
   };
-  const points = pts[outcome] ?? 2;
-  const reason = outcome;
+  const basePoints = pts[outcome] ?? 2;
+  // v15.11.4 — Prime Time bonus. Calls made during a PRIME hour earn 1.5x points.
+  // MID and Downtime earn standard 1.0x. Downtime is dial-locked in the UI, but
+  // the multiplier applies here too as a defensive belt-and-suspenders. Rounded
+  // to nearest whole number so leaderboards stay clean integers.
+  let multiplier = 1;
+  try {
+    const { getCallHeatTier } = require("../shared/prime-schedule");
+    if (getCallHeatTier() === "prime") multiplier = 1.5;
+  } catch {}
+  const points = Math.round(basePoints * multiplier);
+  const reason = multiplier > 1 ? `${outcome}_prime_1_5x` : outcome;
   rawDb.prepare(
     `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?)`
   ).run(agentId, points, reason, leadId ?? null, scope, new Date().toISOString());
@@ -316,7 +326,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.3 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.4 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -375,7 +385,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -660,7 +670,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1121,7 +1131,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const agent = rawDb.prepare("SELECT id, email, name, setup_expires FROM agents WHERE setup_token = ?").get(token);
     if (!agent) return res.status(404).json({ error: "Invalid or expired reset link" });
     if (new Date(agent.setup_expires) < new Date()) return res.status(410).json({ error: "Link expired" });
-    // v15.11.3 — shared password rules
+    // v15.11.4 — shared password rules
     const pwCheck = checkPassword(password, { email: agent.email, name: agent.name });
     if (!pwCheck.ok) return res.status(400).json({ error: pwCheck.errors[0], errors: pwCheck.errors });
     const hash = await hashPassword(password);
@@ -1419,7 +1429,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (agent.onboarded) return res.status(410).json({ error: "Already set up" });
     if (new Date(agent.setup_expires) < new Date()) return res.status(410).json({ error: "Link expired" });
 
-    // v15.11.3 — shared password rules
+    // v15.11.4 — shared password rules
     const pwCheck = checkPassword(password, { email: agent.email, name: agent.name });
     if (!pwCheck.ok) return res.status(400).json({ error: pwCheck.errors[0], errors: pwCheck.errors });
 
@@ -1750,7 +1760,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.3</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.4</p>
             </div>
           `,
         });
@@ -1910,7 +1920,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.3 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.4 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2032,7 +2042,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const agent = storage.getAgentById(id);
     if (!agent) return res.status(404).json({ error: "Agent not found" });
 
-    // v15.11.3 — Shared password rules (see shared/password-rules.ts). Server
+    // v15.11.4 — Shared password rules (see shared/password-rules.ts). Server
     // enforces; the client uses the same module for live feedback so the two
     // never drift.
     const pwCheck = checkPassword(newPassword, {
@@ -5430,7 +5440,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.3 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.4 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5628,35 +5638,8 @@ Brothers Group Real Estate Team at Momentum Realty
     }
   });
 
-  // v15.11.3 — Web Push (VAPID) removed. Replaced by prime-email-scheduler.
-  // Admin can fire a test Prime Time email at any time to preview the notifier.
-  app.post("/api/admin/prime-email/test", async (req, res) => {
-    if (!requireAdmin(req, res)) return;
-    try {
-      const nowHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
-      const result = await sendPrimeEmailToTeam(parseInt(nowHour, 10) || 12);
-      res.json({ ok: true, ...result });
-    } catch (err: any) {
-      console.error("[prime-email] test error:", err);
-      res.status(500).json({ error: String(err?.message ?? err) });
-    }
-  });
-
-  app.get("/api/admin/prime-email/stats", (req, res) => {
-    if (!requireAdmin(req, res)) return;
-    try {
-      const recentFires = rawDb.prepare(
-        `SELECT window_key, fired_at, recipients, errors FROM prime_email_fire_log ORDER BY id DESC LIMIT 20`
-      ).all();
-      const activeAgents = rawDb.prepare(
-        `SELECT COUNT(*) as n FROM agents WHERE active = 1 AND email NOT LIKE 'tombstone:%' AND email LIKE '%@%'`
-      ).get() as { n: number };
-      res.json({ activeAgentCount: activeAgents.n, recentFires });
-    } catch (err: any) {
-      console.error("[prime-email] stats error:", err);
-      res.status(500).json({ error: String(err?.message ?? err) });
-    }
-  });
+  // v15.11.4 — Prime Time email notifier removed. Prime is now incentivized via
+  // a 1.5x point multiplier inside awardPoints(). No endpoints needed.
 
   app.get("/api/health", async (req, res) => {
     const results: Record<string, { ok: boolean; latencyMs?: number; detail?: string }> = {};
@@ -5767,7 +5750,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.3",
+      version: "v15.11.4",
       services: results,
     });
   });
@@ -6885,7 +6868,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.3`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.4`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -7524,7 +7507,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.3</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.4</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -7991,11 +7974,11 @@ function scheduleStaleLockReleaser() {
 }
 scheduleStaleLockReleaser();
 
-// v15.11.3 — Prime Time Web Push scheduler. Fires 30 min before every PRIME
+// v15.11.4 — Prime Time Web Push scheduler. Fires 30 min before every PRIME
 // window start, once per day per window, to every active subscription.
-// v15.11.3 — Prime Time email notifier. Sends ONE email to every active agent
-// 30 min before each PRIME block starts. Zero opt-in, zero permissions.
-import { startPrimeEmailScheduler, sendPrimeEmailToTeam } from "./prime-email-scheduler";
-startPrimeEmailScheduler();
+// v15.11.4 — T-30 email notifier removed. Prime Time is now incentivized via
+// a 1.5x point multiplier applied inside awardPoints() instead of a notification.
+// The always-visible Prime bar at the top of every screen remains as the visual
+// signal. Downtime dial-lock also remains.
 
 // v14.46 — BatchLeads auto-pipeline scheduler removed. CSV upload is the sole seller intake path.

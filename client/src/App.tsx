@@ -12,6 +12,8 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import HeadshotGate from "./components/ld/HeadshotGate";
 import HomeCountyGate from "./components/ld/HomeCountyGate";
 import WatsonEmailNudge from "./components/ld/WatsonEmailNudge";
+import OnAirBanner from "./components/ld/OnAirBanner";
+import { ensurePushSubscription } from "./lib/push";
 import ProfileGate from "./components/ProfileGate";
 import TutorialFlow from "./components/TutorialFlow";
 import NotFound from "./pages/not-found";
@@ -21,6 +23,15 @@ import { useEffect, useState } from "react";
 
 function AppRoutes() {
   const { user, setHeadshot, setHomeCounty, setTutorialCompleted, refreshUser } = useAuth();
+
+  // v15.11 — On login, silently try to subscribe this browser to Web Push so
+  // Prime Time alerts reach the agent even when the app is closed. If perms
+  // are denied or the browser doesn't support it, this is a no-op.
+  useEffect(() => {
+    if (!user) return;
+    const t = setTimeout(() => { ensurePushSubscription().catch(() => {}); }, 1500);
+    return () => clearTimeout(t);
+  }, [user?.id]);
   // v14.51 — admin bottom nav can jump to any agent-side tab, not just leads.
   // null = show AdminDashboard. "leads"/"refer"/"leaderboard"/"profile" = show AgentView on that tab.
   const [adminAgentTab, setAdminAgentTab] = useState<null | "leads" | "refer" | "leaderboard" | "profile" | "pipeline">(null);
@@ -91,16 +102,25 @@ function AppRoutes() {
   const showEmailNudge = isAgent;
 
   if (user.role === "admin" && adminAgentTab) {
-    return <AgentView mode="seller" onBackToAdmin={() => setAdminAgentTab(null)} initialTab={adminAgentTab} />;
+    return (
+      <>
+        <OnAirBanner />
+        <AgentView mode="seller" onBackToAdmin={() => setAdminAgentTab(null)} initialTab={adminAgentTab} />
+      </>
+    );
   }
   if (user.role === "admin") return (
-    <AdminDashboard
-      onWorkMyLeads={() => setAdminAgentTab("leads")}
-      onOpenAgentTab={(t) => setAdminAgentTab(t)}
-    />
+    <>
+      <OnAirBanner />
+      <AdminDashboard
+        onWorkMyLeads={() => setAdminAgentTab("leads")}
+        onOpenAgentTab={(t) => setAdminAgentTab(t)}
+      />
+    </>
   );
   return (
     <>
+      <OnAirBanner />
       <AgentView mode="seller" />
       {showEmailNudge && <WatsonEmailNudge userEmail={user.email} userName={user.name} />}
     </>

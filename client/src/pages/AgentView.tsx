@@ -1800,89 +1800,21 @@ function CallHeatMeter() {
   }, []);
   const heat = React.useMemo(() => computeCallHeat(), [tick]);
 
-  // v15.8 — Prime-time proximity banner. Look 30 minutes into the future; if the
-  // upcoming window is HOT and we're not already in one, show a pulsing warning
-  // so the agent can clear their calendar and breathe before the sprint. Also
-  // fire a browser notification once per hot window (dedup key = YYYY-MM-DD-HH).
-  const upcoming = React.useMemo(
-    () => computeCallHeat(new Date(Date.now() + 30 * 60 * 1000)),
-    [tick],
-  );
-  const isPrimeIncoming = upcoming.tier === "hot" && heat.tier !== "hot";
-
-  // Ask for notification permission once (idempotent — browsers cache the answer).
-  React.useEffect(() => {
-    try {
-      if (typeof Notification !== "undefined" && Notification.permission === "default") {
-        Notification.requestPermission().catch(() => {});
-      }
-    } catch { /* SSR/private-mode safe */ }
-  }, []);
-
-  // Fire the push exactly once per (date, hour) hot window.
-  React.useEffect(() => {
-    if (!isPrimeIncoming) return;
-    try {
-      if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-      const now = new Date();
-      const key = `ld_prime_notified_${now.getFullYear()}-${now.getMonth()}-${now.getDate()}_${now.getHours()}`;
-      if (localStorage.getItem(key)) return;
-      localStorage.setItem(key, "1");
-      new Notification("Prime call sprint in ~30 min", {
-        body: "Clear your schedule. Breathe. Owner-answer rates peak in this window.",
-        icon: "/icons/apple-touch-icon.png",
-        tag: "ld-prime-time",
-      });
-    } catch { /* private mode or blocked — in-app banner still shows */ }
-  }, [isPrimeIncoming]);
+  // v15.11 — The pre-Prime banner + push have moved to the top-level OnAirBanner
+  // component (rendered above every page in App.tsx). This inline meter now
+  // only shows the current-tier receptivity card.
   const tierBg: Record<string, string> = {
-    hot:  "linear-gradient(135deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.06) 100%)",
-    warm: "linear-gradient(135deg, rgba(245,158,11,0.14) 0%, rgba(245,158,11,0.05) 100%)",
-    cool: "linear-gradient(135deg, rgba(200,170,90,0.10) 0%, rgba(200,170,90,0.04) 100%)",
-    cold: "linear-gradient(135deg, rgba(107,114,128,0.10) 0%, rgba(107,114,128,0.03) 100%)",
+    prime: "linear-gradient(135deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.06) 100%)",
+    mid:   "linear-gradient(135deg, rgba(245,158,11,0.14) 0%, rgba(245,158,11,0.05) 100%)",
+    down:  "linear-gradient(135deg, rgba(107,114,128,0.10) 0%, rgba(107,114,128,0.03) 100%)",
   };
   const tierBorder: Record<string, string> = {
-    hot:  "rgba(239,68,68,0.45)",
-    warm: "rgba(245,158,11,0.35)",
-    cool: "rgba(200,170,90,0.28)",
-    cold: "rgba(255,255,255,0.10)",
+    prime: "rgba(239,68,68,0.45)",
+    mid:   "rgba(245,158,11,0.35)",
+    down:  "rgba(255,255,255,0.10)",
   };
   return (
     <>
-      {/* v15.8 — Prime-time proximity banner. Shows only when a HOT window is ~30 min away. */}
-      {isPrimeIncoming && (
-        <div
-          data-testid="prime-time-banner"
-          style={{
-            margin: "0 20px 12px",
-            padding: "14px 16px",
-            borderRadius: 12,
-            background: "linear-gradient(135deg, rgba(239,68,68,0.22) 0%, rgba(239,68,68,0.08) 100%)",
-            border: "1px solid rgba(239,68,68,0.55)",
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            animation: "livePulse 2s ease-in-out infinite",
-          }}
-        >
-          <span style={{
-            display: "inline-block", width: 10, height: 10, borderRadius: "50%",
-            background: "#ef4444", boxShadow: "0 0 12px #ef4444", flexShrink: 0,
-          }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-              fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase",
-              color: "#ef4444", fontWeight: 700, marginBottom: 2,
-            }}>Prime Time in ~30 min</div>
-            <div style={{
-              fontSize: 13, color: "rgba(255,255,255,0.85)",
-              fontFamily: "'Switzer','Inter',sans-serif", lineHeight: 1.35,
-            }}>
-              Clear your schedule. Breathe. This is when owners answer.
-            </div>
-          </div>
-        </div>
-      )}
     <div
       data-testid="call-heat-meter"
       style={{
@@ -1897,8 +1829,8 @@ function CallHeatMeter() {
           <span style={{
             display: "inline-block", width: 8, height: 8, borderRadius: "50%",
             background: heat.color,
-            boxShadow: heat.tier === "hot" ? `0 0 8px ${heat.color}` : "none",
-            animation: heat.tier === "hot" ? "livePulse 1.6s ease-in-out infinite" : "none",
+            boxShadow: heat.tier === "prime" ? `0 0 8px ${heat.color}` : "none",
+            animation: heat.tier === "prime" ? "livePulse 1.6s ease-in-out infinite" : "none",
           }} />
           <span style={{
             fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase",
@@ -1933,12 +1865,12 @@ function CallHeatMeter() {
       }}>
         {heat.reason}
       </p>
-      {heat.nextHotWindow && (
+      {heat.nextPrimeWindow && (
         <p style={{
           margin: "4px 0 0", fontSize: 11,
           color: "rgba(200,170,90,0.65)", fontStyle: "italic",
         }}>
-          {heat.nextHotWindow}
+          {heat.nextPrimeWindow}
         </p>
       )}
     </div>

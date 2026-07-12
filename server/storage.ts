@@ -284,6 +284,29 @@ try { sqlite.exec(`CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT NOT NULL UNIQUE,
   value TEXT NOT NULL
 )`); } catch {}
+
+// v15.11 — Web Push subscriptions (team-wide Prime Time notifier). One row per
+// (agent, browser/device) endpoint. Deduped by unique endpoint URL.
+try { sqlite.exec(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id INTEGER NOT NULL,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  created_at TEXT NOT NULL DEFAULT '',
+  last_seen_at TEXT NOT NULL DEFAULT ''
+)`); } catch {}
+
+// v15.11 — Prime Time push fire log. Deduped by (window_key = YYYY-MM-DD_HH)
+// so a restart of the server never re-blasts the same window.
+try { sqlite.exec(`CREATE TABLE IF NOT EXISTS push_fire_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  window_key TEXT NOT NULL UNIQUE,
+  fired_at TEXT NOT NULL,
+  recipients INTEGER NOT NULL DEFAULT 0,
+  errors INTEGER NOT NULL DEFAULT 0
+)`); } catch {}
 // v11.39 — agent_points table (gamification)
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS agent_points (

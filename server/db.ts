@@ -212,6 +212,26 @@ if (!existingTables.includes('app_settings')) rawDb.exec(`CREATE TABLE IF NOT EX
   id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, value TEXT NOT NULL
 )`);
 
+// v15.11 — Push subscription tables (mirror of storage.ts migration; migration
+// parity rule per skill doc)
+if (!existingTables.includes('push_subscriptions')) rawDb.exec(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id INTEGER NOT NULL,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  created_at TEXT NOT NULL DEFAULT '',
+  last_seen_at TEXT NOT NULL DEFAULT ''
+)`);
+if (!existingTables.includes('push_fire_log')) rawDb.exec(`CREATE TABLE IF NOT EXISTS push_fire_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  window_key TEXT NOT NULL UNIQUE,
+  fired_at TEXT NOT NULL,
+  recipients INTEGER NOT NULL DEFAULT 0,
+  errors INTEGER NOT NULL DEFAULT 0
+)`);
+
 // v14.46 — LandVoice Intake v2 tables removed (landvoice_credentials, landvoice_raw_ingest,
 // lead_contacts, data_genie_lookups). CSV upload is the sole seller intake path.
 

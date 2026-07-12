@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newPage();
+const errs = [];
+page.on('pageerror', e => errs.push(e.message));
+await page.goto('https://depot.watsonbrothersgroup.com/?nc=' + Date.now(), { waitUntil: 'networkidle' });
+await page.waitForTimeout(3000);
+const rootSize = await page.evaluate(() => document.getElementById('root')?.innerHTML?.length || 0);
+console.log('errors:', errs);
+console.log('root size:', rootSize);
+await browser.close();

@@ -48,8 +48,11 @@ const CSP_ENFORCE = true; // set false to log-only if CSP ever breaks
 
 const CSP_DIRECTIVES = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",       // Vite bundle + our own inline
-  "style-src 'self' 'unsafe-inline'",         // Tailwind arbitrary values
+  // v15.11.1 hotfix — allow the Leaflet CDN so the Territory Map page loads.
+  // unpkg.com serves versioned, integrity-verifiable static files; we pin a
+  // specific leaflet version in MapView.tsx.
+  "script-src 'self' 'unsafe-inline' https://unpkg.com",
+  "style-src 'self' 'unsafe-inline' https://unpkg.com",
   "font-src 'self' data:",                    // /fonts + occasional data:
   "img-src 'self' data: blob: https:",        // headshots, QR codes, tiles
   "connect-src 'self' wss: https:",           // WebSocket + own API

@@ -13,7 +13,10 @@ import HeadshotGate from "./components/ld/HeadshotGate";
 import HomeCountyGate from "./components/ld/HomeCountyGate";
 import WatsonEmailNudge from "./components/ld/WatsonEmailNudge";
 import OnAirBanner from "./components/ld/OnAirBanner";
-import { ensurePushSubscription } from "./lib/push";
+// v15.11.3 — push subscription removed. The always-visible Prime bar IS the
+// notifier. No web-push, no iOS-permission dance, no opt-in. Everyone who
+// opens the app sees the same red/amber/gray broadcast light at the top of
+// every screen — that's the alert.
 import ProfileGate from "./components/ProfileGate";
 import TutorialFlow from "./components/TutorialFlow";
 import NotFound from "./pages/not-found";
@@ -29,7 +32,7 @@ function AppRoutes() {
   // are denied or the browser doesn't support it, this is a no-op.
   useEffect(() => {
     if (!user) return;
-    const t = setTimeout(() => { ensurePushSubscription().catch(() => {}); }, 1500);
+    const t = setTimeout(() => { /* no-op: push removed in v15.11.3 */ }, 1500);
     return () => clearTimeout(t);
   }, [user?.id]);
   // v14.51 — admin bottom nav can jump to any agent-side tab, not just leads.

@@ -28,14 +28,7 @@ import {
 } from "./auth";
 import { logAgentEvent, getAgentAuditLog, isWithinReactivateWindow } from "./audit";
 import { getBackupStatus, runDailyOffVolumeBackup } from "./backup";
-import {
-  getVapidPublicKey,
-  saveSubscription,
-  deleteSubscriptionByEndpoint,
-  sendPushToAll,
-  pushStats,
-  startPrimePushScheduler,
-} from "./push";
+// v15.11.3 — web push module removed; replaced by prime-email-scheduler.
 import { checkPassword } from "../shared/password-rules";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
@@ -5635,75 +5628,32 @@ Brothers Group Real Estate Team at Momentum Realty
     }
   });
 
-  // v15.11.3 — Web Push (VAPID) endpoints for the team-wide Prime Time notifier.
-  app.get("/api/push/vapid-public-key", (_req, res) => {
-    res.json({ publicKey: getVapidPublicKey() });
-  });
-
-  app.post("/api/push/subscribe", async (req, res) => {
-    if (!req.currentAgent) return res.status(401).json({ error: "Not authenticated" });
-    const { endpoint, keys } = req.body ?? {};
-    if (!endpoint || !keys?.p256dh || !keys?.auth) {
-      return res.status(400).json({ error: "Invalid subscription payload" });
-    }
-    try {
-      saveSubscription({
-        agentId: req.currentAgent.id,
-        endpoint,
-        p256dh: keys.p256dh,
-        auth: keys.auth,
-        userAgent: (req.headers["user-agent"] as string | undefined) ?? null,
-      });
-      res.json({ ok: true });
-    } catch (err: any) {
-      console.error("[push] subscribe error:", err);
-      res.status(500).json({ error: "Failed to save subscription" });
-    }
-  });
-
-  app.post("/api/push/unsubscribe", (req, res) => {
-    if (!req.currentAgent) return res.status(401).json({ error: "Not authenticated" });
-    const { endpoint } = req.body ?? {};
-    if (!endpoint) return res.status(400).json({ error: "endpoint required" });
-    const changes = deleteSubscriptionByEndpoint(endpoint);
-    res.json({ ok: true, removed: changes });
-  });
-
-  // Admin: send a test push blast to every active agent's subscribed devices.
-  app.post("/api/admin/push/test", async (req, res) => {
+  // v15.11.3 — Web Push (VAPID) removed. Replaced by prime-email-scheduler.
+  // Admin can fire a test Prime Time email at any time to preview the notifier.
+  app.post("/api/admin/prime-email/test", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      const result = await sendPushToAll({
-        title: "🔴 Prime Time push test",
-        body: `Test blast by ${req.currentAgent?.name ?? "admin"} at ${new Date().toLocaleTimeString("en-US", { timeZone: "America/New_York" })} ET. If you see this on your locked phone, push is working.`,
-        url: "/",
-        tag: "ld-prime-test",
-      });
+      const nowHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+      const result = await sendPrimeEmailToTeam(parseInt(nowHour, 10) || 12);
       res.json({ ok: true, ...result });
     } catch (err: any) {
-      console.error("[push] test error:", err);
+      console.error("[prime-email] test error:", err);
       res.status(500).json({ error: String(err?.message ?? err) });
     }
   });
 
-  app.get("/api/admin/push/stats", (req, res) => {
+  app.get("/api/admin/prime-email/stats", (req, res) => {
     if (!requireAdmin(req, res)) return;
     try {
-      const stats = pushStats();
-      // Return recent fire log too — last 20 windows
       const recentFires = rawDb.prepare(
-        `SELECT window_key, fired_at, recipients, errors FROM push_fire_log ORDER BY id DESC LIMIT 20`
+        `SELECT window_key, fired_at, recipients, errors FROM prime_email_fire_log ORDER BY id DESC LIMIT 20`
       ).all();
-      // Which agents are still missing a subscription?
-      const missing = rawDb.prepare(`
-        SELECT a.id, a.name, a.email FROM agents a
-        WHERE a.deactivated_at IS NULL
-        AND NOT EXISTS (SELECT 1 FROM push_subscriptions ps WHERE ps.agent_id = a.id)
-        ORDER BY a.name
-      `).all();
-      res.json({ ...stats, recentFires, missingAgents: missing });
+      const activeAgents = rawDb.prepare(
+        `SELECT COUNT(*) as n FROM agents WHERE active = 1 AND email NOT LIKE 'tombstone:%' AND email LIKE '%@%'`
+      ).get() as { n: number };
+      res.json({ activeAgentCount: activeAgents.n, recentFires });
     } catch (err: any) {
-      console.error("[push] stats error:", err);
+      console.error("[prime-email] stats error:", err);
       res.status(500).json({ error: String(err?.message ?? err) });
     }
   });
@@ -8043,6 +7993,9 @@ scheduleStaleLockReleaser();
 
 // v15.11.3 — Prime Time Web Push scheduler. Fires 30 min before every PRIME
 // window start, once per day per window, to every active subscription.
-// v15.11.3 — push scheduler removed. The Prime bar in-app is the notifier. Nothing else runs.
+// v15.11.3 — Prime Time email notifier. Sends ONE email to every active agent
+// 30 min before each PRIME block starts. Zero opt-in, zero permissions.
+import { startPrimeEmailScheduler, sendPrimeEmailToTeam } from "./prime-email-scheduler";
+startPrimeEmailScheduler();
 
 // v14.46 — BatchLeads auto-pipeline scheduler removed. CSV upload is the sole seller intake path.

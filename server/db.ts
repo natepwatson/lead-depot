@@ -253,7 +253,22 @@ const headshotMap: Record<string, string> = {
   "Nate Watson":      "nate-watson",
   "Alex Watson":      "alex-watson",
   "Noah Tomlinson":   "noah-tomlinson",  // v14.17
+  "Gabriel Marcano":  "gabriel-marcano", // v15.11.6
 };
+
+// v15.11.6 — One-shot reactivate Gabriel Marcano: he was added in a prior
+// deploy without a mapped slug and the boot sweep auto-deactivated him.
+// Now that his slug is mapped + jpg is on disk, flip him back on.
+try {
+  rawDb.prepare(`
+    UPDATE agents
+       SET is_active = 1, lead_flow_on = 1
+     WHERE name = 'Gabriel Marcano'
+       AND (is_active = 0 OR lead_flow_on = 0)
+  `).run();
+} catch (e) {
+  console.error("[v15.11.6 gabriel-marcano-reactivate] Failed:", e);
+}
 
 // v14.17 — One-shot reactivation: Noah was auto-deactivated by the boot sweep
 // (v11.54) because his slug wasn't in headshotMap yet. Now that he's mapped, flip him

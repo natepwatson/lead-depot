@@ -122,6 +122,7 @@ export function computeCallHeat(now: Date = new Date(), tz: string = "America/Ne
     }
   }
 
+  const legal = withinLegalDialWindow(hour);
   return { tier, score, label, reason, nextPrimeWindow, color, legal };
 }
 

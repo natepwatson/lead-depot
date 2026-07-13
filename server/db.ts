@@ -943,6 +943,10 @@ if (!agentColsV155.includes("tcpa_consent_at")) rawDb.prepare("ALTER TABLE agent
 const agentColsV158 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
 if (!agentColsV158.includes("published_phone")) rawDb.prepare("ALTER TABLE agents ADD COLUMN published_phone TEXT").run();
 
+// v15.11.10 — 15-min-before On Air push opt-in
+const agentColsV15110 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
+if (!agentColsV15110.includes("push_notif_on_air")) rawDb.prepare("ALTER TABLE agents ADD COLUMN push_notif_on_air INTEGER NOT NULL DEFAULT 0").run();
+
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");
 console.log("[db] v15.5 onboarding candidate schema ready (candidates + onboarding_checklist + 9 agents cols)");

@@ -107,14 +107,14 @@ function AppRoutes() {
   if (user.role === "admin" && adminAgentTab) {
     return (
       <>
-        <OnAirBanner />
+        <OnAirBanner agentId={String(user.id)} />
         <AgentView mode="seller" onBackToAdmin={() => setAdminAgentTab(null)} initialTab={adminAgentTab} />
       </>
     );
   }
   if (user.role === "admin") return (
     <>
-      <OnAirBanner />
+      <OnAirBanner agentId={String(user.id)} />
       <AdminDashboard
         onWorkMyLeads={() => setAdminAgentTab("leads")}
         onOpenAgentTab={(t) => setAdminAgentTab(t)}
@@ -123,7 +123,7 @@ function AppRoutes() {
   );
   return (
     <>
-      <OnAirBanner />
+      <OnAirBanner agentId={String(user.id)} />
       <AgentView mode="seller" />
       {showEmailNudge && <WatsonEmailNudge userEmail={user.email} userName={user.name} />}
     </>

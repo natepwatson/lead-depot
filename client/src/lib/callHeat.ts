@@ -1,82 +1,61 @@
-// v15.11 — Optimal call-time meter, redesigned to 3 explicit tiers to match
-// the Alex-decreed studio metaphor:
+// v15.11.10 — Grid-locked call-heat.
+// LOCKED to research report at /home/user/workspace/optimal_call_schedule_by_day.md
+// (Section 3, hourly schedule table). Every cell traceable to a primary residential
+// (B2C) source. If you edit the grid, edit shared/prime-schedule.ts to match.
 //
-//   PRIME  — On Air. This is when we call. Non-negotiable.
-//   MID    — OK to dial but not the sprint window.
-//   DOWN   — Do not cold-call. Save the leads for Prime.
-//
-// Weights below are grounded in published contact-rate studies. The score is
-// still a 0-100 receptivity index; the 3-tier split is layered on top so the
-// UI copy stays honest.
-//
-// Sources:
-//   - MIT / InsideSales.com Lead Response Management Study
-//     https://www.onecavo.com/wp-content/uploads/2015/11/MIT-InsideSales.com_Lead-Response-Management.pdf
-//     * 4-6 PM is the best time to CONTACT (+114% vs worst block)
-//     * 8-9 AM & 4-5 PM are best for qualification (+164% vs 1-2 PM)
-//     * Wednesday & Thursday are best contact days (+49.7% vs worst)
-//   - PhoneBurner 11M-call analysis: 10 AM = 15.53% pickup, one of the highest windows
-//   - CallHippo: pickup rate 27% mid-morning → 46% at 4-5 PM (nearly 2x)
-//   - Cognism 200k B2B calls: Thursday connect rate ~14-15%, 50% lift vs Monday
-//   - Revenue.io: 4-5 PM slot 109% better than 11-12 for qualification
-//   - Skipcall/Cognism residential note: Saturday morning is the exceptional
-//     residential day. Sunday afternoon is dead.
+// Legal cap: Fla. Stat. § 501.616(6)(a) — commercial calls 8 AM – 8 PM (hard).
+// https://www.flsenate.gov/laws/statutes/2021/501.616
 
 export type HeatTier = "prime" | "mid" | "down";
 
-// Legacy alias for pre-v15.11 callers that referenced the old 4-tier names.
-// Removed in v15.12; keep this comment as a reminder.
-
 export interface CallHeat {
   tier: HeatTier;
-  score: number;            // 0-100 receptivity index
+  score: number;            // 0-100 receptivity index (informational)
   label: string;            // "PRIME TIME" | "MID TIME" | "DOWNTIME"
   reason: string;
-  nextPrimeWindow?: string; // e.g. "peaks in 2h at 4 PM"
+  nextPrimeWindow?: string;
   color: string;
 }
 
-// Hour-of-day base weights (0-23, local time). Peaks: 8-10 AM & 4-6 PM.
-// Trough: 12-2 PM lunch, evenings after 8 PM, before 7 AM.
-const HOUR_WEIGHTS: number[] = [
-  //  0    1    2    3    4    5    6    7    8    9   10   11
-     0.05, 0.05, 0.05, 0.05, 0.05, 0.10, 0.20, 0.45, 0.85, 0.90, 0.85, 0.70,
-  // 12   13   14   15   16   17   18   19   20   21   22   23
-     0.35, 0.30, 0.55, 0.75, 0.95, 1.00, 0.80, 0.55, 0.30, 0.15, 0.10, 0.05,
+// 7 rows (Sun..Sat) × 12 columns (8AM..7PM).
+// Row 0 = Sunday. Column 0 = 8AM ... Column 11 = 7PM.
+// Values from Section 3 of the day-by-day research report.
+const GRID: HeatTier[][] = [
+  // 8    9    10   11   12   1p   2p   3p   4p   5p   6p    7p
+  ["mid","mid","mid","prime","prime","mid","prime","mid","mid","prime","prime","prime"],  // Sun
+  ["mid","down","down","down","down","down","mid","mid","mid","mid","prime","prime"],     // Mon
+  ["mid","down","down","down","down","down","mid","mid","mid","mid","prime","prime"],     // Tue
+  ["mid","down","down","down","down","down","mid","mid","mid","mid","prime","prime"],     // Wed
+  ["mid","down","down","down","down","down","mid","mid","mid","down","prime","prime"],    // Thu
+  ["mid","mid","mid","mid","mid","mid","prime","prime","prime","down","mid","mid"],       // Fri
+  ["prime","prime","prime","prime","mid","mid","mid","mid","prime","prime","prime","prime"], // Sat
 ];
 
-// Day-of-week multipliers (0=Sun ... 6=Sat).
-const DAY_MULTIPLIERS: number[] = [
-  0.65, // Sun
-  0.80, // Mon
-  0.95, // Tue
-  1.05, // Wed
-  1.05, // Thu
-  0.70, // Fri
-  0.95, // Sat
-];
+// Informational 0-100 score per tier — used only for display/telemetry.
+const SCORE_BY_TIER: Record<HeatTier, number> = { prime: 88, mid: 55, down: 20 };
 
-function saturdayMorningBoost(hour: number, dow: number): number {
-  if (dow !== 6) return 1;
-  if (hour >= 8 && hour <= 11) return 1.15;
-  return 1;
-}
+// Legacy exports kept so old imports don't break at build time. Do NOT use.
+export const HOUR_WEIGHTS: number[] = new Array(24).fill(0.5);
+export const DAY_MULTIPLIERS: number[] = [1, 1, 1, 1, 1, 1, 1];
 
-function fridayAfternoonPenalty(hour: number, dow: number): number {
-  if (dow !== 5) return 1;
-  if (hour >= 14) return 0.75;
-  return 1;
-}
-
-/** TCPA / operational cutoff — never cold-call outside 8am-9pm local. */
 function withinLegalDialWindow(hour: number): boolean {
-  return hour >= 8 && hour < 21;
+  return hour >= 8 && hour < 20;
 }
+
+/** Direct lookup for a (dow, hour) cell. */
+export function tierForCell(dow: number, hour: number): HeatTier {
+  if (!withinLegalDialWindow(hour)) return "down";
+  const row = GRID[dow];
+  if (!row) return "down";
+  return row[hour - 8] ?? "down";
+}
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 /**
  * Compute the receptivity heat for a given moment.
  * @param now Optional Date (defaults to real now). Use for testing.
- * @param tz  IANA timezone string (defaults to America/New_York — Brothers Group is Jacksonville).
+ * @param tz  IANA timezone (defaults to America/New_York — Brothers Group is Jacksonville).
  */
 export function computeCallHeat(now: Date = new Date(), tz: string = "America/New_York"): CallHeat {
   const fmt = new Intl.DateTimeFormat("en-US", {
@@ -91,65 +70,53 @@ export function computeCallHeat(now: Date = new Date(), tz: string = "America/Ne
   const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   const dow = dowMap[wdStr] ?? 1;
 
-  const base = HOUR_WEIGHTS[hour] ?? 0.05;
-  const dayMult = DAY_MULTIPLIERS[dow] ?? 0.9;
-  const satBoost = saturdayMorningBoost(hour, dow);
-  const friPen = fridayAfternoonPenalty(hour, dow);
+  const tier: HeatTier = tierForCell(dow, hour);
+  const score = SCORE_BY_TIER[tier];
 
-  const raw = base * dayMult * satBoost * friPen;
-  const score = Math.round(Math.min(1, Math.max(0, raw)) * 100);
-
-  // 3-tier assignment. The legal-dial cutoff overrides everything else.
-  let tier: HeatTier;
   let label: string;
   let color: string;
+  if (tier === "prime") { label = "PRIME TIME"; color = "#ef4444"; }
+  else if (tier === "mid") { label = "MID TIME"; color = "#f59e0b"; }
+  else { label = "DOWNTIME"; color = "#6b7280"; }
 
-  if (!withinLegalDialWindow(hour)) {
-    tier = "down"; label = "DOWNTIME"; color = "#6b7280";
-  } else if (score >= 75) {
-    tier = "prime"; label = "PRIME TIME"; color = "#ef4444";
-  } else if (score >= 40) {
-    tier = "mid"; label = "MID TIME"; color = "#f59e0b";
-  } else {
-    tier = "down"; label = "DOWNTIME"; color = "#6b7280";
-  }
-
-  // Reason string
+  // Reason — grounded in the research
+  const dayName = DAY_NAMES[dow];
   let reason = "";
-  const dayName = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][dow];
-  if (tier === "prime") {
-    if (hour >= 16 && hour <= 17) reason = "4-6 PM is the #1 contact window — 114% better than the worst block (MIT study).";
-    else if (hour >= 8 && hour <= 10 && dow === 6) reason = "Saturday 8-11 AM — residential sellers are home. Peak weekend window.";
-    else if (hour >= 8 && hour <= 10) reason = "8-10 AM is a top qualification window — 164% better than post-lunch (MIT).";
-    else reason = `${dayName} peak hour — dial hard now.`;
+  if (!withinLegalDialWindow(hour)) {
+    reason = "Outside Florida's 8 AM – 8 PM legal window. Do NOT cold-call now (Fla. Stat. § 501.616).";
+  } else if (tier === "prime") {
+    if (hour >= 18 && hour < 20) reason = "6–8 PM every day — the single most-agreed-upon window in the data (Massey, CallHub, ThinkingPhones, WFM, MIT).";
+    else if (dow === 6 && hour >= 8 && hour < 12) reason = "Saturday morning — the strongest weekend residential window. Longest, highest-quality calls (CallHub).";
+    else if (dow === 6 && hour >= 16) reason = "Saturday late-afternoon — Massey Saturday holds 51–61% all day. Sellers are home.";
+    else if (dow === 0 && hour >= 11 && hour <= 12) reason = "Sunday post-church, pre-football — the cleanest Sunday window in Florida (NBER worship data + NFL kickoff at 1 PM).";
+    else if (dow === 0 && hour >= 17) reason = "Sunday early-evening — Massey ranks this the strongest evening in the table (62.1% at 7 PM).";
+    else if (dow === 5 && hour >= 14 && hour < 17) reason = "Friday 2–5 PM — homeowners are home early (4:03 PM logoff, ActivTrak 75k workers). Catch them BEFORE the 5 PM commute snarl.";
+    else reason = `${dayName} peak — dial hard now.`;
   } else if (tier === "mid") {
-    if (dow === 3 || dow === 4) reason = `${dayName} is a top contact day. Above-average pickup expected.`;
-    else if (hour === 15) reason = "3 PM warm-up before the 4-6 PM peak. Get in the queue now.";
-    else if (hour >= 11 && hour <= 13) reason = "Lunch slump. Middling — work the warm/recycle list, save cold for the 4 PM push.";
-    else reason = "Middle-of-the-road window. Keep dialing but expect fewer pickups than Prime.";
+    if (hour === 8) reason = "8 AM first-touch on new expireds — be first to reach them (Landvoice loads leads at 8). Pickup low, first-mover value high.";
+    else if (dow === 5 && hour >= 17) reason = "Friday evening — reachable but they want off the phone fast (CallHub Fri = shortest calls, 24.15s).";
+    else if (dow === 0 && hour < 11) reason = "Sunday morning — Massey shows at-home contact high, but church etiquette in FL (Bible Belt) argues caution. Test locally.";
+    else reason = "Middle window. Keep dialing but expect fewer pickups than Prime.";
   } else {
-    if (!withinLegalDialWindow(hour)) reason = "Outside 8am-9pm legal dial window. Do NOT cold-call now (TCPA).";
-    else if (dow === 5 && hour >= 14) reason = "Friday afternoon — 65% of dials hit voicemail (Cognism). Not worth the leads.";
-    else if (dow === 0 && hour >= 13) reason = "Sunday afternoon — worst window of the week.";
-    else reason = "Low-receptivity window. Save the leads for Prime Time.";
+    if (dow === 4 && hour === 17) reason = "Thursday 5–6 PM — INRIX names Thursday the worst overall U.S. traffic day. Deepest commute hole of the week.";
+    else if (dow === 5 && hour === 17) reason = "Friday 5–6 PM — the single worst commuting hour of the week (INRIX). Wait until 6 PM.";
+    else if (hour >= 9 && hour <= 13) reason = "Weekday midday — residential DOWN zone. Working homeowners aren't home (Massey 40–46% vs 58–65% evening). Use for expired list-prep, not cold calls.";
+    else reason = "Low-yield window. Save cold leads for Prime.";
   }
 
-  // Next Prime window — look forward up to 12h for the next hour that lands in Prime.
+  // Next Prime window — search forward up to 24h
   let nextPrimeWindow: string | undefined;
   if (tier !== "prime") {
-    for (let ahead = 1; ahead <= 12; ahead++) {
-      const t = new Date(now.getTime() + ahead * 60 * 60 * 1000);
+    for (let ahead = 1; ahead <= 24; ahead++) {
+      const t = new Date(now.getTime() + ahead * 3600 * 1000);
       const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false, weekday: "short" }).formatToParts(t);
       let h2 = parseInt(p.find(x => x.type === "hour")?.value ?? "0", 10);
       if (h2 === 24) h2 = 0;
       const wd2 = p.find(x => x.type === "weekday")?.value ?? "Mon";
       const d2 = dowMap[wd2] ?? 1;
-      if (!withinLegalDialWindow(h2)) continue;
-      const s = (HOUR_WEIGHTS[h2] ?? 0.05) * (DAY_MULTIPLIERS[d2] ?? 0.9)
-              * saturdayMorningBoost(h2, d2) * fridayAfternoonPenalty(h2, d2);
-      if (Math.min(1, s) * 100 >= 75) {
+      if (tierForCell(d2, h2) === "prime") {
         const hourLabel = h2 === 0 ? "12 AM" : h2 < 12 ? `${h2} AM` : h2 === 12 ? "12 PM" : `${h2 - 12} PM`;
-        nextPrimeWindow = ahead === 1 ? `Next Prime at ${hourLabel} (~1h)` : `Next Prime at ${hourLabel} (~${ahead}h)`;
+        nextPrimeWindow = ahead === 1 ? `Next On Air at ${hourLabel} (~1h)` : `Next On Air at ${hourLabel} (~${ahead}h)`;
         break;
       }
     }
@@ -159,21 +126,15 @@ export function computeCallHeat(now: Date = new Date(), tz: string = "America/Ne
 }
 
 /**
- * Server-side utility (called from cron): given a timezone, return every
- * hour-of-week where a PRIME window STARTS (the first hour of a contiguous
- * prime block). Used by the push cron to know when to fire the T-30 alert.
- *
- * Returns pairs of (dow, hour) in the provided timezone.
+ * List every (dow, hour) at which a PRIME window STARTS —
+ * used by the server push cron to schedule the 15-min-before alert.
  */
-export function listPrimeWindowStarts(tz: string = "America/New_York"): Array<{ dow: number; hour: number }> {
+export function listPrimeWindowStarts(_tz: string = "America/New_York"): Array<{ dow: number; hour: number }> {
   const starts: Array<{ dow: number; hour: number }> = [];
   for (let dow = 0; dow < 7; dow++) {
     let prevPrime = false;
     for (let hour = 0; hour < 24; hour++) {
-      if (!withinLegalDialWindow(hour)) { prevPrime = false; continue; }
-      const s = (HOUR_WEIGHTS[hour] ?? 0.05) * (DAY_MULTIPLIERS[dow] ?? 0.9)
-              * saturdayMorningBoost(hour, dow) * fridayAfternoonPenalty(hour, dow);
-      const isPrime = Math.min(1, s) * 100 >= 75;
+      const isPrime = tierForCell(dow, hour) === "prime";
       if (isPrime && !prevPrime) starts.push({ dow, hour });
       prevPrime = isPrime;
     }

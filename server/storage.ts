@@ -232,6 +232,8 @@ try { sqlite.exec(`ALTER TABLE agents ADD COLUMN tcpa_consent_at TEXT`); } catch
 // into query builders at module init — before db.ts's PRAGMA-guarded migrations
 // have a chance to run. Skipping this line = SqliteError at boot on Railway.
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN published_phone TEXT`); } catch {}
+// v15.11.10 — On Air push opt-in (default 0). Same drizzle-init rule as above.
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN push_notif_on_air INTEGER NOT NULL DEFAULT 0`); } catch {}
 
 try { sqlite.exec(`ALTER TABLE agent_points ADD COLUMN scope TEXT NOT NULL DEFAULT 'seller'`); } catch {}
 // DBPR fields (v11.71, renamed from FREC in v13.4 — in case table was created before these existed)

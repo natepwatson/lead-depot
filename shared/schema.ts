@@ -68,6 +68,8 @@ export const agents = sqliteTable("agents", {
   // Both nullable ISO timestamps. NULL = gate still shows on next login.
   profileCompletedAt: text("profile_completed_at"),
   tutorialCompletedAt: text("tutorial_completed_at"),
+  // v15.11.10 — Opt-in for 15-min-before On Air push notification. Default false.
+  pushNotifOnAir: integer("push_notif_on_air", { mode: "boolean" }).notNull().default(false),
 });
 
 export const insertAgentSchema = createInsertSchema(agents).omit({ id: true });

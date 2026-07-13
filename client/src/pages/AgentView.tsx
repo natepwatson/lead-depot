@@ -18,6 +18,7 @@ import {
 import ProfilePage from "./ProfilePage";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
 import { playSound } from "@/lib/sounds";
+import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
 import { computeCallHeat } from "@/lib/callHeat";
 import type { Lead as LeadRow } from "@shared/schema";
@@ -597,10 +598,13 @@ function LeadCard({ lead }: { lead: Lead }) {
         // v14.80 — Tier 3: gold shimmer sweep on the Appt Set tile + chime sound (opt-in)
         setApptShimmerKey(k => k + 1);
         playSound("chime");
+        // v15.11.10 — celebratory buzz (Android only; iOS silently ignores)
+        hapticApptSet();
       }
       // v14.80 — Tier 3: quiet tick sound when a KIT (Keep in Touch) submits successfully
       if (variables.outcome === "keep_in_touch") {
         playSound("tick");
+        hapticKit();
       }
 
       // v14.11 — Advance toast: make the phone advance visible.

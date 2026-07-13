@@ -96,7 +96,8 @@ const OUTCOME_TILES = [
   // Row 1 — fast per-line taps
   { key: "no_answer",                label: "No Answer",     icon: PhoneMissed,   color: "#facc15", desc: "Most common. Queued for another try later." },
   { key: "wrong_number",             label: "Wrong #",       icon: AlertTriangle, color: "#f87171", desc: "Dead phone. Lead moves on. No harm done." },
-  { key: "disconnected",             label: "Disconnected",  icon: PhoneOff,      color: "#cbd5e1", desc: "Number doesn't work. System flags the phone." },
+  // v15.11.12 — renamed Disconnected → Not a Working Line for clarity.
+  { key: "disconnected",             label: "Not a Working Line", icon: PhoneOff,   color: "#cbd5e1", desc: "Number is dead — no dial tone or nonstop ringing. System removes it from the lead's phone list." },
   // Row 2 — lead-level decisions
   { key: "contacted_not_interested", label: "Not Interested",icon: XCircle,       color: "#fca5a5", desc: "Real \u2018no.\u2019 We respect it and move on." },
   { key: "recycled",                 label: "Recycle",       icon: RefreshCw,     color: "#67e8f9", desc: "Called them, revisit later. Lead returns to the pool." },

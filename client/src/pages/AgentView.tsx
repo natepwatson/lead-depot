@@ -65,7 +65,10 @@ const OUTCOMES = [
   // Row 1 — fast per-line taps
   { key: "no_answer",               label: "No Answer",     icon: PhoneMissed,   bg: "rgba(234,179,8,0.22)",   border: "rgba(234,179,8,0.55)",    text: "rgb(253,224,71)",       hoverBg: "rgba(234,179,8,0.34)" },
   { key: "wrong_number",            label: "Wrong #",       icon: AlertTriangle, bg: "rgba(239,68,68,0.16)",   border: "rgba(239,68,68,0.40)",    text: "rgba(252,165,165,0.95)",hoverBg: "rgba(239,68,68,0.28)" },
-  { key: "disconnected",            label: "Disconnected",  icon: PhoneOff,      bg: "rgba(148,163,184,0.20)", border: "rgba(148,163,184,0.50)", text: "rgb(203,213,225)",      hoverBg: "rgba(148,163,184,0.32)" },
+  // v15.11.12 — Renamed "Disconnected" → "Not a Working Line". Agents were
+  // confusing "disconnected" with "the call dropped mid-conversation". Backend
+  // outcome key stays `disconnected` so historical activity + reports are intact.
+  { key: "disconnected",            label: "Not a Working Line", icon: PhoneOff,   bg: "rgba(148,163,184,0.20)", border: "rgba(148,163,184,0.50)", text: "rgb(203,213,225)",      hoverBg: "rgba(148,163,184,0.32)" },
   // Row 2 — decision, lead-level
   { key: "contacted_not_interested",label: "Not Interested",icon: XCircle,       bg: "rgba(239,68,68,0.22)",   border: "rgba(239,68,68,0.55)",    text: "rgb(252,165,165)",      hoverBg: "rgba(239,68,68,0.34)" },
   { key: "recycled",                label: "Recycle",       icon: RefreshCw,     bg: "rgba(34,211,238,0.22)",  border: "rgba(34,211,238,0.55)",   text: "rgb(103,232,249)",      hoverBg: "rgba(34,211,238,0.34)" },
@@ -81,6 +84,21 @@ const OUTCOMES = [
   // to PhoneOff so the visual matches the corrected meaning.
   { key: "left_voicemail",          label: "Owner - No Answer", icon: PhoneOff,      bg: "rgba(59,130,246,0.22)",  border: "rgba(59,130,246,0.55)",   text: "rgb(147,197,253)",      hoverBg: "rgba(59,130,246,0.34)" },
 ] as const;
+
+// v15.11.12 — One-line plain-English meaning per outcome, referenced by the
+// dial-screen legend sheet AND the pre-fire confirm sheet. Update one place
+// only — the tutorial reads the same source in its next refresh.
+const OUTCOME_MEANINGS: Record<string, string> = {
+  no_answer:            "Ringing, no pickup. Lead stays alive — someone (you or another agent) can try later.",
+  wrong_number:         "Someone answered but it's not the owner. This phone line is removed from the lead.",
+  disconnected:         "Dead number — no dial tone, endless ringing, or 'not in service'. Line removed from the lead.",
+  contacted_not_interested: "Real conversation with the owner and they said no. Nice = 180-day icebox. Rude = hard remove.",
+  recycled:             "You spoke with them and want to circle back later. Lead returns to the pool for anyone.",
+  listed:               "Owner told you they've already relisted with another agent. Lead closes out.",
+  contacted_appointment:"Meeting is booked. Fires FUB Meet & Greet appointment + creates the deal in the right pipeline.",
+  keep_in_touch:        "Real relationship signal. Lead stays with you for 60 days and joins your FUB action plan.",
+  left_voicemail:       "You confirmed the owner's identity (spouse, partial pickup) but couldn't get a real conversation.",
+};
 
 // ─── Gold divider ─────────────────────────────────────────────────────────────
 function GoldDivider() {
@@ -290,7 +308,13 @@ function ApptModal({
             </div>
           </div>
           <div>
-            <label style={labelStyle}>Client Intention <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, letterSpacing: 0, textTransform: "none" }}>(select all that apply)</span></label>
+            {/* v15.11.12 — Intention is REQUIRED. Frontend gate on canSubmit
+                already enforced it; label now clearly marks it required so
+                agents don't fill everything else and wonder why Save is greyed out. */}
+            <label style={labelStyle}>
+              Client Intention <span style={{ color: "#fca5a5", fontWeight: 700, letterSpacing: 0 }}>*</span>
+              <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, letterSpacing: 0, textTransform: "none" }}> (required — select all that apply)</span>
+            </label>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               {INTENTIONS.map(i => {
                 const selected = intentions.includes(i.key);
@@ -314,6 +338,11 @@ function ApptModal({
             {intentions.length > 1 && (
               <p style={{ margin: "8px 0 0", fontSize: 11, color: "#fbbf24", letterSpacing: "0.04em" }}>
                 Multi-transaction client — {intentions.length} intentions selected
+              </p>
+            )}
+            {intentions.length === 0 && (
+              <p style={{ margin: "8px 0 0", fontSize: 11, color: "rgba(252,165,165,0.85)", letterSpacing: "0.02em" }}>
+                Pick at least one so we route the FUB action plan correctly.
               </p>
             )}
           </div>
@@ -403,6 +432,165 @@ function RecycleModal({
 // v14.14 — The old standalone RecycleButton component was removed. Recycle is
 // now delivered exclusively through the outcome grid "Recycle" slot, which
 // opens RecycleModal and posts outcome="recycled" via outcomeMutation.
+
+// ─── Generic Outcome Confirm Sheet (v15.11.12) ────────────────────
+// Alex 2026-07-13: agents were fat-fingering outcomes and asking for an
+// undo button. Instead we insert a confirm step. Every outcome that DOESN'T
+// already have a modal (KIT/Appt/Recycle/Not Interested) now opens this compact
+// sheet before firing. Cancel = go back, Confirm = fire the outcome.
+//
+// Outcomes with their own modal keep their own confirm; adding a second one
+// would be a double-tap.
+function OutcomeConfirmSheet({
+  label, toneColor, borderColor, description, onClose, onConfirm, isPending,
+}: {
+  label: string;
+  toneColor: string;
+  borderColor: string;
+  description: string;
+  onClose: () => void;
+  onConfirm: () => void;
+  isPending: boolean;
+}) {
+  React.useEffect(() => {
+    document.body.classList.add("ld-modal-open");
+    return () => document.body.classList.remove("ld-modal-open");
+  }, []);
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      display: "flex", flexDirection: "column", justifyContent: "flex-end",
+    }}>
+      <div onClick={onClose} style={{
+        position: "absolute", inset: 0,
+        background: "rgba(0,0,0,0.72)", backdropFilter: "blur(4px)",
+      }} />
+      <div style={{
+        position: "relative", zIndex: 1,
+        background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)",
+        border: `1px solid ${borderColor}`,
+        borderBottom: "none",
+        borderRadius: "20px 20px 0 0",
+        padding: "28px 22px 40px",
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 20px" }} />
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.45)", textAlign: "center", marginBottom: 8 }}>
+          Confirm outcome
+        </div>
+        <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 30, fontWeight: 400, color: toneColor, margin: "0 0 10px", textAlign: "center" }}>
+          {label}
+        </h2>
+        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", marginTop: 0, marginBottom: 24, lineHeight: 1.55, textAlign: "center" }}>
+          {description}
+        </p>
+        <button
+          onClick={onConfirm}
+          disabled={isPending}
+          style={{
+            width: "100%", padding: "16px", borderRadius: 12, border: "none",
+            background: !isPending ? toneColor : "rgba(255,255,255,0.08)",
+            color: !isPending ? "#080808" : "rgba(255,255,255,0.3)",
+            fontSize: 15, fontWeight: 800, cursor: !isPending ? "pointer" : "default",
+            letterSpacing: "0.04em", marginBottom: 10, textTransform: "uppercase",
+          }}
+        >
+          {isPending ? "Logging…" : `Log ${label}`}
+        </button>
+        <button
+          onClick={onClose}
+          disabled={isPending}
+          style={{
+            width: "100%", padding: "12px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)",
+            background: "transparent", color: "rgba(255,255,255,0.7)",
+            fontSize: 14, fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Outcome Legend Sheet (v15.11.12) ────────────────────────
+// One-tap reference from the dial screen. Lists every outcome tile with its
+// color, icon, and one-line meaning. Prevents agents from hunting the tutorial
+// to check a single definition mid-call.
+function OutcomeLegendSheet({ onClose }: { onClose: () => void }) {
+  React.useEffect(() => {
+    document.body.classList.add("ld-modal-open");
+    return () => document.body.classList.remove("ld-modal-open");
+  }, []);
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      display: "flex", flexDirection: "column", justifyContent: "flex-end",
+    }}>
+      <div onClick={onClose} style={{
+        position: "absolute", inset: 0,
+        background: "rgba(0,0,0,0.72)", backdropFilter: "blur(4px)",
+      }} />
+      <div style={{
+        position: "relative", zIndex: 1,
+        background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)",
+        border: "1px solid rgba(200,170,90,0.28)",
+        borderBottom: "none",
+        borderRadius: "20px 20px 0 0",
+        padding: "22px 18px 28px",
+        maxHeight: "88vh", overflowY: "auto",
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 16px" }} />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)" }}>
+              Quick reference
+            </div>
+            <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 26, fontWeight: 400, color: "#fff", margin: "2px 0 0" }}>
+              Outcome meanings
+            </h2>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{
+            background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+            color: "rgba(255,255,255,0.75)", borderRadius: 999, width: 32, height: 32,
+            fontSize: 18, fontWeight: 600, cursor: "pointer", lineHeight: 1,
+          }}>×</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+          {OUTCOMES.map(o => {
+            const Icon = o.icon;
+            return (
+              <div key={o.key} style={{
+                display: "flex", alignItems: "flex-start", gap: 12,
+                padding: "12px 12px", borderRadius: 12,
+                background: o.bg,
+                border: `1px solid ${o.border}`,
+              }}>
+                <div style={{
+                  flexShrink: 0, width: 34, height: 34, borderRadius: 8,
+                  background: "rgba(0,0,0,0.35)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Icon size={18} color={o.text as string} strokeWidth={2} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: o.text, letterSpacing: "0.01em", marginBottom: 3 }}>
+                    {o.label}
+                  </div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", lineHeight: 1.45 }}>
+                    {OUTCOME_MEANINGS[o.key] || ""}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p style={{ marginTop: 16, marginBottom: 0, fontSize: 11, color: "rgba(255,255,255,0.35)", textAlign: "center", letterSpacing: "0.04em" }}>
+          Every outcome now asks for confirmation before it's logged.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 // ─── Not Interested Sheet (v15.11.11) ─────────────────────────────────
 // Two-branch confirm. When agent taps Not Interested we ask them to categorize:
@@ -608,6 +796,14 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [pendingRecycle, setPendingRecycle] = useState(false);
   // v15.11.11 — Two-branch confirm sheet for Not Interested (Nice=180d recycle / Rude=delete).
   const [pendingNotInterested, setPendingNotInterested] = useState(false);
+  // v15.11.12 — Generic confirm sheet for the 5 outcomes that DON'T have their
+  // own modal (No Answer, Wrong #, Not a Working Line, Listed, Owner-No Answer).
+  // Holds the outcome key that's waiting on confirmation.
+  const [pendingConfirm, setPendingConfirm] = useState<string | null>(null);
+  // v15.11.12 — Outcome legend. Agents were tapping into the full tutorial just
+  // to check what one outcome meant. Now the legend sits one tap away from the
+  // dial screen.
+  const [legendOpen, setLegendOpen] = useState(false);
   // v14.20 — lpmOpen/toneOpen state removed. Seller LPMAMA is always visible;
   // Tone Rules + Guardrails + Branch Cues moved to the Scripts admin page.
   const [outcomeFlash, setOutcomeFlash] = useState<{ label: string; color: string } | null>(null);
@@ -660,7 +856,8 @@ function LeadCard({ lead }: { lead: Lead }) {
     wrong_number:             { label: "Wrong # — Logged",        color: "rgba(252,165,165,0.8)" },
     recycled:                 { label: "Recycled to Pool",         color: "#22d3ee" },
     // v14.16 — 9-outcome grid additions
-    disconnected:             { label: "Disconnected — Logged",    color: "rgb(203,213,225)" },
+    // v15.11.12 — relabeled per Alex to remove agent confusion.
+    disconnected:             { label: "Not a Working Line — Logged", color: "rgb(203,213,225)" },
     listed:                   { label: "Listed — Closed Out",      color: "rgb(196,181,253)" },
     left_voicemail:           { label: "Confirmed Owner — No Answer", color: "rgb(147,197,253)" },
   };
@@ -755,7 +952,7 @@ function LeadCard({ lead }: { lead: Lead }) {
         } else if (variables.outcome === "wrong_number" || variables.outcome === "disconnected") {
           // v14.65 — Struck phone is physically removed from the candidate list.
           //          Whatever was line N+1 becomes the new line N. "1 of (total-1)".
-          const label = variables.outcome === "disconnected" ? "Disconnected" : "Wrong #";
+          const label = variables.outcome === "disconnected" ? "Not a Working Line" : "Wrong #";
           const newTotal = Math.max(0, total - 1);
           if (data && data.deleted) {
             toast({
@@ -835,7 +1032,17 @@ function LeadCard({ lead }: { lead: Lead }) {
       setPendingNotInterested(true);
       return;
     }
-    outcomeMutation.mutate({ outcome: key, notes, dialedPhone: activePhone });
+    // v15.11.12 — Every remaining outcome (No Answer, Wrong #, Not a Working
+    // Line, Listed, Owner-No Answer) now routes through a compact confirm sheet.
+    // Prevents fat-finger — tap wrong tile, cancel, pick right one.
+    setPendingConfirm(key);
+  };
+
+  // v15.11.12 — fire the confirmed outcome and dismiss the sheet.
+  const handleConfirmOutcome = () => {
+    if (!pendingConfirm) return;
+    outcomeMutation.mutate({ outcome: pendingConfirm, notes, dialedPhone: activePhone });
+    setPendingConfirm(null);
   };
 
   // v15.11.11 — Not Interested → Nice branch (180-day ICE recycle)
@@ -1479,6 +1686,38 @@ function LeadCard({ lead }: { lead: Lead }) {
         // outcome buttons like we discussed. equal to the padding above."
         padding: "10px 12px 24px",
       }}>
+        {/* v15.11.12 — One-tap access to the outcome-meanings legend so agents
+            can check any definition mid-call without leaving the dial screen. */}
+        <div style={{ maxWidth: 640, margin: "0 auto 6px", display: "flex", justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={() => setLegendOpen(true)}
+            style={{
+              background: "rgba(200,170,90,0.10)",
+              border: "1px solid rgba(200,170,90,0.28)",
+              color: "rgba(200,170,90,0.9)",
+              padding: "4px 10px",
+              borderRadius: 999,
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+            aria-label="Show outcome meanings"
+          >
+            <span style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 14, height: 14, borderRadius: 999,
+              border: "1px solid rgba(200,170,90,0.55)",
+              fontSize: 10, fontWeight: 800,
+            }}>?</span>
+            What each outcome means
+          </button>
+        </div>
         <div style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "repeat(3, 1fr)", gap: 5 }}>
           {OUTCOMES.map(o => {
             const Icon = o.icon;
@@ -1535,6 +1774,28 @@ function LeadCard({ lead }: { lead: Lead }) {
           isPending={outcomeMutation.isPending}
         />
       )}
+
+      {/* v15.11.12 — Outcome meanings legend, opened from the "?" pill above the grid. */}
+      {legendOpen && <OutcomeLegendSheet onClose={() => setLegendOpen(false)} />}
+
+      {/* v15.11.12 — Generic confirm sheet for outcomes without their own modal.
+          Fires when agent taps No Answer, Wrong #, Not a Working Line, Listed,
+          or Owner-No Answer. Cancel returns to the dial view, confirm fires. */}
+      {pendingConfirm && (() => {
+        const cfg = OUTCOMES.find(o => o.key === pendingConfirm);
+        if (!cfg) return null;
+        return (
+          <OutcomeConfirmSheet
+            label={cfg.label}
+            toneColor={cfg.text}
+            borderColor={cfg.border}
+            description={OUTCOME_MEANINGS[pendingConfirm] || "Log this outcome for the current call."}
+            onClose={() => setPendingConfirm(null)}
+            onConfirm={handleConfirmOutcome}
+            isPending={outcomeMutation.isPending}
+          />
+        );
+      })()}
 
       {/* v15.11.11 — Not Interested two-branch sheet (Nice=180d recycle / Rude=delete) */}
       {pendingNotInterested && (

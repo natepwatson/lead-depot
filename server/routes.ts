@@ -327,7 +327,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.17 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.18 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -386,7 +386,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.17 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.18 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -671,7 +671,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.17 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.18 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1845,7 +1845,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.17</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.18</p>
             </div>
           `,
         });
@@ -2005,7 +2005,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.17 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.18 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2898,7 +2898,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // Sweep expired locks so recycled leads are eligible again.
     rawDb.prepare(`DELETE FROM lead_locks WHERE expires_at < datetime('now')`).run();
 
-    // v15.11.17 — Guard: never resurface a lead whose status is closed/parked.
+    // v15.11.18 — Sweep expired agent_lead_holdouts. Cheap because the index
+    // is on (agent_id, until) and there are at most a few dozen active rows
+    // per agent.
+    rawDb.prepare(`DELETE FROM agent_lead_holdouts WHERE until < datetime('now')`).run();
+
+    // v15.11.18 — Guard: never resurface a lead whose status is closed/parked.
     // If any stale lock row still points at a KIT/Appt/Listed/etc. lead, sweep
     // it here before the "already locked" branch reads it. Belt-and-suspenders
     // with the KIT/Appt/Listed handlers that already DELETE lead_locks on
@@ -2952,17 +2957,23 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // immediately (status='unassigned', lock deleted) and are eligible on the next
     // Load Next call. The recycle_cooldown_until column is retained for backward
     // compatibility but no longer read.
+    // v15.11.18 — Exclude leads on THIS agent's holdout list. Both Skip and
+    // Recycle write to agent_lead_holdouts so a just-recycled lead can't
+    // bounce back to the same agent through pullPool's score DESC ordering.
     const pullPool = (leadType: string, countyClause: string, countyParams: any[]): any => {
       return rawDb.prepare(`
         SELECT l.* FROM leads l
         LEFT JOIN lead_locks lk ON lk.lead_id = l.id
+        LEFT JOIN agent_lead_holdouts h
+          ON h.lead_id = l.id AND h.agent_id = ? AND h.until > datetime('now')
         WHERE l.lead_type = ?
           AND l.status = 'unassigned'
           AND lk.lead_id IS NULL
+          AND h.lead_id IS NULL
           ${countyClause}
         ORDER BY l.score DESC, l.uploaded_at ASC, l.id ASC
         LIMIT 1
-      `).get(leadType, ...countyParams);
+      `).get(agentId, leadType, ...countyParams);
     };
 
     let next: any = null;
@@ -5092,6 +5103,156 @@ Brothers Group Real Estate Team at Momentum Realty
   });
 
   // ─── RECYCLE LEAD ──────────────────────────────────────────────────────────
+  // v15.11.18 — Helper: next midnight in America/New_York, returned as UTC ISO.
+  // Used by Skip and Recycle so a lead they just released is hidden from THIS
+  // agent for the rest of the local day. Reset boundary is a real midnight in
+  // Alex's timezone, not a rolling 24h window.
+  function nextEdtMidnightIso(): string {
+    const now = new Date();
+    // Compute the current date in America/New_York.
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    }).formatToParts(now).reduce((acc: any, p) => { acc[p.type] = p.value; return acc; }, {});
+    // Build midnight tomorrow in EDT/EST as an ISO by leveraging Intl offset.
+    // Simpler: iterate forward at UTC in 1-min steps until en-US date rolls to
+    // the next EDT day. Cheap (max ~1440 iterations, ~1ms), avoids DST math.
+    const startDay = parts.day;
+    let candidate = new Date(now);
+    for (let i = 0; i < 1500; i++) {
+      candidate = new Date(candidate.getTime() + 60_000);
+      const p = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York", day: "2-digit", hour: "2-digit",
+        minute: "2-digit", hour12: false,
+      }).formatToParts(candidate).reduce((acc: any, x) => { acc[x.type] = x.value; return acc; }, {});
+      if (p.day !== startDay && p.hour === "00" && p.minute === "00") {
+        return candidate.toISOString();
+      }
+    }
+    // Fallback — shouldn't hit but return +24h so caller never sees NaN.
+    return new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  // v15.11.18 — EDT midnight of TODAY (as UTC ISO). Used for the daily reset
+  // boundary in skip-quota lookups. Anything created after this timestamp
+  // counts against today's 3-skip cap.
+  function todayEdtMidnightIso(): string {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", day: "2-digit",
+    }).formatToParts(now).reduce((acc: any, x) => { acc[x.type] = x.value; return acc; }, {});
+    const startDay = parts.day;
+    let candidate = new Date(now);
+    for (let i = 0; i < 1500; i++) {
+      candidate = new Date(candidate.getTime() - 60_000);
+      const p = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(candidate).reduce((acc: any, x) => { acc[x.type] = x.value; return acc; }, {});
+      if (p.day === startDay && p.hour === "00" && p.minute === "00") {
+        return candidate.toISOString();
+      }
+      if (p.day !== startDay) {
+        // Passed the boundary — the previous minute was 00:00, use it.
+        return new Date(candidate.getTime() + 60_000).toISOString();
+      }
+    }
+    return new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  // v15.11.18 — Skip quota computation. Returns { used, remaining,
+  // nextAvailableAt, resetAt } for the given agent. Called by the client to
+  // paint the Skip button state, and by POST /skip to gate the write.
+  const SKIP_DAILY_CAP = 3;
+  const SKIP_COOLDOWN_MIN = 60;
+  function computeSkipQuota(agentId: number) {
+    const dayStart = todayEdtMidnightIso();
+    const skips = rawDb.prepare(`
+      SELECT created_at FROM lead_activity
+       WHERE agent_id = ? AND outcome = 'skipped' AND created_at >= ?
+       ORDER BY created_at DESC
+    `).all(agentId, dayStart) as Array<{ created_at: string }>;
+    const used = skips.length;
+    const remaining = Math.max(0, SKIP_DAILY_CAP - used);
+    const lastSkipAt = skips[0]?.created_at || null;
+    const cooldownExpiresAt = lastSkipAt
+      ? new Date(new Date(lastSkipAt).getTime() + SKIP_COOLDOWN_MIN * 60_000).toISOString()
+      : null;
+    const now = new Date();
+    const inCooldown = cooldownExpiresAt !== null && new Date(cooldownExpiresAt) > now;
+    const resetAt = nextEdtMidnightIso();
+    const nextAvailableAt = remaining === 0 ? resetAt : (inCooldown ? cooldownExpiresAt! : now.toISOString());
+    return { used, remaining, cooldownExpiresAt, inCooldown, nextAvailableAt, resetAt, cap: SKIP_DAILY_CAP };
+  }
+
+  // v15.11.18 — GET /api/agent/:id/skip-quota
+  // Returns the current agent's skip quota state so the button can paint the
+  // right label ("Skip (2 left)", "Cooldown 47m", "0/3 used").
+  app.get("/api/agent/:id/skip-quota", (req, res) => {
+    const agentId = parseInt(req.params.id);
+    if (!agentId || isNaN(agentId)) return res.status(400).json({ error: "Missing agentId" });
+    res.json(computeSkipQuota(agentId));
+  });
+
+  // v15.11.18 — POST /api/leads/:id/skip { agentId, notes? }
+  //   Rate-limited escape hatch for glitched or misassigned leads. Behaves
+  //   like Recycle for the LEAD (returns to shared pool, attempt count bumps),
+  //   but ALSO inserts a per-agent holdout so this lead never comes back to
+  //   THIS agent today. Cap: 3 per local day, min 60min between skips.
+  //   Not counted as a dial. Logs activity outcome='skipped'.
+  app.post("/api/leads/:id/skip", (req, res) => {
+    const leadId = parseInt(req.params.id);
+    const { agentId, notes } = req.body;
+    if (!agentId || isNaN(agentId)) return res.status(400).json({ error: "Missing agentId" });
+    const lead = storage.getLeadById(leadId);
+    if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+    const quota = computeSkipQuota(agentId);
+    if (quota.remaining <= 0) {
+      return res.status(429).json({
+        error: "Daily skip limit reached",
+        code: "DAILY_CAP",
+        used: quota.used, cap: quota.cap, resetAt: quota.resetAt,
+      });
+    }
+    if (quota.inCooldown) {
+      return res.status(429).json({
+        error: "Skip cooldown active",
+        code: "COOLDOWN",
+        cooldownExpiresAt: quota.cooldownExpiresAt,
+      });
+    }
+
+    // Log the skip activity (does NOT count as a dial — dial counters exclude 'skipped').
+    storage.createLeadActivity({
+      leadId,
+      agentId,
+      outcome: "skipped",
+      notes: notes || "Lead skipped — held out from this agent for the rest of the day.",
+      lpmamabSnapshot: null,
+      createdAt: new Date().toISOString(),
+    });
+
+    // Release lock, return lead to unassigned pool.
+    rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ? AND agent_id = ?`).run(leadId, agentId);
+    storage.updateLead(leadId, {
+      assignedAgentId: null,
+      status: "unassigned",
+      attemptCount: (lead.attemptCount || 0) + 1,
+    });
+
+    // Hold out from this agent for the rest of the local day.
+    const until = nextEdtMidnightIso();
+    rawDb.prepare(`
+      INSERT OR REPLACE INTO agent_lead_holdouts (agent_id, lead_id, until, reason, created_at)
+      VALUES (?, ?, ?, 'skipped', ?)
+    `).run(agentId, leadId, until, new Date().toISOString());
+
+    broadcast({ type: "lead_updated", leadId });
+    const post = computeSkipQuota(agentId);
+    res.json({ skipped: true, quota: post });
+  });
+
   // v14.8 — PULL MODE: recycled leads return to the shared pool.
   // Next agent to tap Load Next Lead picks it up. No round-robin push.
   app.post("/api/leads/:id/recycle", (req, res) => {
@@ -5114,6 +5275,18 @@ Brothers Group Real Estate Team at Momentum Realty
       status: "unassigned",
       attemptCount: (lead.attemptCount || 0) + 1,
     });
+
+    // v15.11.18 — Anti-bounce-back: hold out from THIS agent for the rest of
+    // the local day so pullPool's score DESC ordering can't hand it back
+    // three seconds later. Fixes the "I recycled Denise and she came right
+    // back" bug Alex reported.
+    if (agentId) {
+      const until = nextEdtMidnightIso();
+      rawDb.prepare(`
+        INSERT OR REPLACE INTO agent_lead_holdouts (agent_id, lead_id, until, reason, created_at)
+        VALUES (?, ?, ?, 'recycled', ?)
+      `).run(agentId, leadId, until, new Date().toISOString());
+    }
 
     broadcast({ type: "lead_updated", leadId });
     res.json({ recycled: true, reassignedTo: null });
@@ -5608,7 +5781,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.17 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.18 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5918,7 +6091,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.17",
+      version: "v15.11.18",
       services: results,
     });
   });
@@ -7036,7 +7209,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.17`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.18`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -7675,7 +7848,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.17</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.18</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

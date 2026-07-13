@@ -433,6 +433,84 @@ function RecycleModal({
 // now delivered exclusively through the outcome grid "Recycle" slot, which
 // opens RecycleModal and posts outcome="recycled" via outcomeMutation.
 
+// v15.11.18 — Skip modal. Escape hatch for glitched/stuck leads (e.g. a
+// won lead that shouldn't be in the pool but is showing on the card, or a
+// lead that won't advance after an outcome). 3 skips per agent per local
+// day, minimum 60 minutes between skips. Skipped leads go back to the pool
+// AND get held out from this agent for the rest of the day.
+function SkipModal({
+  onClose, onSubmit, isPending, remaining, cap, inCooldown, cooldownExpiresAt,
+}: {
+  onClose: () => void;
+  onSubmit: () => void;
+  isPending: boolean;
+  remaining: number;
+  cap: number;
+  inCooldown: boolean;
+  cooldownExpiresAt: string | null;
+}) {
+  React.useEffect(() => {
+    document.body.classList.add("ld-modal-open");
+    return () => document.body.classList.remove("ld-modal-open");
+  }, []);
+  const cooldownMinsLeft = cooldownExpiresAt
+    ? Math.max(0, Math.ceil((new Date(cooldownExpiresAt).getTime() - Date.now()) / 60_000))
+    : 0;
+  const blocked = remaining <= 0 || inCooldown;
+  const primaryLabel = isPending ? "Skipping…"
+    : remaining <= 0 ? `${cap}/${cap} used — resets midnight`
+    : inCooldown ? `Next skip in ${cooldownMinsLeft}m`
+    : "Skip Lead";
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      display: "flex", flexDirection: "column", justifyContent: "flex-end",
+    }}>
+      <div onClick={onClose} style={{
+        position: "absolute", inset: 0,
+        background: "rgba(0,0,0,0.72)", backdropFilter: "blur(4px)",
+      }} />
+      <div style={{
+        position: "relative", zIndex: 1,
+        background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)",
+        border: "1px solid rgba(200,170,90,0.3)",
+        borderBottom: "none",
+        borderRadius: "20px 20px 0 0",
+        padding: "28px 22px 48px",
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 22px" }} />
+        <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 26, fontWeight: 400, color: "#fff", margin: "0 0 8px" }}>
+          Skip Lead
+        </h2>
+        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", marginTop: 0, marginBottom: 16, lineHeight: 1.55 }}>
+          Use this when something's wrong — a glitched card, a lead that's already yours, or one you can't advance past. The lead goes back to the pool and won't come back to you today.
+        </p>
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          padding: "10px 12px", borderRadius: 8, background: "rgba(200,170,90,0.06)",
+          border: "1px solid rgba(200,170,90,0.15)", marginBottom: 22,
+        }}>
+          <span style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(200,170,90,0.75)" }}>Skips today</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#e5c98a" }}>{cap - remaining} / {cap}</span>
+        </div>
+        <button
+          onClick={onSubmit}
+          disabled={isPending || blocked}
+          style={{
+            width: "100%", padding: "16px", borderRadius: 12, border: "none",
+            background: (!isPending && !blocked) ? "linear-gradient(135deg,#c8aa5a,#a8893a)" : "rgba(255,255,255,0.06)",
+            color: (!isPending && !blocked) ? "#0a0700" : "rgba(255,255,255,0.3)",
+            fontSize: 15, fontWeight: 700, cursor: (!isPending && !blocked) ? "pointer" : "default",
+            letterSpacing: "0.04em",
+          }}
+        >
+          {primaryLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Generic Outcome Confirm Sheet (v15.11.12) ────────────────────
 // Alex 2026-07-13: agents were fat-fingering outcomes and asking for an
 // undo button. Instead we insert a confirm step. Every outcome that DOESN'T
@@ -804,6 +882,9 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [hoveredOutcome, setHoveredOutcome] = useState<string | null>(null);
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
   const [pendingRecycle, setPendingRecycle] = useState(false);
+  // v15.11.18 — Skip confirm sheet. 3/day + 60min cooldown enforced server-side.
+  const [pendingSkip, setPendingSkip] = useState(false);
+  const [skipQuota, setSkipQuota] = useState<{ used: number; remaining: number; cap: number; inCooldown: boolean; cooldownExpiresAt: string | null; nextAvailableAt: string | null; resetAt: string } | null>(null);
   // v15.11.11 — Two-branch confirm sheet for Not Interested (Nice=180d recycle / Rude=delete).
   const [pendingNotInterested, setPendingNotInterested] = useState(false);
   // v15.11.12 — Generic confirm sheet for the 5 outcomes that DON'T have their
@@ -856,6 +937,19 @@ function LeadCard({ lead }: { lead: Lead }) {
     staleTime: 60000,
   });
 
+  // v15.11.18 — Skip quota. Refetched every 60s so the cooldown countdown
+  // and daily reset stay accurate without needing a websocket push.
+  const { data: skipQuotaData } = useQuery<any>({
+    queryKey: [`/api/agent/${user?.id}/skip-quota`],
+    queryFn: () => apiRequest("GET", `/api/agent/${user?.id}/skip-quota`).then(r => r.json()),
+    enabled: !!user?.id,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+  React.useEffect(() => {
+    if (skipQuotaData) setSkipQuota(skipQuotaData);
+  }, [skipQuotaData]);
+
   const OUTCOME_FLASH: Record<string, { label: string; color: string }> = {
     keep_in_touch:            { label: "Keep in Touch — Logged", color: "rgb(249,168,212)" },
     contacted_appointment:    { label: "Appointment Set!",         color: "rgb(134,239,172)" },
@@ -871,6 +965,44 @@ function LeadCard({ lead }: { lead: Lead }) {
     listed:                   { label: "Listed — Closed Out",      color: "rgb(196,181,253)" },
     left_voicemail:           { label: "Confirmed Owner — No Answer", color: "rgb(147,197,253)" },
   };
+
+  // v15.11.18 — Skip mutation. POST /api/leads/:id/skip. Server enforces
+  // the 3/day + 60min cooldown; we surface any 429 rate-limit error via toast
+  // and re-open the modal with the fresh quota state.
+  const skipMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/leads/${lead.id}/skip`, {
+        agentId: user?.id,
+      }).then(async r => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw { status: r.status, body };
+        return body;
+      }),
+    onSuccess: (data: any) => {
+      setOutcomeFlash({ label: "Lead Skipped", color: "#c8aa5a" });
+      setPendingSkip(false);
+      // Update quota state locally from the server response so button repaints instantly.
+      if (data?.quota) setSkipQuota(data.quota);
+      setTimeout(() => {
+        setOutcomeFlash(null);
+        qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+        qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
+        qc.invalidateQueries({ queryKey: [`/api/agent/${user?.id}/skip-quota`] });
+      }, 900);
+    },
+    onError: (err: any) => {
+      const code = err?.body?.code;
+      if (code === "DAILY_CAP") {
+        toast({ title: "Daily skip limit reached", description: `You've used all ${err.body.cap} skips today. Resets midnight.`, variant: "destructive" });
+      } else if (code === "COOLDOWN") {
+        toast({ title: "Skip cooldown active", description: "Only 1 skip per hour. Try again shortly.", variant: "destructive" });
+      } else {
+        toast({ title: "Error skipping lead", variant: "destructive" });
+      }
+      // Refresh quota from server so the modal reflects reality.
+      qc.invalidateQueries({ queryKey: [`/api/agent/${user?.id}/skip-quota`] });
+    },
+  });
 
   // v14.14 — Recycle hits /api/leads/:id/recycle. One tap, no date, no strings.
   // Lead unassigns to the shared pool; next agent pulls it via my-next.
@@ -1825,6 +1957,43 @@ function LeadCard({ lead }: { lead: Lead }) {
             );
           })}
         </div>
+
+        {/* v15.11.18 — Skip escape hatch. Sits below the outcome grid, styled
+            as a quiet secondary action so agents don't reach for it as an outcome.
+            Used when a lead is glitched, already theirs, or otherwise stuck. */}
+        {(() => {
+          const q = skipQuota;
+          const remaining = q?.remaining ?? 3;
+          const cap = q?.cap ?? 3;
+          const inCooldown = q?.inCooldown ?? false;
+          const outOfSkips = remaining <= 0;
+          const disabled = outOfSkips || inCooldown;
+          const cooldownMins = q?.cooldownExpiresAt
+            ? Math.max(0, Math.ceil((new Date(q.cooldownExpiresAt).getTime() - Date.now()) / 60_000))
+            : 0;
+          const label = outOfSkips ? `${cap}/${cap} skips used — resets midnight`
+            : inCooldown ? `Skip cooldown — ${cooldownMins}m left`
+            : `Skip lead (${remaining} left today)`;
+          return (
+            <div style={{ maxWidth: 640, margin: "10px auto 0", textAlign: "center" }}>
+              <button
+                onClick={() => { if (!disabled) setPendingSkip(true); }}
+                disabled={disabled}
+                style={{
+                  fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase",
+                  padding: "6px 14px", borderRadius: 7,
+                  background: "transparent",
+                  border: `1px solid ${disabled ? "rgba(255,255,255,0.08)" : "rgba(200,170,90,0.28)"}`,
+                  color: disabled ? "rgba(255,255,255,0.28)" : "rgba(200,170,90,0.75)",
+                  cursor: disabled ? "default" : "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                {label}
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Appt / Keep-in-Touch modal */}
@@ -1895,6 +2064,19 @@ function LeadCard({ lead }: { lead: Lead }) {
           onClose={() => setPendingRecycle(false)}
           onSubmit={handleRecycleSubmit}
           isPending={outcomeMutation.isPending}
+        />
+      )}
+
+      {/* v15.11.18 — Skip confirm sheet */}
+      {pendingSkip && (
+        <SkipModal
+          onClose={() => setPendingSkip(false)}
+          onSubmit={() => skipMutation.mutate()}
+          isPending={skipMutation.isPending}
+          remaining={skipQuota?.remaining ?? 3}
+          cap={skipQuota?.cap ?? 3}
+          inCooldown={skipQuota?.inCooldown ?? false}
+          cooldownExpiresAt={skipQuota?.cooldownExpiresAt ?? null}
         />
       )}
     </div>

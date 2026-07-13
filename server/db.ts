@@ -769,6 +769,27 @@ rawDb.exec(`
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_lead_locks_agent ON lead_locks(agent_id)`).run();
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_lead_locks_expires ON lead_locks(expires_at)`).run();
 
+// v15.11.18 — agent_lead_holdouts: per-agent "do not show me this lead again until X"
+// table. Populated by:
+//   • Skip outcome (new v15.11.18) — 3/day, 1/hr rate limit, holdout until tomorrow midnight EDT
+//   • Recycle outcome — holdout until tomorrow midnight EDT to prevent the
+//     high-score bounce-back where a just-recycled lead gets served back to
+//     the same agent by pullPool's score DESC ordering.
+// my-next reads this table and excludes matching (agent_id, lead_id) rows.
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS agent_lead_holdouts (
+    agent_id INTEGER NOT NULL,
+    lead_id INTEGER NOT NULL,
+    until TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (agent_id, lead_id)
+  )
+`);
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_holdouts_agent_until ON agent_lead_holdouts(agent_id, until)`).run();
+// Sweep expired holdouts on boot.
+rawDb.prepare(`DELETE FROM agent_lead_holdouts WHERE until < datetime('now')`).run();
+
 // leads: index on lead_type + status for FIFO pool queries ("next unclaimed")
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_leads_type_status_uploaded
   ON leads(lead_type, status, uploaded_at)`).run();

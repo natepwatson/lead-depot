@@ -2623,9 +2623,12 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                   borderRadius: 10,
                   boxShadow: isMe ? "0 2px 12px rgba(200,170,90,0.08)" : "none",
                 }}>
-                  <span style={{ minWidth: 28, textAlign: "center", display: "flex", justifyContent: "center" }}>
+                  <span style={{ minWidth: 34, textAlign: "center", display: "flex", justifyContent: "center", alignItems: "center" }}>
                     {trophyRank !== null ? (
-                      <RankTrophy rank={trophyRank} size={24} />
+                      <RankTrophy
+                        rank={trophyRank}
+                        size={trophyRank === 1 ? 34 : trophyRank === 2 ? 30 : 26}
+                      />
                     ) : (
                       <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>#{i+1}</span>
                     )}

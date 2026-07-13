@@ -1229,7 +1229,7 @@ export default function AdminDashboard({
     },
   });
 
-  // v15.11.25 — Admin-set password. Admins (Alex/Nate) type the new password directly;
+  // v15.11.26 — Admin-set password. Admins (Alex/Nate) type the new password directly;
   // hits force-reset endpoint with X-Ingest-Secret. This is now the primary way any
   // agent password gets rotated — agents themselves no longer see Change Password.
   const [setPasswordAgent, setSetPasswordAgent] = useState<{ id: number; name: string; email: string } | null>(null);
@@ -1643,7 +1643,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.11.25
+              v15.11.26
             </p>
           </div>
         </div>
@@ -2087,7 +2087,7 @@ export default function AdminDashboard({
                   No agents yet. Add agents in the Agents tab.
                 </div>
               ) : (() => {
-                // v15.11.25 — UNIFIED SORT across Today + Weekly + Agent leaderboard:
+                // v15.11.26 — UNIFIED SORT across Today + Weekly + Agent leaderboard:
                 // Points → Dials → Appts. Points are what determine #1 (they already
                 // weight appts heaviest); dials break ties on effort; appts as final tiebreaker.
                 const sorted = [...dualLb].sort((a, b) => {
@@ -2103,7 +2103,7 @@ export default function AdminDashboard({
                       const isTop = idx === 0;
                       const s = lbTab === "today" ? stat.today : stat.weekly;
                       const dot = activityDot(stat.lastActivityAt ?? null);
-                      // v15.11.25 — Trophy graphic for top 3 (only if they've scored points).
+                      // v15.11.26 — Trophy graphic for top 3 (only if they've scored points).
                       const hasPoints = (stat.points || 0) > 0;
                       const trophyRank: 1 | 2 | 3 | null = (hasPoints && idx === 0) ? 1
                         : (hasPoints && idx === 1) ? 2
@@ -2159,17 +2159,22 @@ export default function AdminDashboard({
                                 />
                               );
                             })()}
-                            {/* v15.11.25 — Rank indicator.
+                            {/* v15.11.26 — Rank indicator.
                                  Top 3: SVG trophy graphic overlayed on the corner of the
                                    avatar. Small (18px) so it peeks over without covering
                                    the face. Gold shimmers, silver breathes, bronze static.
                                  4+: tiny gray numeric badge (unchanged). */}
                             {trophyRank !== null ? (
                               <div style={{
-                                position: "absolute", bottom: -4, right: -4,
+                                position: "absolute",
+                                bottom: trophyRank === 1 ? -8 : trophyRank === 2 ? -7 : -6,
+                                right:  trophyRank === 1 ? -8 : trophyRank === 2 ? -7 : -6,
                                 pointerEvents: "none",
                               }}>
-                                <RankTrophy rank={trophyRank} size={18} />
+                                <RankTrophy
+                                  rank={trophyRank}
+                                  size={trophyRank === 1 ? 30 : trophyRank === 2 ? 26 : 22}
+                                />
                               </div>
                             ) : (
                               <div style={{
@@ -3155,7 +3160,7 @@ export default function AdminDashboard({
                           const hot   = recruitingLbPeriod === "today" ? row.today_hot   : recruitingLbPeriod === "week" ? row.week_hot   : row.hot_prospects;
                           const appt  = 0; // future
                           const joined = recruitingLbPeriod === "today" ? row.today_joined : recruitingLbPeriod === "week" ? row.week_joined : row.joined;
-                          // v15.11.25 — trophy graphic for top 3 (only when they have any activity)
+                          // v15.11.26 — trophy graphic for top 3 (only when they have any activity)
                           const hasActivity = (dials || 0) + (kit || 0) + (hot || 0) + (joined || 0) > 0;
                           const trophyRank: 1 | 2 | 3 | null = (hasActivity && idx === 0) ? 1
                                      : (hasActivity && idx === 1) ? 2
@@ -3171,9 +3176,12 @@ export default function AdminDashboard({
                             }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                 {trophyRank !== null ? (
-                                  <RankTrophy rank={trophyRank} size={22} />
+                                  <RankTrophy
+                                    rank={trophyRank}
+                                    size={trophyRank === 1 ? 30 : trophyRank === 2 ? 26 : 22}
+                                  />
                                 ) : (
-                                  <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.3)", width: 22, textAlign: "center" }}>#{idx + 1}</span>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.3)", width: 26, textAlign: "center" }}>#{idx + 1}</span>
                                 )}
                                 {row.headshot_url ? (
                                   <img src={row.headshot_url} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} />
@@ -3568,7 +3576,7 @@ export default function AdminDashboard({
                                 {flowActive ? "Flow On" : "Flow Off"}
                               </Badge>
                               {/* v14.0 — Min Dials/Wk gate removed. Motivation over shaming. */}
-                              {/* v15.11.25 — Set Password: admin types the new password directly. */}
+                              {/* v15.11.26 — Set Password: admin types the new password directly. */}
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-amber-400"
@@ -3880,7 +3888,7 @@ export default function AdminDashboard({
         onCancel={closeConfirm}
       />
 
-      {/* v15.11.25 — Set Password dialog. Admin types the new password directly; server
+      {/* v15.11.26 — Set Password dialog. Admin types the new password directly; server
            bcrypt-hashes it, writes to agents.password, and revokes all sessions for that
            agent. Agents no longer see Change Password in their Profile — this is the
            canonical path for every rotation. */}

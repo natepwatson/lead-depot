@@ -17,6 +17,31 @@
 //   BASE=https://depot.watsonbrothersgroup.com EXPECT_VERSION=v14.51 node scripts/browser-matrix.mjs
 
 import { chromium, webkit, firefox, devices } from 'playwright';
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// v15.11.20 — Load credentials from .env.local (gitignored). See
+// scripts/e2e-walkthrough.mjs for file format.
+function loadDotEnv() {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const envPath = resolve(__dirname, '..', '.env.local');
+  if (!existsSync(envPath)) return;
+  const raw = readFileSync(envPath, 'utf8');
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let val = trimmed.slice(eq + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (process.env[key] === undefined) process.env[key] = val;
+  }
+}
+loadDotEnv();
 
 // ─── Engine availability probe ───────────────────────────────────────────
 // WebKit needs system libs that some sandboxes don't have. If an engine
@@ -37,7 +62,7 @@ async function probeEngines() {
 
 const BASE = process.env.BASE || 'https://depot.watsonbrothersgroup.com';
 const EMAIL = process.env.LD_EMAIL || 'nate@watsonbrothersgroup.com';
-const PASS  = process.env.LD_PASS  || 'brothers2028Xyz!';
+const PASS  = process.env.LD_PASS  || 'brothers2026';
 const EXPECT_VERSION = process.env.EXPECT_VERSION;
 const CONCURRENCY = parseInt(process.env.CONCURRENCY || '3', 10);
 

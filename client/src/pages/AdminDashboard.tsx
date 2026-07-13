@@ -25,7 +25,7 @@ import {
   PhoneMissed, Calendar, XCircle, CheckCircle2,
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, Heart, Map as MapIcon,
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
-  UserPlus, UserCircle2
+  UserPlus, UserCircle2, KeyRound
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -1228,6 +1228,39 @@ export default function AdminDashboard({
     },
   });
 
+  // v15.11.21 — Admin-set password. Admins (Alex/Nate) type the new password directly;
+  // hits force-reset endpoint with X-Ingest-Secret. This is now the primary way any
+  // agent password gets rotated — agents themselves no longer see Change Password.
+  const [setPasswordAgent, setSetPasswordAgent] = useState<{ id: number; name: string; email: string } | null>(null);
+  const [setPasswordValue, setSetPasswordValue] = useState("");
+  const [setPasswordSaving, setSetPasswordSaving] = useState(false);
+  const submitSetPassword = async () => {
+    if (!setPasswordAgent) return;
+    const pw = setPasswordValue.trim();
+    if (pw.length < 8) {
+      toast({ title: "Password must be at least 8 characters", variant: "destructive" });
+      return;
+    }
+    setSetPasswordSaving(true);
+    try {
+      const r = await fetch(`/api/admin/agents/${setPasswordAgent.id}/set-password`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pw }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      toast({ title: `Password set for ${setPasswordAgent.name}`, description: `They now log in with the new password. All existing sessions were revoked.` });
+      setSetPasswordAgent(null);
+      setSetPasswordValue("");
+    } catch (err: any) {
+      toast({ title: "Set password failed", description: err?.message || "Unknown error", variant: "destructive" });
+    } finally {
+      setSetPasswordSaving(false);
+    }
+  };
+
   // v14.62 Phase D — admin-triggered password reset. Server thin-wraps forgot-password
   // flow so admin gets real success/failure feedback (unlike public endpoint which
   // always 200s to prevent email enumeration).
@@ -1609,7 +1642,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.11.20
+              v15.11.21
             </p>
           </div>
         </div>
@@ -3505,6 +3538,16 @@ export default function AdminDashboard({
                                 {flowActive ? "Flow On" : "Flow Off"}
                               </Badge>
                               {/* v14.0 — Min Dials/Wk gate removed. Motivation over shaming. */}
+                              {/* v15.11.21 — Set Password: admin types the new password directly. */}
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-amber-400"
+                                onClick={() => { setSetPasswordAgent({ id: agent.id, name: agent.name, email: agent.email }); setSetPasswordValue(""); }}
+                                title="Set password directly"
+                                data-testid={`button-set-password-${agent.id}`}
+                              >
+                                <KeyRound size={13}/>
+                              </Button>
                               {/* v14.62 Phase D — Lifecycle actions: reset password, merge, audit log */}
                               <Button
                                 variant="ghost" size="icon"
@@ -3806,6 +3849,78 @@ export default function AdminDashboard({
         onConfirm={confirmDialog.onConfirm}
         onCancel={closeConfirm}
       />
+
+      {/* v15.11.21 — Set Password dialog. Admin types the new password directly; server
+           bcrypt-hashes it, writes to agents.password, and revokes all sessions for that
+           agent. Agents no longer see Change Password in their Profile — this is the
+           canonical path for every rotation. */}
+      <Dialog open={setPasswordAgent !== null} onOpenChange={(open) => { if (!open) { setSetPasswordAgent(null); setSetPasswordValue(""); } }}>
+        <DialogContent style={{ background: "#0f0f0f", border: "1px solid rgba(200,170,90,0.15)", maxWidth: 440 }}>
+          <DialogHeader>
+            <DialogTitle style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontWeight: 300, fontSize: "1.3rem", color: "#fff" }}>
+              Set password for {setPasswordAgent?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 6 }}>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.5 }}>
+              This replaces {setPasswordAgent?.name}'s current password and revokes every
+              active session. Deliver the new password to them privately — they will not
+              receive any email from Lead Depot. Minimum 8 characters.
+            </div>
+            <input
+              type="text"
+              autoFocus
+              value={setPasswordValue}
+              onChange={(e) => setSetPasswordValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !setPasswordSaving) submitSetPassword(); }}
+              placeholder="New password"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 6,
+                background: "rgba(0,0,0,0.4)",
+                border: "1px solid rgba(200,170,90,0.22)",
+                color: "#fff",
+                fontSize: 14,
+                fontFamily: "'ui-monospace','SFMono-Regular',Menlo,monospace",
+                letterSpacing: "0.02em",
+              }}
+              data-testid="input-set-password"
+            />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+              <button
+                onClick={() => { setSetPasswordAgent(null); setSetPasswordValue(""); }}
+                disabled={setPasswordSaving}
+                style={{
+                  padding: "9px 16px",
+                  borderRadius: 6,
+                  background: "transparent",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  color: "rgba(255,255,255,0.75)",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >Cancel</button>
+              <button
+                onClick={submitSetPassword}
+                disabled={setPasswordSaving || setPasswordValue.trim().length < 8}
+                style={{
+                  padding: "9px 18px",
+                  borderRadius: 6,
+                  background: "#c8aa5a",
+                  border: "none",
+                  color: "#0f0f0f",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: (setPasswordSaving || setPasswordValue.trim().length < 8) ? "not-allowed" : "pointer",
+                  opacity: (setPasswordSaving || setPasswordValue.trim().length < 8) ? 0.5 : 1,
+                }}
+                data-testid="button-set-password-submit"
+              >{setPasswordSaving ? "Setting…" : "Set password"}</button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* v14.62 Phase D — Merge Agents dialog. Source picker is the row you clicked from;
            target picker is a searchable dropdown of every other active non-tombstone agent.

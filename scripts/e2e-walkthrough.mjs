@@ -11,11 +11,47 @@
 //   BASE=http://localhost:5000 node scripts/e2e-walkthrough.js
 
 import { chromium } from 'playwright';
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// v15.11.20 — Load credentials from .env.local (gitignored) instead of
+// hardcoding the seed default. Rotating an admin password no longer breaks
+// the walkthrough — just update .env.local and re-run.
+//
+// File format (one KEY=VALUE per line, no quotes required, # comments ok):
+//   LD_EMAIL=nate@watsonbrothersgroup.com
+//   LD_PASS=TopProducer2026
+//   INGEST_SECRET=ms-ingest-2026
+function loadDotEnv() {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const envPath = resolve(__dirname, '..', '.env.local');
+  if (!existsSync(envPath)) return;
+  const raw = readFileSync(envPath, 'utf8');
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let val = trimmed.slice(eq + 1).trim();
+    // Strip surrounding quotes if present
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    // Don't overwrite existing env vars — CLI overrides file.
+    if (process.env[key] === undefined) process.env[key] = val;
+  }
+}
+loadDotEnv();
 
 const BASE = process.env.BASE || 'https://depot.watsonbrothersgroup.com';
 const EMAIL = process.env.LD_EMAIL || 'nate@watsonbrothersgroup.com';
 const PASS  = process.env.LD_PASS  || 'brothers2026';
 const EXPECT_VERSION = process.env.EXPECT_VERSION; // e.g. "v14.51"; optional strict check
+if (PASS === 'brothers2026') {
+  console.warn('\x1b[33m⚠️  Using default seed password. Set LD_PASS in .env.local for current passwords.\x1b[0m');
+}
 
 const nc = () => '?nc=' + Date.now();
 const T = { RED: '\x1b[31m', GREEN: '\x1b[32m', YEL: '\x1b[33m', DIM: '\x1b[2m', RST: '\x1b[0m', BOLD: '\x1b[1m' };

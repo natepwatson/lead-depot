@@ -510,7 +510,11 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
           </button>
         </div>
 
-        {/* ── Change password ── */}
+        {/* ── Change password ──
+            v15.11.21 — Agents no longer self-serve passwords. Admins (Alex/Nate) set
+            every agent's password from Admin → Agent detail → Set Password. Section
+            still renders for admins only so they can rotate their own if they want. */}
+        {user?.role === "admin" && (
         <div style={sectionCard}>
           <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(200,170,90,0.6)", marginBottom: 16, fontWeight: 600 }}>
             Change Password
@@ -583,6 +587,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
             <Lock size={13} /> {pwSaving ? "Changing…" : "Change Password"}
           </button>
         </div>
+        )}
 
         {/* ── Preferences (v14.80) ── */}
         <div style={sectionCard}>

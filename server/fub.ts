@@ -466,15 +466,45 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
 
   const { lead, agent, outcome, notes, lpmamab, apptDate, apptTime, apptEmail, confirmedAddress, stage, intention } = payload;
 
-  // Only push meaningful outcomes to FUB — skip no_answer / wrong_number
-  const pushOutcomes = ["contacted_appointment", "keep_in_touch", "contacted_not_interested"];
+  // v15.11.8 — Alex's final rule: FUB is ONLY updated on Keep in Touch or
+  // Appointment Set. No Answer, Recycle, Not Interested, and Wrong # stay
+  // Lead-Depot-only. The lead never enters FUB until we have a real
+  // relationship signal from the agent.
+  const pushOutcomes = ["contacted_appointment", "keep_in_touch"];
   if (!pushOutcomes.includes(outcome)) return;
+
+  // v15.11.8 — Derive Buyer vs Seller from the intention string. The KIT modal
+  // joins multiple intentions with " + " so we match keywords.
+  const intentionLower = (intention || "").toLowerCase();
+  const isBuyer = /\bbuy\b/.test(intentionLower);
+  const isSeller = /\bsell\b/.test(intentionLower);
+  const kitSide: "seller" | "buyer" | "both" =
+    isBuyer && isSeller ? "both" : isBuyer ? "buyer" : "seller";
+
+  // v15.11.8 — Outcome → FUB action plan + tag mapping (locked by Alex 2026-07-12).
+  const ACTION_PLAN_MAP: Record<string, { planId: number; tag: string }> = {
+    // Appointments — 3 flavors depending on intention
+    "contacted_appointment:seller": { planId: 78, tag: "LeadDepot:ApptListing" },
+    "contacted_appointment:buyer":  { planId: 79, tag: "LeadDepot:ApptBuyer" },
+    "contacted_appointment:both":   { planId: 80, tag: "LeadDepot:ApptBoth" },
+    // KIT — both sides use the same nurture plan (id=48), tag distinguishes
+    "keep_in_touch:seller":         { planId: 48, tag: "LeadDepot:KIT-Seller" },
+    "keep_in_touch:buyer":          { planId: 48, tag: "LeadDepot:KIT-Buyer" },
+    "keep_in_touch:both":           { planId: 48, tag: "LeadDepot:KIT-Both" },
+  };
+  const planMapping = ACTION_PLAN_MAP[`${outcome}:${kitSide}`];
+
+  // v15.11.8 — Denise Jacobs (FUB user id=16, Broker) is added as collaborator
+  // on every KIT/Appt push so she has full oversight of every lead entering FUB.
+  const DENISE_FUB_USER_ID = 16;
 
   const fubType = outcomeToFubType(outcome, lead.leadType);
   const fubStage = outcomeToFubStage(outcome);
   // v15.3 — pass intent so buildTags can add Seller / Buyer / Buy&Sell tag per INTENT_SPEC Q5
   const effectiveIntent = (lpmamab as any)?.intent || (lead as any).intent || undefined;
   const tags = buildTags(lead.leadType, outcome, lead.source, intention, effectiveIntent);
+  // v15.11.8 — Append the outcome-specific tag so the plan and tag stay in sync
+  if (planMapping && !tags.includes(planMapping.tag)) tags.push(planMapping.tag);
   const fubSource = getFubSource(lead.leadType, lead.source);
 
   // Parse name
@@ -503,6 +533,14 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
 
   if (lead.phone) eventPayload.person.phones = [{ value: lead.phone }];
   if (emailToUse) eventPayload.person.emails = [{ value: emailToUse }];
+
+  // v15.11.8 — Structured address on the person. FUB's /events endpoint accepts
+  // person.addresses[] with type + street/city/state/code. If we only have a
+  // freeform string, we send it as street-only — FUB will normalize.
+  const addressStr = confirmedAddress || lead.address;
+  if (addressStr && typeof addressStr === "string" && addressStr.trim()) {
+    eventPayload.person.addresses = [{ type: "home", street: addressStr.trim() }];
+  }
 
   console.log(`[FUB] Pushing ${outcome} for lead ${lead.id} (${lead.ownerName}) to FUB...`);
   const eventResult = await fubRequest("POST", "/events", eventPayload);
@@ -534,6 +572,69 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
   // Step 2b: Force correct stageId via PUT (stage string in /events is not always honored)
   await fubRequest("PUT", `/people/${personId}`, { stageId: fubStage.id });
   console.log(`[FUB] Stage forced → ${fubStage.name} (id=${fubStage.id}) for person ${personId}`);
+
+  // v15.11.8 — Assign the action plan for this outcome.
+  if (planMapping) {
+    const apRes = await fubRequest("POST", `/actionPlansPeople`, {
+      personId,
+      actionPlanId: planMapping.planId,
+    });
+    if (apRes.ok) {
+      console.log(`[FUB] Action plan ${planMapping.planId} (${planMapping.tag}) assigned to person ${personId}`);
+    } else {
+      console.error(`[FUB] Failed to assign action plan ${planMapping.planId}:`, apRes.status, apRes.data);
+    }
+  }
+
+  // v15.11.8 — Add Denise Jacobs as a collaborator on every FUB record from Lead Depot.
+  const collabRes = await fubRequest("POST", `/collaborators`, {
+    personId,
+    userId: DENISE_FUB_USER_ID,
+  });
+  if (collabRes.ok) {
+    console.log(`[FUB] Denise Jacobs added as collaborator on person ${personId}`);
+  } else {
+    // 409/422 usually means "already a collaborator" — fine, silent.
+    if (collabRes.status !== 409 && collabRes.status !== 422) {
+      console.warn(`[FUB] Collaborator add returned ${collabRes.status}:`, collabRes.data);
+    }
+  }
+
+  // v15.11.8 — For Appt Set, create a real FUB /appointments object so the
+  // agent's FUB calendar populates instead of just relying on the note.
+  if (outcome === "contacted_appointment" && apptDate && apptTime) {
+    // Combine date + time into ISO 8601. If parse fails, skip — the note still
+    // records the raw values.
+    try {
+      const combined = new Date(`${apptDate}T${apptTime}`);
+      if (!isNaN(combined.getTime())) {
+        const endTime = new Date(combined.getTime() + 60 * 60 * 1000); // 1 hour default
+        const apptTitle =
+          kitSide === "buyer" ? "Buyer Consultation" :
+          kitSide === "both"  ? "Listing & Buying Consultation" :
+                                "Listing Consultation";
+        const apptRes = await fubRequest("POST", `/appointments`, {
+          personId,
+          type: "Consultation",
+          title: apptTitle,
+          description: `Set by ${agent.name} via Lead Depot. Address: ${addressStr || "—"}`,
+          startTime: combined.toISOString(),
+          endTime: endTime.toISOString(),
+          location: addressStr || undefined,
+          invitees: [{ userId: DENISE_FUB_USER_ID }], // Denise sees it on her calendar too
+        });
+        if (apptRes.ok) {
+          console.log(`[FUB] Appointment created on ${combined.toISOString()} for person ${personId}`);
+        } else {
+          console.error(`[FUB] Failed to create appointment:`, apptRes.status, apptRes.data);
+        }
+      } else {
+        console.warn(`[FUB] apptDate/apptTime did not parse: ${apptDate} ${apptTime}`);
+      }
+    } catch (e) {
+      console.error(`[FUB] Appointment build error:`, e);
+    }
+  }
 
   // Step 3: Post LPMAMAB note to their timeline
   const noteBody = buildLpmamabNote({

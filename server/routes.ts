@@ -982,9 +982,16 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     "/api/admin/dbpr-run",
     "/api/admin/missed-appointments",
   ];
+  // v15.11.14 — additional exempt paths matched by SUFFIX (INGEST_SECRET-guarded inside route).
+  //   /api/admin/leads/:id/manual-appt — lets an admin retro-assign a lead to an
+  //   agent as an Appt Set when the appointment was already logged in FUB by hand.
+  const CRON_EXEMPT_SUFFIXES = [
+    "/manual-appt",
+  ];
   app.use("/api/admin", (req: any, res: any, next: any) => {
     const fullPath = req.baseUrl + req.path;
     if (CRON_EXEMPT_PATHS.some(p => fullPath.startsWith(p))) return next();
+    if (CRON_EXEMPT_SUFFIXES.some(s => fullPath.endsWith(s))) return next();
     // req.currentAgent is populated by attachSession middleware iff a valid
     // session cookie is present. Not spoofable.
     if (!req.currentAgent) {

@@ -1,11 +1,7 @@
-// v15.11.10 — Tappable On Air banner + prime-transition haptic.
+// v15.11.11 — 5-tier Sprint Mode banner (illegal / dead / low / middle / prime).
 //
-// Renders 24/7. Three states:
-//   PRIME   → red "ON AIR — PRIME TIME" plate, flashing broadcast light both ends
-//   MID     → amber "MID TIME — OK to dial" plate, static dots
-//   DOWN    → dark gray "DOWNTIME — do not cold-call" plate, static dot
-//
-// Tap the banner → OnAirScheduleModal opens with the full 7-day × 6AM–10PM grid.
+// Renders 24/7. Full tier chip is always visible — no blocking except TCPA.
+// Tap the banner → OnAirScheduleModal opens with the full 7-day × 8AM–8PM grid.
 // When the tier flips from non-prime → prime, we buzz the phone (Android only).
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -133,43 +129,64 @@ export default function OnAirBanner({ agentId }: Props) {
     return out;
   }
 
-  // Style tokens per tier.
+  // Style tokens per 5-tier sprintTier.
   const cfg = (() => {
-    if (heat.tier === "prime") {
-      return {
-        bg: "linear-gradient(90deg, #1a0202 0%, #4a0a0a 50%, #1a0202 100%)",
-        border: "rgba(239,68,68,0.55)",
-        dotColor: "#ef4444",
-        badgeColor: "#ef4444",
-        badgeText: "ON AIR",
-        subText: "PRIME TIME — call now. Tap for schedule.",
-        anim: "ld-onair-blink 1.05s steps(1) infinite",
-      };
+    const soon = heat.sprintTier !== "prime" && heatIn30.sprintTier === "prime";
+    switch (heat.sprintTier) {
+      case "prime":
+        return {
+          bg: "linear-gradient(90deg, #1a0202 0%, #4a0a0a 50%, #1a0202 100%)",
+          border: "rgba(239,68,68,0.55)",
+          dotColor: "#ef4444",
+          badgeColor: "#ef4444",
+          badgeText: "🔥 PRIME",
+          subText: "Prime time — call now. Tap for schedule.",
+          anim: "ld-onair-blink 1.05s steps(1) infinite",
+        };
+      case "middle":
+        return {
+          bg: "linear-gradient(90deg, #0e1a0c 0%, #16321a 50%, #0e1a0c 100%)",
+          border: "rgba(34,197,94,0.45)",
+          dotColor: "#22c55e",
+          badgeColor: "#22c55e",
+          badgeText: soon ? "🟢 MIDDLE → PRIME SOON" : "🟢 MIDDLE",
+          subText: soon
+            ? "Prime starts in ~30 min. Tap for schedule."
+            : (heat.nextPrimeWindow || "Middle window — solid. Tap for schedule."),
+          anim: soon ? "ld-onair-pulse 2.2s ease-in-out infinite" : "none",
+        };
+      case "low":
+        return {
+          bg: "linear-gradient(90deg, #1a1102 0%, #2f2004 50%, #1a1102 100%)",
+          border: "rgba(250,204,21,0.42)",
+          dotColor: "#facc15",
+          badgeColor: "#facc15",
+          badgeText: "🟡 LOW",
+          subText: heat.nextPrimeWindow || "Low-yield window. Tap for schedule.",
+          anim: "none",
+        };
+      case "dead":
+        return {
+          bg: "linear-gradient(90deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)",
+          border: "rgba(107,114,128,0.35)",
+          dotColor: "#6b7280",
+          badgeColor: "#9ca3af",
+          badgeText: "⚫ DEAD",
+          subText: heat.nextPrimeWindow || "Dead window — tap for schedule.",
+          anim: "none",
+        };
+      case "illegal":
+      default:
+        return {
+          bg: "linear-gradient(90deg, #0a0000 0%, #1a0505 50%, #0a0000 100%)",
+          border: "rgba(153,27,27,0.55)",
+          dotColor: "#991b1b",
+          badgeColor: "#dc2626",
+          badgeText: "🔴 ILLEGAL",
+          subText: "Outside FL 8AM–8PM legal window. Do not dial.",
+          anim: "none",
+        };
     }
-    if (heat.tier === "mid") {
-      const soon = heatIn30.tier === "prime";
-      return {
-        bg: "linear-gradient(90deg, #1a1102 0%, #2f2004 50%, #1a1102 100%)",
-        border: "rgba(245,158,11,0.45)",
-        dotColor: "#f59e0b",
-        badgeColor: "#f59e0b",
-        badgeText: soon ? "STAND BY" : "MID TIME",
-        subText: soon
-          ? "On Air in ~30 min — tap for schedule."
-          : "MID TIME — OK to dial. Tap for schedule.",
-        anim: soon ? "ld-onair-pulse 2.2s ease-in-out infinite" : "none",
-      };
-    }
-    // DOWN
-    return {
-      bg: "linear-gradient(90deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)",
-      border: "rgba(107,114,128,0.35)",
-      dotColor: "#6b7280",
-      badgeColor: "#9ca3af",
-      badgeText: "OFF AIR",
-      subText: heat.nextPrimeWindow || "Off air — tap for the schedule.",
-      anim: "none",
-    };
   })();
 
   return (

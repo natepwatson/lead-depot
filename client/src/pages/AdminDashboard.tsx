@@ -1228,7 +1228,7 @@ export default function AdminDashboard({
     },
   });
 
-  // v15.11.22 — Admin-set password. Admins (Alex/Nate) type the new password directly;
+  // v15.11.23 — Admin-set password. Admins (Alex/Nate) type the new password directly;
   // hits force-reset endpoint with X-Ingest-Secret. This is now the primary way any
   // agent password gets rotated — agents themselves no longer see Change Password.
   const [setPasswordAgent, setSetPasswordAgent] = useState<{ id: number; name: string; email: string } | null>(null);
@@ -1642,7 +1642,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.11.22
+              v15.11.23
             </p>
           </div>
         </div>
@@ -3538,7 +3538,7 @@ export default function AdminDashboard({
                                 {flowActive ? "Flow On" : "Flow Off"}
                               </Badge>
                               {/* v14.0 — Min Dials/Wk gate removed. Motivation over shaming. */}
-                              {/* v15.11.22 — Set Password: admin types the new password directly. */}
+                              {/* v15.11.23 — Set Password: admin types the new password directly. */}
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-amber-400"
@@ -3850,7 +3850,7 @@ export default function AdminDashboard({
         onCancel={closeConfirm}
       />
 
-      {/* v15.11.22 — Set Password dialog. Admin types the new password directly; server
+      {/* v15.11.23 — Set Password dialog. Admin types the new password directly; server
            bcrypt-hashes it, writes to agents.password, and revokes all sessions for that
            agent. Agents no longer see Change Password in their Profile — this is the
            canonical path for every rotation. */}

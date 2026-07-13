@@ -5,20 +5,22 @@
 // Legal window: Fla. Stat. § 501.616(6)(a) — commercial calls only 8 AM – 8 PM
 // in the called party's local time. Hours < 8 or >= 20 are DOWN (illegal).
 
-export type Tier = "prime" | "mid" | "down";
+export type Tier = "illegal" | "down" | "low" | "mid" | "prime";
 
-// 7 rows (Sun..Sat) × 12 columns (8AM..7PM)
-// Row 0 = Sunday, Column 0 = 8AM ... Column 11 = 7PM
-// Values from research report Section 3.
+// v15.11.17 — 5-tier grid, reconciled from Alex's schedule + MIT/Harvard research
+// (see scripts/heat-reconcile.md). MUST match client/src/lib/callHeat.ts exactly.
+//
+// 7 rows (Sun..Sat) × 12 columns (8AM..7PM). TCPA-illegal hours (< 8, >= 20)
+// aren't in the grid — they're returned as "illegal" by tierForCell().
 const SCHEDULE_GRID: Tier[][] = [
-  // 8    9    10    11   12   1p   2p   3p   4p   5p   6p    7p
-  ["mid","mid","mid","prime","prime","mid","prime","mid","mid","prime","prime","prime"], // Sun
-  ["mid","down","down","down","down","down","mid","mid","mid","mid","prime","prime"],    // Mon
-  ["mid","down","down","down","down","down","mid","mid","mid","mid","prime","prime"],    // Tue
-  ["mid","down","down","down","down","down","mid","mid","mid","mid","prime","prime"],    // Wed
-  ["mid","down","down","down","down","down","mid","mid","mid","down","prime","prime"],   // Thu
-  ["mid","mid","mid","mid","mid","mid","prime","prime","prime","down","mid","mid"],      // Fri
-  ["prime","prime","prime","prime","mid","mid","mid","mid","prime","prime","prime","prime"], // Sat
+  //  8      9      10     11     12     1p     2p     3p     4p     5p     6p     7p
+  ["mid",  "mid",  "mid",  "prime","prime","mid",  "prime","mid",  "mid",  "prime","prime","prime"], // Sun
+  ["mid",  "low",  "low",  "low",  "down", "down", "mid",  "mid",  "prime","prime","prime","prime"], // Mon
+  ["prime","prime","prime","low",  "down", "down", "mid",  "mid",  "prime","prime","prime","prime"], // Tue
+  ["prime","prime","prime","low",  "down", "down", "mid",  "prime","prime","prime","prime","prime"], // Wed
+  ["prime","prime","prime","low",  "down", "down", "mid",  "prime","prime","prime","prime","prime"], // Thu
+  ["mid",  "mid",  "mid",  "mid",  "low",  "low",  "prime","prime","prime","low",  "mid",  "low"],   // Fri
+  ["prime","prime","prime","prime","mid",  "mid",  "mid",  "mid",  "prime","prime","prime","prime"], // Sat
 ];
 
 function withinLegalDialWindow(hour: number): boolean {
@@ -27,7 +29,7 @@ function withinLegalDialWindow(hour: number): boolean {
 
 /** Direct lookup — dow 0..6 (Sun..Sat), hour 0..23 (local ET). */
 export function tierForCell(dow: number, hour: number): Tier {
-  if (!withinLegalDialWindow(hour)) return "down";
+  if (!withinLegalDialWindow(hour)) return "illegal";
   const col = hour - 8; // 8AM = col 0
   const row = SCHEDULE_GRID[dow];
   if (!row) return "down";

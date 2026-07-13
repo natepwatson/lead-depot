@@ -35,6 +35,23 @@ function AppRoutes() {
     const t = setTimeout(() => { /* no-op: push removed in v15.11.3 */ }, 1500);
     return () => clearTimeout(t);
   }, [user?.id]);
+
+  // v15.11.17 — Hydration guard: if the localStorage user is missing the
+  // tutorialCompletedAt / profileCompletedAt keys (older builds didn't return
+  // them from /api/login), refresh from /api/me/:id before the gate check
+  // runs. Without this, the tutorial re-fires every login for agents whose
+  // cached user object predates v14.81 — the same bug Alex reported today
+  // ("tutorial isn't working for some agents"). Cheap fetch, runs once per
+  // login.
+  useEffect(() => {
+    if (!user) return;
+    const missingFlags = (user as any).tutorialCompletedAt === undefined
+      || (user as any).profileCompletedAt === undefined;
+    if (missingFlags) {
+      refreshUser();
+    }
+     
+  }, [user?.id]);
   // v14.51 — admin bottom nav can jump to any agent-side tab, not just leads.
   // null = show AdminDashboard. "leads"/"refer"/"leaderboard"/"profile" = show AgentView on that tab.
   const [adminAgentTab, setAdminAgentTab] = useState<null | "leads" | "refer" | "leaderboard" | "profile" | "pipeline">(null);

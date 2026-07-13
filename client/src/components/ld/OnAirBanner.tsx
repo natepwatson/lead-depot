@@ -162,6 +162,30 @@ export default function OnAirBanner({ agentId }: Props) {
         anim: soon ? "ld-onair-pulse 2.2s ease-in-out infinite" : "none",
       };
     }
+    // v15.11.17 — LOW: shoulder hour, sources disagree. Softer than DOWN.
+    if (heat.tier === "low") {
+      return {
+        bg: "linear-gradient(90deg, #171003 0%, #241805 50%, #171003 100%)",
+        border: "rgba(234,179,8,0.35)",
+        dotColor: "#eab308",
+        badgeColor: "#eab308",
+        badgeText: "LOW TIME",
+        subText: heat.nextPrimeWindow || "Low answer rate — dial the warmest leads. Tap for schedule.",
+        anim: "none",
+      };
+    }
+    // v15.11.17 — ILLEGAL: outside FL 8AM–8PM. Hard block, no bypass.
+    if (heat.tier === "illegal") {
+      return {
+        bg: "linear-gradient(90deg, #050505 0%, #0f0f0f 50%, #050505 100%)",
+        border: "rgba(107,114,128,0.35)",
+        dotColor: "#374151",
+        badgeColor: "#9ca3af",
+        badgeText: "TCPA BLOCK",
+        subText: heat.nextPrimeWindow || "Outside FL's 8 AM – 8 PM window. Do not dial.",
+        anim: "none",
+      };
+    }
     // DOWN
     return {
       bg: "linear-gradient(90deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)",
@@ -236,7 +260,7 @@ export default function OnAirBanner({ agentId }: Props) {
           <span
             style={{
               fontSize: 12,
-              color: heat.tier === "down" ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.92)",
+              color: (heat.tier === "down" || heat.tier === "illegal") ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.92)",
               fontFamily: "'Switzer','Inter',sans-serif", fontWeight: 600, letterSpacing: "0.02em",
             }}
           >

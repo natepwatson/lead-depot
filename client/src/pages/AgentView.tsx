@@ -1617,6 +1617,50 @@ function LeadCard({ lead }: { lead: Lead }) {
       {/* v14.53 ── Also-Buying pill removed; Intent selector above the seller card now drives visibility. ── */}
 
       {/* v14.53 ── BUYER LPMAMA (renders when intent !== sell_only) ── */}
+      {/* v15.11.17 — Home Specifications on Buy / Sell&Buy cards.
+          Shows the property specs Alex wants agents to reference when
+          matching or qualifying: beds, baths, sqft, lot, year built,
+          list price. Data comes from extraData JSON on the lead row
+          (LandVoice / BatchLeads / MLS import). Compact grid, no inputs;
+          purely reference. Renders only when at least one spec exists. */}
+      {showBuyerCard && (() => {
+        const specs: Array<{ label: string; value: string }> = [];
+        if (extra.beds != null) specs.push({ label: "Beds", value: String(extra.beds) });
+        if (extra.baths != null) specs.push({ label: "Baths", value: String(extra.baths) });
+        if (extra.sqft != null) specs.push({ label: "Sqft", value: Number(extra.sqft).toLocaleString() });
+        if (extra.lotSizeAcres != null) specs.push({ label: "Lot", value: `${extra.lotSizeAcres} ac` });
+        if (extra.yearBuilt) specs.push({ label: "Built", value: String(extra.yearBuilt) });
+        if (extra.garage != null) specs.push({ label: "Garage", value: typeof extra.garage === "boolean" ? (extra.garage ? "Yes" : "No") : String(extra.garage) });
+        if (extra.pool != null) specs.push({ label: "Pool", value: typeof extra.pool === "boolean" ? (extra.pool ? "Yes" : "No") : String(extra.pool) });
+        if (extra.listPrice != null) specs.push({ label: "List $", value: `$${Number(extra.listPrice).toLocaleString()}` });
+        else if (lead.list_price != null) specs.push({ label: "List $", value: `$${Number(lead.list_price).toLocaleString()}` });
+        if (specs.length === 0) return null;
+        return (
+          <div style={{ padding: "0 20px 12px" }}>
+            <div style={{
+              background: "linear-gradient(180deg, rgba(59,130,246,0.08), rgba(59,130,246,0.02))",
+              border: "1px solid rgba(59,130,246,0.28)", borderRadius: 12,
+              padding: "12px 14px",
+            }}>
+              <p style={{ margin: "0 0 8px", fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(147,197,253,0.85)", fontWeight: 600 }}>
+                Home Specifications
+              </p>
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
+                gap: "6px 12px",
+              }}>
+                {specs.map(s => (
+                  <div key={s.label} style={{ fontSize: 11, color: "rgba(255,255,255,0.55)" }}>
+                    {s.label} <span style={{ color: "rgba(255,255,255,0.9)", fontWeight: 600 }}>{s.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {showBuyerCard && (
         <div style={{ padding: "0 20px 18px" }}>
           <div style={{
@@ -3036,6 +3080,7 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
   const [tab, setTab] = useState<Tab>(initialTab ?? "leaderboard");
   const { connected: wsConnected } = useRealtimeUpdates();
   const qc = useQueryClient();
+  const { toast } = useToast(); // v15.11.17 — used by CLOSED_STATUSES redirect notice
 
   // v15.3 — REAL dialing-now indicator. Replaces v14.9 vibe count that showed
   // "6 dialing now" 24/7 based on active_agents_count + random bump.
@@ -3155,7 +3200,45 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
     try { sessionStorage.removeItem("pending_lead_jump"); } catch {}
     setPendingLeadId(null);
   };
-  const displayedLead: Lead | null | undefined = overrideLead || nextLead;
+
+  // v15.11.17 — CLOSED_STATUSES: a lead in any of these is NOT dial-eligible.
+  // If the pending-lead-jump flow lands on one of these (e.g. an agent tapped
+  // a stale referral link or search result pointing at a lead they already
+  // KIT'd two days ago), we must NOT show it as a dial card. Doing so is how
+  // won/parked leads leak back into the shared-pool feeling and get double-
+  // called. Clear the pending, then fall back to the real pool pull.
+  const CLOSED_STATUSES = new Set([
+    "keep_in_touch",
+    "contacted_appointment",
+    "contacted_not_interested",
+    "listed",
+    "retired",
+    "wrong_number",
+    "recycled",
+  ]);
+  useEffect(() => {
+    if (overrideLead?.id && overrideLead.status && CLOSED_STATUSES.has(overrideLead.status)) {
+      // Silently drop the pending jump. The user is redirected back to normal
+      // dial flow (nextLead from the pool). A one-shot toast tells them where
+      // the lead actually lives now so they don't think we ate it.
+      const label = overrideLead.status === "keep_in_touch" ? "Keep in Touch"
+                  : overrideLead.status === "contacted_appointment" ? "Appointment Set"
+                  : overrideLead.status === "listed" ? "Listed"
+                  : overrideLead.status === "recycled" ? "Recycled"
+                  : "Closed";
+      toast({
+        title: `Already “${label}”`,
+        description: `${overrideLead.ownerName || "This lead"} isn't dial-eligible — it's in your Pipeline tab.`,
+      });
+      clearPendingLead();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overrideLead?.id, overrideLead?.status]);
+
+  const displayedLead: Lead | null | undefined =
+    (overrideLead && !CLOSED_STATUSES.has(overrideLead.status || ""))
+      ? overrideLead
+      : nextLead;
 
   const { data: myQueueData } = useQuery<{ count: number }>({
     queryKey: [`/api/leads/my-count/${user?.id}`],

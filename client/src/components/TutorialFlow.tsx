@@ -66,14 +66,15 @@ const MINI_NAV = [
 ] as const;
 
 const TAB_COPY: Record<string, string> = {
-  leaderboard: "Where you check the score. Effort is visible.",
-  pipeline:    "Every deal you've moved forward. Nothing here ever expires.",
-  leads:       "The gold button. Where the money gets made.",
+  // v15.11.17 — copy tightened for clarity and to match the current app.
+  leaderboard: "The team scoreboard. Dials, contacts, and appointments — updated live. Effort is visible.",
+  pipeline:    "Every lead you personally moved forward — Keep in Touch, Appointments, and closed wins. Nothing here ever gets pulled back into the pool.",
+  leads:       "The gold button. Tap the phone, run LPMAMAB, log the outcome. This is where the money gets made.",
   // v14.81 — Corrected per Alex: Network/Referral leads are NOT leads given
   // away to us — they're leads the agent personally sourced (church, gym, in
   // person) and works themselves. If it fizzles, it goes back in the pool.
-  refer:       "Referrals: leads YOU sourced from your own network. You keep them, work them, and if one fizzles you toss it back in the coals and grab another. Our systems do the heavy lifting.",
-  profile:     "Your headshot, rank, and identity on the team.",
+  refer:       "Referrals — leads YOU sourced from your own network (church, gym, in person). You keep them, work them, and if one fizzles you toss it back and grab another.",
+  profile:     "Your headshot, rank, and settings. Also where you replay this tutorial.",
 };
 
 // v15.0 — Tutorial OUTCOME_TILES now mirrors AgentView's OUTCOMES array
@@ -93,19 +94,24 @@ const TAB_COPY: Record<string, string> = {
 // diverges from AgentView's (bg/border/hoverBg) — they're intentionally
 // separate types, but the labels/keys/order/positions are contract.
 const OUTCOME_TILES = [
-  // Row 1 — fast per-line taps
-  { key: "no_answer",                label: "No Answer",     icon: PhoneMissed,   color: "#facc15", desc: "Most common. Queued for another try later." },
-  { key: "wrong_number",             label: "Wrong #",       icon: AlertTriangle, color: "#f87171", desc: "Dead phone. Lead moves on. No harm done." },
-  // v15.11.12 — renamed Disconnected → Not a Working Line for clarity.
-  { key: "disconnected",             label: "Not a Working Line", icon: PhoneOff,   color: "#cbd5e1", desc: "Number is dead — no dial tone or nonstop ringing. System removes it from the lead's phone list." },
-  // Row 2 — lead-level decisions
-  { key: "contacted_not_interested", label: "Not Interested",icon: XCircle,       color: "#fca5a5", desc: "Real \u2018no.\u2019 We respect it and move on." },
-  { key: "recycled",                 label: "Recycle",       icon: RefreshCw,     color: "#67e8f9", desc: "Called them, revisit later. Lead returns to the pool." },
-  { key: "listed",                   label: "Listed",        icon: Home,          color: "#c4b5fd", desc: "Already listed with another agent. We check back after expiry." },
+  // v15.11.17 — descriptions rewritten for clarity + current behavior:
+  //   • Recycle spelled out as the Callback replacement (returns to pool, no owner).
+  //   • Keep in Touch calls out the Pipeline tab by name.
+  //   • Appt Set calls out Pipeline + FUB push.
+  //   • Not a Working Line calls out the phone-line-removal side effect.
+  //   • Listed calls out that the lead stays out until the listing expires.
+  // Row 1 — fast per-line taps (what you tap FOR THIS PHONE NUMBER)
+  { key: "no_answer",                label: "No Answer",     icon: PhoneMissed,   color: "#facc15", desc: "They didn't pick up. Lead goes back to the pool for someone else to try." },
+  { key: "wrong_number",             label: "Wrong #",       icon: AlertTriangle, color: "#f87171", desc: "Not the person we're looking for. Lead is removed. Move on." },
+  { key: "disconnected",             label: "Not a Working Line", icon: PhoneOff,   color: "#cbd5e1", desc: "Line is dead — no ring, nonstop tone, or 'not in service.' System drops this number from the lead's phone list." },
+  // Row 2 — lead-level decisions (what you tap FOR THIS LEAD)
+  { key: "contacted_not_interested", label: "Not Interested",icon: XCircle,       color: "#fca5a5", desc: "A real 'no.' We respect it. Lead is closed out." },
+  { key: "recycled",                 label: "Recycle",       icon: RefreshCw,     color: "#67e8f9", desc: "Called them, revisit later. Replaces the old Callback — lead goes back to the pool with no owner and no strings attached." },
+  { key: "listed",                   label: "Listed",        icon: Home,          color: "#c4b5fd", desc: "They already re-listed with another agent. Lead is paused until the listing expires, then re-enters the pool." },
   // Row 3 — wins
-  { key: "contacted_appointment",    label: "Appt Set",      icon: CheckCircle2,  color: "#86efac", desc: "The green one. Set the appointment. Commission in motion." },
-  { key: "keep_in_touch",            label: "Keep in Touch", icon: Heart,         color: "#f9a8d4", desc: "They're interested but not ready. Goes into YOUR pipeline forever." },
-  { key: "left_voicemail",           label: "Left VM",       icon: Voicemail,     color: "#93c5fd", desc: "Voicemail left. Counts as a contact attempt." },
+  { key: "contacted_appointment",    label: "Appt Set",      icon: CheckCircle2,  color: "#86efac", desc: "The green one. Appointment on the books — pushed to Follow Up Boss and pinned to your Pipeline." },
+  { key: "keep_in_touch",            label: "Keep in Touch", icon: Heart,         color: "#f9a8d4", desc: "Interested but not ready. Lead is yours forever — lives in your Pipeline tab so you can nurture it." },
+  { key: "left_voicemail",           label: "Left VM",       icon: Voicemail,     color: "#93c5fd", desc: "Voicemail left. Counts as a contact attempt. Lead stays alive." },
 ] as const;
 
 // v15.0 — Grid position index for Appt Set. Used by Chapter 6 to glow the
@@ -413,23 +419,29 @@ function Chapter2({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: 
 const RULES = [
   {
     title: "We keep it simple and real.",
-    body: "No scripts to memorize — LPMAMAB is the checklist.",
+    body: "No scripts to memorize — LPMAMAB is the checklist. Say hi like a human, then walk it.",
     extra: "L — Location · P — Price · M — Motivation · A — Agent · M — Mortgage · A — Appointment · B — Buyer",
   },
   {
     title: "Lead Depot exists to remove friction.",
-    body: "So you spend more time doing the few things that actually move deals forward.",
+    body: "Leads, scripts, dial priority, follow-up — the app handles it. Your job is the conversation.",
     extra: null,
   },
   {
     title: "Every action is logged.",
-    body: "The system remembers. Your rank updates in real time.",
+    body: "Dials, contacts, appointments — all counted in real time. Your rank on the Leaderboard updates instantly.",
     extra: null,
   },
   {
-    // v14.81 — New 4th culture card, added per Alex.
+    // v15.11.17 — 5th rule card: the On-Air banner + 5-tier call heat.
+    title: "Call when the light is right.",
+    body: "The banner at the top of the app is your On-Air light. It reads the day and hour and tells you what kind of dialing time this is — there are five tiers.",
+    extra: "PRIME (red) — go now · MID (amber) — solid · LOW (yellow) — slow, confirm to dial · DOWN (grey) — poor odds, confirm to dial · TCPA BLOCK (dark) — illegal to call, hard-blocked.",
+  },
+  {
+    // v14.81 — 4th culture card, kept per Alex.
     title: "We're a well-oiled machine.",
-    body: "All hands on deck. Everyone has their role. We're all specialists in our field. Your job on any given dial is simple — run the play, log the outcome, move to the next one. The system does the rest.",
+    body: "All hands on deck. Everyone has a role. Your job on any given dial is simple — run the play, log the outcome, move to the next one. The system does the rest.",
     extra: null,
   },
 ];

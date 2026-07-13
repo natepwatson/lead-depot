@@ -25,7 +25,9 @@ const HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
 const MOTIVATIONAL: Record<HeatTier, string> = {
   prime: "When the light is red, be relentless. Every dial now is worth two at any other time.",
   mid: "The warmup matters. Ten dials in mid time load the pipeline for the sprint.",
+  low: "Shoulder hour — the data disagrees. Dial the ones you're already excited about.",
   down: "Rest the leads. The best callers dial when the data says answer — not when they feel like it.",
+  illegal: "Outside the legal window. No cold calls, no exceptions — Fla. Stat. § 501.616.",
 };
 
 function hourLabel(h: number) {
@@ -142,7 +144,9 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
         .ld-schedmodal-cell:active { transform: scale(0.94); }
         .ld-schedmodal-cell.prime { background: linear-gradient(180deg,#ef4444 0%,#b91c1c 100%); color: rgba(0,0,0,0.85); }
         .ld-schedmodal-cell.mid   { background: linear-gradient(180deg,#f59e0b 0%,#b45309 100%); color: rgba(0,0,0,0.85); }
+        .ld-schedmodal-cell.low   { background: linear-gradient(180deg,#eab308 0%,#a16207 100%); color: rgba(0,0,0,0.75); }
         .ld-schedmodal-cell.down  { background: #1f2937; color: rgba(255,255,255,0.4); }
+        .ld-schedmodal-cell.illegal { background: repeating-linear-gradient(45deg,#1f2937 0 3px,#0a0a0a 3px 6px); color: rgba(255,255,255,0.35); font-size: 8px; cursor: not-allowed; }
         .ld-schedmodal-cell.tcpa  {
           background: repeating-linear-gradient(45deg,#1f2937 0 3px,#0a0a0a 3px 6px);
           color: rgba(255,255,255,0.35);
@@ -227,6 +231,9 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
               <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#f59e0b,#b45309)" }} />Mid
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#eab308,#a16207)" }} />Low
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 9, height: 9, borderRadius: 2, background: "#1f2937" }} />Downtime
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
@@ -261,12 +268,12 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
                 }}>{hourLabel(h)}</div>
 
                 {DAYS_SHORT.map((_, d) => {
-                  const legal = h >= 8 && h < 20;
-                  const tier = legal ? tierForCell(d, h) : ("down" as HeatTier);
+                  const tier = tierForCell(d, h);
+                  const legal = tier !== "illegal";
                   const isNow = d === curDow && h === curHour;
                   const classes = [
                     "ld-schedmodal-cell",
-                    !legal ? "tcpa" : tier,
+                    tier === "illegal" ? "illegal" : tier,
                     isNow ? "now" : "",
                   ].filter(Boolean).join(" ");
                   return (
@@ -275,7 +282,7 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
                       className={classes}
                       onClick={() => legal && setHoverCell({ dow: d, hour: h })}
                     >
-                      {legal ? tier[0].toUpperCase() : "TCPA"}
+                      {tier === "illegal" ? "TCPA" : tier[0].toUpperCase()}
                     </div>
                   );
                 })}
@@ -301,6 +308,8 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
               {hoverReason || (
                 hoverTier === "prime" ? "Peak residential window — Massey/CDC + CallHub converge." :
                 hoverTier === "mid" ? "Middle window. Reachable but not sprint-worthy." :
+                hoverTier === "low" ? "Shoulder hour — sources disagree. Dial the ones you're already warm on." :
+                hoverTier === "illegal" ? "Outside FL's 8 AM – 8 PM window. Do not dial." :
                 "Low-yield window. Save leads for Prime Time."
               )}
             </div>

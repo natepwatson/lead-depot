@@ -14,7 +14,7 @@ import { chromium } from 'playwright';
 
 const BASE = process.env.BASE || 'https://depot.watsonbrothersgroup.com';
 const EMAIL = process.env.LD_EMAIL || 'nate@watsonbrothersgroup.com';
-const PASS  = process.env.LD_PASS  || 'brothers2028Xyz!';
+const PASS  = process.env.LD_PASS  || 'brothers2026';
 const EXPECT_VERSION = process.env.EXPECT_VERSION; // e.g. "v14.51"; optional strict check
 
 const nc = () => '?nc=' + Date.now();
@@ -97,13 +97,24 @@ async function run() {
     add('7. Leaderboard API returns agents', lb.status === 200 && lb.count > 0, false, `status=${lb.status} agents=${lb.count}`);
 
     // ─── Phase 8: Navigate to Dial (via admin bottom nav) ────────────────
+    // v15.11.13+: during downtime the dial CTA is gated by a confirm sheet, so
+    // there's no raw <a href="tel:"> until the user confirms. Check for either
+    // the tel: link (Prime Time) OR the DOWNTIME / confirm-sheet state.
     const dialBtn = await page.$('[data-testid="admin-bottom-nav-dial"]');
     if (dialBtn) {
       await dialBtn.click();
       await page.waitForTimeout(3500);
     }
-    const onDialPage = await page.evaluate(() => !!document.querySelector('a[href^="tel:"]'));
-    add('8. Admin → Dial nav works', onDialPage, false, onDialPage ? 'tel: link found' : 'no tel: link');
+    const dialState = await page.evaluate(() => {
+      const hasTel = !!document.querySelector('a[href^="tel:"]');
+      const txt = document.body.innerText || '';
+      const gatedText = /(DOWNTIME|MID TIME|CONFIRM|Dial anyway|On Air at)/.test(txt);
+      const hasOutcomeBtns = /No Answer|Wrong #|Not a Working Line/.test(txt);
+      return { hasTel, gatedText, hasOutcomeBtns };
+    });
+    const onDialPage = dialState.hasTel || (dialState.gatedText && dialState.hasOutcomeBtns);
+    add('8. Admin → Dial nav works', onDialPage, false,
+      onDialPage ? (dialState.hasTel ? 'tel: link (Prime)' : 'gated by downtime confirm sheet') : 'no dial UI');
 
     // ─── Phase 9: Dial page — inactive numbers hidden (v14.51+) ──────────
     const leaked = await page.evaluate(() => {
@@ -112,12 +123,21 @@ async function run() {
     });
     add('9. Dial page hides inactive numbers', leaked === 0, false, `leaked=${leaked}`);
 
-    // ─── Phase 10: Active dial button renders with tel: link ─────────────
-    const dialInfo = await page.evaluate(() => {
+    // ─── Phase 10: Active dial button renders (tel: link or downtime-gated CTA) ──
+    // v15.11.13+: downtime replaces the raw tel: link with a confirm-sheet CTA.
+    // Accept EITHER a working tel: link OR a visible DIAL/CONFIRM control.
+    const dialCta = await page.evaluate(() => {
       const a = document.querySelector('a[href^="tel:"]');
-      return a ? { href: a.getAttribute('href'), textLen: (a.textContent || '').trim().length } : null;
+      if (a) return { kind: 'tel', href: a.getAttribute('href'), textLen: (a.textContent || '').trim().length };
+      const btn = Array.from(document.querySelectorAll('button')).find(b => /DIAL|CALL|CONFIRM/i.test((b.textContent || '').trim()));
+      if (btn) return { kind: 'button', text: (btn.textContent || '').trim().slice(0, 40) };
+      return null;
     });
-    add('10. Active DIAL LINE button', !!(dialInfo && dialInfo.href && dialInfo.textLen > 5), false, dialInfo ? `href=${dialInfo.href}` : 'missing');
+    const dialCtaOk = !!dialCta && (dialCta.kind === 'tel'
+      ? (!!dialCta.href && dialCta.textLen > 5)
+      : !!dialCta.text);
+    add('10. Active DIAL LINE button', dialCtaOk, false,
+      dialCta ? (dialCta.kind === 'tel' ? `tel href=${dialCta.href}` : `downtime CTA="${dialCta.text}"`) : 'missing');
 
     // ─── Phase 11: Agent bottom nav (Dashboard/Dial/Refer/Profile) ───────
     const agentNavBtns = await page.$$('[data-testid^="nav-"]');

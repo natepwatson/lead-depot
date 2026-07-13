@@ -404,6 +404,109 @@ function RecycleModal({
 // now delivered exclusively through the outcome grid "Recycle" slot, which
 // opens RecycleModal and posts outcome="recycled" via outcomeMutation.
 
+// ─── Not Interested Sheet (v15.11.11) ─────────────────────────────────
+// Two-branch confirm. When agent taps Not Interested we ask them to categorize:
+//
+//   NICE  → outcome = "nice_not_interested" → server sets status=recycled and
+//           callback_date = now + 180 days. Lead sleeps until then, then re-
+//           enters the shared pool automatically (pool query already gates on
+//           callback_date IS NULL OR callback_date <= now).
+//
+//   RUDE  → outcome = "contacted_not_interested" → existing behavior (dead lead,
+//           unassigned, no pipeline entry).
+//
+// Rationale (Alex 2026-07-13): confirmed real owners who politely decline are
+// worth 6 months of nurture — life changes (relocation, divorce, birth, job
+// move, market swings) routinely flip "not right now" into a real conversation
+// within 90–180 days. Only rude / never-owned / no-signal decliners get the
+// hard-delete path.
+function NotInterestedModal({
+  onClose, onNice, onRude, isPending,
+}: {
+  onClose: () => void;
+  onNice: () => void;
+  onRude: () => void;
+  isPending: boolean;
+}) {
+  React.useEffect(() => {
+    document.body.classList.add("ld-modal-open");
+    return () => document.body.classList.remove("ld-modal-open");
+  }, []);
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      display: "flex", flexDirection: "column", justifyContent: "flex-end",
+    }}>
+      <div onClick={onClose} style={{
+        position: "absolute", inset: 0,
+        background: "rgba(0,0,0,0.72)", backdropFilter: "blur(4px)",
+      }} />
+      <div style={{
+        position: "relative", zIndex: 1,
+        background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)",
+        border: "1px solid rgba(239,68,68,0.3)",
+        borderBottom: "none",
+        borderRadius: "20px 20px 0 0",
+        padding: "28px 22px 48px",
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 22px" }} />
+        <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 26, fontWeight: 400, color: "#fff", margin: "0 0 8px" }}>
+          Not Interested — which kind?
+        </h2>
+        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", marginTop: 0, marginBottom: 22, lineHeight: 1.5 }}>
+          If they're a real owner who was polite — keep them. Life changes in 6 months. If they were rude or clearly not the owner, remove.
+        </p>
+
+        <button
+          onClick={onNice}
+          disabled={isPending}
+          style={{
+            width: "100%", padding: "16px", borderRadius: 12, border: "1px solid rgba(34,211,238,0.4)",
+            background: !isPending ? "linear-gradient(135deg,rgba(34,211,238,0.18),rgba(8,145,178,0.12))" : "rgba(255,255,255,0.05)",
+            color: !isPending ? "#a7f3d0" : "rgba(255,255,255,0.3)",
+            fontSize: 15, fontWeight: 700, cursor: !isPending ? "pointer" : "default",
+            letterSpacing: "0.03em", marginBottom: 12, textAlign: "left",
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>Nice — Confirmed Owner, Not Now</div>
+          <div style={{ fontSize: 12, fontWeight: 500, color: "rgba(167,243,208,0.75)", letterSpacing: 0 }}>
+            Real owner, polite decline. Lead sleeps 180 days, then re-enters the pool for another try.
+          </div>
+        </button>
+
+        <button
+          onClick={onRude}
+          disabled={isPending}
+          style={{
+            width: "100%", padding: "14px 16px", borderRadius: 12, border: "1px solid rgba(239,68,68,0.35)",
+            background: !isPending ? "rgba(239,68,68,0.10)" : "rgba(255,255,255,0.05)",
+            color: !isPending ? "rgb(252,165,165)" : "rgba(255,255,255,0.3)",
+            fontSize: 14, fontWeight: 700, cursor: !isPending ? "pointer" : "default",
+            letterSpacing: "0.03em", marginBottom: 12, textAlign: "left",
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 3 }}>Rude / Not the Owner — Remove</div>
+          <div style={{ fontSize: 11, fontWeight: 500, color: "rgba(252,165,165,0.7)", letterSpacing: 0 }}>
+            Hostile, hung up, bad data, or clearly not the property owner. Lead deleted, no pipeline entry.
+          </div>
+        </button>
+
+        <button
+          onClick={onClose}
+          disabled={isPending}
+          style={{
+            width: "100%", padding: "12px", borderRadius: 10, border: "none",
+            background: "transparent", color: "rgba(255,255,255,0.5)",
+            fontSize: 13, fontWeight: 500, cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Lead card ────────────────────────────────────────────────────────────────
 // v14.22 IntelStrip — pills under the address (list price, AVM delta, years owned, equity, score)
 // Palette per Alex spec: strong-green / muted-green / yellow / red only. No grey.
@@ -503,6 +606,8 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [hoveredOutcome, setHoveredOutcome] = useState<string | null>(null);
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
   const [pendingRecycle, setPendingRecycle] = useState(false);
+  // v15.11.11 — Two-branch confirm sheet for Not Interested (Nice=180d recycle / Rude=delete).
+  const [pendingNotInterested, setPendingNotInterested] = useState(false);
   // v14.20 — lpmOpen/toneOpen state removed. Seller LPMAMA is always visible;
   // Tone Rules + Guardrails + Branch Cues moved to the Scripts admin page.
   const [outcomeFlash, setOutcomeFlash] = useState<{ label: string; color: string } | null>(null);
@@ -550,6 +655,8 @@ function LeadCard({ lead }: { lead: Lead }) {
     contacted_appointment:    { label: "Appointment Set!",         color: "rgb(134,239,172)" },
     no_answer:                { label: "No Answer — Logged",      color: "rgb(253,224,71)" },
     contacted_not_interested: { label: "Not Interested — Logged", color: "rgb(252,165,165)" },
+    // v15.11.11 — Nice Confirmed Owner Not Interested → 180-day ICE recycle toast.
+    nice_not_interested:      { label: "Iced 180 days — will re-enter pool", color: "#a7f3d0" },
     wrong_number:             { label: "Wrong # — Logged",        color: "rgba(252,165,165,0.8)" },
     recycled:                 { label: "Recycled to Pool",         color: "#22d3ee" },
     // v14.16 — 9-outcome grid additions
@@ -721,7 +828,25 @@ function LeadCard({ lead }: { lead: Lead }) {
       setPendingRecycle(true);
       return;
     }
+    // v15.11.11 — Not Interested opens a two-branch confirm sheet so agents
+    // decide: Nice (180-day recycle) or Rude (hard delete). Never fires the
+    // outcome directly without this split.
+    if (key === "contacted_not_interested") {
+      setPendingNotInterested(true);
+      return;
+    }
     outcomeMutation.mutate({ outcome: key, notes, dialedPhone: activePhone });
+  };
+
+  // v15.11.11 — Not Interested → Nice branch (180-day ICE recycle)
+  const handleNotInterestedNice = () => {
+    outcomeMutation.mutate({ outcome: "nice_not_interested", notes, dialedPhone: activePhone });
+    setPendingNotInterested(false);
+  };
+  // v15.11.11 — Not Interested → Rude branch (existing hard-delete path)
+  const handleNotInterestedRude = () => {
+    outcomeMutation.mutate({ outcome: "contacted_not_interested", notes, dialedPhone: activePhone });
+    setPendingNotInterested(false);
   };
 
   // v14.14 — Recycle confirm triggers immediate unassign to pool (no date, no schedule).
@@ -1407,6 +1532,16 @@ function LeadCard({ lead }: { lead: Lead }) {
           outcome={pendingOutcome}
           onClose={() => setPendingOutcome(null)}
           onSubmit={handleApptSubmit}
+          isPending={outcomeMutation.isPending}
+        />
+      )}
+
+      {/* v15.11.11 — Not Interested two-branch sheet (Nice=180d recycle / Rude=delete) */}
+      {pendingNotInterested && (
+        <NotInterestedModal
+          onClose={() => setPendingNotInterested(false)}
+          onNice={handleNotInterestedNice}
+          onRude={handleNotInterestedRude}
           isPending={outcomeMutation.isPending}
         />
       )}

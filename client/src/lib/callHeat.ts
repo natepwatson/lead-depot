@@ -1,67 +1,62 @@
-// v15.11.11 — 5-tier Sprint Mode heat (illegal / dead / low / middle / prime).
-// Client mirror of shared/prime-schedule.ts. If you edit one, edit both.
+// v15.11.10 — Grid-locked call-heat.
+// LOCKED to research report at /home/user/workspace/optimal_call_schedule_by_day.md
+// (Section 3, hourly schedule table). Every cell traceable to a primary residential
+// (B2C) source. If you edit the grid, edit shared/prime-schedule.ts to match.
 //
-// Legal cap: Fla. Stat. § 501.616(6)(a) — commercial calls 8 AM – 8 PM
-// recipient-local. NEVER call at or after 8 PM. Last legal dial hour is 7 PM.
+// Legal cap: Fla. Stat. § 501.616(6)(a) — commercial calls 8 AM – 8 PM (hard).
 // https://www.flsenate.gov/laws/statutes/2021/501.616
 
-export type SprintTier = "illegal" | "dead" | "low" | "middle" | "prime";
-export type HeatTier = "prime" | "mid" | "down"; // 3-tier award form (backwards compat)
+export type HeatTier = "prime" | "mid" | "down";
 
 export interface CallHeat {
-  tier: HeatTier;              // 3-tier form (award/color legacy)
-  sprintTier: SprintTier;      // 5-tier form (display chip)
-  score: number;               // 0-100 receptivity index (informational)
-  label: string;               // "PRIME TIME" | "MIDDLE" | "LOW" | "DEAD" | "ILLEGAL"
+  tier: HeatTier;
+  score: number;            // 0-100 receptivity index (informational)
+  label: string;            // "PRIME TIME" | "MID TIME" | "DOWNTIME"
   reason: string;
   nextPrimeWindow?: string;
   color: string;
 }
 
-// 7 rows (Sun..Sat) × 12 columns (8AM..7PM) — grid MUST match shared/prime-schedule.ts
-const GRID: SprintTier[][] = [
-  // 8AM     9AM      10AM     11AM     12PM     1PM      2PM      3PM       4PM       5PM       6PM       7PM
-  ["dead",  "dead",   "dead",  "dead",  "dead",  "dead",  "dead",  "dead",   "dead",   "dead",   "dead",   "dead"  ], // Sun
-  ["low",   "low",    "middle","low",   "dead",  "dead",  "low",   "middle", "middle", "middle", "middle", "middle"], // Mon
-  ["prime", "prime",  "middle","low",   "dead",  "dead",  "low",   "middle", "prime",  "prime",  "prime",  "middle"], // Tue
-  ["prime", "prime",  "middle","low",   "dead",  "dead",  "low",   "middle", "prime",  "prime",  "prime",  "middle"], // Wed
-  ["prime", "prime",  "middle","low",   "dead",  "dead",  "low",   "middle", "prime",  "prime",  "prime",  "middle"], // Thu
-  ["low",   "middle", "middle","low",   "dead",  "dead",  "low",   "middle", "middle", "middle", "middle", "low"   ], // Fri
-  ["dead",  "middle", "prime", "prime", "low",   "low",   "low",   "low",    "dead",   "dead",   "dead",   "dead"  ], // Sat
+// 7 rows (Sun..Sat) × 12 columns (8AM..7PM).
+// Row 0 = Sunday. Column 0 = 8AM ... Column 11 = 7PM.
+// Values from Section 3 of the day-by-day research report.
+const GRID: HeatTier[][] = [
+  // 8    9    10   11   12   1p   2p   3p   4p   5p   6p    7p
+  ["mid","mid","mid","prime","prime","mid","prime","mid","mid","prime","prime","prime"],  // Sun
+  ["mid","down","down","down","down","down","mid","mid","mid","mid","prime","prime"],     // Mon
+  ["mid","down","down","down","down","down","mid","mid","mid","mid","prime","prime"],     // Tue
+  ["mid","down","down","down","down","down","mid","mid","mid","mid","prime","prime"],     // Wed
+  ["mid","down","down","down","down","down","mid","mid","mid","down","prime","prime"],    // Thu
+  ["mid","mid","mid","mid","mid","mid","prime","prime","prime","down","mid","mid"],       // Fri
+  ["prime","prime","prime","prime","mid","mid","mid","mid","prime","prime","prime","prime"], // Sat
 ];
 
-const SCORE_BY_TIER: Record<SprintTier, number> = {
-  prime: 92, middle: 62, low: 38, dead: 15, illegal: 0,
-};
+// Informational 0-100 score per tier — used only for display/telemetry.
+const SCORE_BY_TIER: Record<HeatTier, number> = { prime: 88, mid: 55, down: 20 };
 
 // Legacy exports kept so old imports don't break at build time. Do NOT use.
 export const HOUR_WEIGHTS: number[] = new Array(24).fill(0.5);
 export const DAY_MULTIPLIERS: number[] = [1, 1, 1, 1, 1, 1, 1];
 
 function withinLegalDialWindow(hour: number): boolean {
-  // 8 AM – 8 PM (last legal hour is 7:00–7:59 PM). Fla. Stat. § 501.616(6)(a).
   return hour >= 8 && hour < 20;
 }
 
-/** 5-tier display lookup for a (dow, hour) cell. */
-export function sprintTierForCell(dow: number, hour: number): SprintTier {
-  if (!withinLegalDialWindow(hour)) return "illegal";
-  const row = GRID[dow];
-  if (!row) return "illegal";
-  return row[hour - 8] ?? "illegal";
-}
-
-/** 3-tier award form (backwards compat). Collapses 5 display tiers → 3 award tiers. */
+/** Direct lookup for a (dow, hour) cell. */
 export function tierForCell(dow: number, hour: number): HeatTier {
-  const t = sprintTierForCell(dow, hour);
-  if (t === "prime") return "prime";
-  if (t === "middle" || t === "low") return "mid";
-  return "down"; // dead or illegal
+  if (!withinLegalDialWindow(hour)) return "down";
+  const row = GRID[dow];
+  if (!row) return "down";
+  return row[hour - 8] ?? "down";
 }
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-/** Compute call heat for a given moment (defaults to now, ET). */
+/**
+ * Compute the receptivity heat for a given moment.
+ * @param now Optional Date (defaults to real now). Use for testing.
+ * @param tz  IANA timezone (defaults to America/New_York — Brothers Group is Jacksonville).
+ */
 export function computeCallHeat(now: Date = new Date(), tz: string = "America/New_York"): CallHeat {
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone: tz, hour: "numeric", hour12: false, weekday: "short",
@@ -75,56 +70,44 @@ export function computeCallHeat(now: Date = new Date(), tz: string = "America/Ne
   const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   const dow = dowMap[wdStr] ?? 1;
 
-  const sprintTier: SprintTier = sprintTierForCell(dow, hour);
-  const tier: HeatTier = sprintTier === "prime" ? "prime"
-    : (sprintTier === "middle" || sprintTier === "low") ? "mid"
-    : "down";
-  const score = SCORE_BY_TIER[sprintTier];
+  const tier: HeatTier = tierForCell(dow, hour);
+  const score = SCORE_BY_TIER[tier];
 
-  // 5-tier chip appearance
   let label: string;
   let color: string;
-  switch (sprintTier) {
-    case "prime":   label = "PRIME TIME"; color = "#ef4444"; break;   // red
-    case "middle":  label = "MIDDLE";     color = "#f59e0b"; break;   // amber
-    case "low":     label = "LOW";        color = "#facc15"; break;   // yellow
-    case "dead":    label = "DEAD";       color = "#6b7280"; break;   // gray
-    case "illegal": label = "ILLEGAL";    color = "#991b1b"; break;   // dark red
-  }
+  if (tier === "prime") { label = "PRIME TIME"; color = "#ef4444"; }
+  else if (tier === "mid") { label = "MID TIME"; color = "#f59e0b"; }
+  else { label = "DOWNTIME"; color = "#6b7280"; }
 
-  // Reason — grounded in the research + user-approved schedule
+  // Reason — grounded in the research
   const dayName = DAY_NAMES[dow];
   let reason = "";
-  if (sprintTier === "illegal") {
+  if (!withinLegalDialWindow(hour)) {
     reason = "Outside Florida's 8 AM – 8 PM legal window. Do NOT cold-call now (Fla. Stat. § 501.616).";
-  } else if (sprintTier === "prime") {
-    if (dow === 6 && hour >= 10 && hour < 12) reason = "Saturday 10 AM – noon — the second-best window overall per PropContact. Especially strong for older/land-owner leads.";
-    else if (dow >= 2 && dow <= 4 && hour === 8) reason = "Tue/Wed/Thu 8 AM — Day-1 expired golden hour (REDX, Kravitz, Jamil). Be first before the other 20+ agents dial.";
-    else if (dow >= 2 && dow <= 4 && hour === 9) reason = "Tue/Wed/Thu 9 AM — fresh-expired window continues. Mothers-Always-Right 8–10:30 sweet spot.";
-    else if (dow >= 2 && dow <= 4 && hour >= 16 && hour < 19) reason = `${dayName} ${hour === 16 ? "4" : hour === 17 ? "5" : "6"}–${hour === 16 ? "5" : hour === 17 ? "6" : "7"} PM — MIT's #1 contact window (114% better than worst). Universal peak in every dataset (Orum, Gong, PropContact, Revenue.io).`;
+  } else if (tier === "prime") {
+    if (hour >= 18 && hour < 20) reason = "6–8 PM every day — the single most-agreed-upon window in the data (Massey, CallHub, ThinkingPhones, WFM, MIT).";
+    else if (dow === 6 && hour >= 8 && hour < 12) reason = "Saturday morning — the strongest weekend residential window. Longest, highest-quality calls (CallHub).";
+    else if (dow === 6 && hour >= 16) reason = "Saturday late-afternoon — Massey Saturday holds 51–61% all day. Sellers are home.";
+    else if (dow === 0 && hour >= 11 && hour <= 12) reason = "Sunday post-church, pre-football — the cleanest Sunday window in Florida (NBER worship data + NFL kickoff at 1 PM).";
+    else if (dow === 0 && hour >= 17) reason = "Sunday early-evening — Massey ranks this the strongest evening in the table (62.1% at 7 PM).";
+    else if (dow === 5 && hour >= 14 && hour < 17) reason = "Friday 2–5 PM — homeowners are home early (4:03 PM logoff, ActivTrak 75k workers). Catch them BEFORE the 5 PM commute snarl.";
     else reason = `${dayName} peak — dial hard now.`;
-  } else if (sprintTier === "middle") {
-    if (hour >= 10 && hour < 11) reason = "Late morning — Orum/Gong peak, but every other agent is dialing now. Solid but competitive.";
-    else if (hour >= 15 && hour < 16) reason = `${dayName} 3–4 PM — ramp into afternoon peak. Revenue.io flags 3–6 PM window.`;
-    else if (hour === 19) reason = `${dayName} 7 PM — post-dinner. Legal until 8 PM but declining pickup.`;
-    else if (dow === 5) reason = "Friday — solid but expect 40–60% lower pickup than Tue/Wed/Thu (PropContact).";
-    else reason = `${dayName} middle window — reachable but not sprint-worthy.`;
-  } else if (sprintTier === "low") {
-    if (hour === 8 && (dow === 1 || dow === 5)) reason = `${dayName} 8 AM — usable for expired first-touch, but Mon/Fri weaker than Tue–Thu.`;
-    else if (hour === 11) reason = "11 AM–noon — ramping into lunch trough. Not sprint-worthy.";
-    else if (hour === 14) reason = "2–3 PM — post-lunch tail. Retirees/self-employed OK; weak for working adults.";
-    else if (dow === 6) reason = "Saturday afternoon — family time; PropContact 'many won't answer.' Usable but low ROI.";
-    else reason = `${dayName} low-yield window. Save cold leads for prime.`;
-  } else if (sprintTier === "dead") {
-    if (hour === 12 || hour === 13) reason = "Lunch/crunch — MIT's worst window (114% worse than 4–6 PM). Every study agrees. Do not dial.";
-    else if (dow === 0) reason = "Sunday — family/church day. Bad ROI and bad taste. Save it for Monday.";
-    else reason = `${dayName} dead zone — pickup too low to justify the list burn.`;
+  } else if (tier === "mid") {
+    if (hour === 8) reason = "8 AM first-touch on new expireds — be first to reach them (Landvoice loads leads at 8). Pickup low, first-mover value high.";
+    else if (dow === 5 && hour >= 17) reason = "Friday evening — reachable but they want off the phone fast (CallHub Fri = shortest calls, 24.15s).";
+    else if (dow === 0 && hour < 11) reason = "Sunday morning — Massey shows at-home contact high, but church etiquette in FL (Bible Belt) argues caution. Test locally.";
+    else reason = "Middle window. Keep dialing but expect fewer pickups than Prime.";
+  } else {
+    if (dow === 4 && hour === 17) reason = "Thursday 5–6 PM — INRIX names Thursday the worst overall U.S. traffic day. Deepest commute hole of the week.";
+    else if (dow === 5 && hour === 17) reason = "Friday 5–6 PM — the single worst commuting hour of the week (INRIX). Wait until 6 PM.";
+    else if (hour >= 9 && hour <= 13) reason = "Weekday midday — residential DOWN zone. Working homeowners aren't home (Massey 40–46% vs 58–65% evening). Use for expired list-prep, not cold calls.";
+    else reason = "Low-yield window. Save cold leads for Prime.";
   }
 
-  // Next prime window
+  // Next Prime window — search forward up to 24h
   let nextPrimeWindow: string | undefined;
   if (tier !== "prime") {
-    for (let ahead = 1; ahead <= 24 * 7; ahead++) {
+    for (let ahead = 1; ahead <= 24; ahead++) {
       const t = new Date(now.getTime() + ahead * 3600 * 1000);
       const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false, weekday: "short" }).formatToParts(t);
       let h2 = parseInt(p.find(x => x.type === "hour")?.value ?? "0", 10);
@@ -133,17 +116,19 @@ export function computeCallHeat(now: Date = new Date(), tz: string = "America/Ne
       const d2 = dowMap[wd2] ?? 1;
       if (tierForCell(d2, h2) === "prime") {
         const hourLabel = h2 === 0 ? "12 AM" : h2 < 12 ? `${h2} AM` : h2 === 12 ? "12 PM" : `${h2 - 12} PM`;
-        const dayLabel = d2 === dow ? "today" : d2 === (dow + 1) % 7 ? "tomorrow" : DAY_NAMES[d2];
-        nextPrimeWindow = ahead <= 1 ? `Next prime at ${hourLabel} (~1h)` : `Next prime ${dayLabel} ${hourLabel} (~${ahead}h)`;
+        nextPrimeWindow = ahead === 1 ? `Next On Air at ${hourLabel} (~1h)` : `Next On Air at ${hourLabel} (~${ahead}h)`;
         break;
       }
     }
   }
 
-  return { tier, sprintTier, score, label, reason, nextPrimeWindow, color };
+  return { tier, score, label, reason, nextPrimeWindow, color };
 }
 
-/** Prime window starts — used by the 15-min-before push cron. */
+/**
+ * List every (dow, hour) at which a PRIME window STARTS —
+ * used by the server push cron to schedule the 15-min-before alert.
+ */
 export function listPrimeWindowStarts(_tz: string = "America/New_York"): Array<{ dow: number; hour: number }> {
   const starts: Array<{ dow: number; hour: number }> = [];
   for (let dow = 0; dow < 7; dow++) {

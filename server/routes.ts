@@ -746,6 +746,40 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   registerPushRoutes(app);
   startOnAirPushScheduler();
 
+  // ─── v15.11.11 — Emergency force-reset endpoint (INGEST_SECRET-guarded) ───
+  // Reason: reset-password emails weren't reaching some agents; this bypasses email
+  // entirely so admins can unblock any agent in <5s. Requires X-Ingest-Secret header.
+  // Direct bcrypt hash write to agents.password. Audit-logged as password_reset with
+  // notes='force_reset_admin_bypass'. Revokes all existing sessions for that agent.
+  app.post("/api/admin/agents/:id/force-reset", async (req, res) => {
+    const INGEST_SECRET = process.env.INGEST_SECRET;
+    if (!INGEST_SECRET) return res.status(503).json({ error: "Server missing INGEST_SECRET" });
+    if (req.headers["x-ingest-secret"] !== INGEST_SECRET) return res.status(403).json({ error: "forbidden" });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+    const newPass = String(req.body?.password || "").trim();
+    if (newPass.length < 8) return res.status(400).json({ error: "password must be ≥ 8 chars" });
+    const row = rawDb.prepare("SELECT id, email, name FROM agents WHERE id = ?").get(id) as any;
+    if (!row) return res.status(404).json({ error: "agent not found" });
+    const hash = await hashPassword(newPass);
+    rawDb.prepare("UPDATE agents SET password = ? WHERE id = ?").run(hash, id);
+    // Revoke all active sessions for this agent
+    try { rawDb.prepare("DELETE FROM sessions WHERE agent_id = ?").run(id); } catch { /* table may not exist */ }
+    try {
+      logAgentEvent({
+        agentId: id,
+        actorId: null,
+        actorEmail: "system:force-reset",
+        event: "password_reset",
+        beforeJson: null,
+        afterJson: null,
+        notes: "force_reset_admin_bypass — password reset via INGEST_SECRET-guarded endpoint",
+      });
+    } catch { /* audit optional */ }
+    console.log(`[v15.11.11 force-reset] password reset for agent ${id} (${row.email})`);
+    res.json({ ok: true, agentId: id, email: row.email, name: row.name });
+  });
+
   // ─── v14.58 — Phase A: Auth schema + bcrypt migration (fire-and-forget) ───
   // initAuthSchema is idempotent (CREATE IF NOT EXISTS). The password migration
   // runs async so we don't block server startup on hashing existing rows.
@@ -3182,6 +3216,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       "no_answer", "contacted_appointment", "keep_in_touch", "callback_requested",
       "contacted_not_interested", "wrong_number", "email_sent", "network_referral",
       "recycled", "listed", "disconnected", "left_voicemail", "email_sent_value",
+      // v15.11.11 — Nice Confirmed Owner Not Interested. Verified real owner who
+      // politely declined. Instead of a dead delete like contacted_not_interested,
+      // we recycle the lead with a 180-day callback so it re-enters the pool once
+      // life circumstances may have shifted (job change, family growth, divorce,
+      // relocation, market swing). Data-driven: 6 months is the industry lookback
+      // for "nurture then reattack" on soft rejections.
+      "nice_not_interested",
     ];
     if (!outcome || !VALID_OUTCOMES.includes(outcome)) {
       return res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_OUTCOMES.join(", ")}` });
@@ -3256,6 +3297,38 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         console.log(`[v15.4 recycle] lead=${leadId} type=${lead.leadType} → returned to shared pool score=${lead.score ?? 0} immediately eligible`);
       }
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+
+    } else if (outcome === "nice_not_interested") {
+      // v15.11.11 — Nice Confirmed Owner Not Interested → 180-day ICE recycle.
+      //
+      // Verified real owner who politely declined. Rather than deleting like
+      // contacted_not_interested (rude / never-owned / bad data), we mark this
+      // lead as recycled and set callback_date = now + 180 days. The shared-pool
+      // query already gates on (callback_date IS NULL OR callback_date <= now),
+      // so the lead silently sleeps for 6 months then re-enters the pool exactly
+      // as if it were an active recycled lead.
+      //
+      // Rationale: 6 months is the industry lookback for soft-rejection nurture
+      // — life changes (job move, divorce, birth, market pressure, rate cuts)
+      // routinely flip "not right now" into "let's talk" within 90–180 days. We
+      // never want to lose a confirmed real owner just because the timing was
+      // wrong on one call.
+      const ICE_DAYS = 180;
+      const iceDate = Date.now() + ICE_DAYS * 24 * 60 * 60 * 1000;
+      const isNetwork = lead.leadType === "network";
+      const referrerId = (lead as any).uploadedBy || (lead as any).uploaded_by || null;
+      if (isNetwork && referrerId) {
+        // Network: leave assigned to referrer but sleep 180d
+        newStatus = "recycled";
+        newAssignedId = referrerId;
+        newCallbackDate = iceDate;
+      } else {
+        newStatus = "recycled";
+        newAssignedId = null;
+        newCallbackDate = iceDate;
+      }
+      rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+      console.log(`[v15.11.11 nice_ice] lead=${leadId} → 180d ICE recycle, thaw at ${new Date(iceDate).toISOString()}`);
 
     } else if (outcome === "no_answer") {
       // v14.40 — Per-LINE no-answer cap. Increment this phone's counter. At CAP it flips

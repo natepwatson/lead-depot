@@ -1,6 +1,7 @@
-// v15.11.11 — 5-tier Sprint Mode schedule modal (illegal / dead / low / middle / prime).
+// v15.11.10 — Full 7-day × 6AM–10PM schedule modal.
 // Opens when the OnAirBanner is tapped. Renders:
-//   - 7-day × 8AM–7PM grid (last legal hour is 7 PM per Fla. Stat. § 501.616)
+//   - the research-locked PRIME / MID / DOWN grid (cell colors + hover tooltip)
+//   - TCPA hatching for hours outside Florida's 8AM–8PM legal window
 //   - motivational Cormorant italic callout that rotates with the current tier
 //   - inline citations w/ links to primary sources
 //
@@ -8,7 +9,7 @@
 // shared/prime-schedule.ts. If you touch one, touch all three.
 
 import { useEffect, useMemo, useState } from "react";
-import { sprintTierForCell, type SprintTier } from "@/lib/callHeat";
+import { tierForCell, type HeatTier } from "@/lib/callHeat";
 
 interface Props {
   open: boolean;
@@ -19,15 +20,12 @@ interface Props {
 }
 
 const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-// Legal window is 8 AM – 8 PM (last legal hour 7 PM). Grid shows exactly that.
-const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+const HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
 
-const MOTIVATIONAL: Record<SprintTier, string> = {
-  prime:   "When the light is red, be relentless. Every dial now is worth two at any other time.",
-  middle:  "Solid ground. Middle time is where consistent operators load the pipeline.",
-  low:     "Low-yield window — dial if you must, but save the fresh leads for prime.",
-  dead:    "Rest the leads. The data says pickup is too low to justify the list burn.",
-  illegal: "Outside FL's 8AM–8PM window. Prep lists, don't dial. $500–$1,500 per violation.",
+const MOTIVATIONAL: Record<HeatTier, string> = {
+  prime: "When the light is red, be relentless. Every dial now is worth two at any other time.",
+  mid: "The warmup matters. Ten dials in mid time load the pipeline for the sprint.",
+  down: "Rest the leads. The best callers dial when the data says answer — not when they feel like it.",
 };
 
 function hourLabel(h: number) {
@@ -44,51 +42,52 @@ function fullHourLabel(h: number) {
   return `${h - 12} PM`;
 }
 
-// Per-cell "why" tooltips — the receipts. Falls back to generic tier reason if unset.
+// Per-cell "why" tooltips — the receipts. Only fills PRIME + notable DOWN cells;
+// unlisted cells fall back to a generic tier reason.
 const CELL_REASONS: Record<string, string> = {
-  // Tue/Wed/Thu prime windows
-  "2-8":  "Tuesday 8 AM — Day-1 expired golden hour. Be first before the other 20+ agents dial (REDX, Kravitz, Jamil Academy).",
-  "2-9":  "Tuesday 9 AM — fresh-expired window continues. MIT: qualify rate 164% higher than 1–2 PM.",
-  "2-16": "Tuesday 4 PM — MIT's #1 contact window. Orum, Gong, Revenue.io all peak here.",
-  "2-17": "Tuesday 5 PM — PropContact HIGH. Post-work, pre-dinner. Dual-income households home.",
-  "2-18": "Tuesday 6 PM — Kravitz names 6–7 PM the second-best expired window after 8 AM.",
-  "3-8":  "Wednesday 8 AM — Day-1 expired golden hour. Best midweek day per MIT (Wed/Thu peak).",
-  "3-9":  "Wednesday 9 AM — continues fresh-expired window.",
-  "3-16": "Wednesday 4 PM — Gong's #1 mid-week peak. Consistent with MIT + PropContact.",
-  "3-17": "Wednesday 5 PM — universal peak in every dataset.",
-  "3-18": "Wednesday 6 PM — pre-dinner sweet spot.",
-  "4-8":  "Thursday 8 AM — Day-1 expired golden hour. MIT ranks Thursday best qualify day.",
-  "4-9":  "Thursday 9 AM — continues fresh-expired window.",
-  "4-16": "Thursday 4 PM — MIT: 114% better than worst window (11 AM–12 PM).",
-  "4-17": "Thursday 5 PM — peak weekday reach.",
-  "4-18": "Thursday 6 PM — post-work pre-dinner.",
-  // Saturday morning prime
-  "6-10": "Saturday 10 AM — PropContact's #2 window overall. Especially strong for older owners + land-owner leads.",
-  "6-11": "Saturday 11 AM — tail end of Saturday-morning prime.",
-  // Notable dead
-  "1-12": "Monday lunch — MIT's worst window (114% worse than 4–6 PM). Every dataset agrees.",
-  "1-13": "Monday post-lunch — MIT explicitly worst hour.",
-  "2-12": "Tuesday lunch — dead. Every dataset agrees.",
-  "2-13": "Tuesday post-lunch — dead.",
-  "3-12": "Wednesday lunch — dead.",
-  "3-13": "Wednesday post-lunch — dead.",
-  "4-12": "Thursday lunch — dead.",
-  "4-13": "Thursday post-lunch — dead.",
-  "5-12": "Friday lunch — dead.",
-  "5-13": "Friday post-lunch — dead.",
-  // Sunday all dead
-  "0-10": "Sunday — family/church day. Bad ROI and bad taste. Save it for Monday.",
+  // Sunday
+  "0-11": "Post-church, pre-football — cleanest Sunday window in Florida (NBER worship data + NFL 1PM kickoff).",
+  "0-12": "Massey/CDC Sunday 12–1PM contact climbing; ThinkingPhones ranks Sunday #1 for unknown-number pickup.",
+  "0-14": "Sunday 2–3PM — post-lunch, ~half-time lull for early NFL game. Massey rising.",
+  "0-17": "Sunday early-evening — Massey ranks 5–6PM at 57%.",
+  "0-18": "Sunday 6PM — Massey 58.4%. Post-football, pre-dinner.",
+  "0-19": "Sunday 7PM — Massey 62.1%, the STRONGEST weekday-comparable evening in the whole table.",
+  // Monday–Thursday evening prime
+  "1-18": "Massey Monday 6PM = 59.9%. INRIX names Monday the lightest commute day.",
+  "1-19": "Massey Monday 7PM = 61.1%. Peak weekday reach.",
+  "2-18": "Massey Tuesday 6PM = 58.3%. Homeowners home from work.",
+  "2-19": "Massey Tuesday 7PM = 60.9%.",
+  "3-18": "Wednesday 6PM = 60.4% — Massey's HIGHEST weekday evening cell.",
+  "3-19": "Wednesday 7PM = 59.5%.",
+  "4-18": "Thursday 6PM = 59.1%. Post-rush (INRIX names Thursday worst overall traffic day).",
+  "4-19": "Thursday 7PM = 58.8%.",
+  // Thursday DOWN 5-6
+  "4-17": "Thursday 5–6PM is the deepest commute hole of the week (INRIX). Wait until 6PM.",
+  // Friday
+  "5-14": "Friday 2PM — homeowners home early. Avg Friday logoff = 4:03PM (ActivTrak, 75k workers). CATCH THEM.",
+  "5-15": "Friday 3PM PRIME — CallHub ranks Friday best answer day (22.21%). WFH-Friday effect is real and large.",
+  "5-16": "Friday 4PM PRIME — the pre-commute sweet spot. Get them BEFORE the 5PM snarl.",
+  "5-17": "Friday 5–6PM = worst commute hour of the week per INRIX. Skip.",
+  // Saturday
+  "6-8": "Saturday 8AM PRIME — the classic real-estate window (Landvoice, coaches). Sellers home.",
+  "6-9": "Saturday 9AM — Massey 60.7%. Longest, highest-quality conversations of the week (CallHub 41.4s avg).",
+  "6-10": "Saturday 10AM — Massey 59.3%. Peak weekend residential window.",
+  "6-11": "Saturday 11AM — Massey 55.5%. Still strong.",
+  "6-16": "Saturday 4PM — pre-dinner sweet spot. Massey Saturday holds 51–61% all day.",
+  "6-17": "Saturday 5PM — Massey Saturday hasn't broken 51% floor yet.",
+  "6-18": "Saturday 6PM — Massey 55.4%.",
+  "6-19": "Saturday 7PM — Massey 57.1%. Starts sliding into date-night after this.",
 };
 
 const CITATIONS: Array<{ n: number; label: string; url: string }> = [
-  { n: 1, label: "MIT Lead Response Management Study — 4–6 PM contact 114% better than worst window", url: "https://25649.fs1.hubspotusercontent-na2.net/hub/25649/file-13535879-pdf/docs/mit_study.pdf" },
-  { n: 2, label: "PropContact 2026 — real estate cold-call timing analysis", url: "https://propcontact.net/blog/best-time-to-call-real-estate-leads" },
-  { n: 3, label: "Orum — State of Cold Calling (1B+ calls analyzed)", url: "https://www.orum.com/blog/cold-calling-2025" },
-  { n: 4, label: "REDX — Day 1 Expired Listing Calls: Why Calling First Wins", url: "https://www.redx.com/blog/day-1-expired-listing-calls/" },
-  { n: 5, label: "Jamil Academy — Expired Listing Scripts 2026 (8–10 AM / 4–6 PM)", url: "https://www.jamilacademy.com/blog/expired-listing-scripts" },
-  { n: 6, label: "Revenue.io — Best Time to Cold Call Prospects 2026", url: "https://www.revenue.io/blog/the-best-time-to-cold-call-prospects" },
-  { n: 7, label: "Convoso — Data-backed cold call timing (Gong + CallHippo synthesis)", url: "https://www.convoso.com/blog/best-time-to-cold-call/" },
-  { n: 8, label: "Fla. Stat. § 501.616(6)(a) — FL 8AM–8PM commercial call cap", url: "https://www.flsenate.gov/laws/statutes/2021/501.616" },
+  { n: 1, label: "Massey et al., CDC/NCHS RDD household contact study", url: "https://www.cdc.gov/nchs/data/nis/estimation_weighting/massey1996.pdf" },
+  { n: 2, label: "CallHub — 2.2M residential/political calls (Aug–Dec 2020)", url: "https://callhub.io/blog/canvassing/best-phonebanking-times/" },
+  { n: 3, label: "ThinkingPhones/Fuze — 25M+ inbound U.S. calls", url: "https://www.itbusinessedge.com/applications/how-to-create-an-optimized-calling-strategy/" },
+  { n: 4, label: "NBER w32334 — worship attendance from 2.1M cellphones + ATUS", url: "https://www.nber.org/system/files/working_papers/w32334/w32334.pdf" },
+  { n: 5, label: "ActivTrak (via Axios) — Friday logoff 4:03 PM, 75k workers", url: "https://www.axios.com/2024/03/30/work-log-off-early-fridays-early-weekend" },
+  { n: 6, label: "INRIX National Traffic Scorecard", url: "https://inrix.com/press-releases/america-road-to-gridlock-inrix-scorecard/" },
+  { n: 7, label: "Landvoice — expired-listing prospecting", url: "https://www.landvoice.com/blog/prospecting-expireds" },
+  { n: 8, label: "Fla. Stat. § 501.616(6)(a) — FL 8AM–8PM cap", url: "https://www.flsenate.gov/laws/statutes/2021/501.616" },
 ];
 
 export default function OnAirScheduleModal({ open, onClose, pushOptIn, onTogglePush, pushCapable }: Props) {
@@ -110,7 +109,7 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
     const dow = dowMap[wd] ?? 1;
     let hour = parseInt(hStr, 10);
     if (hour === 24) hour = 0;
-    const tier = sprintTierForCell(dow, hour);
+    const tier = tierForCell(dow, hour);
     return { curDow: dow, curHour: hour, curTier: tier };
   }, [now]);
 
@@ -120,7 +119,7 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
 
   const hoverKey = hoverCell ? `${hoverCell.dow}-${hoverCell.hour}` : "";
   const hoverReason = hoverKey ? CELL_REASONS[hoverKey] : "";
-  const hoverTier = hoverCell ? sprintTierForCell(hoverCell.dow, hoverCell.hour) : null;
+  const hoverTier = hoverCell ? tierForCell(hoverCell.dow, hoverCell.hour) : null;
 
   return (
     <>
@@ -141,23 +140,22 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
           transition: transform 80ms;
         }
         .ld-schedmodal-cell:active { transform: scale(0.94); }
-        .ld-schedmodal-cell.prime   { background: linear-gradient(180deg,#ef4444 0%,#b91c1c 100%); color: rgba(0,0,0,0.9); }
-        .ld-schedmodal-cell.middle  { background: linear-gradient(180deg,#22c55e 0%,#15803d 100%); color: rgba(0,0,0,0.85); }
-        .ld-schedmodal-cell.low     { background: linear-gradient(180deg,#facc15 0%,#a16207 100%); color: rgba(0,0,0,0.85); }
-        .ld-schedmodal-cell.dead    { background: #1f2937; color: rgba(255,255,255,0.4); }
-        .ld-schedmodal-cell.illegal {
-          background: repeating-linear-gradient(45deg,#3f1212 0 3px,#0a0000 3px 6px);
-          color: rgba(255,255,255,0.4);
+        .ld-schedmodal-cell.prime { background: linear-gradient(180deg,#ef4444 0%,#b91c1c 100%); color: rgba(0,0,0,0.85); }
+        .ld-schedmodal-cell.mid   { background: linear-gradient(180deg,#f59e0b 0%,#b45309 100%); color: rgba(0,0,0,0.85); }
+        .ld-schedmodal-cell.down  { background: #1f2937; color: rgba(255,255,255,0.4); }
+        .ld-schedmodal-cell.tcpa  {
+          background: repeating-linear-gradient(45deg,#1f2937 0 3px,#0a0a0a 3px 6px);
+          color: rgba(255,255,255,0.35);
           font-size: 8px;
           cursor: not-allowed;
         }
-        .ld-schedmodal-cell.now { outline: 1.5px solid #e8c96a; outline-offset: -1px; box-shadow: 0 0 0 1px #e8c96a inset; }
+        .ld-schedmodal-cell.now { outline: 1.5px solid #e8c96a; outline-offset: -1px; }
       `}</style>
 
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="On Air Schedule"
+        aria-label="Prime Time Schedule"
         onClick={onClose}
         style={{
           position: "fixed",
@@ -189,7 +187,7 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
           {/* Header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
             <div style={{ fontFamily: "'Cormorant Garamond',Georgia,serif", fontSize: 24, fontWeight: 500, letterSpacing: "0.02em" }}>
-              On Air Schedule
+              Prime Time Schedule
             </div>
             <button
               onClick={onClose}
@@ -201,7 +199,7 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
             >×</button>
           </div>
           <div style={{ fontSize: 10, color: "rgba(243,243,243,0.5)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>
-            5-tier Sprint Mode · FL legal window 8AM–8PM · Eastern Time
+            Research-based · FL legal window 8AM–8PM · Eastern Time
           </div>
 
           {/* Motivational callout — rotates with current tier */}
@@ -220,22 +218,19 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
             "{MOTIVATIONAL[curTier]}"
           </div>
 
-          {/* Legend — 5 tiers */}
-          <div style={{ display: "flex", gap: 10, marginBottom: 10, fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(243,243,243,0.7)", flexWrap: "wrap" }}>
+          {/* Legend */}
+          <div style={{ display: "flex", gap: 10, marginBottom: 10, fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(243,243,243,0.6)", flexWrap: "wrap" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#ef4444,#b91c1c)" }} />Prime
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#ef4444,#b91c1c)" }} />Prime Time
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#22c55e,#15803d)" }} />Middle
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#f59e0b,#b45309)" }} />Mid
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#facc15,#a16207)" }} />Low
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: "#1f2937" }} />Downtime
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: "#1f2937" }} />Dead
-            </span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: "repeating-linear-gradient(45deg,#3f1212 0 3px,#0a0000 3px 6px)" }} />Illegal
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: "repeating-linear-gradient(45deg,#1f2937 0 3px,#0a0a0a 3px 6px)" }} />Illegal
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 9, height: 9, borderRadius: 2, background: "transparent", border: "1.5px solid #e8c96a" }} />Now
@@ -266,26 +261,21 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
                 }}>{hourLabel(h)}</div>
 
                 {DAYS_SHORT.map((_, d) => {
-                  const tier = sprintTierForCell(d, h);
+                  const legal = h >= 8 && h < 20;
+                  const tier = legal ? tierForCell(d, h) : ("down" as HeatTier);
                   const isNow = d === curDow && h === curHour;
                   const classes = [
                     "ld-schedmodal-cell",
-                    tier,
+                    !legal ? "tcpa" : tier,
                     isNow ? "now" : "",
                   ].filter(Boolean).join(" ");
-                  // Show first letter of tier: P/M/L/D/—
-                  const label = tier === "prime" ? "P"
-                    : tier === "middle" ? "M"
-                    : tier === "low" ? "L"
-                    : tier === "dead" ? "D"
-                    : "—";
                   return (
                     <div
                       key={`c-${d}-${h}`}
                       className={classes}
-                      onClick={() => setHoverCell({ dow: d, hour: h })}
+                      onClick={() => legal && setHoverCell({ dow: d, hour: h })}
                     >
-                      {label}
+                      {legal ? tier[0].toUpperCase() : "TCPA"}
                     </div>
                   );
                 })}
@@ -309,11 +299,9 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
                 {DAYS_SHORT[hoverCell.dow]} {fullHourLabel(hoverCell.hour)} · {hoverTier.toUpperCase()}
               </div>
               {hoverReason || (
-                hoverTier === "prime" ? "Prime window — multiple independent studies converge (MIT, PropContact, Orum, Gong)." :
-                hoverTier === "middle" ? "Middle window. Solid pickup, not sprint-worthy." :
-                hoverTier === "low" ? "Low-yield window. Use for backfill, not fresh leads." :
-                hoverTier === "dead" ? "Dead window — pickup too low to justify the list burn." :
-                "Outside FL 8AM–8PM legal window. Prep lists, don't dial."
+                hoverTier === "prime" ? "Peak residential window — Massey/CDC + CallHub converge." :
+                hoverTier === "mid" ? "Middle window. Reachable but not sprint-worthy." :
+                "Low-yield window. Save leads for Prime Time."
               )}
             </div>
           )}
@@ -337,7 +325,7 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
                 style={{ width: 18, height: 18, accentColor: "#ef4444", cursor: "pointer", flexShrink: 0 }}
               />
               <div style={{ flex: 1, fontSize: 12, lineHeight: 1.5 }}>
-                <div style={{ fontWeight: 600, color: "#f3f3f3", marginBottom: 2 }}>Alert me 15 min before On Air</div>
+                <div style={{ fontWeight: 600, color: "#f3f3f3", marginBottom: 2 }}>Alert me 15 min before Prime Time</div>
                 <div style={{ color: "rgba(243,243,243,0.6)", fontSize: 11 }}>Buzz + push notification so you're ready to sprint.</div>
               </div>
             </div>
@@ -349,11 +337,11 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
             marginTop: 6, paddingTop: 12,
             borderTop: "0.5px solid rgba(200,170,90,0.2)",
           }}>
-            <div><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why Tue/Wed/Thu 4–7 PM is prime:</span> MIT Lead Response: 114% better than worst window. PropContact rates HIGH. Orum (1B+ calls), Gong (100K calls), Revenue.io, CallHippo all peak 4–5 PM <sup>[1][2][3]</sup>.</div>
-            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why Tue/Wed/Thu 8–10 AM is prime:</span> Day-1 expired golden hour. Kravitz, Jamil Academy, and REDX converge — be first before the other 20+ agents dial <sup>[4][7]</sup>. MIT: qualify rate 164% higher than 1–2 PM.</div>
-            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why Sat 10 AM–noon is prime:</span> PropContact ranks it the #2 window overall — "especially strong for older owners." Fits our land-owner + long-tenure seller profile.</div>
-            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why 12–2 PM is dead:</span> MIT explicitly worst window (114% worse than 4–6 PM). Every dataset agrees. Save for list-prep, not calls.</div>
-            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why we stop at 8 PM:</span> Fla. Stat. § 501.616(6)(a) — commercial calls only 8 AM – 8 PM recipient-local. $500–$1,500 per violation <sup>[8]</sup>. Non-negotiable.</div>
+            <div><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why 6–8 PM is prime every day:</span> Massey/CDC, CallHub 2.2M-call analysis, ThinkingPhones 25M-call analysis, WFM collections benchmark, and MIT lead-response all converge on early-evening peak <sup>[1][2][3]</sup>.</div>
+            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why weekday 9–2 is off:</span> The famous "Tuesday 10AM" rule is B2B — homeowners aren't home. Massey: 40–46% midday vs 58–65% evening <sup>[1]</sup>. Use these hours for expired list-prep.</div>
+            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why Friday's schedule flips:</span> Homeowners are home early (4:03 PM avg logoff, 75k workers) <sup>[5]</sup>, then the 5–6 PM commute becomes the worst hour of the week <sup>[6]</sup>. So Fri 2–5 PM is prime; Fri 5–6 PM is off.</div>
+            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why Saturday is nearly all prime:</span> Massey Saturday holds 51–61% all day. CallHub found Saturday delivers the longest, highest-quality calls (41.38s avg) <sup>[1][2]</sup>.</div>
+            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why we stop at 8 PM:</span> Fla. Stat. § 501.616(6)(a) — commercial calls only 8 AM – 8 PM in the called party's local time. $500–$1,500 per violation <sup>[8]</sup>. Non-negotiable.</div>
           </div>
 
           {/* Sources */}

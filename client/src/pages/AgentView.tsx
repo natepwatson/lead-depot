@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
+import { RankTrophy } from "../components/ld/RankTrophy";
 import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
@@ -2601,13 +2602,16 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {ranked.map((s, i) => {
               const isMe = s.agent.id === user?.id;
-              // v15.11.24 — Metal medals for top 3, only when they actually earned points.
+              // v15.11.25 — Trophy graphic for top 3, only when they actually earned points.
               const hasPoints = (s.points || 0) > 0;
-              const medal = (hasPoints && i === 0) ? { grad: "linear-gradient(135deg,#f6d572 0%,#c8aa5a 55%,#8a6f2f 100%)", ring: "#c8aa5a", text: "#1a1200", glow: "rgba(200,170,90,0.55)" }
-                          : (hasPoints && i === 1) ? { grad: "linear-gradient(135deg,#eef1f4 0%,#c0c7cf 55%,#8a939d 100%)", ring: "#c0c7cf", text: "#1a1d20", glow: "rgba(192,199,207,0.50)" }
-                          : (hasPoints && i === 2) ? { grad: "linear-gradient(135deg,#e2a171 0%,#c48454 55%,#7a4d29 100%)", ring: "#c48454", text: "#1a0e05", glow: "rgba(196,132,84,0.50)" }
+              const trophyRank: 1 | 2 | 3 | null = (hasPoints && i === 0) ? 1
+                          : (hasPoints && i === 1) ? 2
+                          : (hasPoints && i === 2) ? 3
                           : null;
-              const medalColor = medal?.ring ?? null;
+              const medalColor = trophyRank === 1 ? "#c8aa5a"
+                             : trophyRank === 2 ? "#c0c7cf"
+                             : trophyRank === 3 ? "#c48454"
+                             : null;
               return (
                 <div key={s.agent.id} style={{
                   display: "flex", alignItems: "center", gap: 14,
@@ -2620,15 +2624,8 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                   boxShadow: isMe ? "0 2px 12px rgba(200,170,90,0.08)" : "none",
                 }}>
                   <span style={{ minWidth: 28, textAlign: "center", display: "flex", justifyContent: "center" }}>
-                    {medal ? (
-                      <span style={{
-                        display: "inline-flex", alignItems: "center", justifyContent: "center",
-                        width: 24, height: 24, borderRadius: "50%",
-                        background: medal.grad, border: `1.5px solid ${medal.ring}`,
-                        boxShadow: `0 0 8px ${medal.glow}`,
-                        color: medal.text, fontSize: 13, fontWeight: 800, lineHeight: 1,
-                        fontFamily: "'Cormorant Garamond','Georgia',serif",
-                      }}>{i+1}</span>
+                    {trophyRank !== null ? (
+                      <RankTrophy rank={trophyRank} size={24} />
                     ) : (
                       <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>#{i+1}</span>
                     )}

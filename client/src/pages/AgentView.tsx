@@ -2466,20 +2466,20 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
   };
 
   const myStats = stats?.find(s => s.agent.id === user?.id);
-  // v14.24 — UNIFIED SORT: Appts → Points → Dials. Matches admin leaderboard exactly.
-  // Appointments are the #1 goal; points break ties (they already weight appts 10× a dial),
-  // total dials are the final tiebreaker.
+  // v15.11.24 — UNIFIED SORT: Points → Dials → Appts. Matches admin leaderboard exactly.
+  // Points are what determine #1 (they already weight appts heaviest and layer in tier
+  // multipliers); dials break ties on raw effort; appts as final tiebreaker.
   const ranked  = stats ? [...stats].sort((a, b) =>
-    (b.appointmentsSet - a.appointmentsSet) ||
     ((b.points || 0) - (a.points || 0)) ||
-    (b.totalAttempts - a.totalAttempts)
+    (b.totalAttempts - a.totalAttempts) ||
+    (b.appointmentsSet - a.appointmentsSet)
   ) : [];
 
-  // v14.24 — Gap-to-next-rank helper: show "X more appts to catch [Name]" on your own row
+  // v15.11.24 — Gap-to-next-rank helper. Points-first, so show "X more points to catch [Name]".
   const myRankIdx = ranked.findIndex(s => s.agent.id === user?.id);
   const rankAbove = myRankIdx > 0 ? ranked[myRankIdx - 1] : null;
-  const apptsGap  = rankAbove ? Math.max(0, rankAbove.appointmentsSet - (myStats?.appointmentsSet ?? 0)) : 0;
-  const pointsGap = rankAbove && apptsGap === 0 ? Math.max(0, (rankAbove.points || 0) - (myStats?.points || 0)) : 0;
+  const pointsGap = rankAbove ? Math.max(0, (rankAbove.points || 0) - (myStats?.points || 0)) : 0;
+  const apptsGap  = rankAbove && pointsGap === 0 ? Math.max(0, rankAbove.appointmentsSet - (myStats?.appointmentsSet ?? 0)) : 0;
 
   // v14.80 — Tier 3: rank-up toast + lift sound. Tracks the previous rank in a ref;
   // when the rank NUMBER decreases (i.e. climbing the board), fires a toast naming
@@ -2575,9 +2575,9 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
             fontSize: 12, color: "rgba(200,170,90,0.8)", textAlign: "center",
             fontFamily: "'Switzer','Inter',sans-serif",
           }}>
-            {apptsGap > 0
-              ? <><strong style={{ color: "#c8aa5a", fontSize: 13 }}>{apptsGap}</strong> more appt{apptsGap === 1 ? "" : "s"} to catch <strong>{rankAbove.agent.name}</strong></>
-              : <>Tied on appts — <strong style={{ color: "#c8aa5a", fontSize: 13 }}>{pointsGap}</strong> more point{pointsGap === 1 ? "" : "s"} to pass <strong>{rankAbove.agent.name}</strong></>}
+            {pointsGap > 0
+              ? <><strong style={{ color: "#c8aa5a", fontSize: 13 }}>{pointsGap}</strong> more point{pointsGap === 1 ? "" : "s"} to catch <strong>{rankAbove.agent.name}</strong></>
+              : <>Tied on points — <strong style={{ color: "#c8aa5a", fontSize: 13 }}>{apptsGap}</strong> more appt{apptsGap === 1 ? "" : "s"} to pass <strong>{rankAbove.agent.name}</strong></>}
           </div>
         )}
         </>
@@ -2601,7 +2601,13 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {ranked.map((s, i) => {
               const isMe = s.agent.id === user?.id;
-              const medalColor = i === 0 ? "#c8aa5a" : i === 1 ? "#9ca3af" : i === 2 ? "#b45309" : null;
+              // v15.11.24 — Metal medals for top 3, only when they actually earned points.
+              const hasPoints = (s.points || 0) > 0;
+              const medal = (hasPoints && i === 0) ? { grad: "linear-gradient(135deg,#f6d572 0%,#c8aa5a 55%,#8a6f2f 100%)", ring: "#c8aa5a", text: "#1a1200", glow: "rgba(200,170,90,0.55)" }
+                          : (hasPoints && i === 1) ? { grad: "linear-gradient(135deg,#eef1f4 0%,#c0c7cf 55%,#8a939d 100%)", ring: "#c0c7cf", text: "#1a1d20", glow: "rgba(192,199,207,0.50)" }
+                          : (hasPoints && i === 2) ? { grad: "linear-gradient(135deg,#e2a171 0%,#c48454 55%,#7a4d29 100%)", ring: "#c48454", text: "#1a0e05", glow: "rgba(196,132,84,0.50)" }
+                          : null;
+              const medalColor = medal?.ring ?? null;
               return (
                 <div key={s.agent.id} style={{
                   display: "flex", alignItems: "center", gap: 14,
@@ -2613,10 +2619,19 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                   borderRadius: 10,
                   boxShadow: isMe ? "0 2px 12px rgba(200,170,90,0.08)" : "none",
                 }}>
-                  <span style={{ minWidth: 24, textAlign: "center" }}>
-                    {medalColor
-                      ? <Trophy size={16} style={{ color: medalColor }} />
-                      : <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>#{i+1}</span>}
+                  <span style={{ minWidth: 28, textAlign: "center", display: "flex", justifyContent: "center" }}>
+                    {medal ? (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: 24, height: 24, borderRadius: "50%",
+                        background: medal.grad, border: `1.5px solid ${medal.ring}`,
+                        boxShadow: `0 0 8px ${medal.glow}`,
+                        color: medal.text, fontSize: 13, fontWeight: 800, lineHeight: 1,
+                        fontFamily: "'Cormorant Garamond','Georgia',serif",
+                      }}>{i+1}</span>
+                    ) : (
+                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>#{i+1}</span>
+                    )}
                   </span>
                   {/* v13.9 — headshot or initials */}
                   {/* v14.80 — Tier 1: #1 rank gets a breathing gold ring (first-place-glow) */}

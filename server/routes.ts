@@ -327,7 +327,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.14 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.15 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -386,7 +386,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.14 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.15 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -671,7 +671,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.14 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.15 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -778,6 +778,44 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     } catch { /* audit optional */ }
     console.log(`[v15.11.11 force-reset] password reset for agent ${id} (${row.email})`);
     res.json({ ok: true, agentId: id, email: row.email, name: row.name });
+  });
+
+  // ─── v15.11.15 — Emergency admin-set-email endpoint (INGEST_SECRET-guarded) ───
+  // When an agent's login is broken because their email in Lead Depot no longer
+  // matches the address they're typing, an admin can rotate the email in one
+  // request without needing a browser session. Revokes all sessions for that
+  // agent so any stale cookie stops working immediately.
+  app.post("/api/admin/agents/:id/admin-set-email", (req, res) => {
+    const INGEST_SECRET = process.env.INGEST_SECRET;
+    if (!INGEST_SECRET) return res.status(503).json({ error: "Server missing INGEST_SECRET" });
+    if (req.headers["x-ingest-secret"] !== INGEST_SECRET) return res.status(403).json({ error: "forbidden" });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+    const newEmailRaw = String(req.body?.newEmail || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmailRaw)) {
+      return res.status(400).json({ error: "newEmail is not a valid email" });
+    }
+    if (newEmailRaw.startsWith("tombstone:")) return res.status(400).json({ error: "refuse tombstone" });
+    const agent = storage.getAgentById(id);
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+    const collision = rawDb.prepare(
+      "SELECT id, name FROM agents WHERE LOWER(email) = ? AND id <> ? AND merged_into_agent_id IS NULL"
+    ).get(newEmailRaw, id) as { id: number; name: string } | undefined;
+    if (collision) return res.status(409).json({ error: `Email already used by agent id=${collision.id} (${collision.name})` });
+
+    const oldEmail = agent.email;
+    rawDb.prepare("UPDATE agents SET email = ?, pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL WHERE id = ?").run(newEmailRaw, id);
+    revokeAllSessionsForAgent(id);
+    logAgentEvent({
+      actorId: null,
+      targetId: id,
+      event: "email_changed",
+      before: { email: oldEmail },
+      after:  { email: newEmailRaw },
+      notes: "admin-set-email via INGEST_SECRET-guarded endpoint (agent lockout recovery)",
+    });
+    console.log(`[v15.11.15 admin-set-email] agent=${id} — ${oldEmail} → ${newEmailRaw}`);
+    res.json({ ok: true, agentId: id, name: agent.name, oldEmail, newEmail: newEmailRaw });
   });
 
   // ─── v14.58 — Phase A: Auth schema + bcrypt migration (fire-and-forget) ───
@@ -987,6 +1025,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   //   agent as an Appt Set when the appointment was already logged in FUB by hand.
   const CRON_EXEMPT_SUFFIXES = [
     "/manual-appt",
+    "/admin-set-email", // v15.11.15 — INGEST_SECRET-guarded email rotation
   ];
   app.use("/api/admin", (req: any, res: any, next: any) => {
     const fullPath = req.baseUrl + req.path;
@@ -1806,7 +1845,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.14</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.15</p>
             </div>
           `,
         });
@@ -1966,7 +2005,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.14 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.15 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -5555,7 +5594,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.14 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.15 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -5865,7 +5904,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.14",
+      version: "v15.11.15",
       services: results,
     });
   });
@@ -6983,7 +7022,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.14`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.15`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -7622,7 +7661,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.14</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.15</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

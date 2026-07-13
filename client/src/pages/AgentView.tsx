@@ -789,7 +789,17 @@ function LeadCard({ lead }: { lead: Lead }) {
     return () => clearInterval(id);
   }, []);
   const cardHeat = React.useMemo(() => computeCallHeat(), [heatTick]);
-  const dialLocked = cardHeat.tier === "down";
+  // v15.11.13 — Three-tier dial gate.
+  //   Illegal hours (outside 8AM–8PM FL statute) → HARD BLOCK, no override.
+  //   Legal Downtime (or Mid, if agent is aggressive) → CONFIRM before dial.
+  //   Prime Time → free dial.
+  // Alex 2026-07-13: agents want to grind during off-peak daytime hours;
+  // giving them an ask-first path preserves the research nudge without
+  // blocking productive dialing. Statute stays absolute.
+  const dialHardBlocked = !cardHeat.legal;                  // afterhours/too-early
+  const dialNeedsConfirm = cardHeat.legal && cardHeat.tier !== "prime"; // Mid + Downtime
+  const dialLocked = dialHardBlocked;                       // legacy flag — used only for hard-block UI
+  const [pendingDialConfirm, setPendingDialConfirm] = useState<string | null>(null);
   const [showScript, setShowScript] = useState(false);
   const [hoveredOutcome, setHoveredOutcome] = useState<string | null>(null);
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
@@ -1293,19 +1303,28 @@ function LeadCard({ lead }: { lead: Lead }) {
             const activeIdx = allPhones.findIndex(p => p === activePhone);
             return (
               <a
-                href={dialLocked ? undefined : `tel:${activePhone}`}
+                href={(dialHardBlocked || dialNeedsConfirm) ? undefined : `tel:${activePhone}`}
                 onClick={(e) => {
-                  if (dialLocked) {
+                  // v15.11.13 — Three-tier gate:
+                  //   1) Illegal hours → hard block, destructive toast, NO override path.
+                  //   2) Legal-but-not-Prime → open confirm sheet; agent may proceed.
+                  //   3) Prime → native tel: link fires with no interruption.
+                  if (dialHardBlocked) {
                     e.preventDefault();
                     toast({
-                      title: "Downtime — do not cold-call",
-                      description: cardHeat.reason || "We're outside the industry-recommended calling windows. Save the lead for Prime Time.",
+                      title: "Afterhours — dialing blocked",
+                      description: cardHeat.reason || "Outside Florida's 8 AM – 8 PM legal window. Wait until 8 AM (Fla. Stat. § 501.616).",
                       variant: "destructive",
                     });
+                    return;
+                  }
+                  if (dialNeedsConfirm) {
+                    e.preventDefault();
+                    setPendingDialConfirm(activePhone);
                   }
                 }}
-                aria-disabled={dialLocked}
-                data-testid={dialLocked ? "dial-line-locked" : "dial-line"}
+                aria-disabled={dialHardBlocked}
+                data-testid={dialHardBlocked ? "dial-line-locked" : dialNeedsConfirm ? "dial-line-confirm" : "dial-line"}
                 style={{
                   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                   gap: 2, padding: "11px 18px",
@@ -1323,7 +1342,7 @@ function LeadCard({ lead }: { lead: Lead }) {
                   fontSize: 8, letterSpacing: "0.22em", fontWeight: 800,
                   color: dialLocked ? "rgba(255,255,255,0.35)" : "rgba(8,8,8,0.6)",
                 }}>
-                  {dialLocked ? "DOWNTIME — LOCKED" : `DIAL LINE ${activeIdx + 1}`}
+                  {dialHardBlocked ? "AFTERHOURS — LOCKED" : dialNeedsConfirm ? `${cardHeat.label} — CONFIRM` : `DIAL LINE ${activeIdx + 1}`}
                 </span>
                 <span style={{
                   fontSize: "clamp(1.15rem, 5.2vw, 1.55rem)", fontWeight: 800,
@@ -1777,6 +1796,25 @@ function LeadCard({ lead }: { lead: Lead }) {
 
       {/* v15.11.12 — Outcome meanings legend, opened from the "?" pill above the grid. */}
       {legendOpen && <OutcomeLegendSheet onClose={() => setLegendOpen(false)} />}
+
+      {/* v15.11.13 — Dial confirmation for Mid + Downtime (still-legal hours).
+          Illegal-hour dials never reach this sheet — they're hard-blocked upstream. */}
+      {pendingDialConfirm && (
+        <OutcomeConfirmSheet
+          label={`Dial anyway during ${cardHeat.label.toLowerCase().replace(" time","")}?`}
+          toneColor={cardHeat.color}
+          borderColor={cardHeat.color}
+          description={cardHeat.reason + " You're still within Florida's legal 8 AM – 8 PM window — tap Dial to proceed."}
+          onClose={() => setPendingDialConfirm(null)}
+          onConfirm={() => {
+            const num = pendingDialConfirm;
+            setPendingDialConfirm(null);
+            // Fire the native tel: link programmatically now that agent confirmed.
+            if (num) window.location.href = `tel:${num}`;
+          }}
+          isPending={false}
+        />
+      )}
 
       {/* v15.11.12 — Generic confirm sheet for outcomes without their own modal.
           Fires when agent taps No Answer, Wrong #, Not a Working Line, Listed,

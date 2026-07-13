@@ -122,7 +122,7 @@ export function computeCallHeat(now: Date = new Date(), tz: string = "America/Ne
     }
   }
 
-  return { tier, score, label, reason, nextPrimeWindow, color };
+  return { tier, score, label, reason, nextPrimeWindow, color, legal };
 }
 
 /**

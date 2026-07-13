@@ -917,6 +917,24 @@ function LeadCard({ lead }: { lead: Lead }) {
     bAgent:      (lead as any).bAgent      ?? "",
     bMortgage:   (lead as any).bMortgage   ?? "",
   });
+
+  // v15.11.27 — Buyer Target (future home the buyer wants to acquire).
+  // Distinct from lead.extraData (which describes their CURRENT home). All buyers
+  // (buy_only + sell_and_buy) fill this in during discovery: how many beds/baths,
+  // budget, must-haves for the home they want to purchase.
+  const initialBuyerTarget = (() => {
+    try { return JSON.parse((lead as any).buyerTarget || "{}"); } catch { return {}; }
+  })();
+  const [buyerTarget, setBuyerTarget] = useState<Record<string, string>>({
+    beds:      initialBuyerTarget.beds      ?? "",
+    baths:     initialBuyerTarget.baths     ?? "",
+    sqft:      initialBuyerTarget.sqft      ?? "",
+    budget:    initialBuyerTarget.budget    ?? "",
+    garage:    initialBuyerTarget.garage    ?? "",
+    pool:      initialBuyerTarget.pool      ?? "",
+    areas:     initialBuyerTarget.areas     ?? "",
+    mustHaves: initialBuyerTarget.mustHaves ?? "",
+  });
   // v14.53 — Intent selector: 3-way mutually-exclusive choice.
   //   sell_only     → Seller CPMAMA only
   //   sell_and_buy  → Seller CPMAMA + Buyer LPMAMA
@@ -1033,7 +1051,8 @@ function LeadCard({ lead }: { lead: Lead }) {
         ...data,
         agentId: user?.id,
         // v14.53 — include intent so server persists it + FUB note reflects the right script
-        lpmamab: { ...lpmData, alsoBuying, intent },
+        // v15.11.27 — serialize buyerTarget as JSON string so server persists it as-is
+        lpmamab: { ...lpmData, alsoBuying, intent, buyerTarget: JSON.stringify(buyerTarget) },
       }).then(r => r.json()),
     onSuccess: (data, variables) => {
       // Show success flash for 900ms, then load next lead
@@ -1750,24 +1769,22 @@ function LeadCard({ lead }: { lead: Lead }) {
       {/* v14.53 ── Also-Buying pill removed; Intent selector above the seller card now drives visibility. ── */}
 
       {/* v14.53 ── BUYER LPMAMA (renders when intent !== sell_only) ── */}
-      {/* v15.11.17 — Home Specifications on Buy / Sell&Buy cards.
-          Shows the property specs Alex wants agents to reference when
-          matching or qualifying: beds, baths, sqft, lot, year built,
-          list price. Data comes from extraData JSON on the lead row
-          (LandVoice / BatchLeads / MLS import). Compact grid, no inputs;
-          purely reference. Renders only when at least one spec exists. */}
+      {/* v15.11.27 — Buyer Target: editable specs for the FUTURE home the buyer
+          wants to acquire. Renders on Buy-only and Sell+Buy cards. Distinct from
+          the seller's current home data (extraData). Agent fills these in during
+          discovery. Persisted as JSON in lead.buyerTarget. */}
       {showBuyerCard && (() => {
-        const specs: Array<{ label: string; value: string }> = [];
-        if (extra.beds != null) specs.push({ label: "Beds", value: String(extra.beds) });
-        if (extra.baths != null) specs.push({ label: "Baths", value: String(extra.baths) });
-        if (extra.sqft != null) specs.push({ label: "Sqft", value: Number(extra.sqft).toLocaleString() });
-        if (extra.lotSizeAcres != null) specs.push({ label: "Lot", value: `${extra.lotSizeAcres} ac` });
-        if (extra.yearBuilt) specs.push({ label: "Built", value: String(extra.yearBuilt) });
-        if (extra.garage != null) specs.push({ label: "Garage", value: typeof extra.garage === "boolean" ? (extra.garage ? "Yes" : "No") : String(extra.garage) });
-        if (extra.pool != null) specs.push({ label: "Pool", value: typeof extra.pool === "boolean" ? (extra.pool ? "Yes" : "No") : String(extra.pool) });
-        if (extra.listPrice != null) specs.push({ label: "List $", value: `$${Number(extra.listPrice).toLocaleString()}` });
-        else if (lead.list_price != null) specs.push({ label: "List $", value: `$${Number(lead.list_price).toLocaleString()}` });
-        if (specs.length === 0) return null;
+        const btFields: Array<{ key: string; label: string; hint: string; short?: boolean }> = [
+          { key: "beds",      label: "Target Beds",   hint: "3",              short: true },
+          { key: "baths",     label: "Target Baths",  hint: "2",              short: true },
+          { key: "sqft",      label: "Target Sqft",   hint: "1,800–2,400",     short: true },
+          { key: "budget",    label: "Budget",        hint: "$450k–$525k",     short: true },
+          { key: "garage",    label: "Garage",        hint: "2-car",           short: true },
+          { key: "pool",      label: "Pool",          hint: "Yes / No / N/A",  short: true },
+          { key: "areas",     label: "Preferred Areas", hint: "Nocatee, Ponte Vedra" },
+          { key: "mustHaves", label: "Must-Haves",    hint: "1-story, fenced yard, top schools" },
+        ];
+        const filledCount = btFields.filter(f => (buyerTarget[f.key] ?? "").trim()).length;
         return (
           <div style={{ padding: "0 20px 12px" }}>
             <div style={{
@@ -1775,17 +1792,41 @@ function LeadCard({ lead }: { lead: Lead }) {
               border: "1px solid rgba(59,130,246,0.28)", borderRadius: 12,
               padding: "12px 14px",
             }}>
-              <p style={{ margin: "0 0 8px", fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(147,197,253,0.85)", fontWeight: 600 }}>
-                Home Specifications
-              </p>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+                <p style={{ margin: 0, fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(147,197,253,0.85)", fontWeight: 600 }}>
+                  Buyer Target · Future Home
+                </p>
+                {filledCount > 0 && (
+                  <span style={{ fontSize: 9, letterSpacing: "0.12em", color: "#93c5fd", background: "rgba(59,130,246,0.18)", padding: "2px 8px", borderRadius: 99 }}>
+                    {filledCount}/{btFields.length}
+                  </span>
+                )}
+              </div>
               <div style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
-                gap: "6px 12px",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: "8px 10px",
               }}>
-                {specs.map(s => (
-                  <div key={s.label} style={{ fontSize: 11, color: "rgba(255,255,255,0.55)" }}>
-                    {s.label} <span style={{ color: "rgba(255,255,255,0.9)", fontWeight: 600 }}>{s.value}</span>
+                {btFields.map(f => (
+                  <div key={f.key} style={{ gridColumn: f.short ? "auto" : "1 / -1" }}>
+                    <label style={{ display: "block", fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(147,197,253,0.75)", fontWeight: 700, marginBottom: 4, opacity: 0.85 }}>
+                      {f.label}
+                    </label>
+                    <input
+                      value={buyerTarget[f.key] ?? ""}
+                      onChange={e => setBuyerTarget(d => ({ ...d, [f.key]: e.target.value }))}
+                      placeholder={f.hint}
+                      style={{
+                        width: "100%",
+                        background: "rgba(255,255,255,0.05)",
+                        border: `1px solid ${(buyerTarget[f.key] ?? "").trim() ? "rgba(147,197,253,0.4)" : "rgba(255,255,255,0.10)"}`,
+                        padding: "8px 10px", borderRadius: 8,
+                        color: "#fff", fontSize: 13,
+                        fontFamily: "'Switzer','Inter',sans-serif",
+                        outline: "none", boxSizing: "border-box" as const,
+                        transition: "border-color 0.15s",
+                      }}
+                    />
                   </div>
                 ))}
               </div>

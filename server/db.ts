@@ -89,6 +89,9 @@ if (!leadCols.includes("b_price"))         rawDb.prepare("ALTER TABLE leads ADD 
 if (!leadCols.includes("b_motivation"))    rawDb.prepare("ALTER TABLE leads ADD COLUMN b_motivation TEXT").run();
 if (!leadCols.includes("b_agent"))         rawDb.prepare("ALTER TABLE leads ADD COLUMN b_agent TEXT").run();
 if (!leadCols.includes("b_mortgage"))      rawDb.prepare("ALTER TABLE leads ADD COLUMN b_mortgage TEXT").run();
+// v15.11.27 — Buyer Target (future home) JSON blob: beds, baths, sqft, budget, garage, pool, areas, mustHaves.
+// Distinct from extraData (which describes the lead's CURRENT home from LandVoice/BatchLeads/MLS import).
+if (!leadCols.includes("buyer_target"))    rawDb.prepare("ALTER TABLE leads ADD COLUMN buyer_target TEXT").run();
 if (!leadCols.includes("score"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN score INTEGER DEFAULT 0").run();
 if (!leadCols.includes("territory"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN territory TEXT").run();
 if (!leadCols.includes("source"))          rawDb.prepare("ALTER TABLE leads ADD COLUMN source TEXT DEFAULT 'csv_upload'").run();

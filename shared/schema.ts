@@ -113,6 +113,10 @@ export const leads = sqliteTable("leads", {
   bMotivation: text("b_motivation"),    // B-M Motivation — why buying?
   bAgent: text("b_agent"),              // B-A Agent — working with anyone?
   bMortgage: text("b_mortgage"),        // B-M Mortgage — pre-approved / cash?
+  // v15.11.27 — Buyer Target: JSON string describing the FUTURE home the buyer wants to acquire.
+  // Distinct from extraData (which describes the lead's CURRENT home from LandVoice/BatchLeads/MLS).
+  // Fields: { beds, baths, sqft, budget, garage, pool, areas, mustHaves }.
+  buyerTarget: text("buyer_target"),
   // Geographic fields (city/state/zip — from BatchLeads, CSV, or geocoding)
   city: text("city"),
   state: text("state"),

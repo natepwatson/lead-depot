@@ -83,6 +83,7 @@ try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_price TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_motivation TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_agent TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE leads ADD COLUMN b_mortgage TEXT`); } catch {}
+try { sqlite.exec(`ALTER TABLE leads ADD COLUMN buyer_target TEXT`); } catch {} // v15.11.27
 // lead_activity — lpmamab_snapshot column (v11.38)
 try { sqlite.exec(`ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT`); } catch {}
 
@@ -577,6 +578,7 @@ export class Storage implements IStorage {
       bMotivation: r.b_motivation,
       bAgent: r.b_agent,
       bMortgage: r.b_mortgage,
+      buyerTarget: r.buyer_target, // v15.11.27
     })) as Lead[];
 
     return { rows: mapped, total: countRow?.n ?? 0 };

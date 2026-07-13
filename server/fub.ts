@@ -494,9 +494,19 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
   };
   const planMapping = ACTION_PLAN_MAP[`${outcome}:${kitSide}`];
 
-  // v15.11.8 — Denise Jacobs (FUB user id=16, Broker) is added as collaborator
-  // on every KIT/Appt push so she has full oversight of every lead entering FUB.
+  // v15.11.9 — Denise, Nate, and Alex are all added as collaborators on every
+  // KIT / Appt push so leadership has full visibility on every lead entering FUB.
+  // The tool auto-skips anyone already listed as assignedTo on the record.
   const DENISE_FUB_USER_ID = 16;
+  const NATE_FUB_USER_ID   = 1;
+  const ALEX_FUB_USER_ID   = 2;
+  const COLLAB_USER_IDS = [DENISE_FUB_USER_ID, NATE_FUB_USER_ID, ALEX_FUB_USER_ID];
+
+  // v15.11.9 — FUB pipeline + stage IDs (fetched live 2026-07-12).
+  const BUYERS_PIPELINE_ID  = 1;
+  const BUYERS_STAGE_INTERESTED = 14;
+  const SELLERS_PIPELINE_ID = 2;
+  const SELLERS_STAGE_INTERESTED = 23;
 
   const fubType = outcomeToFubType(outcome, lead.leadType);
   const fubStage = outcomeToFubStage(outcome);
@@ -586,45 +596,44 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
     }
   }
 
-  // v15.11.8 — Add Denise Jacobs as a collaborator on every FUB record from Lead Depot.
-  const collabRes = await fubRequest("POST", `/collaborators`, {
-    personId,
-    userId: DENISE_FUB_USER_ID,
-  });
-  if (collabRes.ok) {
-    console.log(`[FUB] Denise Jacobs added as collaborator on person ${personId}`);
-  } else {
-    // 409/422 usually means "already a collaborator" — fine, silent.
-    if (collabRes.status !== 409 && collabRes.status !== 422) {
-      console.warn(`[FUB] Collaborator add returned ${collabRes.status}:`, collabRes.data);
+  // v15.11.9 — Add Denise + Nate + Alex as collaborators on every FUB record
+  // from Lead Depot. Sequential (not parallel) so we can log per-user status.
+  for (const uid of COLLAB_USER_IDS) {
+    const collabRes = await fubRequest("POST", `/collaborators`, {
+      personId,
+      userId: uid,
+    });
+    if (collabRes.ok) {
+      console.log(`[FUB] Collaborator user_id=${uid} added on person ${personId}`);
+    } else if (collabRes.status !== 409 && collabRes.status !== 422) {
+      // 409/422 = already a collaborator or self-assign — both fine
+      console.warn(`[FUB] Collaborator user_id=${uid} add returned ${collabRes.status}:`, collabRes.data);
     }
   }
 
-  // v15.11.8 — For Appt Set, create a real FUB /appointments object so the
-  // agent's FUB calendar populates instead of just relying on the note.
+  // v15.11.9 — For Appt Set: create a real FUB /appointments object AND create
+  // one or two /deals rows (Sell side, Buy side, or both) based on intention.
   if (outcome === "contacted_appointment" && apptDate && apptTime) {
-    // Combine date + time into ISO 8601. If parse fails, skip — the note still
-    // records the raw values.
+    // ---- 1) Appointment object ----
     try {
       const combined = new Date(`${apptDate}T${apptTime}`);
       if (!isNaN(combined.getTime())) {
         const endTime = new Date(combined.getTime() + 60 * 60 * 1000); // 1 hour default
-        const apptTitle =
-          kitSide === "buyer" ? "Buyer Consultation" :
-          kitSide === "both"  ? "Listing & Buying Consultation" :
-                                "Listing Consultation";
+        // v15.11.9 — Unified appointment title regardless of side (Alex's directive).
+        const apptTitle = "Meet & Greet with Alex Watson @ Brothers Group Real Estate";
         const apptRes = await fubRequest("POST", `/appointments`, {
           personId,
           type: "Consultation",
           title: apptTitle,
-          description: `Set by ${agent.name} via Lead Depot. Address: ${addressStr || "—"}`,
+          description: `Set by ${agent.name} via Lead Depot. Address: ${addressStr || "—"}. Intention: ${intention || "—"}.`,
           startTime: combined.toISOString(),
           endTime: endTime.toISOString(),
           location: addressStr || undefined,
-          invitees: [{ userId: DENISE_FUB_USER_ID }], // Denise sees it on her calendar too
+          // v15.11.9 — All 3 leaders invited so it hits every calendar
+          invitees: COLLAB_USER_IDS.map(uid => ({ userId: uid })),
         });
         if (apptRes.ok) {
-          console.log(`[FUB] Appointment created on ${combined.toISOString()} for person ${personId}`);
+          console.log(`[FUB] Meet & Greet appointment created on ${combined.toISOString()} for person ${personId}`);
         } else {
           console.error(`[FUB] Failed to create appointment:`, apptRes.status, apptRes.data);
         }
@@ -633,6 +642,43 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
       }
     } catch (e) {
       console.error(`[FUB] Appointment build error:`, e);
+    }
+
+    // ---- 2) Deal(s) — one per side per Alex's spec ----
+    // Extract deal value from LPMAMAB lPricePaid if numeric-ish, else leave blank
+    const priceStr = (lpmamab as any)?.price || lead.lPricePaid || "";
+    const priceNum = parseFloat(String(priceStr).replace(/[^0-9.]/g, ""));
+    const dealValue = !isNaN(priceNum) && priceNum > 0 ? priceNum : undefined;
+
+    // Estimated close 60 days out (editable in FUB)
+    const closeDate = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const ownerName = (lead.ownerName || "Unknown").trim();
+    const sides: Array<{ side: "sell" | "buy"; pipelineId: number; stageId: number; nameSuffix: string }> = [];
+    if (kitSide === "seller" || kitSide === "both") {
+      sides.push({ side: "sell", pipelineId: SELLERS_PIPELINE_ID, stageId: SELLERS_STAGE_INTERESTED, nameSuffix: "Sell Side" });
+    }
+    if (kitSide === "buyer" || kitSide === "both") {
+      sides.push({ side: "buy",  pipelineId: BUYERS_PIPELINE_ID,  stageId: BUYERS_STAGE_INTERESTED,  nameSuffix: "Buy Side" });
+    }
+
+    for (const s of sides) {
+      const dealPayload: any = {
+        name: `${ownerName} — ${s.nameSuffix}`,
+        stageId: s.stageId,
+        personIds: [personId],
+        assignedUserId: undefined, // resolved below by name lookup
+        projectedCloseDate: closeDate,
+        description: `Auto-created by Lead Depot on Meet & Greet with ${agent.name}. Address: ${addressStr || "—"}. Intention: ${intention || "—"}.`,
+      };
+      if (dealValue) dealPayload.price = dealValue;
+
+      const dealRes = await fubRequest("POST", `/deals`, dealPayload);
+      if (dealRes.ok) {
+        console.log(`[FUB] Deal created (${s.side}) for person ${personId}: ${dealPayload.name} — deal id=${dealRes.data?.id}`);
+      } else {
+        console.error(`[FUB] Failed to create ${s.side} deal:`, dealRes.status, dealRes.data);
+      }
     }
   }
 

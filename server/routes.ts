@@ -327,7 +327,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.18 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.19 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -386,7 +386,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.18 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.19 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -671,7 +671,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.18 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.19 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1845,7 +1845,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.18</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.19</p>
             </div>
           `,
         });
@@ -2005,7 +2005,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.18 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.19 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2403,6 +2403,76 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       error: "gone",
       message: "Recycle cooldown was removed in v15.4. Recycled leads re-enter the pool immediately — no thaw needed.",
     });
+  });
+
+  // v15.11.19 — Admin holdout clearing. Skip and Recycle both write to
+  // agent_lead_holdouts so a lead won't come back to the same agent until
+  // midnight EDT. This endpoint reverses that on demand:
+  //   - POST /api/admin/holdouts/clear { agentId, leadId }  → remove one row
+  //   - POST /api/admin/holdouts/clear { agentId }          → clear ALL holdouts for that agent
+  //   - POST /api/admin/holdouts/clear { leadId }           → clear ALL holdouts on that lead (any agent)
+  //   - POST /api/admin/holdouts/clear {}                   → 400 (refuse to nuke the whole table)
+  // INGEST_SECRET guarded. Used for QA testing the Skip feature and for the
+  // rare case where an agent skipped a lead by mistake.
+  app.post("/api/admin/holdouts/clear", (req, res) => {
+    const INGEST_SECRET = process.env.INGEST_SECRET;
+    if (!INGEST_SECRET) return res.status(503).json({ error: "Server missing INGEST_SECRET" });
+    if (req.headers["x-ingest-secret"] !== INGEST_SECRET) return res.status(403).json({ error: "forbidden" });
+
+    const agentId = req.body?.agentId != null ? parseInt(req.body.agentId, 10) : null;
+    const leadId = req.body?.leadId != null ? parseInt(req.body.leadId, 10) : null;
+
+    if (!agentId && !leadId) {
+      return res.status(400).json({ error: "Provide agentId, leadId, or both. Refusing to clear all holdouts." });
+    }
+
+    let sql: string;
+    let args: any[];
+    if (agentId && leadId) {
+      sql = `DELETE FROM agent_lead_holdouts WHERE agent_id = ? AND lead_id = ?`;
+      args = [agentId, leadId];
+    } else if (agentId) {
+      sql = `DELETE FROM agent_lead_holdouts WHERE agent_id = ?`;
+      args = [agentId];
+    } else {
+      sql = `DELETE FROM agent_lead_holdouts WHERE lead_id = ?`;
+      args = [leadId];
+    }
+
+    const info = rawDb.prepare(sql).run(...args);
+    res.json({
+      ok: true,
+      cleared: info.changes,
+      scope: { agentId, leadId },
+    });
+  });
+
+  // v15.11.19 — List active holdouts, filterable by agent or lead. INGEST_SECRET guarded.
+  //   GET /api/admin/holdouts?agentId=1   → rows for that agent
+  //   GET /api/admin/holdouts?leadId=42   → rows for that lead
+  //   GET /api/admin/holdouts             → all active rows (expired ones auto-swept below)
+  app.get("/api/admin/holdouts", (req, res) => {
+    const INGEST_SECRET = process.env.INGEST_SECRET;
+    if (!INGEST_SECRET) return res.status(503).json({ error: "Server missing INGEST_SECRET" });
+    if (req.headers["x-ingest-secret"] !== INGEST_SECRET) return res.status(403).json({ error: "forbidden" });
+    rawDb.prepare(`DELETE FROM agent_lead_holdouts WHERE until < datetime('now')`).run();
+    const agentId = req.query.agentId ? parseInt(String(req.query.agentId), 10) : null;
+    const leadId = req.query.leadId ? parseInt(String(req.query.leadId), 10) : null;
+    let sql = `
+      SELECT h.agent_id, h.lead_id, h.until, h.reason, h.created_at,
+             a.name AS agent_name,
+             l.owner_name AS lead_owner, l.address AS lead_address
+      FROM agent_lead_holdouts h
+      LEFT JOIN agents a ON a.id = h.agent_id
+      LEFT JOIN leads  l ON l.id = h.lead_id
+      WHERE 1=1
+    `;
+    const args: any[] = [];
+    if (agentId) { sql += ` AND h.agent_id = ?`; args.push(agentId); }
+    if (leadId)  { sql += ` AND h.lead_id = ?`;  args.push(leadId);  }
+    sql += ` ORDER BY h.until ASC LIMIT 500`;
+    const rows = rawDb.prepare(sql).all(...args);
+    res.json({ ok: true, count: rows.length, holdouts: rows });
   });
 
   // v15.11.14 — Admin manual-appt logger (INGEST_SECRET-guarded, no FUB push).
@@ -2898,12 +2968,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // Sweep expired locks so recycled leads are eligible again.
     rawDb.prepare(`DELETE FROM lead_locks WHERE expires_at < datetime('now')`).run();
 
-    // v15.11.18 — Sweep expired agent_lead_holdouts. Cheap because the index
+    // v15.11.19 — Sweep expired agent_lead_holdouts. Cheap because the index
     // is on (agent_id, until) and there are at most a few dozen active rows
     // per agent.
     rawDb.prepare(`DELETE FROM agent_lead_holdouts WHERE until < datetime('now')`).run();
 
-    // v15.11.18 — Guard: never resurface a lead whose status is closed/parked.
+    // v15.11.19 — Guard: never resurface a lead whose status is closed/parked.
     // If any stale lock row still points at a KIT/Appt/Listed/etc. lead, sweep
     // it here before the "already locked" branch reads it. Belt-and-suspenders
     // with the KIT/Appt/Listed handlers that already DELETE lead_locks on
@@ -2957,7 +3027,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // immediately (status='unassigned', lock deleted) and are eligible on the next
     // Load Next call. The recycle_cooldown_until column is retained for backward
     // compatibility but no longer read.
-    // v15.11.18 — Exclude leads on THIS agent's holdout list. Both Skip and
+    // v15.11.19 — Exclude leads on THIS agent's holdout list. Both Skip and
     // Recycle write to agent_lead_holdouts so a just-recycled lead can't
     // bounce back to the same agent through pullPool's score DESC ordering.
     const pullPool = (leadType: string, countyClause: string, countyParams: any[]): any => {
@@ -5103,7 +5173,7 @@ Brothers Group Real Estate Team at Momentum Realty
   });
 
   // ─── RECYCLE LEAD ──────────────────────────────────────────────────────────
-  // v15.11.18 — Helper: next midnight in America/New_York, returned as UTC ISO.
+  // v15.11.19 — Helper: next midnight in America/New_York, returned as UTC ISO.
   // Used by Skip and Recycle so a lead they just released is hidden from THIS
   // agent for the rest of the local day. Reset boundary is a real midnight in
   // Alex's timezone, not a rolling 24h window.
@@ -5134,7 +5204,7 @@ Brothers Group Real Estate Team at Momentum Realty
     return new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
   }
 
-  // v15.11.18 — EDT midnight of TODAY (as UTC ISO). Used for the daily reset
+  // v15.11.19 — EDT midnight of TODAY (as UTC ISO). Used for the daily reset
   // boundary in skip-quota lookups. Anything created after this timestamp
   // counts against today's 3-skip cap.
   function todayEdtMidnightIso(): string {
@@ -5160,7 +5230,7 @@ Brothers Group Real Estate Team at Momentum Realty
     return new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   }
 
-  // v15.11.18 — Skip quota computation. Returns { used, remaining,
+  // v15.11.19 — Skip quota computation. Returns { used, remaining,
   // nextAvailableAt, resetAt } for the given agent. Called by the client to
   // paint the Skip button state, and by POST /skip to gate the write.
   const SKIP_DAILY_CAP = 3;
@@ -5185,7 +5255,7 @@ Brothers Group Real Estate Team at Momentum Realty
     return { used, remaining, cooldownExpiresAt, inCooldown, nextAvailableAt, resetAt, cap: SKIP_DAILY_CAP };
   }
 
-  // v15.11.18 — GET /api/agent/:id/skip-quota
+  // v15.11.19 — GET /api/agent/:id/skip-quota
   // Returns the current agent's skip quota state so the button can paint the
   // right label ("Skip (2 left)", "Cooldown 47m", "0/3 used").
   app.get("/api/agent/:id/skip-quota", (req, res) => {
@@ -5194,7 +5264,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json(computeSkipQuota(agentId));
   });
 
-  // v15.11.18 — POST /api/leads/:id/skip { agentId, notes? }
+  // v15.11.19 — POST /api/leads/:id/skip { agentId, notes? }
   //   Rate-limited escape hatch for glitched or misassigned leads. Behaves
   //   like Recycle for the LEAD (returns to shared pool, attempt count bumps),
   //   but ALSO inserts a per-agent holdout so this lead never comes back to
@@ -5276,7 +5346,7 @@ Brothers Group Real Estate Team at Momentum Realty
       attemptCount: (lead.attemptCount || 0) + 1,
     });
 
-    // v15.11.18 — Anti-bounce-back: hold out from THIS agent for the rest of
+    // v15.11.19 — Anti-bounce-back: hold out from THIS agent for the rest of
     // the local day so pullPool's score DESC ordering can't hand it back
     // three seconds later. Fixes the "I recycled Denise and she came right
     // back" bug Alex reported.
@@ -5781,7 +5851,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.18 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.19 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6091,7 +6161,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.18",
+      version: "v15.11.19",
       services: results,
     });
   });
@@ -7209,7 +7279,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.18`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.19`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -7848,7 +7918,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.18</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.19</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

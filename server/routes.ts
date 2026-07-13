@@ -73,33 +73,49 @@ function awardPoints(
   scope: "seller" | "recruiting" = "seller",
 ) {
   if (!agentId) return;
+  // v15.11.22 — REBALANCED point system.
+  // Appt Set crushes everything (only outcome that generates revenue). KIT is a real
+  // conversation. Network referral is meaningful but doesn't move revenue directly.
+  // Emails and voicemails award ZERO points — they were noise. Base dial fallback = 1.
   const pts: Record<string, number> = {
-    network_referral:          25,
-    contacted_appointment:     20,
-    keep_in_touch:             15,
-    contacted_not_interested:   8,
-    listed:                     8,
-    email_sent_value:           5,   // v14.18 Stage 2 email
-    recycled:                   4,
-    left_voicemail:             4,
-    wrong_number:               3,
-    disconnected:               3,
-    no_answer:                  3,
-    email_sent:                 3,   // v14.18 Stage 1 email (aka cold outreach)
-    // any other outcome falls back to base dial (2)
+    contacted_appointment:     40,   // The only revenue-generating outcome. Reigns supreme.
+    keep_in_touch:             20,   // Real conversation, future revenue.
+    network_referral:          15,   // Referral submission — nice but not revenue-direct.
+    contacted_not_interested:   5,   // Real contact, worth something.
+    listed:                     3,   // Rare informational outcome.
+    recycled:                   2,   // Re-queue, minor effort.
+    no_answer:                  2,   // Real dial, most common outcome.
+    wrong_number:               1,   // Data cleanup.
+    disconnected:               1,   // Data cleanup.
+    email_sent:                 0,   // v15.11.22 — REMOVED. Email no longer awards points.
+    email_sent_value:           0,   // v15.11.22 — REMOVED. Email no longer awards points.
+    left_voicemail:             0,   // v15.11.22 — REMOVED. VM no longer awards points.
+    // Any other outcome falls back to base dial (1).
   };
-  const basePoints = pts[outcome] ?? 2;
-  // v15.11.10 — Prime Time bonus. Calls made during a PRIME hour earn 1.5x points.
-  // MID and Downtime earn standard 1.0x. Downtime is dial-locked in the UI, but
-  // the multiplier applies here too as a defensive belt-and-suspenders. Rounded
-  // to nearest whole number so leaderboards stay clean integers.
+  const basePoints = pts[outcome] ?? 1;
+  // v15.11.22 — 5-TIER call-heat multiplier (was 2-tier). Multipliers align with
+  // the 5-tier schedule grid in shared/prime-schedule.ts and drive the leaderboard
+  // toward proven high-connect hours.
+  //   Prime  🟢 → 2×
+  //   Mid    🟡 → 1.5×
+  //   Low    🟠 → 1.25×
+  //   Down   ⬜ → 1× (dial-locked in UI; multiplier here as belt-and-suspenders)
+  //   Illegal ⬛ → never awards (upstream endpoints refuse the call in the first place)
   let multiplier = 1;
+  let tier: string = "base";
   try {
     const { getCallHeatTier } = require("../shared/prime-schedule");
-    if (getCallHeatTier() === "prime") multiplier = 1.5;
+    tier = getCallHeatTier();
+    if (tier === "prime") multiplier = 2;
+    else if (tier === "mid") multiplier = 1.5;
+    else if (tier === "low") multiplier = 1.25;
+    else if (tier === "down") multiplier = 1;
+    else multiplier = 1; // illegal shouldn't reach here, but be safe
   } catch {}
+  // If the base points are 0 (emails, voicemail), no multiplier can save them.
+  if (basePoints === 0) return;
   const points = Math.round(basePoints * multiplier);
-  const reason = multiplier > 1 ? `${outcome}_prime_1_5x` : outcome;
+  const reason = multiplier > 1 ? `${outcome}_${tier}_${multiplier}x` : outcome;
   rawDb.prepare(
     `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?)`
   ).run(agentId, points, reason, leadId ?? null, scope, new Date().toISOString());
@@ -327,7 +343,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.21 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.22 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -386,7 +402,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.21 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.22 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -671,7 +687,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.21 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.22 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -780,7 +796,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ok: true, agentId: id, email: row.email, name: row.name });
   });
 
-  // ─── v15.11.21 — Admin session-guarded set-password endpoint ───
+  // ─── v15.11.22 — Admin session-guarded set-password endpoint ───
   // Same behavior as force-reset (direct bcrypt write + session revoke) but gated by
   // admin session cookie instead of INGEST_SECRET, so the Admin dashboard UI can call
   // it without exposing the shared secret to the browser. This is the primary rotation
@@ -809,7 +825,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         notes: `admin_set_password — rotated by ${req.currentAgent.name || req.currentAgent.email}. All sessions revoked.`,
       });
     } catch { /* audit optional */ }
-    console.log(`[v15.11.21 admin-set-password] password set for agent ${id} (${row.email}) by admin ${req.currentAgent.email}`);
+    console.log(`[v15.11.22 admin-set-password] password set for agent ${id} (${row.email}) by admin ${req.currentAgent.email}`);
     res.json({ ok: true, agentId: id, email: row.email, name: row.name });
   });
 
@@ -1052,7 +1068,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     "/api/admin/stale-lead-audit",
     "/api/admin/dbpr-run",
     "/api/admin/missed-appointments",
-    // v15.11.21 — Holdout admin endpoints. INGEST_SECRET-guarded inside route.
+    // v15.11.22 — Holdout admin endpoints. INGEST_SECRET-guarded inside route.
     // Exempted from session gate so QA + Alex's terminal curl can hit them
     // without a logged-in cookie.
     "/api/admin/holdouts",
@@ -1882,7 +1898,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.21</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.22</p>
             </div>
           `,
         });
@@ -2042,7 +2058,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.21 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.22 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2167,7 +2183,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // matches :id, bcrypt-compares currentPassword, bcrypt-hashes newPassword,
   // and revokes all OTHER sessions on success (keeps current cookie live).
   // Min length unified to 8 across setup / reset / self-change.
-  // v15.11.21 — Agents can no longer self-service password changes. Admins (Alex/Nate)
+  // v15.11.22 — Agents can no longer self-service password changes. Admins (Alex/Nate)
   // rotate every agent's password via Admin → Agent detail → Set Password, which hits
   // the force-reset endpoint. This endpoint is now admin-only for their own rotations;
   // agents hitting it get 403.
@@ -2453,7 +2469,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     });
   });
 
-  // v15.11.21 — Admin holdout clearing. Skip and Recycle both write to
+  // v15.11.22 — Admin holdout clearing. Skip and Recycle both write to
   // agent_lead_holdouts so a lead won't come back to the same agent until
   // midnight EDT. This endpoint reverses that on demand:
   //   - POST /api/admin/holdouts/clear { agentId, leadId }  → remove one row
@@ -2495,7 +2511,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     });
   });
 
-  // v15.11.21 — List active holdouts, filterable by agent or lead. INGEST_SECRET guarded.
+  // v15.11.22 — List active holdouts, filterable by agent or lead. INGEST_SECRET guarded.
   //   GET /api/admin/holdouts?agentId=1   → rows for that agent
   //   GET /api/admin/holdouts?leadId=42   → rows for that lead
   //   GET /api/admin/holdouts             → all active rows (expired ones auto-swept below)
@@ -3016,12 +3032,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // Sweep expired locks so recycled leads are eligible again.
     rawDb.prepare(`DELETE FROM lead_locks WHERE expires_at < datetime('now')`).run();
 
-    // v15.11.21 — Sweep expired agent_lead_holdouts. Cheap because the index
+    // v15.11.22 — Sweep expired agent_lead_holdouts. Cheap because the index
     // is on (agent_id, until) and there are at most a few dozen active rows
     // per agent.
     rawDb.prepare(`DELETE FROM agent_lead_holdouts WHERE until < datetime('now')`).run();
 
-    // v15.11.21 — Guard: never resurface a lead whose status is closed/parked.
+    // v15.11.22 — Guard: never resurface a lead whose status is closed/parked.
     // If any stale lock row still points at a KIT/Appt/Listed/etc. lead, sweep
     // it here before the "already locked" branch reads it. Belt-and-suspenders
     // with the KIT/Appt/Listed handlers that already DELETE lead_locks on
@@ -3075,7 +3091,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // immediately (status='unassigned', lock deleted) and are eligible on the next
     // Load Next call. The recycle_cooldown_until column is retained for backward
     // compatibility but no longer read.
-    // v15.11.21 — Exclude leads on THIS agent's holdout list. Both Skip and
+    // v15.11.22 — Exclude leads on THIS agent's holdout list. Both Skip and
     // Recycle write to agent_lead_holdouts so a just-recycled lead can't
     // bounce back to the same agent through pullPool's score DESC ordering.
     const pullPool = (leadType: string, countyClause: string, countyParams: any[]): any => {
@@ -5221,7 +5237,7 @@ Brothers Group Real Estate Team at Momentum Realty
   });
 
   // ─── RECYCLE LEAD ──────────────────────────────────────────────────────────
-  // v15.11.21 — Helper: next midnight in America/New_York, returned as UTC ISO.
+  // v15.11.22 — Helper: next midnight in America/New_York, returned as UTC ISO.
   // Used by Skip and Recycle so a lead they just released is hidden from THIS
   // agent for the rest of the local day. Reset boundary is a real midnight in
   // Alex's timezone, not a rolling 24h window.
@@ -5252,7 +5268,7 @@ Brothers Group Real Estate Team at Momentum Realty
     return new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
   }
 
-  // v15.11.21 — EDT midnight of TODAY (as UTC ISO). Used for the daily reset
+  // v15.11.22 — EDT midnight of TODAY (as UTC ISO). Used for the daily reset
   // boundary in skip-quota lookups. Anything created after this timestamp
   // counts against today's 3-skip cap.
   function todayEdtMidnightIso(): string {
@@ -5278,7 +5294,7 @@ Brothers Group Real Estate Team at Momentum Realty
     return new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   }
 
-  // v15.11.21 — Skip quota computation. Returns { used, remaining,
+  // v15.11.22 — Skip quota computation. Returns { used, remaining,
   // nextAvailableAt, resetAt } for the given agent. Called by the client to
   // paint the Skip button state, and by POST /skip to gate the write.
   const SKIP_DAILY_CAP = 3;
@@ -5303,7 +5319,7 @@ Brothers Group Real Estate Team at Momentum Realty
     return { used, remaining, cooldownExpiresAt, inCooldown, nextAvailableAt, resetAt, cap: SKIP_DAILY_CAP };
   }
 
-  // v15.11.21 — GET /api/agent/:id/skip-quota
+  // v15.11.22 — GET /api/agent/:id/skip-quota
   // Returns the current agent's skip quota state so the button can paint the
   // right label ("Skip (2 left)", "Cooldown 47m", "0/3 used").
   app.get("/api/agent/:id/skip-quota", (req, res) => {
@@ -5312,7 +5328,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json(computeSkipQuota(agentId));
   });
 
-  // v15.11.21 — POST /api/leads/:id/skip { agentId, notes? }
+  // v15.11.22 — POST /api/leads/:id/skip { agentId, notes? }
   //   Rate-limited escape hatch for glitched or misassigned leads. Behaves
   //   like Recycle for the LEAD (returns to shared pool, attempt count bumps),
   //   but ALSO inserts a per-agent holdout so this lead never comes back to
@@ -5394,7 +5410,7 @@ Brothers Group Real Estate Team at Momentum Realty
       attemptCount: (lead.attemptCount || 0) + 1,
     });
 
-    // v15.11.21 — Anti-bounce-back: hold out from THIS agent for the rest of
+    // v15.11.22 — Anti-bounce-back: hold out from THIS agent for the rest of
     // the local day so pullPool's score DESC ordering can't hand it back
     // three seconds later. Fixes the "I recycled Denise and she came right
     // back" bug Alex reported.
@@ -5516,11 +5532,38 @@ Brothers Group Real Estate Team at Momentum Realty
       return { dials, appts, kit, emails, noAnswer, convRate, referrals };
     };
 
+    // v15.11.22 — broaden the "green dot" signal. Was: only lead_activity outcomes.
+    // Now: MAX(lead_activity, agent_points, sessions.created_at). Catches:
+    //   • agents who submit network referrals (writes agent_points, not lead_activity)
+    //   • agents who open the app + log in but don't press outcome buttons
+    // Same query is cheap because these tables are already indexed on agent_id.
+    const pointsMaxRows = rawDb.prepare(`
+      SELECT agent_id, MAX(created_at) as max_pts FROM agent_points GROUP BY agent_id
+    `).all() as any[];
+    const pointsMaxMap: Record<number, string> = {};
+    for (const r of pointsMaxRows) pointsMaxMap[r.agent_id] = r.max_pts;
+
+    const sessionMaxRows = rawDb.prepare(`
+      SELECT agent_id, MAX(created_at) as max_sess FROM sessions GROUP BY agent_id
+    `).all() as any[];
+    const sessionMaxMap: Record<number, string> = {};
+    for (const r of sessionMaxRows) sessionMaxMap[r.agent_id] = r.max_sess;
+
     const result = allAgents.map(agent => {
       const agg = aggMap[agent.id] || null;
+      // Pick the newest of: last outcome, last point, last login. Any of them
+      // signals the agent was recently in the app.
+      const candidates = [
+        agg?.last_activity_at,
+        pointsMaxMap[agent.id],
+        sessionMaxMap[agent.id],
+      ].filter(Boolean) as string[];
+      const lastActivityAt = candidates.length > 0
+        ? candidates.sort().pop()  // ISO strings sort lexically = chronologically
+        : null;
       return {
         agent: { id: agent.id, name: agent.name, email: agent.email, headshotUrl: (agent as any).headshotUrl || null },
-        lastActivityAt: agg?.last_activity_at || null,
+        lastActivityAt,
         today:   buildStats(agg, "today", agent.id),
         weekly:  buildStats(agg, "week",  agent.id),
         allTime: buildStats(agg, "all",   agent.id),
@@ -5541,7 +5584,14 @@ Brothers Group Real Estate Team at Momentum Realty
     for (const r of allPtsRows) ptsMap[r.agent_id] = r.total || 0;
     for (const r of result) (r as any).points = ptsMap[(r.agent as any).id] || 0;
 
-    result.sort((a, b) => b.weekly.appts - a.weekly.appts || b.weekly.dials - a.weekly.dials);
+    // v15.11.22 — Unified sort: points (highest = #1), then dials as tiebreaker.
+    // Both this admin endpoint AND /api/leaderboard now use identical logic so
+    // Admin dashboard and agent leaderboard show the same #1.
+    result.sort((a, b) =>
+      ((b as any).points - (a as any).points) ||
+      (b.weekly.dials - a.weekly.dials) ||
+      (b.weekly.appts - a.weekly.appts)
+    );
     res.json(result);
   });
 
@@ -5826,11 +5876,13 @@ Brothers Group Real Estate Team at Momentum Realty
         },
       };
     });
-    // v14.29 — Unified sort: Appts → Points → Dials (appts are the #1 goal)
+    // v15.11.22 — Unified sort: points (highest = #1), then dials as tiebreaker.
+    // Points already weight Appts heavily (40 pts each, up to 80 at Prime) so top
+    // appt-setters still win — but a huge KIT/dial week can also surface.
     stats.sort((a, b) =>
-      (b.appointmentsSet - a.appointmentsSet) ||
       (b.points - a.points) ||
-      (b.totalAttempts - a.totalAttempts)
+      (b.totalAttempts - a.totalAttempts) ||
+      (b.appointmentsSet - a.appointmentsSet)
     );
     res.json(stats);
   });
@@ -5899,7 +5951,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.21 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.22 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6209,7 +6261,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.21",
+      version: "v15.11.22",
       services: results,
     });
   });
@@ -7327,7 +7379,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.21`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.22`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -7966,7 +8018,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.21</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.22</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

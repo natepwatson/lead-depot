@@ -137,40 +137,41 @@ export default function OnAirBanner({ agentId }: Props) {
 
   // Style tokens per tier.
   const cfg = (() => {
+    // v15.11.22 — New palette: green prime, yellow mid, orange low, gray down, dark illegal
     if (heat.tier === "prime") {
       return {
-        bg: "linear-gradient(90deg, #1a0202 0%, #4a0a0a 50%, #1a0202 100%)",
-        border: "rgba(239,68,68,0.55)",
-        dotColor: "#ef4444",
-        badgeColor: "#ef4444",
-        badgeText: "PRIME TIME",
-        subText: "PRIME TIME — call now. Tap for schedule.",
+        bg: "linear-gradient(90deg, #021a08 0%, #0a4a1c 50%, #021a08 100%)",
+        border: "rgba(34,197,94,0.55)",
+        dotColor: "#22c55e",
+        badgeColor: "#22c55e",
+        badgeText: "PRIME 2×",
+        subText: "PRIME TIME — double points. Call now.",
         anim: "ld-onair-blink 1.05s steps(1) infinite",
       };
     }
     if (heat.tier === "mid") {
       const soon = heatIn30.tier === "prime";
       return {
-        bg: "linear-gradient(90deg, #1a1102 0%, #2f2004 50%, #1a1102 100%)",
-        border: "rgba(245,158,11,0.45)",
-        dotColor: "#f59e0b",
-        badgeColor: "#f59e0b",
-        badgeText: soon ? "STAND BY" : "MID TIME",
+        bg: "linear-gradient(90deg, #171003 0%, #241805 50%, #171003 100%)",
+        border: "rgba(234,179,8,0.45)",
+        dotColor: "#eab308",
+        badgeColor: "#eab308",
+        badgeText: soon ? "STAND BY" : "MID 1.5×",
         subText: soon
           ? "Prime Time in ~30 min — tap for schedule."
-          : "MID TIME — OK to dial. Tap for schedule.",
+          : "MID TIME — 1.5× points. Dial away.",
         anim: soon ? "ld-onair-pulse 2.2s ease-in-out infinite" : "none",
       };
     }
-    // v15.11.17 — LOW: shoulder hour, sources disagree. Softer than DOWN.
+    // v15.11.22 — LOW: shoulder hour. Orange, 1.25× multiplier.
     if (heat.tier === "low") {
       return {
-        bg: "linear-gradient(90deg, #171003 0%, #241805 50%, #171003 100%)",
-        border: "rgba(234,179,8,0.35)",
-        dotColor: "#eab308",
-        badgeColor: "#eab308",
-        badgeText: "LOW TIME",
-        subText: heat.nextPrimeWindow || "Low answer rate — dial the warmest leads. Tap for schedule.",
+        bg: "linear-gradient(90deg, #1a0c02 0%, #3a1c05 50%, #1a0c02 100%)",
+        border: "rgba(249,115,22,0.4)",
+        dotColor: "#f97316",
+        badgeColor: "#f97316",
+        badgeText: "LOW 1.25×",
+        subText: heat.nextPrimeWindow || "Low answer rate — dial the warmest leads.",
         anim: "none",
       };
     }
@@ -186,14 +187,14 @@ export default function OnAirBanner({ agentId }: Props) {
         anim: "none",
       };
     }
-    // DOWN
+    // v15.11.22 — DOWN: lighter gray than illegal. 1× (no bonus).
     return {
-      bg: "linear-gradient(90deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)",
-      border: "rgba(107,114,128,0.35)",
-      dotColor: "#6b7280",
+      bg: "linear-gradient(90deg, #14161a 0%, #2a2d33 50%, #14161a 100%)",
+      border: "rgba(156,163,175,0.4)",
+      dotColor: "#9ca3af",
       badgeColor: "#9ca3af",
-      badgeText: "DOWNTIME",
-      subText: heat.nextPrimeWindow || "Downtime — tap for the schedule.",
+      badgeText: "DOWN 1×",
+      subText: heat.nextPrimeWindow || "Downtime — base points only. Tap for schedule.",
       anim: "none",
     };
   })();

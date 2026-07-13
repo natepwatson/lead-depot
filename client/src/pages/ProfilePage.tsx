@@ -511,7 +511,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
         </div>
 
         {/* ── Change password ──
-            v15.11.21 — Agents no longer self-serve passwords. Admins (Alex/Nate) set
+            v15.11.22 — Agents no longer self-serve passwords. Admins (Alex/Nate) set
             every agent's password from Admin → Agent detail → Set Password. Section
             still renders for admins only so they can rotate their own if they want. */}
         {user?.role === "admin" && (

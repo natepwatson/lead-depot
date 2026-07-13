@@ -142,10 +142,11 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
           transition: transform 80ms;
         }
         .ld-schedmodal-cell:active { transform: scale(0.94); }
-        .ld-schedmodal-cell.prime { background: linear-gradient(180deg,#ef4444 0%,#b91c1c 100%); color: rgba(0,0,0,0.85); }
-        .ld-schedmodal-cell.mid   { background: linear-gradient(180deg,#f59e0b 0%,#b45309 100%); color: rgba(0,0,0,0.85); }
-        .ld-schedmodal-cell.low   { background: linear-gradient(180deg,#eab308 0%,#a16207 100%); color: rgba(0,0,0,0.75); }
-        .ld-schedmodal-cell.down  { background: #1f2937; color: rgba(255,255,255,0.4); }
+        /* v15.11.22 — New palette: green prime, yellow mid, orange low, light-gray down, darkest-gray illegal */
+        .ld-schedmodal-cell.prime { background: linear-gradient(180deg,#22c55e 0%,#15803d 100%); color: rgba(0,0,0,0.85); }
+        .ld-schedmodal-cell.mid   { background: linear-gradient(180deg,#eab308 0%,#a16207 100%); color: rgba(0,0,0,0.85); }
+        .ld-schedmodal-cell.low   { background: linear-gradient(180deg,#f97316 0%,#c2410c 100%); color: rgba(0,0,0,0.85); }
+        .ld-schedmodal-cell.down  { background: #9ca3af; color: rgba(0,0,0,0.55); }
         .ld-schedmodal-cell.illegal { background: repeating-linear-gradient(45deg,#1f2937 0 3px,#0a0a0a 3px 6px); color: rgba(255,255,255,0.35); font-size: 8px; cursor: not-allowed; }
         .ld-schedmodal-cell.tcpa  {
           background: repeating-linear-gradient(45deg,#1f2937 0 3px,#0a0a0a 3px 6px);
@@ -225,16 +226,16 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
           {/* Legend */}
           <div style={{ display: "flex", gap: 10, marginBottom: 10, fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(243,243,243,0.6)", flexWrap: "wrap" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#ef4444,#b91c1c)" }} />Prime Time
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#22c55e,#15803d)" }} />Prime 2×
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#f59e0b,#b45309)" }} />Mid
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#eab308,#a16207)" }} />Mid 1.5×
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#eab308,#a16207)" }} />Low
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: "linear-gradient(180deg,#f97316,#c2410c)" }} />Low 1.25×
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: "#1f2937" }} />Downtime
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: "#9ca3af" }} />Down 1×
             </span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 9, height: 9, borderRadius: 2, background: "repeating-linear-gradient(45deg,#1f2937 0 3px,#0a0a0a 3px 6px)" }} />Illegal
@@ -331,7 +332,7 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
                 type="checkbox"
                 checked={pushOptIn}
                 onChange={(e) => onTogglePush(e.target.checked)}
-                style={{ width: 18, height: 18, accentColor: "#ef4444", cursor: "pointer", flexShrink: 0 }}
+                style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: "pointer", flexShrink: 0 }}
               />
               <div style={{ flex: 1, fontSize: 12, lineHeight: 1.5 }}>
                 <div style={{ fontWeight: 600, color: "#f3f3f3", marginBottom: 2 }}>Alert me 15 min before Prime Time</div>
@@ -340,16 +341,39 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
             </div>
           )}
 
-          {/* Why it's built this way */}
+          {/* v15.11.22 — Multiplier value block */}
+          <div style={{
+            fontSize: 11, lineHeight: 1.55, color: "rgba(243,243,243,0.85)",
+            marginTop: 6, paddingTop: 12, marginBottom: 4,
+            borderTop: "0.5px solid rgba(200,170,90,0.2)",
+            padding: "12px 12px 12px 12px",
+            background: "rgba(34,197,94,0.05)",
+            border: "0.5px solid rgba(34,197,94,0.25)",
+            borderRadius: 8,
+          }}>
+            <div style={{ color: "#22c55e", fontWeight: 600, marginBottom: 6, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Why bother — points multiply</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px 12px", fontSize: 11 }}>
+              <div><span style={{ color: "#22c55e", fontWeight: 600 }}>Prime</span> → 2× (appt = 80)</div>
+              <div><span style={{ color: "#eab308", fontWeight: 600 }}>Mid</span> → 1.5× (appt = 60)</div>
+              <div><span style={{ color: "#f97316", fontWeight: 600 }}>Low</span> → 1.25× (appt = 50)</div>
+              <div><span style={{ color: "#9ca3af", fontWeight: 600 }}>Down</span> → 1× (appt = 40)</div>
+            </div>
+            <div style={{ marginTop: 6, color: "rgba(243,243,243,0.7)", fontSize: 10.5 }}>
+              A prime-hour appt is worth double a downtime appt. Dial when it counts.
+            </div>
+          </div>
+
+          {/* Why it's built this way — rewritten v15.11.22 to match the actual grid */}
           <div style={{
             fontSize: 11, lineHeight: 1.55, color: "rgba(243,243,243,0.72)",
-            marginTop: 6, paddingTop: 12,
+            marginTop: 12, paddingTop: 12,
             borderTop: "0.5px solid rgba(200,170,90,0.2)",
           }}>
-            <div><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why 6–8 PM is prime every day:</span> Massey/CDC, CallHub 2.2M-call analysis, ThinkingPhones 25M-call analysis, WFM collections benchmark, and MIT lead-response all converge on early-evening peak <sup>[1][2][3]</sup>.</div>
-            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why weekday 9–2 is off:</span> The famous "Tuesday 10AM" rule is B2B — homeowners aren't home. Massey: 40–46% midday vs 58–65% evening <sup>[1]</sup>. Use these hours for expired list-prep.</div>
-            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why Friday's schedule flips:</span> Homeowners are home early (4:03 PM avg logoff, 75k workers) <sup>[5]</sup>, then the 5–6 PM commute becomes the worst hour of the week <sup>[6]</sup>. So Fri 2–5 PM is prime; Fri 5–6 PM is off.</div>
-            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why Saturday is nearly all prime:</span> Massey Saturday holds 51–61% all day. CallHub found Saturday delivers the longest, highest-quality calls (41.38s avg) <sup>[1][2]</sup>.</div>
+            <div><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why 4–7 PM is prime every weekday:</span> Massey/CDC, CallHub 2.2M-call analysis, ThinkingPhones 25M-call, WFM collections, and MIT lead-response all converge on late-afternoon / early-evening peak <sup>[1][2][3]</sup>. Homeowners are home from work and pre-dinner.</div>
+            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why Tue–Thu mornings are prime:</span> Homeowners run errands mid-morning but many are still home 8–10 AM before the day gets away. Mon is the exception — people are catching up on the weekend, less reachable.</div>
+            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why weekday lunch is dead:</span> Mon–Thu 12–2 PM is off. Massey shows 40–46% midday vs 58–65% evening <sup>[1]</sup>. Use lunch for list-prep, texts, or paperwork.</div>
+            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why Friday's afternoon flips:</span> Homeowners log off early (4:03 PM avg, 75k workers) <sup>[5]</sup>, so Fri 2–4 PM is prime. But 5–6 PM becomes the worst commute of the week <sup>[6]</sup> — downgraded to low.</div>
+            <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why Saturday is mostly prime:</span> Massey Saturday holds 51–61% all day. CallHub found Saturday delivers the longest, highest-quality calls (41.38s avg) <sup>[1][2]</sup>. Only midday 12–3 PM softens to mid — people run errands then.</div>
             <div style={{ marginTop: 5 }}><span style={{ color: "#e8c96a", fontWeight: 500 }}>Why we stop at 8 PM:</span> Fla. Stat. § 501.616(6)(a) — commercial calls only 8 AM – 8 PM in the called party's local time. $500–$1,500 per violation <sup>[8]</sup>. Non-negotiable.</div>
           </div>
 

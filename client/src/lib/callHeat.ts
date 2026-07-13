@@ -94,11 +94,17 @@ export function computeCallHeat(now: Date = new Date(), tz: string = "America/Ne
   let color: string;
   let needsConfirm = false;
   switch (tier) {
-    case "prime":   label = "PRIME TIME"; color = "#ef4444"; break; // red-500
-    case "mid":     label = "MID TIME";   color = "#f59e0b"; break; // amber-500
-    case "low":     label = "LOW TIME";   color = "#eab308"; needsConfirm = true; break; // yellow-500 (softer than amber)
-    case "down":    label = "DOWNTIME";   color = "#6b7280"; needsConfirm = true; break; // gray-500
-    case "illegal": label = "TCPA BLOCK"; color = "#1f2937"; break; // gray-800 — hard block, no confirm bypass
+    // v15.11.22 — New color scheme aligned to multiplier tiers:
+    //   green   → prime (2×)
+    //   yellow  → mid   (1.5×)
+    //   orange  → low   (1.25×)
+    //   gray    → down  (1×, dial-locked)
+    //   dark gray → illegal (no calls, TCPA block)
+    case "prime":   label = "PRIME TIME"; color = "#22c55e"; break; // green-500 — dial hard
+    case "mid":     label = "MID TIME";   color = "#eab308"; break; // yellow-500
+    case "low":     label = "LOW TIME";   color = "#f97316"; needsConfirm = true; break; // orange-500
+    case "down":    label = "DOWNTIME";   color = "#9ca3af"; needsConfirm = true; break; // gray-400 (lighter than illegal)
+    case "illegal": label = "TCPA BLOCK"; color = "#1f2937"; break; // gray-800 — darkest, hard block
   }
 
   // Reason — grounded in the reconciled research

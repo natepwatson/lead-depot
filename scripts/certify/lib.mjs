@@ -8,7 +8,10 @@ import { execSync } from 'node:child_process';
 
 export const BASE           = process.env.BASE || 'https://depot.watsonbrothersgroup.com';
 export const ADMIN_EMAIL    = process.env.LD_EMAIL || 'nate@watsonbrothersgroup.com';
-export const ADMIN_PASSWORD = process.env.LD_PASS  || 'brothers2028Xyz!';
+// v15.11.28 — Nate's actual admin password. The prior default 'brothers2028Xyz!' was
+// stale (Nate rotated to TopProducer2026), which caused the 3 AM nightly certify cron
+// to 401 on every admin-gated check. Keep this in sync when Nate's password rotates.
+export const ADMIN_PASSWORD = process.env.LD_PASS  || 'TopProducer2026';
 export const EXPECT_VERSION = process.env.EXPECT_VERSION || null;
 
 // Fixture markers. Any agent or lead created by certify carries is_test=1

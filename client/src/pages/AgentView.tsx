@@ -1038,6 +1038,10 @@ function LeadCard({ lead }: { lead: Lead }) {
         qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
         qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
         qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
+        // v15.11.28 — Same override-clear as outcomeMutation. Recycle closes
+        // the lead; if it came from Who-Called-Me, clear the pin so the pool loads.
+        try { sessionStorage.removeItem("pending_lead_jump"); } catch {}
+        window.dispatchEvent(new Event("pending_lead_jump_changed"));
       }, 900);
     },
     onError: () => toast({ title: "Error recycling lead", variant: "destructive" }),
@@ -1158,6 +1162,21 @@ function LeadCard({ lead }: { lead: Lead }) {
         qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
         qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
         qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
+        // v15.11.28 — If this outcome closed the lead (Not Interested nice/rude, Recycle,
+        // KIT, Appt, Listed, Wrong #), and the current lead came from a Who-Called-Me /
+        // search-selected pendingLeadId override, clear the override so the Dial screen
+        // advances to the next pool lead. Without this, /api/leads/by-id keeps returning
+        // the (now-closed) lead until refetch; the pool pull is masked. Reported by
+        // Bronson: tapped Not Interested → Nice on Marcos, screen didn't advance.
+        const CLOSING_OUTCOMES = new Set([
+          "contacted_not_interested", "nice_not_interested",
+          "contacted_appointment", "keep_in_touch",
+          "recycled", "listed", "wrong_number", "disconnected",
+        ]);
+        if (CLOSING_OUTCOMES.has(variables.outcome as string)) {
+          try { sessionStorage.removeItem("pending_lead_jump"); } catch {}
+          window.dispatchEvent(new Event("pending_lead_jump_changed"));
+        }
       }, 900);
     },
     onError: () => toast({ title: "Error saving outcome", variant: "destructive" }),

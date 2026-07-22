@@ -343,7 +343,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.35 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.36 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -402,7 +402,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.35 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.36 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -687,7 +687,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.35 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.36 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1928,7 +1928,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.35</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.36</p>
             </div>
           `,
         });
@@ -2088,7 +2088,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.35 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.36 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -5395,6 +5395,78 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json(computeSkipQuota(agentId));
   });
 
+  // v15.11.36 — POST /api/admin/agents/:id/reset-skips
+  // Admin-only. Clears an agent's daily skip quota AND removes any per-agent
+  // day-long holdouts they collected from skipping. Alex request 7/22: agents
+  // only get 3 skips and then they're blocked — admin needs a way to unblock
+  // them mid-day (e.g. after resolving whatever glitched lead pushed them to
+  // burn skips in the first place). Skip activity rows are NOT deleted — they
+  // are rewritten to outcome='skip_cleared_by_admin' so the audit trail stays
+  // intact but the daily-cap query (which matches outcome='skipped') stops
+  // counting them. The rewrite is scoped to TODAY only (created_at >= EDT
+  // midnight) so a reset never touches history from previous days.
+  app.post("/api/admin/agents/:id/reset-skips", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const agentId = parseInt(req.params.id);
+    if (!agentId || isNaN(agentId)) return res.status(400).json({ error: "Missing agentId" });
+    const target = storage.getAgentById(agentId);
+    if (!target) return res.status(404).json({ error: "Agent not found" });
+
+    const dayStart = todayEdtMidnightIso();
+    const before = computeSkipQuota(agentId);
+
+    // Rewrite today's 'skipped' activity rows so the daily-cap query no longer
+    // matches them. History is preserved under the new outcome tag.
+    const rewriteRes = rawDb.prepare(`
+      UPDATE lead_activity
+         SET outcome = 'skip_cleared_by_admin',
+             notes  = COALESCE(notes, '') ||
+                      (CASE WHEN COALESCE(notes,'') = '' THEN '' ELSE ' — ' END) ||
+                      'Skip cleared by admin ' || ? || ' on ' || ?
+       WHERE agent_id = ?
+         AND outcome  = 'skipped'
+         AND created_at >= ?
+    `).run(
+      (req.currentAgent?.name ?? "unknown"),
+      new Date().toISOString(),
+      agentId,
+      dayStart,
+    );
+
+    // Release any 'skipped'-reason holdouts still in effect for this agent so
+    // those leads can flow back to them today. Non-skip holdouts (if any
+    // future feature adds them) are left alone.
+    const holdRes = rawDb.prepare(`
+      DELETE FROM agent_lead_holdouts
+       WHERE agent_id = ?
+         AND reason   = 'skipped'
+         AND until    > datetime('now')
+    `).run(agentId);
+
+    // Log the admin action against the target agent.
+    try {
+      logAgentEvent({
+        actorId: req.currentAgent?.id ?? null,
+        targetId: agentId,
+        event: "skip_quota_reset",
+        before: { skipsUsed: before.used, cap: before.cap, inCooldown: before.inCooldown },
+        after:  { skipsUsed: 0, cap: before.cap, inCooldown: false },
+        notes:  `Cleared ${rewriteRes.changes} skip row(s) and released ${holdRes.changes} lead holdout(s).`,
+      });
+    } catch {}
+
+    const after = computeSkipQuota(agentId);
+    res.json({
+      ok: true,
+      agentId,
+      agentName: target.name,
+      cleared: rewriteRes.changes,
+      holdoutsReleased: holdRes.changes,
+      before: { used: before.used, remaining: before.remaining, inCooldown: before.inCooldown },
+      after,
+    });
+  });
+
   // v15.11.26 — POST /api/leads/:id/skip { agentId, notes? }
   //   Rate-limited escape hatch for glitched or misassigned leads. Behaves
   //   like Recycle for the LEAD (returns to shared pool, attempt count bumps),
@@ -6018,7 +6090,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.35 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.36 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6406,7 +6478,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.35",
+      version: "v15.11.36",
       services: results,
     });
   });
@@ -7524,7 +7596,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.35`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.36`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -8163,7 +8235,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.35</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.36</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

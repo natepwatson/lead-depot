@@ -26,7 +26,7 @@ import {
   PhoneMissed, Calendar, XCircle, CheckCircle2,
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, Heart, Map as MapIcon,
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
-  UserPlus, UserCircle2, KeyRound
+  UserPlus, UserCircle2, KeyRound, RotateCcw
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -114,7 +114,7 @@ function StatCard({ label, value, sub, accent }: { label: string; value: number 
   );
 }
 
-// v15.11.35 — Live On Air widget for the admin dashboard. Shows WHO is dialing
+// v15.11.36 — Live On Air widget for the admin dashboard. Shows WHO is dialing
 // right now by name, headshot, dial count, and last-activity relative time.
 // Refetches every 15 seconds. Renders a green pulsing indicator when ≥ 1 agent
 // is live, muted gray + "Quiet" copy when nobody has logged an outcome in the
@@ -1362,6 +1362,32 @@ export default function AdminDashboard({
     },
   });
 
+  // v15.11.36 — Reset an agent's daily skip quota. Alex request 7/22:
+  // "agents will click skip and they only have three. Then it’s blocked.
+  // I need to be able to clear them To reset." Server rewrites today's
+  // 'skipped' activity rows to 'skip_cleared_by_admin' (audit-preserving)
+  // and drops any per-agent day-long lead holdouts they collected.
+  const resetSkipsMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/agents/${id}/reset-skips`, {}).then(async r => {
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Failed to reset skips");
+      return j;
+    }),
+    onSuccess: (data: any) => {
+      const cleared = data?.cleared ?? 0;
+      const held    = data?.holdoutsReleased ?? 0;
+      toast({
+        title: `Skips reset for ${data.agentName}`,
+        description: cleared === 0 && held === 0
+          ? "No skips were used today — nothing to clear."
+          : `Cleared ${cleared} skip${cleared === 1 ? "" : "s"} and released ${held} held-out lead${held === 1 ? "" : "s"}. They're back at ${data.after?.remaining ?? 3}/${data.after?.cap ?? 3}.`,
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Reset failed", description: err?.message || "Could not reset skips", variant: "destructive" });
+    },
+  });
+
   // v14.62 Phase D — merge two agents. Source becomes a tombstone pointing at target;
   // all leads / activities re-parent to target. Uses existing POST /api/admin/agents/merge
   // (Phase B shared function — admin path and self-service path stay identical).
@@ -1726,7 +1752,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.11.35
+              v15.11.36
             </p>
           </div>
         </div>
@@ -2057,10 +2083,10 @@ export default function AdminDashboard({
 
           {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
           <TabsContent value="leaderboard" className="mt-5 space-y-5">
-            {/* v15.11.35 — admins compete for the monthly prize too. Same BonusCard
+            {/* v15.11.36 — admins compete for the monthly prize too. Same BonusCard
                 the agents see at the top of Dial, rendered here above the KPIs. */}
             <BonusCard />
-            {/* v15.11.35 — Live On Air widget: who is dialing RIGHT NOW, by name. */}
+            {/* v15.11.36 — Live On Air widget: who is dialing RIGHT NOW, by name. */}
             <LiveOnAirWidget />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {/* v14.49 — Pull-only model: no per-agent queues. Removed "My Lead Queue". Renamed "Active in Queue" → "Active in Pool". */}
@@ -2144,7 +2170,7 @@ export default function AdminDashboard({
                       <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
                       <div style={{ width: 40, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
-                      {/* v15.11.35 — Emails column removed (we don't do email outcomes anymore). */}
+                      {/* v15.11.36 — Emails column removed (we don't do email outcomes anymore). */}
                       <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
                   ) : (
@@ -2155,7 +2181,7 @@ export default function AdminDashboard({
                       <div style={{ width: 48, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                       <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
                       <div style={{ width: 40, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
-                      {/* v15.11.35 — Emails column removed (we don't do email outcomes anymore). */}
+                      {/* v15.11.36 — Emails column removed (we don't do email outcomes anymore). */}
                       <div className="ld-lb-supporting" style={{ width: 52, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Conv%</div>
                       <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
@@ -2315,7 +2341,7 @@ export default function AdminDashboard({
                                 <div style={{ width: 40 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
                                 </div>
-                                {/* v15.11.35 — Emails column removed. Alex: no email outcomes. */}
+                                {/* v15.11.36 — Emails column removed. Alex: no email outcomes. */}
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#c4b5fd" }}>{s.kit}</div>
                                 </div>
@@ -2339,7 +2365,7 @@ export default function AdminDashboard({
                                 <div style={{ width: 40 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
                                 </div>
-                                {/* v15.11.35 — Emails column removed. */}
+                                {/* v15.11.36 — Emails column removed. */}
                                 <div className="ld-lb-supporting" style={{ width: 52 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#67e8f9" }}>{s.convRate}%</div>
                                 </div>
@@ -3703,6 +3729,25 @@ export default function AdminDashboard({
                                 data-testid={`button-audit-log-${agent.id}`}
                               >
                                 <ScrollText size={13}/>
+                              </Button>
+                              {/* v15.11.36 — Reset today's skip quota. Admin escape hatch
+                                  for the 3-skip daily cap so a blocked agent can be unblocked
+                                  without waiting for midnight. */}
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-emerald-400"
+                                onClick={() => openConfirm({
+                                  title: `Reset today's skips for ${agent.name}?`,
+                                  message: `Clears any skips ${agent.name} used today (cap is 3/day) and releases any leads that were held out from them because of a skip. History is preserved in the audit log. Use when they've hit the cap or the 60-minute cooldown but need to keep working.`,
+                                  confirmLabel: "Reset skips",
+                                  confirmColor: "#10b981",
+                                  onConfirm: () => { closeConfirm(); resetSkipsMutation.mutate(agent.id); },
+                                })}
+                                title="Reset today's skip quota"
+                                disabled={resetSkipsMutation.isPending}
+                                data-testid={`button-reset-skips-${agent.id}`}
+                              >
+                                <RotateCcw size={13}/>
                               </Button>
                               <Button
                                 variant="ghost" size="icon"

@@ -111,7 +111,7 @@ const OUTCOME_TILES = [
   // Row 3 — wins
   { key: "contacted_appointment",    label: "Appt Set",      icon: CheckCircle2,  color: "#86efac", desc: "The green one. Appointment on the books — pushed to Follow Up Boss and pinned to your Pipeline." },
   { key: "keep_in_touch",            label: "Keep in Touch", icon: Heart,         color: "#f9a8d4", desc: "Interested but not ready. Lead is yours forever — lives in your Pipeline tab so you can nurture it." },
-  { key: "left_voicemail",           label: "Left VM",       icon: Voicemail,     color: "#93c5fd", desc: "Voicemail left. Counts as a contact attempt. Lead stays alive." },
+  { key: "left_voicemail",           label: "Owner - No Answer", icon: Voicemail, color: "#93c5fd", desc: "You confirmed the owner is on the line (spouse hand-off, partial pickup) but couldn't get a real conversation. We don't leave cold voicemails." },
 ] as const;
 
 // v15.0 — Grid position index for Appt Set. Used by Chapter 6 to glow the

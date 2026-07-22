@@ -881,6 +881,36 @@ function LeadCard({ lead }: { lead: Lead }) {
   const [pendingDialConfirm, setPendingDialConfirm] = useState<string | null>(null);
   const [showScript, setShowScript] = useState(false);
   const [hoveredOutcome, setHoveredOutcome] = useState<string | null>(null);
+  // v15.11.29 — iOS keyboard detach fix. When any text/number/textarea input
+  // on the page is focused (buyer-target inputs, KIT modal, network form, etc.),
+  // the iOS software keyboard resizes the visualViewport but position:fixed
+  // stays anchored to the layout viewport — causing the sticky outcomes bar to
+  // appear to "detach" from the bottom and float mid-screen over the content.
+  // Hiding the bar while an input is focused is the cleanest fix: agents can
+  // still see what they're typing, the bar re-anchors correctly the moment
+  // they blur the input, and outcomes aren't reachable mid-typing anyway.
+  const [inputFocused, setInputFocused] = useState(false);
+  useEffect(() => {
+    const isTextInput = (el: EventTarget | null): boolean => {
+      if (!el || !(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag === "TEXTAREA") return true;
+      if (tag === "INPUT") {
+        const t = (el as HTMLInputElement).type;
+        return t === "text" || t === "number" || t === "email" || t === "tel" || t === "search" || t === "password" || t === "url" || t === "date" || t === "time" || t === "datetime-local";
+      }
+      if ((el as HTMLElement).isContentEditable) return true;
+      return false;
+    };
+    const onFocusIn  = (e: FocusEvent) => { if (isTextInput(e.target)) setInputFocused(true); };
+    const onFocusOut = () => { setInputFocused(false); };
+    window.addEventListener("focusin",  onFocusIn);
+    window.addEventListener("focusout", onFocusOut);
+    return () => {
+      window.removeEventListener("focusin",  onFocusIn);
+      window.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
   const [pendingOutcome, setPendingOutcome] = useState<"contacted_appointment" | "keep_in_touch" | null>(null);
   const [pendingRecycle, setPendingRecycle] = useState(false);
   // v15.11.18 — Skip confirm sheet. 3/day + 60min cooldown enforced server-side.
@@ -1922,12 +1952,19 @@ function LeadCard({ lead }: { lead: Lead }) {
       {/* dynamic URL bar / home indicator on some devices. Now uses tighter minHeight, */}
       {/* smaller padding, and reserves the exact 3-row height so Row 3 (Appt Set / KIT / Left VM) */}
       {/* is always visible without scrolling. */}
+      {/* v15.11.29 — Hide entirely when an input is focused (iOS keyboard open).
+         Fixes the "detach from bottom / floats mid-screen" bug Alex hit while
+         typing into a buyer-target field mid-dial. Reappears the moment the
+         input blurs. */}
       <div style={{
         position: "fixed", left: 0, right: 0,
         // v14.43 — lift above the bottom nav (h ≈ 62px + safe-area) so Row 3 (Appt Set / KIT / Left VM)
         // is not covered. Prior version had bottom:0 which put Row 3 UNDER the Dashboard/Refer nav bar.
         bottom: "calc(62px + env(safe-area-inset-bottom, 0px))",
         zIndex: 40,
+        // v15.11.29 — keyboard-open detach fix
+        display: inputFocused ? "none" : undefined,
+        visibility: inputFocused ? "hidden" : undefined,
         background: "linear-gradient(180deg, rgba(10,14,22,0.75) 0%, rgba(10,14,22,0.96) 30%, rgba(10,14,22,0.98) 100%)",
         backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
         borderTop: "1px solid rgba(200,170,90,0.22)",
@@ -2384,7 +2421,7 @@ const BONUS_CONFIG = {
   cta: "Dial. Rank. Win. →",
 };
 
-function BonusCard() {
+export function BonusCard() {
   const { data: leaderboard = [] } = useQuery<any[]>({
     queryKey: ["/api/agent/leaderboard"],
     queryFn: () => apiRequest("GET", "/api/agent/leaderboard").then(r => r.json()),

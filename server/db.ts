@@ -835,13 +835,17 @@ rawDb.prepare("UPDATE leads SET dead_lines = '[]' WHERE dead_lines IS NULL OR de
 // boot we upsert the current Expired script content so a redeploy is enough
 // to update it. Other lead_type scripts (fsbo, land, etc.) are managed via the
 // admin PATCH /api/scripts/:type endpoint and are not touched here.
+// v15.11.30: seed the row ONLY when the DB is fresh. Admin edits via
+// PATCH /api/scripts/expired now persist across every deploy — the previous
+// ON CONFLICT DO UPDATE overwrote Alex's admin-UI changes on every restart.
 try {
   rawDb.prepare(`
     INSERT INTO scripts (lead_type, content, updated_at)
     VALUES ('expired', ?, ?)
-    ON CONFLICT(lead_type) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at
+    ON CONFLICT(lead_type) DO NOTHING
   `).run(EXPIRED_SCRIPT_V14_16, new Date().toISOString());
-  console.log("[db] v14.16 Expired script seeded into scripts table");
+  const row = rawDb.prepare("SELECT updated_at FROM scripts WHERE lead_type = 'expired'").get() as any;
+  console.log("[db] v15.11.30 expired script row present (updated_at=" + (row?.updated_at || "none") + ") — admin edits preserved");
 } catch (e: any) {
   console.error("[db] Expired script seed failed:", e.message);
 }

@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
-import { CallbackLookupModal } from "./AgentView";
+import { CallbackLookupModal, BonusCard } from "./AgentView";
 
 // ── Logo ─────────────────────────────────────────────────────────────────────
 function LogoIcon({ size = 28 }: { size?: number }) {
@@ -1643,7 +1643,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.11.29
+              v15.11.30
             </p>
           </div>
         </div>
@@ -1974,6 +1974,9 @@ export default function AdminDashboard({
 
           {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
           <TabsContent value="leaderboard" className="mt-5 space-y-5">
+            {/* v15.11.30 — admins compete for the monthly prize too. Same BonusCard
+                the agents see at the top of Dial, rendered here above the KPIs. */}
+            <BonusCard />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {/* v14.49 — Pull-only model: no per-agent queues. Removed "My Lead Queue". Renamed "Active in Queue" → "Active in Pool". */}
               <StatCard label="Total Leads" value={stats?.totalLeads ?? 0} />

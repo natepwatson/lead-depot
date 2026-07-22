@@ -23,7 +23,8 @@ const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
 
 const MOTIVATIONAL: Record<HeatTier, string> = {
-  prime: "When the light is red, be relentless. Every dial now is worth two at any other time.",
+  // v15.11.32 — the grid uses green for Prime (not red). Copy was inverted.
+  prime: "When the light is green, be relentless. Every dial now is worth two at any other time.",
   mid: "The warmup matters. Ten dials in mid time load the pipeline for the sprint.",
   low: "Shoulder hour — the data disagrees. Dial the ones you're already excited about.",
   down: "Rest the leads. The best callers dial when the data says answer — not when they feel like it.",
@@ -353,10 +354,11 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
           }}>
             <div style={{ color: "#22c55e", fontWeight: 600, marginBottom: 6, letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Why bother — points multiply</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px 12px", fontSize: 11 }}>
-              <div><span style={{ color: "#22c55e", fontWeight: 600 }}>Prime</span> → 2× (appt = 80)</div>
-              <div><span style={{ color: "#eab308", fontWeight: 600 }}>Mid</span> → 1.5× (appt = 60)</div>
-              <div><span style={{ color: "#f97316", fontWeight: 600 }}>Low</span> → 1.25× (appt = 50)</div>
-              <div><span style={{ color: "#9ca3af", fontWeight: 600 }}>Down</span> → 1× (appt = 40)</div>
+              {/* v15.11.32 — base appt is 60 now (up from 40). Multipliers: */}
+              <div><span style={{ color: "#22c55e", fontWeight: 600 }}>Prime</span> → 2× (appt = 120)</div>
+              <div><span style={{ color: "#eab308", fontWeight: 600 }}>Mid</span> → 1.5× (appt = 90)</div>
+              <div><span style={{ color: "#f97316", fontWeight: 600 }}>Low</span> → 1.25× (appt = 75)</div>
+              <div><span style={{ color: "#9ca3af", fontWeight: 600 }}>Down</span> → 1× (appt = 60)</div>
             </div>
             <div style={{ marginTop: 6, color: "rgba(243,243,243,0.7)", fontSize: 10.5 }}>
               A prime-hour appt is worth double a downtime appt. Dial when it counts.

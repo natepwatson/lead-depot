@@ -854,6 +854,183 @@ function IntelStrip({ lead }: { lead: any }) {
   );
 }
 
+// v15.11.37 — Coach's Corner. Rotating advice deck shown between the lead
+// card and the outcome buttons. Alex request 7/22: agents need to be aware
+// that filling in their home address routes hyper-local leads to them, that
+// Keep-in-Touch requires an email to actually win the lead into pipeline,
+// that Appts are worth the most points (double in Prime), plus general
+// rapport-building coaching. Cards rotate every 12s. Home-base card only
+// renders when the agent hasn't set homeCounty yet — once they have, it
+// drops out of the rotation so we're not nagging them about something
+// already done.
+type AdviceTone = "points" | "rapport" | "pipeline" | "local";
+interface AdviceCard {
+  id: string;
+  tone: AdviceTone;
+  eyebrow: string;
+  headline: string;
+  body: string;
+}
+const ADVICE_TONES: Record<AdviceTone, { border: string; bg: string; accent: string; label: string }> = {
+  points:   { border: "rgba(200,170,90,0.35)",  bg: "rgba(200,170,90,0.06)",  accent: "#e5c98a", label: "POINTS" },
+  rapport:  { border: "rgba(147,197,253,0.35)", bg: "rgba(59,130,246,0.06)",  accent: "#93c5fd", label: "RAPPORT" },
+  pipeline: { border: "rgba(134,239,172,0.35)", bg: "rgba(16,185,129,0.06)",  accent: "#86efac", label: "PIPELINE" },
+  local:    { border: "rgba(216,180,254,0.35)", bg: "rgba(168,85,247,0.06)",  accent: "#d8b4fe", label: "HYPER-LOCAL" },
+};
+const BASE_ADVICE: AdviceCard[] = [
+  {
+    id: "appts-points",
+    tone: "points",
+    eyebrow: "Appts print the most",
+    headline: "60 points per appt — 120 in Prime Time.",
+    body: "An appointment is the highest-scoring outcome on the board. During Prime the multiplier doubles it. One appt in Prime = a full day of dials on a slow hour. Chase the appt every conversation.",
+  },
+  {
+    id: "kit-email",
+    tone: "pipeline",
+    eyebrow: "Keep in Touch = won lead",
+    headline: "A KIT with no email doesn’t save the win.",
+    body: "Keep-in-Touch only lands in your pipeline when you capture the seller’s email. No email, no ownership — the lead flows back to the pool. Ask for it plainly: \"What’s the best email to send you the market snapshot?\"",
+  },
+  {
+    id: "home-base",
+    tone: "local",
+    eyebrow: "Hyper-local wins",
+    headline: "Set your home base — leads near you get prioritized.",
+    body: "Your home address in Profile sets your home county, and the pool routes matching-county leads to you first. Same streets, same schools, same drives — the connection lands harder. If yours is blank, fix it in Profile now.",
+  },
+  {
+    id: "prime-double",
+    tone: "points",
+    eyebrow: "Prime Time doubles everything",
+    headline: "When the light is green, points x2.",
+    body: "Every scored outcome doubles during Prime windows. Appts jump to 120, KIT to 30, referrals stay flat but you’re still stacking. Load leads and don’t stop — the multiplier is why the day’s leaderboard swings in one hour.",
+  },
+  {
+    id: "rapport-name",
+    tone: "rapport",
+    eyebrow: "Build rapport fast",
+    headline: "Use their name in the first ten seconds.",
+    body: "\"Hi, is this Jorge?\" beats \"Am I speaking with the homeowner?\" every time. Confirm the name from the card the second they pick up. It reads as familiar, not scripted.",
+  },
+  {
+    id: "rapport-property",
+    tone: "rapport",
+    eyebrow: "Mirror the property",
+    headline: "Compliment something real — not generic.",
+    body: "\"That corner lot on Fall River is a beautiful piece of land\" lands. \"Nice house\" doesn’t. The lead card shows beds, baths, sqft, list price — pull one specific detail and mention it before you pitch anything.",
+  },
+  {
+    id: "rapport-listen",
+    tone: "rapport",
+    eyebrow: "Talk less, land more",
+    headline: "Ask, then shut up. Silence is your friend.",
+    body: "After \"What’s making you think about selling?\" — count to five before you say another word. Sellers fill the silence, and what they fill it with is the actual motivation. Everything after that is easier.",
+  },
+  {
+    id: "rapport-lpmamab",
+    tone: "rapport",
+    eyebrow: "LPMAMAB is a rapport tool",
+    headline: "You’re not interviewing — you’re listening.",
+    body: "Location, Price, Motivation, Agent, Mortgage, Appointment, Buyer. Weave them into a conversation, don’t machine-gun them. Every field you fill in is context you can quote back to the seller on the next call.",
+  },
+  {
+    id: "appt-set-today",
+    tone: "points",
+    eyebrow: "The appt is the ask",
+    headline: "Every real conversation ends in one of two places.",
+    body: "Either an appointment, or a reason it isn’t one yet (and that’s a KIT with a follow-up date). If you hang up with neither, the call didn’t close. Push gently for the calendar every single time.",
+  },
+  {
+    id: "referral-network",
+    tone: "points",
+    eyebrow: "Network leads = 20 flat",
+    headline: "Give a referral, keep the credit.",
+    body: "When you send a lead to another agent as a network referral, it books 20 points instantly and lands in your pipeline under Network. Not every conversation is yours to close — hand it off, get paid.",
+  },
+];
+
+function AdviceCarousel() {
+  const { user } = useAuth();
+  const homeCounty = ((user as any)?.homeCounty || "").toString().trim();
+  const homeAddress = ((user as any)?.homeAddress || "").toString().trim();
+  const hasHomeBase = homeCounty.length > 0 || homeAddress.length > 0;
+
+  // Drop the home-base nag once they've set a home address/county so we're
+  // not lecturing them about something already done. Everything else stays.
+  const cards = React.useMemo(() => {
+    return BASE_ADVICE.filter(c => c.id !== "home-base" || !hasHomeBase);
+  }, [hasHomeBase]);
+
+  const [idx, setIdx] = useState(0);
+  React.useEffect(() => {
+    if (cards.length <= 1) return;
+    const t = setInterval(() => setIdx(i => (i + 1) % cards.length), 12_000);
+    return () => clearInterval(t);
+  }, [cards.length]);
+
+  if (cards.length === 0) return null;
+  const card = cards[idx % cards.length];
+  const tone = ADVICE_TONES[card.tone];
+
+  return (
+    <div
+      key={card.id}
+      style={{
+        margin: "16px 4px 0",
+        padding: "14px 16px 16px",
+        borderRadius: 14,
+        background: tone.bg,
+        border: `1px solid ${tone.border}`,
+        position: "relative",
+        animation: "cardSlideIn 320ms cubic-bezier(0.4,0,0.2,1)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: 999, background: tone.accent,
+            boxShadow: `0 0 10px ${tone.accent}88`,
+          }} />
+          <span style={{
+            fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase",
+            color: tone.accent, fontWeight: 700,
+          }}>{tone.label} · Coach’s Corner</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {cards.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setIdx(i)}
+              aria-label={`Advice ${i + 1} of ${cards.length}`}
+              style={{
+                width: i === (idx % cards.length) ? 14 : 5,
+                height: 5, borderRadius: 999,
+                background: i === (idx % cards.length) ? tone.accent : "rgba(255,255,255,0.18)",
+                border: "none", padding: 0, cursor: "pointer",
+                transition: "width 200ms ease, background 200ms ease",
+              }}
+            />
+          ))}
+        </div>
+      </div>
+      <p style={{
+        fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase",
+        color: "rgba(255,255,255,0.5)", margin: "0 0 4px", fontWeight: 600,
+      }}>{card.eyebrow}</p>
+      <h4 style={{
+        fontFamily: "'Cormorant Garamond','Georgia',serif",
+        fontSize: 20, lineHeight: 1.2, fontWeight: 500,
+        color: "#fff", margin: "0 0 8px",
+      }}>{card.headline}</h4>
+      <p style={{
+        fontSize: 13, lineHeight: 1.55,
+        color: "rgba(255,255,255,0.72)", margin: 0,
+      }}>{card.body}</p>
+    </div>
+  );
+}
+
 function LeadCard({ lead }: { lead: Lead }) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -4360,6 +4537,10 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
                     <div key={displayedLead.id} style={{ animation: "cardSlideIn 260ms cubic-bezier(0.4,0,0.2,1)" }}>
                       <LeadCard lead={displayedLead} />
                     </div>
+                    {/* v15.11.37 — Coach's Corner. Rotating advice cards sit
+                        under the lead card so agents see them mid-dial without
+                        blocking the outcome buttons. */}
+                    <AdviceCarousel />
                   </>
                 )}
               </>

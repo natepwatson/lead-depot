@@ -2440,8 +2440,12 @@ export function BonusCard() {
   const secs = Math.floor((ms % 60000) / 1000);
   const expired = ms === 0;
 
-  // #1 by points (leaderboard is already sorted by points desc)
-  const leader = leaderboard[0];
+  // #1 by points (leaderboard is already sorted by points desc).
+  // v15.11.31 fix: API row shape is { agent: { name, headshotUrl }, points, ... }
+  // — previous code read leader?.name (always undefined), so the card always
+  // showed "No leader yet—be the first" even when there was a clear #1. Flatten.
+  const raw = leaderboard[0] as any;
+  const leader = raw?.agent ? { ...raw.agent, points: raw.points } : raw;
   const leaderInitials = leader?.name
     ? leader.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase()
     : "—";
@@ -2872,19 +2876,16 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
           receptivity weighted from MIT/InsideSales, CallHippo, PhoneBurner, Cognism. */}
       {mode === "seller" && <CallHeatMeter />}
 
-      {/* ── Personal stats — v14.24: Appts hero (big), then Points, Dials, Emails ── */}
+      {/* ── Personal stats — v15.11.31: Emails column removed. Alex: we do not
+           track / reward / display emails, cold sends, or voicemails anymore. */}
       {myStats && (
         <>
-        {/* v15.8 — KIT above Emails: KIT is a real conversation win, cold Emails
-            are fire-and-forget. Order: Appts (hero), Points, Total Calls, KIT, Emails.
-            Grid columns bumped to 5 to fit both KIT and Emails without dropping either. */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: apptsGap > 0 || pointsGap > 0 ? 10 : 28 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: 8, marginBottom: apptsGap > 0 || pointsGap > 0 ? 10 : 28 }}>
           {[
             { label: "Appts Set",   value: myStats.appointmentsSet,                             hero: true },
             { label: "Points",      value: myStats.points ?? 0,                                   hero: false },
             { label: "Total Calls", value: myStats.totalAttempts,                                 hero: false },
             { label: "KIT",         value: (myStats.outcomes?.keep_in_touch) ?? 0,                hero: false },
-            { label: "Emails",      value: myStats.emailsSent ?? 0,                               hero: false },
           ].map(s => (
             <div key={s.label} style={{
               padding: s.hero ? "18px 8px" : "14px 8px", textAlign: "center",
@@ -3045,14 +3046,11 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                       <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.7)", lineHeight: 1 }}>{s.totalAttempts}</p>
                       <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>DIALS</p>
                     </div>
-                    {/* v15.8 — KIT above Emails: KIT is a real conversation win vs. cold email fire-and-forget */}
+                    {/* v15.11.31 — Emails column removed. Alex: we do not send emails
+                        as an outcome anymore. KIT stays; nothing replaces Emails. */}
                     <div style={{ textAlign: "right", minWidth: 30 }}>
                       <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(249,168,212,0.85)", lineHeight: 1 }}>{(s.outcomes?.keep_in_touch) ?? 0}</p>
                       <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>KIT</p>
-                    </div>
-                    <div style={{ textAlign: "right", minWidth: 30 }}>
-                      <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(147,197,253,0.85)", lineHeight: 1 }}>{s.emailsSent ?? 0}</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>EMAILS</p>
                     </div>
                   </div>
                 </div>

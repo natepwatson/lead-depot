@@ -114,6 +114,89 @@ function StatCard({ label, value, sub, accent }: { label: string; value: number 
   );
 }
 
+// v15.11.31 — Live On Air widget for the admin dashboard. Shows WHO is dialing
+// right now by name, headshot, dial count, and last-activity relative time.
+// Refetches every 15 seconds. Renders a green pulsing indicator when ≥ 1 agent
+// is live, muted gray + "Quiet" copy when nobody has logged an outcome in the
+// last 10 minutes. Alex asked for desktop visibility — the phone-side pill in
+// AgentView never made it to the admin console.
+function LiveOnAirWidget() {
+  const { data } = useQuery<{ agents: Array<{ id: number; name: string; headshotUrl: string | null; dials: number; lastActivityAt: string }>; count: number; windowMinutes: number }>({
+    queryKey: ["/api/agents/live-agents"],
+    queryFn: () => apiRequest("GET", "/api/agents/live-agents").then(r => r.json()),
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+    staleTime: 5000,
+  });
+  const agents = data?.agents || [];
+  const count = data?.count || 0;
+  const isLive = count > 0;
+
+  function agoMin(iso: string) {
+    const ms = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(ms / 60000);
+    if (m < 1) return "just now";
+    if (m === 1) return "1m ago";
+    return `${m}m ago`;
+  }
+
+  return (
+    <div style={{
+      background: isLive
+        ? "linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(10,9,8,0.6) 60%)"
+        : "linear-gradient(135deg, #0f0f0f 0%, #0a0a0a 100%)",
+      border: `1px solid ${isLive ? "rgba(34,197,94,0.28)" : "rgba(200,170,90,0.1)"}`,
+      borderRadius: 12,
+      padding: "14px 16px",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: agents.length > 0 ? 12 : 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: isLive ? "#4ade80" : "rgba(255,255,255,0.2)",
+            boxShadow: isLive ? "0 0 8px rgba(74,222,128,0.7)" : "none",
+            animation: isLive ? "livePulse 1.8s ease-in-out infinite" : "none",
+          }} />
+          <span style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: isLive ? "rgba(134,239,172,0.9)" : "rgba(255,255,255,0.35)", fontWeight: 600 }}>
+            {isLive ? `${count} On Air · Live` : "Quiet — nobody dialing"}
+          </span>
+        </div>
+        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)" }}>last 10 min</span>
+      </div>
+      {agents.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
+          {agents.map(a => (
+            <div key={a.id} style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "8px 10px",
+              background: "rgba(200,170,90,0.05)",
+              border: "1px solid rgba(200,170,90,0.14)",
+              borderRadius: 8,
+            }}>
+              {a.headshotUrl ? (
+                <img src={a.headshotUrl} alt="" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(74,222,128,0.5)" }} />
+              ) : (
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(200,170,90,0.2)", border: "1px solid rgba(74,222,128,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, color: "#c8aa5a" }}>
+                  {(a.name || "?").split(" ").map(w => w[0]).slice(0, 2).join("")}
+                </div>
+              )}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12, color: "#fff", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {a.name}
+                </div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", marginTop: 1 }}>
+                  {a.dials} dial{a.dials === 1 ? "" : "s"} · {agoMin(a.lastActivityAt)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <style>{`@keyframes livePulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.15); } }`}</style>
+    </div>
+  );
+}
+
 // RFC-4180 compliant CSV parser — handles quoted fields with commas and newlines
 function parseCSV(text: string): Record<string, string>[] {
   // Tokenize: returns array of rows, each row is array of field strings
@@ -1643,7 +1726,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.11.30
+              v15.11.31
             </p>
           </div>
         </div>
@@ -1974,9 +2057,11 @@ export default function AdminDashboard({
 
           {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
           <TabsContent value="leaderboard" className="mt-5 space-y-5">
-            {/* v15.11.30 — admins compete for the monthly prize too. Same BonusCard
+            {/* v15.11.31 — admins compete for the monthly prize too. Same BonusCard
                 the agents see at the top of Dial, rendered here above the KPIs. */}
             <BonusCard />
+            {/* v15.11.31 — Live On Air widget: who is dialing RIGHT NOW, by name. */}
+            <LiveOnAirWidget />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {/* v14.49 — Pull-only model: no per-agent queues. Removed "My Lead Queue". Renamed "Active in Queue" → "Active in Pool". */}
               <StatCard label="Total Leads" value={stats?.totalLeads ?? 0} />
@@ -2059,7 +2144,7 @@ export default function AdminDashboard({
                       <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
                       <div style={{ width: 40, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
+                      {/* v15.11.31 — Emails column removed (we don't do email outcomes anymore). */}
                       <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
                   ) : (
@@ -2070,7 +2155,7 @@ export default function AdminDashboard({
                       <div style={{ width: 48, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                       <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
                       <div style={{ width: 40, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
-                      <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Emails</div>
+                      {/* v15.11.31 — Emails column removed (we don't do email outcomes anymore). */}
                       <div className="ld-lb-supporting" style={{ width: 52, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Conv%</div>
                       <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
@@ -2230,12 +2315,9 @@ export default function AdminDashboard({
                                 <div style={{ width: 40 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
                                 </div>
-                                {/* v15.8 — KIT promoted to primary and moved ahead of Emails */}
+                                {/* v15.11.31 — Emails column removed. Alex: no email outcomes. */}
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#c4b5fd" }}>{s.kit}</div>
-                                </div>
-                                <div style={{ width: 44 }}>
-                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
                                 </div>
                                 <div className="ld-lb-supporting" style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#fde68a" }}>{s.referrals}</div>
@@ -2257,9 +2339,7 @@ export default function AdminDashboard({
                                 <div style={{ width: 40 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
                                 </div>
-                                <div style={{ width: 44 }}>
-                                  <div style={{ fontSize: 17, fontWeight: 300, color: "#fbcfe8" }}>{s.emails}</div>
-                                </div>
+                                {/* v15.11.31 — Emails column removed. */}
                                 <div className="ld-lb-supporting" style={{ width: 52 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#67e8f9" }}>{s.convRate}%</div>
                                 </div>

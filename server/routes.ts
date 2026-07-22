@@ -78,9 +78,9 @@ function awardPoints(
   // conversation. Network referral is meaningful but doesn't move revenue directly.
   // Emails and voicemails award ZERO points — they were noise. Base dial fallback = 1.
   const pts: Record<string, number> = {
-    contacted_appointment:     40,   // The only revenue-generating outcome. Reigns supreme.
-    keep_in_touch:             20,   // Real conversation, future revenue.
-    network_referral:          15,   // Referral submission — nice but not revenue-direct.
+    contacted_appointment:     60,   // v15.11.31 — bumped 40→60. One Prime appt (120 pts) crushes 8 Prime KITs. Producers win.
+    keep_in_touch:             15,   // v15.11.31 — trimmed 20→15. Still real convo value but no longer dial-farmable.
+    network_referral:          20,   // v15.11.31 — bumped 15→20. Referrals ARE revenue-direct.
     contacted_not_interested:   5,   // Real contact, worth something.
     listed:                     3,   // Rare informational outcome.
     recycled:                   2,   // Re-queue, minor effort.
@@ -343,7 +343,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.30 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.31 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -402,7 +402,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.30 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.31 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -687,7 +687,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.30 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.31 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1366,6 +1366,35 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
+  // v15.11.31 — WHO is dialing right now. Returns name, headshot, dials-in-window,
+  // last-activity-timestamp per agent with a lead_activity row in the last 10 min.
+  // Powers the desktop admin "Live On Air" widget so Alex can see — by name —
+  // exactly who's on the phone at this moment. Same 10-min window as /live-count
+  // so the count and the roster always match.
+  app.get("/api/agents/live-agents", (req, res) => {
+    try {
+      const windowMs = 10 * 60 * 1000;
+      const cutoff = new Date(Date.now() - windowMs).toISOString();
+      const rows = rawDb.prepare(
+        `SELECT a.id, a.name, a.headshot_url AS headshotUrl,
+                COUNT(la.id) AS dials,
+                MAX(la.created_at) AS lastActivityAt
+         FROM lead_activity la
+         JOIN agents a ON a.id = la.agent_id
+         WHERE la.created_at >= ?
+           AND a.is_active = 1
+           AND a.role = 'agent'
+           AND la.agent_id IS NOT NULL
+         GROUP BY a.id
+         ORDER BY MAX(la.created_at) DESC`
+      ).all(cutoff);
+      res.json({ windowMinutes: 10, agents: rows, count: rows.length });
+    } catch (e: any) {
+      console.error("[live-agents] failed:", e);
+      res.json({ windowMinutes: 10, agents: [], count: 0 });
+    }
+  });
+
   app.post("/api/agents", async (req, res) => {
     // v14.63 — SECURITY: was fully ungated. Admin-only create.
     if (!requireAdmin(req, res)) return;
@@ -1899,7 +1928,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.30</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.31</p>
             </div>
           `,
         });
@@ -2059,7 +2088,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.30 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.31 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -5989,7 +6018,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.30 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.31 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6377,7 +6406,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.30",
+      version: "v15.11.31",
       services: results,
     });
   });
@@ -7495,7 +7524,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.30`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.31`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -8134,7 +8163,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.30</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.31</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

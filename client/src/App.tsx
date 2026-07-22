@@ -164,6 +164,16 @@ export default function App() {
             {/* v12.5 — Recruiting Depot (admin-only, guarded in AppRoutes) */}
             <Route path="/recruiting" component={AppRoutes} />
             <Route path="/" component={AppRoutes} />
+            {/* v15.11.31 — defensive catch: any hash path we don't own routes home
+                instead of 404. Prevents stale bookmarks and mis-typed URLs from
+                dead-ending in the tiny 404 card. */}
+            <Route path="/leaderboard" component={AppRoutes} />
+            <Route path="/dial" component={AppRoutes} />
+            <Route path="/dashboard" component={AppRoutes} />
+            <Route path="/leads" component={AppRoutes} />
+            <Route path="/pipeline" component={AppRoutes} />
+            <Route path="/profile" component={AppRoutes} />
+            <Route path="/refer" component={AppRoutes} />
             <Route component={NotFound} />
           </Switch>
         </Router>

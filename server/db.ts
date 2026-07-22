@@ -247,17 +247,56 @@ for (const t of TERRITORIES) {
   try { rawDb.prepare("INSERT OR IGNORE INTO territories (name) VALUES (?)").run(t); } catch {}
 }
 
+// v15.11.34 — Cory Deroin and Denise Jacobs REMOVED (Alex request 7/22).
+// Their entries are intentionally deleted from headshotMap. Do NOT restore.
 const headshotMap: Record<string, string> = {
   "Bronson Sarmento": "bronson-sarmento",
-  "Cory Deroin":      "cory-deroin",
   "Vonda Jewell":     "vonda-jewell",
   "Gabriel Duran":    "gabriel-duran",
-  "Denise Jacobs":    "denise-jacobs",
   "Nate Watson":      "nate-watson",
   "Alex Watson":      "alex-watson",
   "Noah Tomlinson":   "noah-tomlinson",  // v14.17
   "Gabriel Marcano":  "gabriel-marcano", // v15.11.6
 };
+
+// v15.11.34 — HARD-REMOVED AGENTS. This sweep runs on every Railway restart
+// and forcibly deactivates any agent whose name/email matches the blacklist,
+// regardless of headshot state or admin toggle. This is the belt-and-braces
+// counterpart to removing them from headshotMap — the earlier sweep only
+// deactivates when headshot_url is missing, but these two already have valid
+// URLs, so we need an explicit rule. Alex requested permanent removal 7/22.
+// If either is ever intentionally re-added in the future, delete their entry
+// from this array first.
+const HARD_REMOVED_AGENTS: Array<{ name: string; emailPrefix: string }> = [
+  { name: "Cory Deroin",   emailPrefix: "corylderoin@" },
+  { name: "Denise Jacobs", emailPrefix: "denise@watsonbrothersgroup.com" },
+];
+try {
+  for (const rm of HARD_REMOVED_AGENTS) {
+    const rows = rawDb.prepare(`
+      SELECT id, email FROM agents
+       WHERE name = ?
+         AND email NOT LIKE 'tombstone:%'
+    `).all(rm.name) as any[];
+    for (const r of rows) {
+      rawDb.prepare(`
+        UPDATE agents
+           SET is_active = 0,
+               lead_flow_on = 0,
+               receive_leads = 0,
+               receive_website_leads = 0,
+               can_recruit = 0,
+               deactivated_at = COALESCE(deactivated_at, ?)
+         WHERE id = ?
+      `).run(Date.now(), r.id);
+    }
+    if (rows.length > 0) {
+      console.log(`[db] v15.11.34 hard-remove: forced deactivation on ${rows.length} row(s) for "${rm.name}".`);
+    }
+  }
+} catch (err) {
+  console.error("[db] v15.11.34 hard-remove sweep failed:", err);
+}
 
 // v15.11.6 — One-shot reactivate Gabriel Marcano: he was added in a prior
 // deploy without a mapped slug and the boot sweep auto-deactivated him.

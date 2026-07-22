@@ -2195,7 +2195,7 @@ interface AgentStat {
 // v14.16 — "Who called me?" modal. Agent types last 4 digits, gets back matching leads with owner/address/agent-of-record.
 // v14.49 — Exported so AdminDashboard can reuse the same modal.
 // v14.50 — Accepts 4–15 digits (for disambiguation) and optional onPickLead for jump-to-lead.
-export function CallbackLookupModal({ onClose, onPickLead }: { onClose: () => void; onPickLead?: (leadId: number) => void }) {
+export function CallbackLookupModal({ onClose, onPickLead }: { onClose: () => void; onPickLead?: (leadId: number, destTab?: string) => void }) {
   const [digits, setDigits] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const { user } = useAuth();
@@ -2375,18 +2375,30 @@ export function CallbackLookupModal({ onClose, onPickLead }: { onClose: () => vo
                     {claiming === r.leadId ? "Claiming…" : <>✓ Claim &amp; Open in Dial</>}
                   </button>
                 ) : r.assignedAgentId === currentAgentId ? (
-                  onPickLead && (
-                    <button
-                      onClick={() => { onPickLead(r.leadId); onClose(); }}
-                      style={{
-                        marginTop: 10, width: "100%", padding: "9px",
-                        background: "linear-gradient(135deg,#c8aa5a,#a8893a)",
-                        color: "#0a0700", border: "none", borderRadius: 8,
-                        fontSize: 12, fontWeight: 700, letterSpacing: "0.1em",
-                        textTransform: "uppercase", cursor: "pointer",
-                      }}
-                    >Open in Dial →</button>
-                  )
+                  onPickLead && (() => {
+                    // v15.11.32 — If the lead is already closed (KIT / Appt /
+                    // Not Interested / Listed / Recycled / Wrong#), sending it
+                    // to Dial just triggers the CLOSED_STATUSES drop and shows
+                    // "Already ‘Keep in Touch’…" toast. Bronson's Medeiros case:
+                    // he logged KIT, then couldn't re-open the card via Who-
+                    // called-me. Route closed leads to Pipeline instead, where
+                    // the card lives.
+                    const CLOSED = new Set(["keep_in_touch","contacted_appointment","contacted_not_interested","listed","retired","wrong_number","recycled"]);
+                    const isClosed = r.status && CLOSED.has(r.status);
+                    const label = isClosed ? "Open in Pipeline →" : "Open in Dial →";
+                    return (
+                      <button
+                        onClick={() => { onPickLead(r.leadId, isClosed ? "pipeline" : "leads"); onClose(); }}
+                        style={{
+                          marginTop: 10, width: "100%", padding: "9px",
+                          background: "linear-gradient(135deg,#c8aa5a,#a8893a)",
+                          color: "#0a0700", border: "none", borderRadius: 8,
+                          fontSize: 12, fontWeight: 700, letterSpacing: "0.1em",
+                          textTransform: "uppercase", cursor: "pointer",
+                        }}
+                      >{label}</button>
+                    );
+                  })()
                 ) : (
                   <div style={{
                     marginTop: 10, padding: "9px 10px", borderRadius: 8,
@@ -4332,11 +4344,22 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
         {globalLookupOpen && (
           <CallbackLookupModal
             onClose={() => setGlobalLookupOpen(false)}
-            onPickLead={(leadId: number) => {
-              try { sessionStorage.setItem("pending_lead_jump", String(leadId)); } catch {}
-              setPendingLeadId(leadId);
+            onPickLead={(leadId: number, destTab?: string) => {
+              // v15.11.32 — destTab lets closed leads route to Pipeline instead of Dial.
+              // Pipeline doesn't consume pending_lead_jump (that key drives Dial),
+              // so don't set it when routing to Pipeline — otherwise the next
+              // Dial-tab visit will silently try to jump to a closed lead and
+              // fire the "already Keep in Touch" toast Bronson just escaped from.
+              const isPipeline = destTab === "pipeline";
+              if (!isPipeline) {
+                try { sessionStorage.setItem("pending_lead_jump", String(leadId)); } catch {}
+                setPendingLeadId(leadId);
+              } else {
+                try { sessionStorage.removeItem("pending_lead_jump"); } catch {}
+                setPendingLeadId(null);
+              }
               setGlobalLookupOpen(false);
-              setTab("leads");
+              setTab((destTab as any) || "leads");
             }}
           />
         )}

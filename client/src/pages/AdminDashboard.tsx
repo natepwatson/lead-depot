@@ -114,7 +114,7 @@ function StatCard({ label, value, sub, accent }: { label: string; value: number 
   );
 }
 
-// v15.11.31 — Live On Air widget for the admin dashboard. Shows WHO is dialing
+// v15.11.32 — Live On Air widget for the admin dashboard. Shows WHO is dialing
 // right now by name, headshot, dial count, and last-activity relative time.
 // Refetches every 15 seconds. Renders a green pulsing indicator when ≥ 1 agent
 // is live, muted gray + "Quiet" copy when nobody has logged an outcome in the
@@ -1726,7 +1726,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.11.31
+              v15.11.32
             </p>
           </div>
         </div>
@@ -2057,10 +2057,10 @@ export default function AdminDashboard({
 
           {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
           <TabsContent value="leaderboard" className="mt-5 space-y-5">
-            {/* v15.11.31 — admins compete for the monthly prize too. Same BonusCard
+            {/* v15.11.32 — admins compete for the monthly prize too. Same BonusCard
                 the agents see at the top of Dial, rendered here above the KPIs. */}
             <BonusCard />
-            {/* v15.11.31 — Live On Air widget: who is dialing RIGHT NOW, by name. */}
+            {/* v15.11.32 — Live On Air widget: who is dialing RIGHT NOW, by name. */}
             <LiveOnAirWidget />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {/* v14.49 — Pull-only model: no per-agent queues. Removed "My Lead Queue". Renamed "Active in Queue" → "Active in Pool". */}
@@ -2144,7 +2144,7 @@ export default function AdminDashboard({
                       <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
                       <div style={{ width: 40, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
                       <div style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>KIT</div>
-                      {/* v15.11.31 — Emails column removed (we don't do email outcomes anymore). */}
+                      {/* v15.11.32 — Emails column removed (we don't do email outcomes anymore). */}
                       <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
                   ) : (
@@ -2155,7 +2155,7 @@ export default function AdminDashboard({
                       <div style={{ width: 48, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, display: "flex", alignItems: "center", gap: 3 }}><Star size={8} style={{ color: "#c8aa5a" }} />Pts</div>
                       <div style={{ width: 44, fontSize: 10, color: "#c8aa5a", letterSpacing: "0.09em", textTransform: "uppercase", fontWeight: 700 }}>Appts</div>
                       <div style={{ width: 40, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Dials</div>
-                      {/* v15.11.31 — Emails column removed (we don't do email outcomes anymore). */}
+                      {/* v15.11.32 — Emails column removed (we don't do email outcomes anymore). */}
                       <div className="ld-lb-supporting" style={{ width: 52, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Conv%</div>
                       <div className="ld-lb-supporting" style={{ width: 44, fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.07em", textTransform: "uppercase" }}>Refs</div>
                     </>
@@ -2315,7 +2315,7 @@ export default function AdminDashboard({
                                 <div style={{ width: 40 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
                                 </div>
-                                {/* v15.11.31 — Emails column removed. Alex: no email outcomes. */}
+                                {/* v15.11.32 — Emails column removed. Alex: no email outcomes. */}
                                 <div style={{ width: 44 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#c4b5fd" }}>{s.kit}</div>
                                 </div>
@@ -2339,7 +2339,7 @@ export default function AdminDashboard({
                                 <div style={{ width: 40 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "rgba(255,255,255,0.8)" }}>{s.dials}</div>
                                 </div>
-                                {/* v15.11.31 — Emails column removed. */}
+                                {/* v15.11.32 — Emails column removed. */}
                                 <div className="ld-lb-supporting" style={{ width: 52 }}>
                                   <div style={{ fontSize: 17, fontWeight: 300, color: "#67e8f9" }}>{s.convRate}%</div>
                                 </div>

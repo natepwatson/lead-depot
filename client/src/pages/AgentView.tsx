@@ -2368,6 +2368,246 @@ export function CallbackLookupModal({ onClose, onPickLead }: { onClose: () => vo
   );
 }
 
+// v15.11.29 — End-of-Month Bonus card. Hero card at the top of Dial screen.
+// Announces the current cash bonus, ticks a live countdown to the deadline,
+// shows who's currently #1 on the leaderboard (auto-pulled). Money-green
+// foil + gold shimmer. Auto-hides after the deadline unless we ship a
+// "winner" replacement card. Deadline + amount + copy live in one config
+// block below so Alex can change them without hunting through JSX.
+const BONUS_CONFIG = {
+  amount: 500,
+  // Jul 31, 2026 23:59:59 ET → Aug 1, 2026 03:59:59 UTC (EDT = UTC−4)
+  deadlineIso: "2026-08-01T03:59:59Z",
+  monthLabel: "July",
+  headline: "Winner takes all.",
+  subhead: "Top of the leaderboard on July 31 · 11:59 PM walks away with $500 cash.",
+  cta: "Dial. Rank. Win. →",
+};
+
+function BonusCard() {
+  const { data: leaderboard = [] } = useQuery<any[]>({
+    queryKey: ["/api/agent/leaderboard"],
+    queryFn: () => apiRequest("GET", "/api/agent/leaderboard").then(r => r.json()),
+    refetchInterval: 30000,
+  });
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const deadline = new Date(BONUS_CONFIG.deadlineIso).getTime();
+  const ms = Math.max(0, deadline - now);
+  const days = Math.floor(ms / 86400000);
+  const hours = Math.floor((ms % 86400000) / 3600000);
+  const mins = Math.floor((ms % 3600000) / 60000);
+  const secs = Math.floor((ms % 60000) / 1000);
+  const expired = ms === 0;
+
+  // #1 by points (leaderboard is already sorted by points desc)
+  const leader = leaderboard[0];
+  const leaderInitials = leader?.name
+    ? leader.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase()
+    : "—";
+  const leaderPts = typeof leader?.points === "number" ? leader.points : 0;
+
+  // Hide entirely after the deadline until Alex ships a winner card.
+  if (expired) return null;
+
+  const countdown = days > 0
+    ? `${days}d ${String(hours).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m`
+    : `${String(hours).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
+
+  return (
+    <>
+      <style>{`
+        @keyframes bonusPulse {
+          0%,100% { opacity: 0.55; transform: scale(1); }
+          50%     { opacity: 0.9;  transform: scale(1.06); }
+        }
+        @keyframes bonusShimmer {
+          0%   { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        @keyframes bonusFloat1 {
+          0%,100% { transform: translate(0, 0); }
+          50%     { transform: translate(24px, -16px); }
+        }
+        @keyframes bonusFloat2 {
+          0%,100% { transform: translate(0, 0); }
+          50%     { transform: translate(-20px, 18px); }
+        }
+        @keyframes bonusDotPulse {
+          0%,100% { opacity: 1; }
+          50%     { opacity: 0.35; }
+        }
+        @keyframes bonusMoneyGlow {
+          0%,100% { filter: drop-shadow(0 0 12px rgba(250,204,21,0.4)) drop-shadow(0 0 32px rgba(250,204,21,0.2)); }
+          50%     { filter: drop-shadow(0 0 22px rgba(250,204,21,0.75)) drop-shadow(0 0 56px rgba(250,204,21,0.4)); }
+        }
+        .bonus-money-shimmer {
+          background-image: linear-gradient(
+            105deg,
+            #fef9c3 0%,
+            #facc15 30%,
+            #fef08a 45%,
+            #fbbf24 50%,
+            #fef08a 55%,
+            #facc15 70%,
+            #a16207 100%
+          );
+          background-size: 200% 100%;
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          animation: bonusShimmer 3.5s linear infinite, bonusMoneyGlow 2.8s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .bonus-money-shimmer { animation: none; }
+          .bonus-blob-1, .bonus-blob-2, .bonus-live-dot { animation: none; }
+        }
+      `}</style>
+      <div
+        style={{
+          position: "relative",
+          margin: "14px 16px 18px",
+          borderRadius: 20,
+          padding: "20px 20px 18px",
+          overflow: "hidden",
+          background:
+            "radial-gradient(circle at 20% 0%, rgba(74,222,128,0.14), transparent 55%)," +
+            "radial-gradient(circle at 85% 100%, rgba(200,170,90,0.18), transparent 55%)," +
+            "linear-gradient(155deg, #0f2818 0%, #0a1a10 55%, #0a0908 100%)",
+          border: "1px solid rgba(200,170,90,0.45)",
+          boxShadow:
+            "0 0 0 1px rgba(200,170,90,0.14) inset," +
+            "0 20px 60px -20px rgba(74,222,128,0.28)," +
+            "0 8px 24px -8px rgba(0,0,0,0.9)",
+          color: "#fff",
+        }}
+        onClick={() => { try { (window as any).location.hash = "leaderboard"; } catch {} }}
+        role="button"
+        tabIndex={0}
+      >
+        {/* Ambient background motion — two large blurred blobs drifting */}
+        <div className="bonus-blob-1" style={{
+          position: "absolute", top: -60, left: -40, width: 220, height: 220,
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(74,222,128,0.35), transparent 65%)",
+          filter: "blur(30px)",
+          animation: "bonusFloat1 8s ease-in-out infinite",
+          pointerEvents: "none", zIndex: 0,
+        }} />
+        <div className="bonus-blob-2" style={{
+          position: "absolute", bottom: -70, right: -50, width: 240, height: 240,
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(250,204,21,0.28), transparent 65%)",
+          filter: "blur(34px)",
+          animation: "bonusFloat2 9s ease-in-out infinite",
+          pointerEvents: "none", zIndex: 0,
+        }} />
+        {/* Diagonal shine sweep */}
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.05) 50%, transparent 60%)",
+          pointerEvents: "none", zIndex: 0,
+        }} />
+        {/* Top engraved gold line */}
+        <div style={{
+          position: "absolute", left: 20, right: 20, top: 8, height: 1,
+          background: "linear-gradient(90deg, transparent, rgba(200,170,90,0.55), transparent)",
+          pointerEvents: "none", zIndex: 0,
+        }} />
+
+        {/* Kicker + timer */}
+        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9, letterSpacing: "0.24em", color: "#4ade80", fontWeight: 700, textTransform: "uppercase" }}>
+            <span className="bonus-live-dot" style={{
+              display: "inline-block", width: 6, height: 6, borderRadius: "50%",
+              background: "#4ade80", boxShadow: "0 0 10px #4ade80",
+              animation: "bonusDotPulse 1.6s ease-in-out infinite",
+            }} />
+            {BONUS_CONFIG.monthLabel} Champion Bonus
+          </div>
+          <div style={{ fontFamily: "ui-monospace, 'JetBrains Mono', monospace", fontSize: 10, letterSpacing: "0.10em", color: "rgba(255,255,255,0.55)", fontWeight: 600, textTransform: "uppercase" }}>
+            <span style={{ color: "#fde047", fontWeight: 700 }}>{countdown}</span> to win
+          </div>
+        </div>
+
+        {/* $ Amount — shimmering gold with real dollar sign */}
+        <div style={{ position: "relative", zIndex: 1, textAlign: "center", margin: "6px 0 4px" }}>
+          <span
+            className="bonus-money-shimmer"
+            style={{
+              fontFamily: "'Cormorant Garamond', Georgia, serif",
+              fontWeight: 600,
+              fontSize: 92,
+              letterSpacing: "0.01em",
+              lineHeight: 1,
+              display: "inline-block",
+            }}
+          >${BONUS_CONFIG.amount}</span>
+        </div>
+
+        {/* Headline + subhead */}
+        <div style={{ position: "relative", zIndex: 1, textAlign: "center", fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 600, fontSize: 22, letterSpacing: "0.02em", margin: "4px 0 4px" }}>
+          {BONUS_CONFIG.headline}
+        </div>
+        <p style={{ position: "relative", zIndex: 1, textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.65)", margin: "0 0 14px", lineHeight: 1.5 }}>
+          {BONUS_CONFIG.subhead}
+        </p>
+
+        {/* Current leader row */}
+        <div style={{
+          position: "relative", zIndex: 1,
+          display: "flex", alignItems: "center", gap: 10,
+          background: "rgba(0,0,0,0.38)",
+          border: "1px solid rgba(200,170,90,0.3)",
+          padding: "10px 12px",
+          borderRadius: 12,
+        }}>
+          <div style={{ position: "relative" }}>
+            {leader?.headshotUrl ? (
+              <img src={leader.headshotUrl} alt={leader.name}
+                style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(200,170,90,0.5)" }} />
+            ) : (
+              <div style={{
+                width: 36, height: 36, borderRadius: "50%",
+                background: "linear-gradient(135deg,#c8aa5a,#8b6b2d)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#080808", fontWeight: 800, fontSize: 13,
+              }}>{leaderInitials}</div>
+            )}
+            <div style={{
+              position: "absolute", top: -6, right: -6,
+              width: 18, height: 18, borderRadius: "50%",
+              background: "linear-gradient(135deg,#fef9c3,#facc15)",
+              color: "#080808", fontSize: 10, fontWeight: 800,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 2px 6px rgba(250,204,21,0.55)",
+            }}>1</div>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 9, letterSpacing: "0.20em", color: "rgba(200,170,90,0.8)", textTransform: "uppercase", fontWeight: 700 }}>
+              Who's #1 Right Now
+            </div>
+            <div style={{ fontSize: 14, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {leader?.name || "No leader yet — be the first"}
+            </div>
+          </div>
+          <div style={{ marginLeft: "auto", fontFamily: "ui-monospace, 'JetBrains Mono', monospace", fontSize: 13, color: "#4ade80", fontWeight: 700, letterSpacing: "0.02em", whiteSpace: "nowrap" }}>
+            {leaderPts.toLocaleString()} pts
+          </div>
+        </div>
+
+        {/* CTA */}
+        <div style={{ position: "relative", zIndex: 1, textAlign: "center", marginTop: 12, fontSize: 10, letterSpacing: "0.26em", color: "rgba(200,170,90,0.85)", textTransform: "uppercase", fontWeight: 700 }}>
+          {BONUS_CONFIG.cta}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // v15.3 — Optimal call-time meter. Displays receptivity right now (0-100),
 // tier label (PRIME TIME / GOOD / OK / COLD), and a one-line reason drawn from
 // the MIT/InsideSales, PhoneBurner, CallHippo, and Cognism studies. See
@@ -2585,6 +2825,11 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
         </div>
       )}
       {lookupOpen && <CallbackLookupModal onClose={() => setLookupOpen(false)} />}
+
+      {/* v15.11.29 — End-of-Month Bonus card (seller depot only). Hero card at the
+          top: cash amount, live countdown to deadline, current leader row.
+          Auto-hides after the deadline. */}
+      {mode === "seller" && <BonusCard />}
 
       {/* v15.3 — Optimal call-time meter (seller depot only). Hot/Warm/Cool/Cold
           receptivity weighted from MIT/InsideSales, CallHippo, PhoneBurner, Cognism. */}

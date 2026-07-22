@@ -3227,12 +3227,51 @@ function PipelineCard({ lead, kind, onOpen }: { lead: PipelineLead; kind: "appt"
 function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
   const { user } = useAuth();
   const agentId = (user as any)?.id;
+  // v15.11.35 — Pipeline persistence hardening. Alex rule: "Pipeline should
+  // never be deleted or forgotten. Must save boot to boot, agents will quit
+  // if their pipeline is affected." Server-side the pipeline IS persistent
+  // (see /app/data/data.db on Railway volume; no boot code touches
+  // keep_in_touch or contacted_appointment statuses). The failure mode we
+  // guard against here is CLIENT-side: a mid-deploy Railway restart or
+  // stale-cookie retry can 5xx once and leave the agent staring at
+  // "Failed to load pipeline. Pull down to refresh." — which reads to the
+  // agent as "my pipeline was wiped." Three defenses:
+  //   1. Throw on non-OK responses so react-query actually retries.
+  //   2. Retry up to 4 times with exponential backoff before showing error.
+  //   3. Cache the last successful snapshot in localStorage and hydrate from
+  //      it while the network fetch is in flight or has just failed. Agents
+  //      see their real pipeline instantly on every open, even offline.
+  const cacheKey = agentId ? `ld_pipeline_v1_${agentId}` : null;
+  const cachedInitial = React.useMemo(() => {
+    if (!cacheKey || typeof window === "undefined") return undefined;
+    try {
+      const raw = window.localStorage.getItem(cacheKey);
+      if (!raw) return undefined;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.counts && Array.isArray(parsed.appts)) return parsed;
+    } catch {}
+    return undefined;
+  }, [cacheKey]);
+
   const { data, isLoading, isError } = useQuery<any>({
     queryKey: ["/api/leads/my-pipeline", agentId],
-    queryFn: () => apiRequest("GET", `/api/leads/my-pipeline?agentId=${agentId}`).then(r => r.json()),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/leads/my-pipeline?agentId=${agentId}`);
+      if (!r.ok) throw new Error(`pipeline fetch failed: HTTP ${r.status}`);
+      const j = await r.json();
+      if (!j || !j.counts) throw new Error("pipeline response missing counts");
+      // Persist last-good snapshot for boot-to-boot durability on the client.
+      if (cacheKey) {
+        try { window.localStorage.setItem(cacheKey, JSON.stringify(j)); } catch {}
+      }
+      return j;
+    },
     enabled: !!agentId,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
+    retry: 4,
+    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 8000),
+    initialData: cachedInitial,
   });
   // v14.80 — Agent Pipeline redesign: tiles now filter the list below instead of
   // just displaying counts. "all" (default) shows every owned pipeline lead.

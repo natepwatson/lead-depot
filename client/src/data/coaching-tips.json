@@ -2,11 +2,12 @@
   "version": "1.0",
   "description": "Lead Depot agent coaching tips. Add, edit, or reorder freely. Each tip needs: id, category, type, text, and optional author.",
   "categories": {
-    "focus":    { "label": "Focus",     "color": "#67e8f9" },
-    "mindset":  { "label": "Mindset",   "color": "#86efac" },
-    "strategy": { "label": "Strategy",  "color": "#c8aa5a" },
-    "team":     { "label": "Team",      "color": "#c4b5fd" },
-    "selfcare": { "label": "Self-Care", "color": "#fbcfe8" }
+    "focus":      { "label": "Focus",      "color": "#67e8f9" },
+    "mindset":    { "label": "Mindset",    "color": "#86efac" },
+    "strategy":   { "label": "Strategy",   "color": "#c8aa5a" },
+    "team":       { "label": "Team",       "color": "#c4b5fd" },
+    "selfcare":   { "label": "Self-Care",  "color": "#fbcfe8" },
+    "operations": { "label": "How Depot Works", "color": "#d8b4fe" }
   },
   "tips": [
     {
@@ -147,6 +148,41 @@
       "category": "selfcare",
       "type": "tip",
       "text": "Celebrate the small wins. A KIT is a win. A real conversation is a win. Track them — they add up.",
+      "author": null
+    },
+    {
+      "id": 21,
+      "category": "operations",
+      "type": "tip",
+      "text": "Appts are worth 60 points — 120 in Prime Time. One appointment in Prime beats a full slow hour of dials. Chase the appt every conversation.",
+      "author": null
+    },
+    {
+      "id": 22,
+      "category": "operations",
+      "type": "tip",
+      "text": "A Keep-in-Touch only lands in your pipeline when you capture the seller's email. No email, no ownership — the lead flows back to the pool. Ask plainly: 'What's the best email to send you the market snapshot?'",
+      "author": null
+    },
+    {
+      "id": 23,
+      "category": "operations",
+      "type": "tip",
+      "text": "Set your home address in Profile — it sets your home county, and Depot routes matching-county leads to you first. Same streets, same schools, same drives. Hyper-local calls land harder.",
+      "author": null
+    },
+    {
+      "id": 24,
+      "category": "operations",
+      "type": "tip",
+      "text": "Prime Time doubles every scored outcome. Green light = load leads and don't stop. That one hour is why the leaderboard swings.",
+      "author": null
+    },
+    {
+      "id": 25,
+      "category": "operations",
+      "type": "tip",
+      "text": "Network referral = 20 points flat, credit stays with you. If a conversation isn't yours to close, hand it off. Get paid either way.",
       "author": null
     }
   ]

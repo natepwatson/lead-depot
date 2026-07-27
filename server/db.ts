@@ -877,14 +877,25 @@ rawDb.prepare("UPDATE leads SET dead_lines = '[]' WHERE dead_lines IS NULL OR de
 // v15.11.30: seed the row ONLY when the DB is fresh. Admin edits via
 // PATCH /api/scripts/expired now persist across every deploy — the previous
 // ON CONFLICT DO UPDATE overwrote Alex's admin-UI changes on every restart.
+// v15.11.40 — LOCKDOWN. Never overwrite Alex's script.
+// Path A: no row exists → seed from server/expired-script.ts (human-authored).
+// Path B: row exists → leave it alone, forever. Never touch content or updated_at.
+// Also: purge any legacy rows for retired lead_types so the app only ever
+// serves the Expired script. Absentee + email flows were retired in v15.11.40.
 try {
-  rawDb.prepare(`
-    INSERT INTO scripts (lead_type, content, updated_at)
-    VALUES ('expired', ?, ?)
-    ON CONFLICT(lead_type) DO NOTHING
-  `).run(EXPIRED_SCRIPT_V14_16, new Date().toISOString());
-  const row = rawDb.prepare("SELECT updated_at FROM scripts WHERE lead_type = 'expired'").get() as any;
-  console.log("[db] v15.11.30 expired script row present (updated_at=" + (row?.updated_at || "none") + ") — admin edits preserved");
+  const existing = rawDb.prepare("SELECT content, updated_at FROM scripts WHERE lead_type = 'expired'").get() as any;
+  if (!existing) {
+    rawDb.prepare(`INSERT INTO scripts (lead_type, content, updated_at) VALUES ('expired', ?, ?)`)
+      .run(EXPIRED_SCRIPT_V14_16, new Date().toISOString());
+    console.log("[db] v15.11.40 expired script SEEDED (fresh DB) from server/expired-script.ts");
+  } else {
+    console.log("[db] v15.11.40 expired script preserved (updated_at=" + existing.updated_at + ", len=" + (existing.content?.length || 0) + ") — seed skipped, admin edits locked in");
+  }
+  // Purge retired lead types (absentee + email_flow* + fsbo/land/distressed/website_lead/email_outreach).
+  const purged = rawDb.prepare("DELETE FROM scripts WHERE lead_type != 'expired'").run();
+  if (purged.changes > 0) {
+    console.log("[db] v15.11.40 purged " + purged.changes + " retired script rows (non-expired lead types)");
+  }
 } catch (e: any) {
   console.error("[db] Expired script seed failed:", e.message);
 }

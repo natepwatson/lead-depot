@@ -14,7 +14,7 @@ import {
   TrendingUp, ChevronLeft, ChevronDown,
   Trophy, Users, Send, UserPlus, Heart,
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
-  Home, Voicemail, Layers, Calendar,
+  Home, Voicemail, Layers, Calendar, FileText,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
@@ -1228,7 +1228,14 @@ function LeadCard({ lead }: { lead: Lead }) {
   // no DB write, no template drift.
   const scriptFilled = React.useMemo(() => {
     if (!script?.content) return "";
-    const leadFirst = (lead.firstName || "").trim();
+    // v15.11.45 — Derive seller first name from lead.ownerName. LandVoice + BatchLeads
+    // both give us the full name in owner_name; there is no separate firstName column.
+    // We title-case ALL-CAPS input ("PAZ FIGURACION" → "Paz") so the script reads natural.
+    const titleCase = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : "";
+    const rawOwner = (lead.ownerName || "").trim();
+    // Strip common CSV noise prefixes ("TEST-APPT ", "AUDIT ", etc).
+    const ownerClean = rawOwner.replace(/^(TEST-\S+|AUDIT|TEST)\s+/i, "").trim();
+    const leadFirst  = titleCase(ownerClean.split(/\s+/)[0] || "");
     const agentFullName = (user?.name || "").trim();
     const agentFirst = agentFullName.split(/\s+/)[0] || "";
     // Extract "123 Oak" style street number + street name from the address. Drops
@@ -1243,6 +1250,13 @@ function LeadCard({ lead }: { lead: Lead }) {
         .replace(/\s+(apt|apartment|unit|suite|ste|#)\.?\s*\S+.*/i, "")
         .trim();
     })();
+    // v15.11.45 — City. First try lead.city column (canonical). If empty (older
+    // seed rows), fall back to the 2nd comma-segment of the address.
+    const cityFromAddress = (() => {
+      const parts = (lead.address || "").split(",").map((s: string) => s.trim());
+      return parts.length >= 2 ? parts[1] : "";
+    })();
+    const city = ((lead.city || "").trim() || cityFromAddress || "").trim();
     return script.content
       // Order matters: replace "Agent First Name" BEFORE "First Name" to avoid
       // the general placeholder eating the agent one.
@@ -1250,8 +1264,9 @@ function LeadCard({ lead }: { lead: Lead }) {
       .replace(/\[Agent Name\]/g,       agentFullName || "[Agent Name]")
       .replace(/\bAgent Name\b(?= from The Brothers Group)/g, agentFullName || "Agent Name")
       .replace(/\[First Name\]/g,       leadFirst || "[First Name]")
-      .replace(/\[Street number and name only\]/g, streetOnly || "[Street number and name only]");
-  }, [script?.content, lead.firstName, lead.address, user?.name]);
+      .replace(/\[Street number and name only\]/g, streetOnly || "[Street number and name only]")
+      .replace(/\[City\]/g,             city || "[City]");
+  }, [script?.content, lead.ownerName, lead.address, lead.city, user?.name]);
 
   // v15.11.18 — Skip quota. Refetched every 60s so the cooldown countdown
   // and daily reset stay accurate without needing a websocket push.
@@ -1561,6 +1576,32 @@ function LeadCard({ lead }: { lead: Lead }) {
 
   const zillow = lead.address ? `https://www.zillow.com/homes/${encodeURIComponent(lead.address)}_rb/` : null;
 
+  // v15.11.45 — Florida county Property Appraiser search URLs. Second link on the
+  // Zillow row gives agents a one-tap peek at the official tax record (ownership,
+  // legal description, assessed value, sales history). Each county appraiser has
+  // their own site; we pick by lead.county. Query is passed as the parcel address
+  // where the appraiser supports it, otherwise falls back to their generic search.
+  const countyAppraiser = (() => {
+    const c = String(lead.county || "").trim().toLowerCase();
+    const addr = encodeURIComponent(String(lead.address || "").split(",")[0].trim());
+    if (!c || !addr) return null;
+    const map: Record<string, { url: string; label: string }> = {
+      "duval":      { url: `https://paopropertysearch.coj.net/Basic/Search.aspx?searchType=Location&Location=${addr}`,                              label: "Duval PA" },
+      "nassau":     { url: `https://www.nassauflpa.com/PropertySearch/Search?SearchType=SITUS&Address=${addr}`,                                   label: "Nassau PA" },
+      "st. johns":  { url: `https://qpublic.schneidercorp.com/Application.aspx?AppID=800&LayerID=11576&PageTypeID=2&PageID=6112&KeyValue=${addr}`, label: "St. Johns PA" },
+      "st johns":   { url: `https://qpublic.schneidercorp.com/Application.aspx?AppID=800&LayerID=11576&PageTypeID=2&PageID=6112&KeyValue=${addr}`, label: "St. Johns PA" },
+      "st_johns":   { url: `https://qpublic.schneidercorp.com/Application.aspx?AppID=800&LayerID=11576&PageTypeID=2&PageID=6112&KeyValue=${addr}`, label: "St. Johns PA" },
+      "clay":       { url: `https://qpublic.schneidercorp.com/Application.aspx?App=ClayCountyFLPA&PageType=Search`,                              label: "Clay PA" },
+      "putnam":     { url: `https://www.pa-putnamcountyfl.gov/PropertySearch.aspx`,                                                              label: "Putnam PA" },
+      "flagler":    { url: `https://qpublic.schneidercorp.com/Application.aspx?App=FlaglerCountyFLPA&PageType=Search`,                           label: "Flagler PA" },
+      "baker":      { url: `https://qpublic.schneidercorp.com/Application.aspx?App=BakerCountyFLPA&PageType=Search`,                             label: "Baker PA" },
+      "camden":     { url: `https://qpublic.schneidercorp.com/Application.aspx?App=CamdenCountyGA&PageType=Search`,                              label: "Camden PA" },
+      "charlton":   { url: `https://qpublic.schneidercorp.com/Application.aspx?App=CharltonCountyGA&PageType=Search`,                            label: "Charlton PA" },
+      "glynn":      { url: `https://qpublic.schneidercorp.com/Application.aspx?App=GlynnCountyGA&PageType=Search`,                               label: "Glynn PA" },
+    };
+    return map[c] || null;
+  })();
+
   // v15.11.5 — All email affordances removed. No mailto, no Flow 1/2/3/4, no badges.
 
   const typeLabel: Record<string, string> = {
@@ -1833,19 +1874,33 @@ function LeadCard({ lead }: { lead: Lead }) {
         </div>
 
 
-        {/* v15.11.5 — All email affordances removed. Only Zillow link remains. */}
+        {/* v15.11.45 — Split into Zillow (left, market view) + County Property
+            Appraiser (right, official tax record). County resolved from lead.county,
+            falls back to Zillow-only when county is unknown. */}
         {zillow && (
-          <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
             <a href={zillow} target="_blank" rel="noopener noreferrer" style={{
-              flex: 1, minWidth: 140,
+              flex: 1, minWidth: 0,
               display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-              padding: "13px 18px",
+              padding: "13px 12px",
               background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.3)",
               borderRadius: 8, textDecoration: "none",
               fontSize: 13, color: "rgba(147,197,253,0.9)", minHeight: 48,
             }}>
               <TrendingUp size={13} /> Zillow
             </a>
+            {countyAppraiser && (
+              <a href={countyAppraiser.url} target="_blank" rel="noopener noreferrer" style={{
+                flex: 1, minWidth: 0,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+                padding: "13px 12px",
+                background: "rgba(147,197,253,0.06)", border: "1px solid rgba(147,197,253,0.28)",
+                borderRadius: 8, textDecoration: "none",
+                fontSize: 13, color: "rgba(147,197,253,0.9)", minHeight: 48,
+              }}>
+                <FileText size={13} /> {countyAppraiser.label}
+              </a>
+            )}
           </div>
         )}
 
@@ -1932,6 +1987,28 @@ function LeadCard({ lead }: { lead: Lead }) {
                 {extra.mlsStatus && (
                   <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
                     Status <span style={{ color: "#fca5a5", fontWeight: 600 }}>{extra.mlsStatus}</span>
+                  </div>
+                )}
+                {/* v15.11.45 — When the listing came off the market. LandVoice exports
+                    call this "StatusDate"; we surface it as "Expired" or "Removed"
+                    based on mlsStatus so the agent has a fresh talking point. */}
+                {extra.statusDate && (
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
+                    {String(extra.mlsStatus || "").toLowerCase().includes("withdraw") ? "Removed" :
+                     String(extra.mlsStatus || "").toLowerCase().includes("cancel")   ? "Cancelled" :
+                     "Expired"}
+                    {" "}
+                    <span style={{ color: "#fca5a5", fontWeight: 600 }}>
+                      {(() => {
+                        const raw = String(extra.statusDate).trim();
+                        // Try a few common shapes: "2026-07-10", "07/10/2026", ISO datetime.
+                        const d = new Date(raw);
+                        if (!isNaN(d.getTime())) {
+                          return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                        }
+                        return raw;
+                      })()}
+                    </span>
                   </div>
                 )}
                 {extra.daysOnMarket != null && (

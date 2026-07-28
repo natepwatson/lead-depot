@@ -8,22 +8,25 @@
 // change take effect on production, either (a) accept that new installs pick it
 // up, or (b) manually PATCH /api/scripts/expired after deploy.
 //
-// v15.11.42 — Opening reworked per Alex:
+// v15.11.42 — Opening reworked per Alex.
+// v15.11.45 — Added "here in [City]" hyper-local anchor after the address.
+//
 //   Hey! Is this [First Name]? Y/N
 //   Oh great! This is [Agent First Name]. Just calling about the property at
-//   [Street number and name only]… It looks like it was for sale at one point
-//   but not anymore. What happened there?
+//   [Street number and name only] here in [City]… It looks like it was for sale
+//   at one point but not anymore. What happened there?
 //
 // Placeholders that AUTO-FILL from the current lead + logged-in agent at render:
-//   [First Name]                → lead.firstName
+//   [First Name]                → first token of lead.ownerName, title-cased
 //   [Agent First Name]          → agent's first name (from user.name)
 //   [Street number and name only] → parsed from lead.address (strips city/state/zip/apt)
+//   [City]                      → lead.city (falls back to 2nd comma-segment of address)
 //   [Agent Name]                → agent's full name (used later in "This is Agent Name from…")
 //
-// Restored 2026-07-27 from Alex's own hand-written source. Opening updated 2026-07-28.
+// Restored 2026-07-27 from Alex's own hand-written source. Opening updated 2026-07-28. City added 2026-07-28.
 export const EXPIRED_SCRIPT_V14_16: string = `Hey! Is this [First Name]? Y/N
 
-Oh great! This is [Agent First Name]. Just calling about the property at [Street number and name only]… It looks like it was for sale at one point but not anymore. What happened there?
+Oh great! This is [Agent First Name]. Just calling about the property at [Street number and name only] here in [City]… It looks like it was for sale at one point but not anymore. What happened there?
 
 SELLER: Who is this? DOUBLE DOWN ^ This is Agent Name from The Brothers Group Real Estate Team at Momentum Realty.
   1. We know about all the listings that are for sale but my buyers haven't seen this one.  

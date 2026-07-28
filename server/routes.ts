@@ -36,6 +36,7 @@ import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-impor
 // @ts-expect-error — no @types/multer installed; runtime-only import
 import multer from "multer";
 import { runDbprPipeline } from "./dbpr-pipeline";
+import { EXPIRED_SCRIPT_V14_16 } from "./expired-script";
 import { getTerritoryForZip, TERRITORIES as TERRITORY_META } from "./territories";
 import { normalizeFirstName, normalizeFullName, normalizeAddressCasual } from "./normalize";
 // v14.46 — LandVoice OAuth module removed. LandVoice exports come in via CSV upload only.
@@ -343,7 +344,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.43 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.44 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -402,7 +403,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.43 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.44 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -687,7 +688,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.43 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.44 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1928,7 +1929,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.43</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.44</p>
             </div>
           `,
         });
@@ -2088,7 +2089,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.43 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.44 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -4513,167 +4514,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   };
 
-  // v14.29 — Full rewrite in Alex's voice. Guardrails moved above Mindset.
-  const expiredScript = `EXPIRED LISTING SCRIPT — v14.29
-Brothers Group Real Estate Team at Momentum Realty
-─────────────────────────────────────────────────
-
-AGENT GUARDRAILS — do NOT
-
-  ✗ Sound rushed or read-y
-  ✗ Announce you're "not pitching" (that IS pitching)
-  ✗ Lead with the company name
-  ✗ Push for an appointment before you understand the situation
-  ✗ Interrupt or talk over the seller
-  ✗ Use words like "quote," "consultation," "reach out"
-  ✗ Make it about you or the team — make it about their house
-  ✗ Fill silence — let them think
-
-─────────────────────────────────────────────────
-
-MINDSET (read before you dial — not spoken)
-  • We're here for the easy yes's — not to force the no's.
-  • They already had one agent fail them. Don't be the second
-    version of that person.
-  • Understand first. We win by knowing the market better,
-    not by talking more.
-
-─────────────────────────────────────────────────
-OPENING
-
-  "Hey [First Name] — it's [Agent First Name]. I'm calling
-   about the house at [Address]. Did I catch you okay?"
-
-─────────────────────────────────────────────────
-CALL FLOW
-
-  1. IDENTITY + PERMISSION
-     Confirm it's them. Confirm they can talk.
-
-  2. WHAT HAPPENED
-     "So I saw it was on the market and then it came off —
-      what happened there?"
-
-  3. WHAT WAS THE PLAN
-     "And if it had sold, where were you headed?"
-
-  4. IS THE MOVE REAL
-     Listen. Ask follow-ups. You're figuring out if there's a
-     real life reason to move, or if they were just seeing
-     what the market would do.
-
-  5. TIMELINE (only after you know the move is real)
-     "When were you thinking that would actually happen?"
-
-  6. BRANCH → based on motivation
-
-─────────────────────────────────────────────────
-COMPANY NAME REVEAL (delayed)
-
-Only when they ask, or after real rapport:
-  "I'm [Full Name] with the Brothers Group Real Estate Team
-   at Momentum Realty — we're a local team here in [City]."
-
-─────────────────────────────────────────────────
-BRANCH A — REAL MOVE, NO PLAN → APPOINTMENT
-
-Frame: You know something they don't. Show them.
-
-  "Here's the honest read — most expireds don't fail because
-   of the house. They fail because of how it was priced and
-   marketed. If you stack the cards right, the market comes
-   to you instead of you chasing it."
-
-  "It's a no-obligation 5-minute walk-through. I'll show you
-   what we'd do differently and what the numbers actually
-   look like right now. If it makes sense, we move. If not,
-   at least you know where you stand."
-
-BRANCH B — NOT READY, TONE WARM → KEEP IN TOUCH
-
-  "Totally fair. When you get closer, the pricing window
-   matters more than most people realize — I'd rather you
-   have someone tracking that for you than figure it out
-   on your own."
-
-  Ask: "What's the best email for you?"
-  Ask: "When should I check back in?"
-
-  Send the intro email. Don't announce it, don't apologize
-  for it, don't call it "just a quick note." Just send it.
-
-BRANCH C — BUSY, NOT HOSTILE → RECYCLE
-
-  "Got it — I'll catch you another time."
-
-  One tap Recycle. Move on.
-
-BRANCH D — CLEARLY NOT INTERESTED → NOT INTERESTED
-
-  "Understood. Best of luck with the house."
-
-  End it. Respect it.
-
-─────────────────────────────────────────────────
-WHY US (only if they ask — never volunteered)
-
-  "26+ years of combined real estate experience. Top 1% of
-   teams in NE Florida. RealProducers Top 500. Jacksonville
-   Business Journal ranked team. Hundreds of five-star
-   reviews. We also bring construction and roofing expertise
-   from years in the industry — so when we walk your house
-   we can tell you what actually matters before it lists,
-   what doesn't, and what buyers and inspectors will flag."
-
-─────────────────────────────────────────────────`;
-
-  const flipScript = `FLIP LEAD SCRIPT
-Brothers Group at Momentum Realty
-─────────────────────────────────────────────────
-
-OPENING
-"Hi, this is [YOUR NAME] from The Brothers Group Real Estate Team. I came across [ADDRESS] in [CITY] — it looks like an investment property and I wanted to reach out. Are you the owner?"
-
-─────────────────────────────────────────────────
-COMMON OBJECTIONS
-
-If they ask "How did you get my number?"
-  → "We monitor investment activity closely in this market — we work with both buyers and sellers in this space and stay very dialed in to what's moving."
-
-If they say "I'm not interested"
-  → "Totally fair. Can I just ask — are you planning to hold it, flip it, or is the strategy still being worked out?" (Re-engage with curiosity)
-
-If they say "I already have an agent"
-  → "No problem at all — we work alongside a lot of investors who already have relationships. We're really just staying connected so if anything changes, you know who to call."
-
-─────────────────────────────────────────────────
-ABOUT US (brief — investors don't want a pitch)
-"We specialize in helping investors move properties quickly and at strong margins. We also help them find their next deal. The Brothers Group is a top 1% team in Northeast Florida — we move fast and keep things simple."
-
-─────────────────────────────────────────────────
-GATHER — LPMAMAB
-
-  L — Location:     "Are you local, or are you investing from out of area?"
-  P — Price:        "What did you pay for it? What are you targeting for your resale or exit?"
-  M — Motivation:   "What's the play — fix and flip, wholesale, hold as a rental?"
-  A — Agent:        "Do you have a buyer's agent or listing agent you're already working with?"
-  M — Mortgage:     "Are you in it with cash, hard money, or conventional financing?"
-  A — Appointment:  "Would it make sense to connect — even just a quick 15-minute call — to see how we can help you move it or find your next one?"
-  B — Buyer:          "Are you actively looking for the next deal, or are you focused on exiting this one first?"
-
-─────────────────────────────────────────────────
-CLOSE
-
-If appointment set:
-  "Great — let's lock that in. I'll send a calendar invite and our info so you have it. We'll keep it short and make it worth your time."
-
-If not ready:
-  "I hear you. Mind if I follow up in [X weeks] once you're closer to making a move? We'd love to be in your corner when the time comes."
-
-─────────────────────────────────────────────────`;
-
-
-  initScript("expired", expiredScript);
+  // v15.11.44 — Expired script default lives in server/expired-script.ts (source of truth
+  // for fresh installs). This initScript is INSERT-ONLY (ON CONFLICT DO NOTHING).
+  // Production edits go through PATCH /api/scripts/expired with x-ingest-secret.
+  initScript("expired", EXPIRED_SCRIPT_V14_16);
 
   const emailOutreachTemplate = `Subject: Regarding Your Property at {address}
 
@@ -4855,21 +4699,31 @@ Brothers Group Real Estate Team at Momentum Realty
 {agentPhone} \u00b7 {agentEmail}`;
   initScript("email_flow6", emailFlow6Template);
 
-  // v14.29 — Force-update all templates on boot so prod DB rows get the new content.
-  // initScript() above only inserts if missing. This block updates existing rows to match code.
+  // v15.11.44 — CRITICAL FAILSAFE. The v14.29 boot-time force-update block used
+  // to overwrite the expired script from an inline `expiredScript` variable on
+  // EVERY deploy. That silently reverted Alex's human-authored script twice in
+  // one week and only came to light when Alex spot-checked it. NEVER overwrite
+  // the expired script from code again. If a future maintainer needs to change
+  // the file default, they edit server/expired-script.ts — and even that only
+  // affects fresh installs (initScript uses INSERT ... DO NOTHING). To change
+  // production, PATCH /api/scripts/expired with x-ingest-secret and it gets
+  // logged to the audit table. That is the ONE and ONLY write path.
+  //
+  // Email flow templates remain force-updated on boot — those are agent-invisible
+  // transactional emails, not the human-authored dial script.
   try {
     const forceUpdate = rawDb.prepare("UPDATE scripts SET content = ?, updated_at = ? WHERE lead_type = ?");
     const nowIso = new Date().toISOString();
-    forceUpdate.run(expiredScript, nowIso, "expired");
+    // Expired is intentionally NOT in this list. See comment above.
     forceUpdate.run(emailFlow1Template, nowIso, "email_flow1");
     forceUpdate.run(emailFlow2Template, nowIso, "email_flow2");
     forceUpdate.run(emailFlow3Template, nowIso, "email_flow3");
     forceUpdate.run(emailFlow4Template, nowIso, "email_flow4");
     forceUpdate.run(emailFlow5Template, nowIso, "email_flow5");
     forceUpdate.run(emailFlow6Template, nowIso, "email_flow6");
-    console.log("[v14.38] Force-updated expired script + 6 email templates to new voice");
+    console.log("[v15.11.44] Force-updated 6 email templates (expired script is NEVER force-updated — preserved from DB)");
   } catch (e: any) {
-    console.error("[v14.38] Failed to force-update scripts:", e.message);
+    console.error("[v15.11.44] Failed to force-update email templates:", e.message);
   }
 
   // v14.29 — Delete test lead id=4859 (AUDIT Network Test placeholder)
@@ -6305,7 +6159,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.43 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.44 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6717,7 +6571,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.43",
+      version: "v15.11.44",
       services: results,
     });
   });
@@ -7835,7 +7689,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.43`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.44`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -8474,7 +8328,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.43</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.44</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

@@ -99,6 +99,47 @@ if (!leadCols.includes("score"))           rawDb.prepare("ALTER TABLE leads ADD 
 // pullPool sorts owner_confirmed_at IS NOT NULL DESC, then score DESC — so confirmed
 // owner leads jump to the FRONT of the shared pool.
 if (!leadCols.includes("owner_confirmed_at")) rawDb.prepare("ALTER TABLE leads ADD COLUMN owner_confirmed_at TEXT").run();
+
+// v15.11.41 — One-shot backfill: retroactively grant Owner - No Answer points.
+// Prior to v15.11.41, `left_voicemail` outcomes awarded 0 points. Now they award
+// 6. To be fair, backfill any left_voicemail event from the last 48 hours that
+// does NOT already have a matching points row. Idempotent — the marker row
+// `agent_points.reason = 'left_voicemail_v41_backfill'` gates the migration so
+// it never runs twice, and each activity gets exactly one point award.
+try {
+  const alreadyRan = rawDb.prepare(
+    "SELECT 1 FROM agent_points WHERE reason = 'left_voicemail_v41_backfill_marker' LIMIT 1"
+  ).get() as any;
+  if (!alreadyRan) {
+    // Find left_voicemail activity events from the last 48h that don't have any
+    // corresponding points row (agent + lead + hour bucket match).
+    const events = rawDb.prepare(`
+      SELECT la.id, la.agent_id, la.lead_id, la.created_at
+      FROM lead_activity la
+      WHERE la.outcome = 'left_voicemail'
+        AND la.created_at >= datetime('now', '-2 days')
+        AND la.agent_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM agent_points ap
+          WHERE ap.agent_id = la.agent_id
+            AND ap.lead_id = la.lead_id
+            AND ap.reason LIKE 'left_voicemail%'
+        )
+    `).all() as any[];
+
+    const insertPts = rawDb.prepare(
+      `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, 'seller', ?)`
+    );
+    for (const e of events) {
+      insertPts.run(e.agent_id, 6, "left_voicemail_v41_backfill", e.lead_id, e.created_at);
+    }
+    // Marker row so this migration never runs again (0 points, sentinel).
+    insertPts.run(1, 0, "left_voicemail_v41_backfill_marker", null, new Date().toISOString());
+    console.log(`[db] v15.11.41 Owner-No-Answer backfill granted 6 pts to ${events.length} historical events`);
+  }
+} catch (e: any) {
+  console.error("[db] v15.11.41 backfill failed:", e?.message);
+}
 if (!leadCols.includes("territory"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN territory TEXT").run();
 if (!leadCols.includes("source"))          rawDb.prepare("ALTER TABLE leads ADD COLUMN source TEXT DEFAULT 'csv_upload'").run();
 if (!leadCols.includes("city"))            rawDb.prepare("ALTER TABLE leads ADD COLUMN city TEXT").run();

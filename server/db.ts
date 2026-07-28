@@ -93,6 +93,12 @@ if (!leadCols.includes("b_mortgage"))      rawDb.prepare("ALTER TABLE leads ADD 
 // Distinct from extraData (which describes the lead's CURRENT home from LandVoice/BatchLeads/MLS import).
 if (!leadCols.includes("buyer_target"))    rawDb.prepare("ALTER TABLE leads ADD COLUMN buyer_target TEXT").run();
 if (!leadCols.includes("score"))           rawDb.prepare("ALTER TABLE leads ADD COLUMN score INTEGER DEFAULT 0").run();
+// v15.11.41 — Confirmed-owner boost.
+// When "Owner - No Answer" is clicked, we know a real owner picks up on this line.
+// The lead recycles to the pool with all other lines struck and this timestamp set.
+// pullPool sorts owner_confirmed_at IS NOT NULL DESC, then score DESC — so confirmed
+// owner leads jump to the FRONT of the shared pool.
+if (!leadCols.includes("owner_confirmed_at")) rawDb.prepare("ALTER TABLE leads ADD COLUMN owner_confirmed_at TEXT").run();
 if (!leadCols.includes("territory"))       rawDb.prepare("ALTER TABLE leads ADD COLUMN territory TEXT").run();
 if (!leadCols.includes("source"))          rawDb.prepare("ALTER TABLE leads ADD COLUMN source TEXT DEFAULT 'csv_upload'").run();
 if (!leadCols.includes("city"))            rawDb.prepare("ALTER TABLE leads ADD COLUMN city TEXT").run();

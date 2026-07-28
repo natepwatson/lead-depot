@@ -99,7 +99,7 @@ const OUTCOME_MEANINGS: Record<string, string> = {
   listed:               "Owner told you they've already relisted with another agent. Lead closes out.",
   contacted_appointment:"Meeting is booked. Fires FUB Meet & Greet appointment + creates the deal in the right pipeline.",
   keep_in_touch:        "Real relationship signal. Lead stays with you for 60 days and joins your FUB action plan.",
-  left_voicemail:       "You confirmed the owner's identity (spouse, partial pickup) but couldn't get a real conversation.",
+  left_voicemail:       "You confirmed the owner picks up on this line but couldn't get a real conversation. Lead recycles to the FRONT of the pool with all other lines struck. +6 pts.",
 };
 
 // ─── Gold divider ─────────────────────────────────────────────────────────────
@@ -1139,7 +1139,7 @@ function LeadCard({ lead }: { lead: Lead }) {
     // v15.11.12 — relabeled per Alex to remove agent confusion.
     disconnected:             { label: "Not a Working Line — Logged", color: "rgb(203,213,225)" },
     listed:                   { label: "Listed — Closed Out",      color: "rgb(196,181,253)" },
-    left_voicemail:           { label: "Confirmed Owner — No Answer", color: "rgb(147,197,253)" },
+    left_voicemail:           { label: "Owner Confirmed — Recycled", color: "rgb(147,197,253)" },
   };
 
   // v15.11.18 — Skip mutation. POST /api/leads/:id/skip. Server enforces
@@ -1254,7 +1254,12 @@ function LeadCard({ lead }: { lead: Lead }) {
         if (variables.outcome === "no_answer" && dialed)      projectedStates[dialed] = "no_answer_today";
         if (variables.outcome === "wrong_number" && dialed)   projectedStates[dialed] = "struck";
         if (variables.outcome === "disconnected" && dialed)   projectedStates[dialed] = "struck";
-        if (variables.outcome === "left_voicemail" && dialed) projectedStates[dialed] = "no_answer_today";
+        // v15.11.41 — Owner - No Answer: current line stays no_answer_today, ALL
+        // other lines strike immediately (we know they're not the owner).
+        if (variables.outcome === "left_voicemail" && dialed) {
+          projectedStates[dialed] = "no_answer_today";
+          for (const p of allPhones) if (p !== dialed) projectedStates[p] = "struck";
+        }
         const untriedRemaining = allPhones.filter(p => (projectedStates[p] || "untried") === "untried");
 
         if (variables.outcome === "no_answer") {
@@ -1297,20 +1302,13 @@ function LeadCard({ lead }: { lead: Lead }) {
             });
           }
         } else if (variables.outcome === "left_voicemail") {
-          if (untriedRemaining.length > 0) {
-            const nextIdx = allPhones.findIndex(p => p === untriedRemaining[0]);
-            toast({
-              title: `Voicemail — line ${currentLineNum} logged`,
-              description: `Now dialing line ${nextIdx + 1} of ${total}.`,
-              duration: 3000,
-            });
-          } else {
-            toast({
-              title: "Voicemail logged",
-              description: "All lines contacted today. Loading next lead…",
-              duration: 3000,
-            });
-          }
+          // v15.11.41 — Owner - No Answer now recycles the lead to the front of
+          // the pool with all non-owner lines struck. No voicemail language.
+          toast({
+            title: "Owner confirmed — recycled to front of pool",
+            description: `Line ${currentLineNum} is now the only viable number. +6 points.`,
+            duration: 3500,
+          });
         }
       }
 

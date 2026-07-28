@@ -89,7 +89,7 @@ function awardPoints(
     disconnected:               1,   // Data cleanup.
     email_sent:                 0,   // v15.11.26 — REMOVED. Email no longer awards points.
     email_sent_value:           0,   // v15.11.26 — REMOVED. Email no longer awards points.
-    left_voicemail:             0,   // v15.11.26 — REMOVED. VM no longer awards points.
+    left_voicemail:             6,   // v15.11.41 — Owner - No Answer: confirmed owner + recycle + boost. 6 pts.
     // Any other outcome falls back to base dial (1).
   };
   const basePoints = pts[outcome] ?? 1;
@@ -343,7 +343,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.40 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.41 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -402,7 +402,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.40 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.41 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -687,7 +687,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.40 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.41 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1928,7 +1928,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.40</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.41</p>
             </div>
           `,
         });
@@ -2088,7 +2088,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.40 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.41 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3135,7 +3135,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           AND lk.lead_id IS NULL
           AND h.lead_id IS NULL
           ${countyClause}
-        ORDER BY l.score DESC, l.uploaded_at ASC, l.id ASC
+        ORDER BY (l.owner_confirmed_at IS NOT NULL) DESC, l.owner_confirmed_at DESC, l.score DESC, l.uploaded_at ASC, l.id ASC
         LIMIT 1
       `).get(agentId, leadType, ...countyParams);
     };
@@ -3815,17 +3815,37 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return res.json({ updated: true, leadId, nextPhone: nextViable, remaining: phones.length, keptOnLead: !!untriedNext });
 
     } else if (outcome === "left_voicemail") {
-      // v14.40 — Left VM counts toward the per-line no-answer cap (same as No Answer).
-      // At CAP the phone flips to "struck" instead of "no_answer_today".
-      // When every phone is struck, the lead auto-deletes (exhaustion delete).
-      // v14.65 — Raised from 6 → 10 to give more attempts to hunt the true owner
-      //           before retiring a line.
-      // v14.81.2 — Raised from 10 → 12 (see PHONE_ATTEMPT_CAP comment above).
+      // v15.11.41 — OWNER-CONFIRMED RECYCLE.
+      // The button label is "Owner - No Answer". Clicking it means the agent
+      // confirmed the owner picks up on THIS line (spouse hand-off, partial
+      // pickup, they said "this is me" then dropped, etc.). We now:
+      //   1. Strike EVERY OTHER phone on the lead (we know they're not the owner).
+      //      Struck lines are retained in history but the app will never dial them.
+      //   2. Bump this line's attempt counter (same 12-cap as No Answer). If this
+      //      line itself hits 12 struck-out attempts, the lead retires normally.
+      //   3. Mark the lead owner_confirmed_at = now — pullPool sorts these to the
+      //      FRONT of the pool ahead of every other lead.
+      //   4. Recycle to the pool: status='unassigned', assigned_agent_id=NULL,
+      //      lock deleted. The next agent (any home-county match) picks it up.
+      //   5. Award 6 points (see server/routes.ts LEFT_VM_POINTS — confirmed-owner
+      //      recycles are high-value events).
+      //   6. Skip the actor via agent_lead_holdouts (10-min bounce guard) so the
+      //      same agent doesn't immediately re-pull the lead they just recycled.
+      // NOTE: DB outcome key stays 'left_voicemail' for historical continuity.
+      // NO voicemail language leaves the server — all copy is Owner-focused now.
       const PHONE_ATTEMPT_CAP_VM = 12;
       const currentPhone = req.body.dialedPhone || lead.phone || "";
       let phoneAttemptsVm: Record<string, number> = {};
       try { phoneAttemptsVm = lead.phoneAttempts ? JSON.parse(lead.phoneAttempts) : {}; } catch {}
 
+      // 1. Strike every OTHER phone (option B: keep in history, never dial).
+      for (const p of newPhones) {
+        if (p !== currentPhone && newPhoneStates[p] !== undefined) {
+          newPhoneStates[p] = "struck";
+        }
+      }
+
+      // 2. Bump the current line's attempt count — same 12-cap logic as No Answer.
       if (currentPhone && newPhoneStates[currentPhone] !== undefined) {
         phoneAttemptsVm[currentPhone] = (phoneAttemptsVm[currentPhone] || 0) + 1;
         if (phoneAttemptsVm[currentPhone] >= PHONE_ATTEMPT_CAP_VM) {
@@ -3837,34 +3857,44 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
       rawDb.prepare(`UPDATE leads SET phone_attempts = ? WHERE id = ?`).run(JSON.stringify(phoneAttemptsVm), leadId);
 
-      // Exhaustion delete when all lines struck
+      // 3. Exhaustion delete when THIS line hits the cap (all other lines already struck).
       const anyViableVm = newPhones.some((p: string) => newPhoneStates[p] !== "struck");
       if (!anyViableVm) {
         rawDb.prepare(`
           INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
           VALUES (?, ?, 'retired_no_answer', ?, NULL, ?)
         `).run(leadId, agentId || null,
-          `Auto-retired: every phone hit ${PHONE_ATTEMPT_CAP_VM} no-answer/voicemail attempts (per-line cap).`,
+          `Auto-retired: confirmed owner line hit ${PHONE_ATTEMPT_CAP_VM} no-answer attempts (per-line cap).`,
           new Date().toISOString());
         awardPoints(agentId, "left_voicemail", leadId);
         rawDb.prepare(`DELETE FROM lead_activity WHERE lead_id = ?`).run(leadId);
         rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
         storage.deleteLead(leadId);
         broadcast({ type: "lead_deleted", leadId });
-        return res.json({ deleted: true, leadId, reason: "all_lines_struck_voicemail" });
+        return res.json({ deleted: true, leadId, reason: "all_lines_struck_owner_no_answer" });
       }
 
-      const nextPhone = getNextViablePhone(newPhoneStates, newPhones);
-      if (nextPhone) {
-        newStatus = "assigned";
-        newAssignedId = agentId;
-        newPhones = [nextPhone, ...newPhones.filter((p: string) => p !== nextPhone)];
-        rawDb.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(nextPhone, leadId);
-      } else {
-        // All lines tried today — return to pool, release lock
-        newStatus = "no_answer";
-        newAssignedId = null;
-        rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+      // 4. Recycle to pool with owner_confirmed_at stamp. This front-loads the lead.
+      newStatus = "unassigned";
+      newAssignedId = null;
+      const ownerConfirmedTs = new Date().toISOString();
+      rawDb.prepare("UPDATE leads SET owner_confirmed_at = ?, phone = ? WHERE id = ?")
+        .run(ownerConfirmedTs, currentPhone, leadId);
+      // Release lock so anyone can grab it (pool re-serves highest priority).
+      rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+
+      // 5. Bounce guard — 10 min holdout so the recycling agent doesn't immediately re-pull it.
+      if (agentId) {
+        try {
+          const until = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+          rawDb.prepare(`
+            INSERT INTO agent_lead_holdouts (agent_id, lead_id, until)
+            VALUES (?, ?, ?)
+            ON CONFLICT(agent_id, lead_id) DO UPDATE SET until=excluded.until
+          `).run(agentId, leadId, until);
+        } catch (e: any) {
+          console.error("[owner_no_answer] holdout insert failed:", e?.message);
+        }
       }
     }
     // v14.14 — The old `callback_requested` branch that scheduled a date and kept the
@@ -6140,7 +6170,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.40 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.41 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6552,7 +6582,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.40",
+      version: "v15.11.41",
       services: results,
     });
   });
@@ -7670,7 +7700,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.40`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.41`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -8309,7 +8339,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.40</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.41</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

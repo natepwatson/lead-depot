@@ -440,29 +440,68 @@ function RecycleModal({
 // lead that won't advance after an outcome). 3 skips per agent per local
 // day, minimum 60 minutes between skips. Skipped leads go back to the pool
 // AND get held out from this agent for the rest of the day.
+// v15.11.43 — SkipModal now requires a REASON dropdown. Options match the
+// server enum in POST /api/leads/:id/skip. "Other" reveals a small free-text
+// field where the agent must type why (min 3 chars). We surface bucket
+// state (available/cap + next regen countdown) plus rolling-24h count so agents
+// see when they're about to hit escalating cooldowns.
+const SKIP_REASON_OPTIONS: Array<{ key: string; label: string }> = [
+  { key: "wrong_phone",     label: "Wrong phone" },
+  { key: "no_county_match", label: "No county match" },
+  { key: "duplicate",       label: "Duplicate" },
+  { key: "bad_data",        label: "Bad data" },
+  { key: "never_expired",   label: "Never expired" },
+  { key: "never_listed",    label: "Never listed" },
+  { key: "other",           label: "Other (type it)" },
+];
+
 function SkipModal({
-  onClose, onSubmit, isPending, remaining, cap, inCooldown, cooldownExpiresAt,
+  onClose, onSubmit, isPending, available, cap, nextRegenAt, regenMin, rolling24h,
 }: {
   onClose: () => void;
-  onSubmit: () => void;
+  onSubmit: (reason: string, reasonNote: string) => void;
   isPending: boolean;
-  remaining: number;
+  available: number;
   cap: number;
-  inCooldown: boolean;
-  cooldownExpiresAt: string | null;
+  nextRegenAt: string | null;
+  regenMin: number;
+  rolling24h: number;
 }) {
   React.useEffect(() => {
     document.body.classList.add("ld-modal-open");
     return () => document.body.classList.remove("ld-modal-open");
   }, []);
-  const cooldownMinsLeft = cooldownExpiresAt
-    ? Math.max(0, Math.ceil((new Date(cooldownExpiresAt).getTime() - Date.now()) / 60_000))
+  const [reason, setReason] = React.useState<string>("");
+  const [reasonNote, setReasonNote] = React.useState<string>("");
+
+  // Live-tick countdown for the next regen.
+  const [nowMs, setNowMs] = React.useState<number>(Date.now());
+  React.useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => clearInterval(id);
+  }, []);
+  const regenSecondsLeft = nextRegenAt
+    ? Math.max(0, Math.ceil((new Date(nextRegenAt).getTime() - nowMs) / 1000))
     : 0;
-  const blocked = remaining <= 0 || inCooldown;
+  const regenMinsLeft = Math.ceil(regenSecondsLeft / 60);
+
+  const noSkips = available <= 0;
+  const otherNeedsText = reason === "other" && reasonNote.trim().length < 3;
+  const disabled = noSkips || !reason || otherNeedsText || isPending;
+
   const primaryLabel = isPending ? "Skipping…"
-    : remaining <= 0 ? `${cap}/${cap} used — resets midnight`
-    : inCooldown ? `Next skip in ${cooldownMinsLeft}m`
+    : noSkips ? `Bucket empty — next skip in ${regenMinsLeft}m`
+    : !reason ? "Pick a reason"
+    : otherNeedsText ? "Type the reason"
     : "Skip Lead";
+
+  // Escalation warning — tell the agent when they're one skip away from a slower regen.
+  let escalationWarning: string | null = null;
+  if (rolling24h >= 20) escalationWarning = "You're on 60-min regen right now (20+ skips in the last 24h).";
+  else if (rolling24h >= 18) escalationWarning = `${20 - rolling24h} more skip${20 - rolling24h === 1 ? "" : "s"} in 24h and regen drops to 60 min.`;
+  else if (rolling24h >= 10) escalationWarning = "You're on 30-min regen right now (10+ skips in the last 24h).";
+  else if (rolling24h >= 8) escalationWarning = `${10 - rolling24h} more skip${10 - rolling24h === 1 ? "" : "s"} in 24h and regen drops to 30 min.`;
+
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 100,
@@ -478,31 +517,99 @@ function SkipModal({
         border: "1px solid rgba(200,170,90,0.3)",
         borderBottom: "none",
         borderRadius: "20px 20px 0 0",
-        padding: "28px 22px 48px",
+        padding: "28px 22px 44px",
+        maxHeight: "88vh", overflowY: "auto",
       }}>
         <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 22px" }} />
         <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 26, fontWeight: 400, color: "#fff", margin: "0 0 8px" }}>
           Skip Lead
         </h2>
-        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", marginTop: 0, marginBottom: 16, lineHeight: 1.55 }}>
-          Use this when something's wrong — a glitched card, a lead that's already yours, or one you can't advance past. The lead goes back to the pool and won't come back to you today.
+        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", marginTop: 0, marginBottom: 14, lineHeight: 1.55 }}>
+          Skip only when something's wrong — a glitched card, wrong data, or a lead you can't advance. The lead goes back to the pool and won't come back to you for 24 hours.
         </p>
+
+        {/* Bucket state */}
         <div style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
           padding: "10px 12px", borderRadius: 8, background: "rgba(200,170,90,0.06)",
-          border: "1px solid rgba(200,170,90,0.15)", marginBottom: 22,
+          border: "1px solid rgba(200,170,90,0.15)", marginBottom: 6,
         }}>
-          <span style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(200,170,90,0.75)" }}>Skips today</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#e5c98a" }}>{cap - remaining} / {cap}</span>
+          <span style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(200,170,90,0.75)" }}>Skips available</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#e5c98a" }}>{available} / {cap}</span>
         </div>
+        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.42)", marginBottom: 16, textAlign: "right" }}>
+          {nextRegenAt
+            ? `+1 skip in ${regenMinsLeft}m (${regenMin}-min regen)`
+            : `Bucket full — max ${cap} skips`}
+        </div>
+
+        {escalationWarning && (
+          <div style={{
+            padding: "9px 12px", borderRadius: 8,
+            background: "rgba(220,120,60,0.08)", border: "1px solid rgba(220,120,60,0.28)",
+            fontSize: 11.5, color: "rgba(255,190,150,0.85)", marginBottom: 14, lineHeight: 1.4,
+          }}>
+            {escalationWarning}
+          </div>
+        )}
+
+        {/* Reason — required */}
+        <label style={{ display: "block", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.55)", marginBottom: 6 }}>
+          Reason
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: reason === "other" ? 12 : 22 }}>
+          {SKIP_REASON_OPTIONS.map(opt => {
+            const active = reason === opt.key;
+            return (
+              <button
+                key={opt.key}
+                onClick={() => setReason(opt.key)}
+                style={{
+                  padding: "10px 10px", borderRadius: 8,
+                  background: active ? "rgba(200,170,90,0.14)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${active ? "rgba(200,170,90,0.55)" : "rgba(255,255,255,0.08)"}`,
+                  color: active ? "#e5c98a" : "rgba(255,255,255,0.75)",
+                  fontSize: 12, fontWeight: 600, letterSpacing: "0.01em", cursor: "pointer", textAlign: "left",
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {reason === "other" && (
+          <div style={{ marginBottom: 22 }}>
+            <label style={{ display: "block", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.55)", marginBottom: 6 }}>
+              What's the reason?
+            </label>
+            <input
+              type="text"
+              value={reasonNote}
+              onChange={e => setReasonNote(e.target.value.slice(0, 200))}
+              placeholder="e.g. Wrong owner name, address doesn't exist…"
+              maxLength={200}
+              autoFocus
+              style={{
+                width: "100%", padding: "12px 12px", borderRadius: 8,
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(200,170,90,0.35)",
+                color: "#fff", fontSize: 13, outline: "none",
+              }}
+            />
+            <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.38)", marginTop: 4, textAlign: "right" }}>
+              {reasonNote.length}/200
+            </div>
+          </div>
+        )}
+
         <button
-          onClick={onSubmit}
-          disabled={isPending || blocked}
+          onClick={() => onSubmit(reason, reasonNote)}
+          disabled={disabled}
           style={{
             width: "100%", padding: "16px", borderRadius: 12, border: "none",
-            background: (!isPending && !blocked) ? "linear-gradient(135deg,#c8aa5a,#a8893a)" : "rgba(255,255,255,0.06)",
-            color: (!isPending && !blocked) ? "#0a0700" : "rgba(255,255,255,0.3)",
-            fontSize: 15, fontWeight: 700, cursor: (!isPending && !blocked) ? "pointer" : "default",
+            background: !disabled ? "linear-gradient(135deg,#c8aa5a,#a8893a)" : "rgba(255,255,255,0.06)",
+            color: !disabled ? "#0a0700" : "rgba(255,255,255,0.3)",
+            fontSize: 15, fontWeight: 700, cursor: !disabled ? "pointer" : "default",
             letterSpacing: "0.04em",
           }}
         >
@@ -1175,13 +1282,16 @@ function LeadCard({ lead }: { lead: Lead }) {
     left_voicemail:           { label: "Owner Confirmed — Recycled", color: "rgb(147,197,253)" },
   };
 
-  // v15.11.18 — Skip mutation. POST /api/leads/:id/skip. Server enforces
-  // the 3/day + 60min cooldown; we surface any 429 rate-limit error via toast
-  // and re-open the modal with the fresh quota state.
+  // v15.11.43 — Skip mutation. POST /api/leads/:id/skip now requires a REASON
+  // (see SkipModal). Bucket-based quota: 3 tokens, +1 every 15 min, escalating
+  // to 30 min / 60 min at 10 / 20 skips in rolling 24h. Owner Confirmed leads
+  // are hard-blocked (server returns 423).
   const skipMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (vars: { reason: string; reasonNote: string }) =>
       apiRequest("POST", `/api/leads/${lead.id}/skip`, {
         agentId: user?.id,
+        reason: vars.reason,
+        reasonNote: vars.reasonNote,
       }).then(async r => {
         const body = await r.json().catch(() => ({}));
         if (!r.ok) throw { status: r.status, body };
@@ -1201,10 +1311,17 @@ function LeadCard({ lead }: { lead: Lead }) {
     },
     onError: (err: any) => {
       const code = err?.body?.code;
-      if (code === "DAILY_CAP") {
-        toast({ title: "Daily skip limit reached", description: `You've used all ${err.body.cap} skips today. Resets midnight.`, variant: "destructive" });
-      } else if (code === "COOLDOWN") {
-        toast({ title: "Skip cooldown active", description: "Only 1 skip per hour. Try again shortly.", variant: "destructive" });
+      if (code === "BUCKET_EMPTY") {
+        const mins = err.body.nextRegenAt
+          ? Math.max(1, Math.ceil((new Date(err.body.nextRegenAt).getTime() - Date.now()) / 60_000))
+          : err.body.regenMin;
+        toast({ title: "No skips available", description: `Bucket regenerates 1 skip every ${err.body.regenMin} min. Next skip in ~${mins}m.`, variant: "destructive" });
+      } else if (code === "OWNER_CONFIRMED_LOCKED") {
+        toast({ title: "Owner Confirmed — skip blocked", description: "Skip is disabled on Owner Confirmed leads. Use Recycle if you can't advance.", variant: "destructive" });
+      } else if (code === "REASON_REQUIRED") {
+        toast({ title: "Pick a skip reason", variant: "destructive" });
+      } else if (code === "OTHER_NOTE_REQUIRED") {
+        toast({ title: "Type a reason for 'Other'", variant: "destructive" });
       } else {
         toast({ title: "Error skipping lead", variant: "destructive" });
       }
@@ -2214,22 +2331,22 @@ function LeadCard({ lead }: { lead: Lead }) {
           })}
         </div>
 
-        {/* v15.11.18 — Skip escape hatch. Sits below the outcome grid, styled
-            as a quiet secondary action so agents don't reach for it as an outcome.
-            Used when a lead is glitched, already theirs, or otherwise stuck. */}
+        {/* v15.11.43 — Skip escape hatch. Token bucket: 3 skips, +1 every 15 min
+            (escalating to 30/60 min at 10/20 skips in rolling 24h). Blocked on
+            Owner Confirmed leads (server enforces; UI also grays the button). */}
         {(() => {
-          const q = skipQuota;
-          const remaining = q?.remaining ?? 3;
+          const q: any = skipQuota;
+          const available = q?.available ?? q?.remaining ?? 3;
           const cap = q?.cap ?? 3;
-          const inCooldown = q?.inCooldown ?? false;
-          const outOfSkips = remaining <= 0;
-          const disabled = outOfSkips || inCooldown;
-          const cooldownMins = q?.cooldownExpiresAt
-            ? Math.max(0, Math.ceil((new Date(q.cooldownExpiresAt).getTime() - Date.now()) / 60_000))
+          const ownerConfirmed = !!(lead as any).ownerConfirmedAt;
+          const outOfSkips = available <= 0;
+          const disabled = outOfSkips || ownerConfirmed;
+          const regenMins = q?.nextRegenAt
+            ? Math.max(1, Math.ceil((new Date(q.nextRegenAt).getTime() - Date.now()) / 60_000))
             : 0;
-          const label = outOfSkips ? `${cap}/${cap} skips used — resets midnight`
-            : inCooldown ? `Skip cooldown — ${cooldownMins}m left`
-            : `Skip lead (${remaining} left today)`;
+          const label = ownerConfirmed ? "Skip disabled — Owner Confirmed"
+            : outOfSkips ? `Skip empty — next in ${regenMins}m`
+            : `Skip lead (${available}/${cap} available)`;
           return (
             <div style={{ maxWidth: 640, margin: "10px auto 0", textAlign: "center" }}>
               <button
@@ -2323,16 +2440,17 @@ function LeadCard({ lead }: { lead: Lead }) {
         />
       )}
 
-      {/* v15.11.18 — Skip confirm sheet */}
+      {/* v15.11.43 — Skip confirm sheet with reason dropdown */}
       {pendingSkip && (
         <SkipModal
           onClose={() => setPendingSkip(false)}
-          onSubmit={() => skipMutation.mutate()}
+          onSubmit={(reason, reasonNote) => skipMutation.mutate({ reason, reasonNote })}
           isPending={skipMutation.isPending}
-          remaining={skipQuota?.remaining ?? 3}
+          available={(skipQuota as any)?.available ?? skipQuota?.remaining ?? 3}
           cap={skipQuota?.cap ?? 3}
-          inCooldown={skipQuota?.inCooldown ?? false}
-          cooldownExpiresAt={skipQuota?.cooldownExpiresAt ?? null}
+          nextRegenAt={(skipQuota as any)?.nextRegenAt ?? null}
+          regenMin={(skipQuota as any)?.regenMin ?? 15}
+          rolling24h={(skipQuota as any)?.rolling24h ?? 0}
         />
       )}
     </div>

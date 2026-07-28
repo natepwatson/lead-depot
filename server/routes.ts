@@ -343,7 +343,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.42 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.43 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -402,7 +402,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.42 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.43 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -687,7 +687,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.42 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.43 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1928,7 +1928,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.42</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.43</p>
             </div>
           `,
         });
@@ -2088,7 +2088,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.42 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.43 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -5441,29 +5441,106 @@ Brothers Group Real Estate Team at Momentum Realty
     return new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   }
 
-  // v15.11.26 — Skip quota computation. Returns { used, remaining,
-  // nextAvailableAt, resetAt } for the given agent. Called by the client to
-  // paint the Skip button state, and by POST /skip to gate the write.
-  const SKIP_DAILY_CAP = 3;
-  const SKIP_COOLDOWN_MIN = 60;
+  // v15.11.43 — SKIP TOKEN BUCKET (rewrites v15.11.26 hard cap).
+  //
+  //   Capacity : 3 skips held at once.
+  //   Regen    : +1 skip every 15 min of elapsed time since the LAST skip.
+  //   Escalates: 10+ skips in the last rolling 24h → 30-min regen.
+  //              20+ skips in the last rolling 24h → 60-min regen.
+  //   Never runs out unless burned faster than they regen. Realistic pace is
+  //   ~4 skips/hr = ~32 per 8h workday if someone abuses it. Legit use is
+  //   5–10/day with 2–3 always in reserve.
+  //
+  // Returns { available, cap, nextRegenAt, cooldownMin, rolling24h }.
+  const SKIP_BUCKET_CAP = 3;
+  const SKIP_BASE_REGEN_MIN = 15;
   function computeSkipQuota(agentId: number) {
-    const dayStart = todayEdtMidnightIso();
-    const skips = rawDb.prepare(`
-      SELECT created_at FROM lead_activity
-       WHERE agent_id = ? AND outcome = 'skipped' AND created_at >= ?
-       ORDER BY created_at DESC
-    `).all(agentId, dayStart) as Array<{ created_at: string }>;
-    const used = skips.length;
-    const remaining = Math.max(0, SKIP_DAILY_CAP - used);
-    const lastSkipAt = skips[0]?.created_at || null;
-    const cooldownExpiresAt = lastSkipAt
-      ? new Date(new Date(lastSkipAt).getTime() + SKIP_COOLDOWN_MIN * 60_000).toISOString()
-      : null;
     const now = new Date();
-    const inCooldown = cooldownExpiresAt !== null && new Date(cooldownExpiresAt) > now;
-    const resetAt = nextEdtMidnightIso();
-    const nextAvailableAt = remaining === 0 ? resetAt : (inCooldown ? cooldownExpiresAt! : now.toISOString());
-    return { used, remaining, cooldownExpiresAt, inCooldown, nextAvailableAt, resetAt, cap: SKIP_DAILY_CAP };
+    const dayStart = todayEdtMidnightIso();
+
+    // Rolling 24h skip count for escalation. Uses 'skipped' outcome only —
+    // admin-cleared skips (skip_cleared_by_admin) are excluded intentionally.
+    const rolling24hRow = rawDb.prepare(`
+      SELECT COUNT(*) AS c FROM lead_activity
+       WHERE agent_id = ? AND outcome = 'skipped'
+         AND created_at >= datetime('now', '-24 hours')
+    `).get(agentId) as { c: number } | undefined;
+    const rolling24h = rolling24hRow?.c ?? 0;
+
+    // Escalating regen. Base 15m; 30m at 10+; 60m at 20+ in the last 24h.
+    let regenMin = SKIP_BASE_REGEN_MIN;
+    if (rolling24h >= 20) regenMin = 60;
+    else if (rolling24h >= 10) regenMin = 30;
+
+    // Reconstruct bucket state by walking the skip history since the earliest
+    // relevant boundary (the last time the bucket was known-full, i.e. 3×regen
+    // ago from the newest event). Simpler: sort recent skips, replay them.
+    // We only need the last N skips where N = cap; older ones can't affect
+    // the current bucket level.
+    const recentSkips = rawDb.prepare(`
+      SELECT created_at FROM lead_activity
+       WHERE agent_id = ? AND outcome = 'skipped'
+       ORDER BY created_at DESC
+       LIMIT ?
+    `).all(agentId, SKIP_BUCKET_CAP) as Array<{ created_at: string }>;
+
+    // Replay in chronological order: bucket starts at cap, drops on each skip,
+    // regens by min(elapsed, needed) between events, tops out at cap.
+    let bucket = SKIP_BUCKET_CAP;
+    let lastEventMs: number | null = null;
+    const sortedAsc = [...recentSkips].reverse();
+    for (const s of sortedAsc) {
+      const t = new Date(s.created_at).getTime();
+      if (lastEventMs !== null) {
+        const elapsedMin = (t - lastEventMs) / 60_000;
+        bucket = Math.min(SKIP_BUCKET_CAP, bucket + Math.floor(elapsedMin / regenMin));
+      }
+      bucket = Math.max(0, bucket - 1);
+      lastEventMs = t;
+    }
+    // Regen since the last event up to "now".
+    if (lastEventMs !== null) {
+      const elapsedMin = (now.getTime() - lastEventMs) / 60_000;
+      bucket = Math.min(SKIP_BUCKET_CAP, bucket + Math.floor(elapsedMin / regenMin));
+    }
+
+    // When does the next token drop into the bucket? If bucket is already full,
+    // there is no next-regen time. Otherwise, project forward from the last
+    // event by however many regenMin steps get us to "now".
+    let nextRegenAt: string | null = null;
+    if (bucket < SKIP_BUCKET_CAP && lastEventMs !== null) {
+      const elapsedMin = (now.getTime() - lastEventMs) / 60_000;
+      const stepsSinceEvent = Math.floor(elapsedMin / regenMin);
+      const nextStepMs = lastEventMs + (stepsSinceEvent + 1) * regenMin * 60_000;
+      nextRegenAt = new Date(nextStepMs).toISOString();
+    }
+
+    // Kept for backward-compat with the old client fields. `used` = how many
+    // skips have been recorded TODAY (EDT boundary) — informational only,
+    // no longer used as a cap.
+    const usedRow = rawDb.prepare(`
+      SELECT COUNT(*) AS c FROM lead_activity
+       WHERE agent_id = ? AND outcome = 'skipped' AND created_at >= ?
+    `).get(agentId, dayStart) as { c: number } | undefined;
+    const used = usedRow?.c ?? 0;
+
+    const remaining = bucket;
+    const inCooldown = bucket === 0;
+    return {
+      // New v15.11.43 fields
+      available: bucket,
+      cap: SKIP_BUCKET_CAP,
+      regenMin,
+      nextRegenAt,
+      rolling24h,
+      // Backward-compat (old client used these)
+      used,
+      remaining,
+      cooldownExpiresAt: nextRegenAt,
+      inCooldown,
+      nextAvailableAt: nextRegenAt ?? now.toISOString(),
+      resetAt: nextEdtMidnightIso(),
+    };
   }
 
   // v15.11.26 — GET /api/agent/:id/skip-quota
@@ -5547,41 +5624,99 @@ Brothers Group Real Estate Team at Momentum Realty
     });
   });
 
-  // v15.11.26 — POST /api/leads/:id/skip { agentId, notes? }
-  //   Rate-limited escape hatch for glitched or misassigned leads. Behaves
-  //   like Recycle for the LEAD (returns to shared pool, attempt count bumps),
-  //   but ALSO inserts a per-agent holdout so this lead never comes back to
-  //   THIS agent today. Cap: 3 per local day, min 60min between skips.
-  //   Not counted as a dial. Logs activity outcome='skipped'.
+  // v15.11.43 — POST /api/leads/:id/skip { agentId, reason, reasonNote?, notes? }
+  //   Token-bucket-gated escape hatch for glitched or misassigned leads.
+  //   Behaves like Recycle for the LEAD (returns to shared pool, attempt count
+  //   bumps), but ALSO inserts a per-agent holdout so this lead never comes
+  //   back to THIS agent for 24 hours. Bucket cap 3, base regen 15min,
+  //   escalating to 30min at 10 skips in rolling 24h, 60min at 20.
+  //
+  //   REQUIRED `reason` field (v15.11.43): one of the enum values below,
+  //   or 'other' with a `reasonNote` (max 200 chars). Recorded on the
+  //   activity row so admin can spot fake reason patterns.
+  //
+  //   BLOCKED (v15.11.43): leads with owner_confirmed_at IS NOT NULL cannot
+  //   be skipped. Those are the highest-value leads (Owner Confirmed →
+  //   front of pool) and skipping one is almost certainly a theft attempt.
+  //
+  //   Not counted as a dial. Logs activity outcome='skipped' with the reason
+  //   and (if 'other') the free-text note appended.
+  const SKIP_REASONS = new Set([
+    "wrong_phone",
+    "no_county_match",
+    "duplicate",
+    "bad_data",
+    "never_expired",
+    "never_listed",
+    "other",
+  ]);
   app.post("/api/leads/:id/skip", (req, res) => {
     const leadId = parseInt(req.params.id);
-    const { agentId, notes } = req.body;
+    const { agentId, reason, reasonNote, notes } = req.body;
     if (!agentId || isNaN(agentId)) return res.status(400).json({ error: "Missing agentId" });
     const lead = storage.getLeadById(leadId);
     if (!lead) return res.status(404).json({ error: "Lead not found" });
 
+    // v15.11.43 — Reason field is required.
+    const reasonKey = typeof reason === "string" ? reason.trim().toLowerCase() : "";
+    if (!SKIP_REASONS.has(reasonKey)) {
+      return res.status(400).json({
+        error: "Skip reason required",
+        code: "REASON_REQUIRED",
+        allowed: Array.from(SKIP_REASONS),
+      });
+    }
+    const trimmedNote = typeof reasonNote === "string" ? reasonNote.trim().slice(0, 200) : "";
+    if (reasonKey === "other" && trimmedNote.length < 3) {
+      return res.status(400).json({
+        error: "When reason is 'other', a short explanation is required",
+        code: "OTHER_NOTE_REQUIRED",
+      });
+    }
+
+    // v15.11.43 — Block skip on Owner Confirmed leads.
+    if ((lead as any).ownerConfirmedAt || (lead as any).owner_confirmed_at) {
+      return res.status(423).json({
+        error: "Owner Confirmed leads can't be skipped",
+        code: "OWNER_CONFIRMED_LOCKED",
+      });
+    }
+
     const quota = computeSkipQuota(agentId);
-    if (quota.remaining <= 0) {
+    if (quota.available <= 0) {
       return res.status(429).json({
-        error: "Daily skip limit reached",
-        code: "DAILY_CAP",
-        used: quota.used, cap: quota.cap, resetAt: quota.resetAt,
+        error: "No skips available — waiting for one to regenerate",
+        code: "BUCKET_EMPTY",
+        cap: quota.cap,
+        regenMin: quota.regenMin,
+        nextRegenAt: quota.nextRegenAt,
+        rolling24h: quota.rolling24h,
       });
     }
-    if (quota.inCooldown) {
-      return res.status(429).json({
-        error: "Skip cooldown active",
-        code: "COOLDOWN",
-        cooldownExpiresAt: quota.cooldownExpiresAt,
-      });
-    }
+
+    // Compose the activity note. Reason label first, then free-text if 'other',
+    // then any pre-existing agent notes.
+    const REASON_LABELS: Record<string, string> = {
+      wrong_phone:    "Wrong phone",
+      no_county_match:"No county match",
+      duplicate:      "Duplicate",
+      bad_data:       "Bad data",
+      never_expired:  "Never expired",
+      never_listed:   "Never listed",
+      other:          "Other",
+    };
+    const composedNote = [
+      `Reason: ${REASON_LABELS[reasonKey]}`,
+      reasonKey === "other" && trimmedNote ? `— ${trimmedNote}` : "",
+      notes ? `\n${notes}` : "",
+    ].filter(Boolean).join(" ");
 
     // Log the skip activity (does NOT count as a dial — dial counters exclude 'skipped').
     storage.createLeadActivity({
       leadId,
       agentId,
       outcome: "skipped",
-      notes: notes || "Lead skipped — held out from this agent for the rest of the day.",
+      notes: composedNote || "Lead skipped — held out from this agent for 24h.",
       lpmamabSnapshot: null,
       createdAt: new Date().toISOString(),
     });
@@ -5594,8 +5729,8 @@ Brothers Group Real Estate Team at Momentum Realty
       attemptCount: (lead.attemptCount || 0) + 1,
     });
 
-    // Hold out from this agent for the rest of the local day.
-    const until = nextEdtMidnightIso();
+    // v15.11.43 — Hold out from this agent for 24 hours (not just today).
+    const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     rawDb.prepare(`
       INSERT OR REPLACE INTO agent_lead_holdouts (agent_id, lead_id, until, reason, created_at)
       VALUES (?, ?, ?, 'skipped', ?)
@@ -6170,7 +6305,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.42 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.43 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6582,7 +6717,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.42",
+      version: "v15.11.43",
       services: results,
     });
   });
@@ -7700,7 +7835,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.42`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.43`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -8339,7 +8474,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.42</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.43</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

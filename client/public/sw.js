@@ -10,7 +10,7 @@
 // same, an installed PWA can lag a build by many hours (until its next daily
 // SW check). This is the 6th mandatory version-bump spot in the deploy workflow.
 
-const SW_VERSION = "v15.11.41";
+const SW_VERSION = "v15.11.42";
 
 self.addEventListener("install", () => self.skipWaiting());
 

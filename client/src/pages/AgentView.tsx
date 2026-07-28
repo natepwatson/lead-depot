@@ -1113,6 +1113,39 @@ function LeadCard({ lead }: { lead: Lead }) {
     staleTime: 60000,
   });
 
+  // v15.11.42 — Live autofill for the script placeholders. The raw template stays
+  // locked in the DB (Alex-authored, read-only). Below we render a display-only
+  // overlay where [First Name], [Agent First Name], [Street number and name only],
+  // and "Agent Name" get replaced with the current lead + logged-in agent values.
+  // Switching leads or logging in as a different agent re-renders live — no save,
+  // no DB write, no template drift.
+  const scriptFilled = React.useMemo(() => {
+    if (!script?.content) return "";
+    const leadFirst = (lead.firstName || "").trim();
+    const agentFullName = (user?.name || "").trim();
+    const agentFirst = agentFullName.split(/\s+/)[0] || "";
+    // Extract "123 Oak" style street number + street name from the address. Drops
+    // apt/unit tokens, comma-separated city/state/zip, and any trailing directional suffixes.
+    const streetOnly = (() => {
+      const raw = (lead.address || "").trim();
+      if (!raw) return "";
+      // Everything before the first comma is the street line.
+      const streetLine = raw.split(",")[0].trim();
+      // Strip apt/unit/suite/# suffixes.
+      return streetLine
+        .replace(/\s+(apt|apartment|unit|suite|ste|#)\.?\s*\S+.*/i, "")
+        .trim();
+    })();
+    return script.content
+      // Order matters: replace "Agent First Name" BEFORE "First Name" to avoid
+      // the general placeholder eating the agent one.
+      .replace(/\[Agent First Name\]/g, agentFirst || "[Agent First Name]")
+      .replace(/\[Agent Name\]/g,       agentFullName || "[Agent Name]")
+      .replace(/\bAgent Name\b(?= from The Brothers Group)/g, agentFullName || "Agent Name")
+      .replace(/\[First Name\]/g,       leadFirst || "[First Name]")
+      .replace(/\[Street number and name only\]/g, streetOnly || "[Street number and name only]");
+  }, [script?.content, lead.firstName, lead.address, user?.name]);
+
   // v15.11.18 — Skip quota. Refetched every 60s so the cooldown countdown
   // and daily reset stay accurate without needing a websocket push.
   const { data: skipQuotaData } = useQuery<any>({
@@ -1858,7 +1891,7 @@ function LeadCard({ lead }: { lead: Lead }) {
           border: "1px solid rgba(200,170,90,0.22)", borderRadius: 10, padding: "16px 16px 14px",
           maxHeight: 260, overflowY: "auto", margin: 0,
         }}>
-          {script?.content || "No script saved for this lead type."}
+          {scriptFilled || "No script saved for this lead type."}
         </pre>
       </div>
 

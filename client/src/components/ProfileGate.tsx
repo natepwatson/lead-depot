@@ -53,16 +53,30 @@ export default function ProfileGate({ onComplete }: { onComplete: () => void }) 
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // v15.11.46 — Seed every field from the current user record so existing agents
+  // who already have a headshot / phone / brokerage / address don't see empty
+  // fields and can't figure out what changed. Vonda 7/29 got stuck because the
+  // photo circle was always empty even though her headshot was on file.
   const [name, setName] = useState(user?.name ?? "");
-  const [phone, setPhone] = useState("");
-  const [brokerage, setBrokerage] = useState("Momentum Realty");
-  const [homeAddress, setHomeAddress] = useState("");
+  const [phone, setPhone] = useState((user as any)?.phone ?? "");
+  const [brokerage, setBrokerage] = useState((user as any)?.brokerage || "Momentum Realty");
+  const [homeAddress, setHomeAddress] = useState((user as any)?.homeAddress ?? "");
   const [homeCounty, setHomeCountyLocal] = useState(user?.homeCounty ?? "");
-  const [headshotUrl, setHeadshotUrl] = useState<string>("");
+  const [headshotUrl, setHeadshotUrl] = useState<string>((user as any)?.headshotUrl ?? "");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const canSave = name.trim() && phone.trim() && brokerage.trim() && homeAddress.trim() && homeCounty.trim();
+
+  // v15.11.46 — Compute per-field missing state so the button can show WHICH
+  // fields are missing when the agent taps it. Silent-disabled buttons are the
+  // #1 self-service block on mobile (Vonda 7/29).
+  const missingFields: string[] = [];
+  if (!name.trim())        missingFields.push("Name");
+  if (!phone.trim())       missingFields.push("Phone");
+  if (!brokerage.trim())   missingFields.push("Brokerage");
+  if (!homeAddress.trim()) missingFields.push("Home Address");
+  if (!homeCounty.trim())  missingFields.push("Home County");
 
   const initials = (name || user?.name || "").split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
 
@@ -253,19 +267,66 @@ export default function ProfileGate({ onComplete }: { onComplete: () => void }) 
           </div>
         </div>
 
+        {/* v15.11.46 — Button is ALWAYS tappable. If fields are missing on tap, we
+            show a toast listing exactly which fields — instead of a silently-
+            disabled button that leaves the agent guessing (Vonda 7/29). */}
         <button
-          onClick={handleSave}
-          disabled={!canSave || saving}
+          onClick={() => {
+            if (missingFields.length > 0) {
+              toast({
+                title: "Missing: " + missingFields.join(", "),
+                description: "Fill in the highlighted field(s) to continue.",
+                variant: "destructive",
+              });
+              return;
+            }
+            handleSave();
+          }}
+          disabled={saving}
           style={{
             ...goldBtn,
-            background: !canSave || saving ? "rgba(200,170,90,0.25)" : goldBtn.background,
-            color: !canSave || saving ? "rgba(255,255,255,0.35)" : "#080808",
-            cursor: !canSave || saving ? "not-allowed" : "pointer",
-            boxShadow: !canSave || saving ? "none" : goldBtn.boxShadow,
+            background: saving ? "rgba(200,170,90,0.25)" : goldBtn.background,
+            color: saving ? "rgba(255,255,255,0.35)" : "#080808",
+            cursor: saving ? "not-allowed" : "pointer",
+            boxShadow: saving ? "none" : goldBtn.boxShadow,
+            opacity: missingFields.length > 0 && !saving ? 0.75 : 1,
           }}
         >
           {saving ? "Saving…" : <><Check size={14} /> Save & Continue</>}
         </button>
+
+        {/* v15.11.46 — Live checklist BELOW the button so agents scan and see
+            exactly what's still needed. Green check when filled, red dot when not. */}
+        <div style={{
+          marginTop: 14, padding: "10px 12px",
+          background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: 8,
+        }}>
+          <div style={{ fontSize: 10, color: "rgba(200,170,90,0.7)", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 6 }}>
+            Checklist
+          </div>
+          {[
+            { label: "Name",         ok: !!name.trim()        },
+            { label: "Phone",        ok: !!phone.trim()       },
+            { label: "Brokerage",    ok: !!brokerage.trim()   },
+            { label: "Home Address", ok: !!homeAddress.trim() },
+            { label: "Home County",  ok: !!homeCounty.trim()  },
+          ].map(row => (
+            <div key={row.label} style={{
+              display: "flex", alignItems: "center", gap: 8,
+              fontSize: 12, padding: "3px 0",
+              color: row.ok ? "rgba(180,220,180,0.85)" : "rgba(255,180,180,0.75)",
+            }}>
+              <span style={{
+                display: "inline-block", width: 12, height: 12, borderRadius: "50%",
+                background: row.ok ? "rgba(100,180,100,0.35)" : "rgba(220,100,100,0.2)",
+                border: "1px solid " + (row.ok ? "rgba(100,180,100,0.6)" : "rgba(220,100,100,0.5)"),
+                textAlign: "center", lineHeight: "10px", fontSize: 9, color: "#fff",
+              }}>{row.ok ? "✓" : ""}</span>
+              {row.label}
+            </div>
+          ))}
+        </div>
 
         <p style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", textAlign: "center", marginTop: 14 }}>
           Required fields are marked *. Headshot can be skipped and added later from Profile.

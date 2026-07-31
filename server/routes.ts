@@ -344,7 +344,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.48 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.49 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -403,7 +403,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.48 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.49 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -688,7 +688,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.48 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.49 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1929,7 +1929,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.48</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.49</p>
             </div>
           `,
         });
@@ -2089,7 +2089,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.48 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.49 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3513,12 +3513,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       return res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_OUTCOMES.join(", ")}` });
     }
 
-    // v15.11.12 — Intention is now REQUIRED on KIT + Appt Set. Without it we
-    // can't route the FUB action plan or open the right pipeline deal, and it
-    // was silently landing as "—" in Denise's collaborator inbox. Server-side
-    // guard so no client bypass sneaks past the button-disabled state.
-    if ((outcome === "contacted_appointment" || outcome === "keep_in_touch") && (!intention || !String(intention).trim())) {
-      return res.status(400).json({ error: "Intention (Seller, Buyer, or Both) is required for Keep in Touch and Appt Set." });
+    // v15.11.12 — Intention is REQUIRED on Appt Set. Without it we can't route
+    // the FUB action plan or open the right pipeline deal.
+    // v15.11.48 — KIT no longer captures intention (replaced with a free-form
+    // Notes textarea + follow-up timing). The v15.11.12 guard used to also
+    // require intention for KIT and silently rejected every KIT save until
+    // v15.11.49 (Bronson: "unable to save a KIT"). KIT branch now bypasses.
+    if (outcome === "contacted_appointment" && (!intention || !String(intention).trim())) {
+      return res.status(400).json({ error: "Intention (Seller, Buyer, or Both) is required for Appt Set." });
     }
 
     const lead = storage.getLeadById(leadId);
@@ -3884,15 +3886,21 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // Release lock so anyone can grab it (pool re-serves highest priority).
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
 
-      // 5. Bounce guard — 10 min holdout so the recycling agent doesn't immediately re-pull it.
+      // 5. Bounce guard — 10 min holdout so the confirming agent doesn't immediately re-pull it.
+      // v15.11.49 — HOTFIX for Owner - No Answer stuck-loop. The previous INSERT
+      // omitted `reason` and `created_at`, both NOT NULL columns per
+      // server/db.ts:869. Every insert threw a constraint failure that was
+      // silently swallowed by the try/catch, so no holdout was ever recorded.
+      // Bronson reported tapping Owner - No Answer 3× on lead 5147 and getting
+      // the same lead served right back each time (owner_confirmed_at sorts it
+      // to the front of the pool). Include all 5 columns like Skip and Recycle.
       if (agentId) {
         try {
           const until = new Date(Date.now() + 10 * 60 * 1000).toISOString();
           rawDb.prepare(`
-            INSERT INTO agent_lead_holdouts (agent_id, lead_id, until)
-            VALUES (?, ?, ?)
-            ON CONFLICT(agent_id, lead_id) DO UPDATE SET until=excluded.until
-          `).run(agentId, leadId, until);
+            INSERT OR REPLACE INTO agent_lead_holdouts (agent_id, lead_id, until, reason, created_at)
+            VALUES (?, ?, ?, 'owner_no_answer', ?)
+          `).run(agentId, leadId, until, new Date().toISOString());
         } catch (e: any) {
           console.error("[owner_no_answer] holdout insert failed:", e?.message);
         }
@@ -5612,6 +5620,14 @@ Brothers Group Real Estate Team at Momentum Realty
       createdAt: new Date().toISOString(),
     });
 
+    // v15.11.49 — HOTFIX: delete lead_locks row on recycle. Previously the lock
+    // persisted after status flipped to 'unassigned', which meant pullPool's
+    // `AND lk.lead_id IS NULL` clause excluded the recycled lead for EVERY
+    // agent — the lead effectively vanished from the pool until the lock
+    // expired. Skip already deletes locks (line 5585) so this brings recycle
+    // to parity. Bronson: "recycle not moving on some lead cards."
+    rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
+
     storage.updateLead(leadId, {
       assignedAgentId: null,
       status: "unassigned",
@@ -6159,7 +6175,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.48 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.49 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6462,7 +6478,7 @@ Brothers Group Real Estate Team at Momentum Realty
   // v15.11.10 — Prime Time email notifier removed. Prime is now incentivized via
   // a 1.5x point multiplier inside awardPoints(). No endpoints needed.
 
-  // v15.11.48 — PROPERTY APPRAISER DEEP-LINK REDIRECT.
+  // v15.11.49 — PROPERTY APPRAISER DEEP-LINK REDIRECT.
   //
   // Client-side we can't easily deep-link to a specific parcel on most FL county
   // appraiser sites because they require server-side ASP.NET postbacks OR live
@@ -6666,7 +6682,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.48",
+      version: "v15.11.49",
       services: results,
     });
   });
@@ -7784,7 +7800,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.48`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.49`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -8423,7 +8439,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.48</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.49</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

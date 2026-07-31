@@ -186,8 +186,13 @@ function ApptModal({
   const confirmedAddress = isKit
     ? (lead.address || "")
     : (addressConfirmed ? (lead.address || "") : altAddress);
+  // v15.11.49 — KIT no longer requires an email. Bronson reported being unable
+  // to save a KIT because he took a real call, agreed to follow up in 6 months,
+  // but the owner didn't hand over email. The gate on `apptEmail.trim()` silently
+  // disabled the Log button and looked broken. If email is absent, the server
+  // now skips the warm intro email and just logs the KIT + files it in Pipeline.
   const canSubmit = isKit
-    ? Boolean(apptEmail.trim() && followUpTiming)
+    ? Boolean(followUpTiming)
     : Boolean(
         apptEmail.trim() &&
         (addressConfirmed || altAddress.trim()) &&
@@ -268,7 +273,11 @@ function ApptModal({
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           <div>
-            <label style={labelStyle}>Owner Email</label>
+            {/* v15.11.49 — Email is REQUIRED for Appt Set but OPTIONAL for KIT.
+                A KIT can be logged without email; server skips the warm intro send. */}
+            <label style={labelStyle}>
+              Owner Email{isKit && <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, letterSpacing: 0, textTransform: "none" }}> (optional)</span>}
+            </label>
             <input type="email" value={apptEmail} onChange={e => setApptEmail(e.target.value)}
               placeholder="owner@email.com" style={inputStyle} />
           </div>
@@ -328,7 +337,7 @@ function ApptModal({
                 })}
               </div>
               <p style={{ margin: "8px 0 0", fontSize: 11, color: "rgba(255,255,255,0.35)", letterSpacing: "0.02em" }}>
-                We'll send them a warm intro email today and file this lead in your pipeline.
+                We'll file this lead in your pipeline and route the follow-up to FUB.
               </p>
             </div>
           )}

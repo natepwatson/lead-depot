@@ -1488,10 +1488,14 @@ function LeadCard({ lead }: { lead: Lead }) {
         // advances to the next pool lead. Without this, /api/leads/by-id keeps returning
         // the (now-closed) lead until refetch; the pool pull is masked. Reported by
         // Bronson: tapped Not Interested → Nice on Marcos, screen didn't advance.
+        // v15.11.47 — Added "left_voicemail" (Owner - No Answer). It also unassigns the
+        // lead and recycles it to the pool (or deletes it on exhaustion), so it was
+        // missing from this set for no good reason — caused the exact same "screen
+        // doesn't advance, looks like nothing changed" symptom Alex reported.
         const CLOSING_OUTCOMES = new Set([
           "contacted_not_interested", "nice_not_interested",
           "contacted_appointment", "keep_in_touch",
-          "recycled", "listed", "wrong_number", "disconnected",
+          "recycled", "listed", "wrong_number", "disconnected", "left_voicemail",
         ]);
         if (CLOSING_OUTCOMES.has(variables.outcome as string)) {
           try { sessionStorage.removeItem("pending_lead_jump"); } catch {}
@@ -1587,7 +1591,10 @@ function LeadCard({ lead }: { lead: Lead }) {
     if (!c || !addr) return null;
     const map: Record<string, { url: string; label: string }> = {
       "duval":      { url: `https://paopropertysearch.coj.net/Basic/Search.aspx?searchType=Location&Location=${addr}`,                              label: "Duval PA" },
-      "nassau":     { url: `https://www.nassauflpa.com/PropertySearch/Search?SearchType=SITUS&Address=${addr}`,                                   label: "Nassau PA" },
+      // v15.11.47 — nassauflpa.com's old parameterized search moved/broke (the new maps.ncpafl.com
+      // search page throws dbo.IS_SearchResults2015 errors too). Point straight at the new site's
+      // home (search.ncpafl.com) instead of a query URL — agent searches by address from there.
+      "nassau":     { url: `https://search.ncpafl.com/`,                                                                                          label: "Nassau PA" },
       "st. johns":  { url: `https://qpublic.schneidercorp.com/Application.aspx?AppID=800&LayerID=11576&PageTypeID=2&PageID=6112&KeyValue=${addr}`, label: "St. Johns PA" },
       "st johns":   { url: `https://qpublic.schneidercorp.com/Application.aspx?AppID=800&LayerID=11576&PageTypeID=2&PageID=6112&KeyValue=${addr}`, label: "St. Johns PA" },
       "st_johns":   { url: `https://qpublic.schneidercorp.com/Application.aspx?AppID=800&LayerID=11576&PageTypeID=2&PageID=6112&KeyValue=${addr}`, label: "St. Johns PA" },

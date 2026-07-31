@@ -344,7 +344,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.47 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.48 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -403,7 +403,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.47 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.48 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -688,7 +688,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.47 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.48 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1929,7 +1929,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.47</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.48</p>
             </div>
           `,
         });
@@ -2089,7 +2089,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.47 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.48 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -6159,7 +6159,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.47 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.48 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6462,6 +6462,101 @@ Brothers Group Real Estate Team at Momentum Realty
   // v15.11.10 — Prime Time email notifier removed. Prime is now incentivized via
   // a 1.5x point multiplier inside awardPoints(). No endpoints needed.
 
+  // v15.11.48 — PROPERTY APPRAISER DEEP-LINK REDIRECT.
+  //
+  // Client-side we can't easily deep-link to a specific parcel on most FL county
+  // appraiser sites because they require server-side ASP.NET postbacks OR live
+  // behind Cloudflare. This endpoint does the lookup on the server for the two
+  // counties where it's cheap (Duval via ArcGIS, Nassau via public search/r) and
+  // 302-redirects the agent's browser straight to the property detail page.
+  //
+  // For everything else it 302s to a pre-filled search URL (best available).
+  app.get("/api/pa-lookup", async (req, res) => {
+    const county = String(req.query.county || "").trim().toLowerCase();
+    const rawAddr = String(req.query.address || "").trim();
+    if (!county || !rawAddr) { res.status(400).send("county+address required"); return; }
+
+    // Address parsing: try to split streetNumber from streetName+rest.
+    const streetOnly = rawAddr.split(",")[0].trim();
+    const parts = streetOnly.split(/\s+/);
+    const streetNo = parts[0] || "";
+    const streetName = (parts[1] || "").toUpperCase(); // primary street name
+    const encoded = encodeURIComponent(streetOnly);
+
+    // Small helper — fetch with timeout and browser-y UA.
+    const timedFetch = async (url: string, ms = 4000, init: RequestInit = {}) => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), ms);
+      try {
+        return await fetch(url, { ...init, signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15", ...(init.headers || {}) } });
+      } finally { clearTimeout(t); }
+    };
+
+    try {
+      // 1. DUVAL — Jacksonville. Use city ArcGIS to resolve street# + street-name → RE parcel.
+      if (county === "duval" && streetNo && streetName) {
+        const q = `STREET_NO='${streetNo.replace(/'/g, "''")}' AND ST_NAME='${streetName.replace(/'/g, "''")}'`;
+        const url = `https://maps.coj.net/coj/rest/services/PropertyPhotos/PropertyPolygons/MapServer/0/query?where=${encodeURIComponent(q)}&outFields=RE&f=json&returnGeometry=false`;
+        const r = await timedFetch(url, 4500);
+        if (r.ok) {
+          const j: any = await r.json();
+          const re = j?.features?.[0]?.attributes?.RE;
+          if (re) {
+            const reNoSpace = String(re).replace(/\s+/g, "");
+            res.redirect(302, `https://paopropertysearch.coj.net/Basic/Detail.aspx?RE=${reNoSpace}`);
+            return;
+          }
+        }
+        // Fallback to search page if no exact hit.
+        res.redirect(302, `https://paopropertysearch.coj.net/Basic/Search.aspx?searchType=Location&Location=${encoded}`);
+        return;
+      }
+
+      // 2. NASSAU — search.ncpafl.com path-based query returns HTML with /parcel/<id> links.
+      if (county === "nassau") {
+        const r = await timedFetch(`https://search.ncpafl.com/search/r?search_str=${encoded}`, 5000);
+        if (r.ok) {
+          const html = await r.text();
+          const m = html.match(/href="\/parcel\/([^"]+)"/);
+          if (m && m[1]) {
+            res.redirect(302, `https://search.ncpafl.com/parcel/${m[1]}`);
+            return;
+          }
+        }
+        res.redirect(302, `https://search.ncpafl.com/search/r?search_str=${encoded}`);
+        return;
+      }
+
+      // 3. SCHNEIDER counties — Cloudflare blocks server-side scraping. Send them
+      //    to a pre-filled search URL. Users tap the top result.
+      const schneiderMap: Record<string, string> = {
+        "st. johns": "StJohnsCountyFL", "st johns": "StJohnsCountyFL", "st_johns": "StJohnsCountyFL",
+        "clay": "ClayCountyFLPA", "flagler": "FlaglerCountyFLPA", "baker": "BakerCountyFLPA",
+        "camden": "CamdenCountyGA", "charlton": "CharltonCountyGA", "glynn": "GlynnCountyGA",
+      };
+      if (schneiderMap[county]) {
+        res.redirect(302, `https://qpublic.schneidercorp.com/Application.aspx?App=${schneiderMap[county]}&PageType=Search&SearchType=Location&SearchText=${encoded}`);
+        return;
+      }
+
+      // 4. PUTNAM — old ASP page; just deep-link to search.
+      if (county === "putnam") {
+        res.redirect(302, `https://www.pa-putnamcountyfl.gov/PropertySearch.aspx`);
+        return;
+      }
+
+      // 5. UNKNOWN — Google search fallback.
+      const q = `${streetOnly} ${county} county property appraiser`;
+      res.redirect(302, `https://www.google.com/search?q=${encodeURIComponent(q)}`);
+      return;
+    } catch (e: any) {
+      // Any failure → surface a search URL so the button still does something.
+      const q = `${streetOnly} ${county} county property appraiser`;
+      res.redirect(302, `https://www.google.com/search?q=${encodeURIComponent(q)}`);
+      return;
+    }
+  });
+
   app.get("/api/health", async (req, res) => {
     const results: Record<string, { ok: boolean; latencyMs?: number; detail?: string }> = {};
 
@@ -6571,7 +6666,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.47",
+      version: "v15.11.48",
       services: results,
     });
   });
@@ -7689,7 +7784,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.47`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.48`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -8328,7 +8423,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.47</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.48</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

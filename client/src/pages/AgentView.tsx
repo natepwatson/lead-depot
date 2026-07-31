@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
+import GrandCelebration from "../components/ld/GrandCelebration";
 import { RankTrophy } from "../components/ld/RankTrophy";
 import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
@@ -155,6 +156,7 @@ function ApptModal({
     apptEmail: string; confirmedAddress: string;
     apptDate: string; apptTime: string; stage: string; intention: string;
     followUpTiming?: string;
+    kitNotes?: string;
   }) => void;
   isPending: boolean;
 }) {
@@ -169,17 +171,29 @@ function ApptModal({
   const [intentions, setIntentions] = React.useState<string[]>([]);
   // v14.16 — 4-option follow-up timing picker (KIT only)
   const [followUpTiming, setFollowUpTiming] = React.useState<string>("few_weeks");
+  // v15.11.48 — KIT-only notes textarea. When the outcome is Keep in Touch
+  // we drop the whole LPMAMAB-esque stage/intention/subject-confirm block —
+  // the point of KIT is just to grab email + timing + a quick note. Anything
+  // more is friction the agent will skip.
+  const [kitNotes, setKitNotes] = React.useState<string>("");
 
   const toggleIntention = (key: string) => {
     setIntentions(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   };
 
-  const confirmedAddress = addressConfirmed ? (lead.address || "") : altAddress;
-  const canSubmit = apptEmail.trim() &&
-    (addressConfirmed || altAddress.trim()) &&
-    (!isAppt || (apptDate && apptTime)) &&
-    (!isKit || followUpTiming) &&
-    stage && intentions.length > 0;
+  // v15.11.48 — KIT branch: address is always the lead.address (no confirm step),
+  // stage/intention aren't collected. Appt branch is unchanged.
+  const confirmedAddress = isKit
+    ? (lead.address || "")
+    : (addressConfirmed ? (lead.address || "") : altAddress);
+  const canSubmit = isKit
+    ? Boolean(apptEmail.trim() && followUpTiming)
+    : Boolean(
+        apptEmail.trim() &&
+        (addressConfirmed || altAddress.trim()) &&
+        (!isAppt || (apptDate && apptTime)) &&
+        stage && intentions.length > 0
+      );
 
   const sourceLabel: Record<string, string> = {
     expired: "Expired Listing", network: "Network / Inbound",
@@ -224,6 +238,25 @@ function ApptModal({
         maxHeight: "90dvh",
         overflowY: "auto",
       }}>
+        {/* v15.11.48 — visible close X. Backdrop click already closes the modal
+            but agents don't discover that. Absolute-positioned so it doesn't
+            push layout, tap target sized for phones (44px). */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            position: "absolute", top: 12, right: 12,
+            width: 40, height: 40, borderRadius: 20,
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.14)",
+            color: "rgba(255,255,255,0.75)",
+            fontSize: 22, lineHeight: 1, fontWeight: 300,
+            cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 0,
+          }}
+        >×</button>
         <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.15)", margin: "0 auto 22px" }} />
         <div style={{ marginBottom: 24 }}>
           <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 26, fontWeight: 400, color: "#fff", margin: 0 }}>
@@ -239,21 +272,25 @@ function ApptModal({
             <input type="email" value={apptEmail} onChange={e => setApptEmail(e.target.value)}
               placeholder="owner@email.com" style={inputStyle} />
           </div>
-          <div>
-            <label style={labelStyle}>Subject Property</label>
-            <div style={{ padding: "12px 14px", background: "rgba(200,170,90,0.07)", border: "1px solid rgba(200,170,90,0.25)", borderRadius: 10, marginBottom: 10 }}>
-              <p style={{ fontSize: 14, color: "rgba(255,255,255,0.8)", margin: 0 }}>{lead.address || "No address on file"}</p>
+          {/* Subject Property confirm block — hidden for KIT (KIT keeps the lead's
+              address as-is; the point is a fast email-and-timing capture). */}
+          {!isKit && (
+            <div>
+              <label style={labelStyle}>Subject Property</label>
+              <div style={{ padding: "12px 14px", background: "rgba(200,170,90,0.07)", border: "1px solid rgba(200,170,90,0.25)", borderRadius: 10, marginBottom: 10 }}>
+                <p style={{ fontSize: 14, color: "rgba(255,255,255,0.8)", margin: 0 }}>{lead.address || "No address on file"}</p>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13, color: "rgba(255,255,255,0.65)" }}>
+                <input type="checkbox" checked={addressConfirmed} onChange={e => setAddressConfirmed(e.target.checked)}
+                  style={{ width: 17, height: 17, accentColor: "#c8aa5a", flexShrink: 0 }} />
+                This is the correct subject property
+              </label>
+              {!addressConfirmed && (
+                <input type="text" value={altAddress} onChange={e => setAltAddress(e.target.value)}
+                  placeholder="Enter correct property address" style={{ ...inputStyle, marginTop: 12 }} />
+              )}
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13, color: "rgba(255,255,255,0.65)" }}>
-              <input type="checkbox" checked={addressConfirmed} onChange={e => setAddressConfirmed(e.target.checked)}
-                style={{ width: 17, height: 17, accentColor: "#c8aa5a", flexShrink: 0 }} />
-              This is the correct subject property
-            </label>
-            {!addressConfirmed && (
-              <input type="text" value={altAddress} onChange={e => setAltAddress(e.target.value)}
-                placeholder="Enter correct property address" style={{ ...inputStyle, marginTop: 12 }} />
-            )}
-          </div>
+          )}
           {isAppt && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
@@ -295,6 +332,22 @@ function ApptModal({
               </p>
             </div>
           )}
+          {/* v15.11.48 — KIT notes field. Replaces LPMAMAB stage/intention capture.
+              Optional — an empty note still submits. */}
+          {isKit && (
+            <div>
+              <label style={labelStyle}>Notes <span style={{ color: "rgba(255,255,255,0.3)", fontWeight: 400, letterSpacing: 0, textTransform: "none" }}>(optional)</span></label>
+              <textarea
+                value={kitNotes}
+                onChange={e => setKitNotes(e.target.value)}
+                placeholder="What did they share? Timeline, situation, best time to reach out…"
+                rows={3}
+                style={{ ...inputStyle, fontFamily: "'Switzer','Inter',sans-serif", lineHeight: 1.5, resize: "vertical", minHeight: 84 }}
+              />
+            </div>
+          )}
+          {/* Stage / Intention / Source blocks — appointment-only. */}
+          {!isKit && (<>
           <div>
             <label style={labelStyle}>Stage</label>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
@@ -354,9 +407,17 @@ function ApptModal({
               {sourceLabel[lead.leadType] || lead.leadType}
             </div>
           </div>
+          </>)}
         </div>
         <button
-          onClick={() => onSubmit({ apptEmail, confirmedAddress, apptDate, apptTime, stage, intention: intentions.map(k => INTENTIONS.find(i => i.key === k)?.label || k).join(" + "), followUpTiming: isKit ? followUpTiming : undefined })}
+          onClick={() => onSubmit({
+            apptEmail, confirmedAddress, apptDate, apptTime,
+            // For KIT we don't collect stage/intention; pass server-safe defaults.
+            stage: isKit ? "Hot Prospect" : stage,
+            intention: isKit ? "" : intentions.map(k => INTENTIONS.find(i => i.key === k)?.label || k).join(" + "),
+            followUpTiming: isKit ? followUpTiming : undefined,
+            kitNotes: isKit ? kitNotes : undefined,
+          })}
           disabled={!canSubmit || isPending}
           style={{
             marginTop: 28, width: "100%", padding: "16px", borderRadius: 12, border: "none",
@@ -1164,6 +1225,8 @@ function LeadCard({ lead }: { lead: Lead }) {
   // Tone Rules + Guardrails + Branch Cues moved to the Scripts admin page.
   const [outcomeFlash, setOutcomeFlash] = useState<{ label: string; color: string } | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
+  // v15.11.48 — KIT gets its own grander, gold-only, shimmering celebration.
+  const [showGrandCelebration, setShowGrandCelebration] = useState(false);
   // v14.80 — Tier 3 celebration: bumping this key re-triggers the Appt Set shimmer sweep
   const [apptShimmerKey, setApptShimmerKey] = useState(0);
   const [lpmData, setLpmData] = useState<Record<string, string>>({
@@ -1393,9 +1456,13 @@ function LeadCard({ lead }: { lead: Lead }) {
         // v15.11.10 — celebratory buzz (Android only; iOS silently ignores)
         hapticApptSet();
       }
-      // v14.80 — Tier 3: quiet tick sound when a KIT (Keep in Touch) submits successfully
+      // v15.11.48 — KIT now fires the grand gold-shimmer celebration + its own
+      // fanfare (see GrandCelebration.tsx). Same intent as the appointment
+      // confetti, but grander — gold-only palette, sparkle layer, radial
+      // shimmer sweep, longer duration.
       if (variables.outcome === "keep_in_touch") {
-        playSound("tick");
+        setShowGrandCelebration(true);
+        setApptShimmerKey(k => k + 1); // reuse the tile-side shimmer effect too
         hapticKit();
       }
 
@@ -1568,12 +1635,17 @@ function LeadCard({ lead }: { lead: Lead }) {
     setPendingRecycle(false);
   };
 
-  const handleApptSubmit = (data: { apptEmail: string; confirmedAddress: string; apptDate: string; apptTime: string; stage: string; intention: string; followUpTiming?: string }) => {
+  const handleApptSubmit = (data: { apptEmail: string; confirmedAddress: string; apptDate: string; apptTime: string; stage: string; intention: string; followUpTiming?: string; kitNotes?: string }) => {
     if (!pendingOutcome) return;
+    // v15.11.48 — For KIT, prefer the modal's own notes textarea over any
+    // notes typed in the LPMAMAB scratchpad. For Appt, keep the existing
+    // scratchpad notes flow.
+    const isKit = pendingOutcome === "keep_in_touch";
+    const { kitNotes, ...rest } = data;
     outcomeMutation.mutate({
       outcome: pendingOutcome,
-      notes,
-      ...data,
+      notes: isKit ? (kitNotes || "") : notes,
+      ...rest,
     });
     setPendingOutcome(null);
   };
@@ -1590,21 +1662,23 @@ function LeadCard({ lead }: { lead: Lead }) {
     const addr = encodeURIComponent(String(lead.address || "").split(",")[0].trim());
     if (!c || !addr) return null;
     const map: Record<string, { url: string; label: string }> = {
-      "duval":      { url: `https://paopropertysearch.coj.net/Basic/Search.aspx?searchType=Location&Location=${addr}`,                              label: "Duval PA" },
-      // v15.11.47 — nassauflpa.com's old parameterized search moved/broke (the new maps.ncpafl.com
-      // search page throws dbo.IS_SearchResults2015 errors too). Point straight at the new site's
-      // home (search.ncpafl.com) instead of a query URL — agent searches by address from there.
-      "nassau":     { url: `https://search.ncpafl.com/`,                                                                                          label: "Nassau PA" },
-      "st. johns":  { url: `https://qpublic.schneidercorp.com/Application.aspx?AppID=800&LayerID=11576&PageTypeID=2&PageID=6112&KeyValue=${addr}`, label: "St. Johns PA" },
-      "st johns":   { url: `https://qpublic.schneidercorp.com/Application.aspx?AppID=800&LayerID=11576&PageTypeID=2&PageID=6112&KeyValue=${addr}`, label: "St. Johns PA" },
-      "st_johns":   { url: `https://qpublic.schneidercorp.com/Application.aspx?AppID=800&LayerID=11576&PageTypeID=2&PageID=6112&KeyValue=${addr}`, label: "St. Johns PA" },
-      "clay":       { url: `https://qpublic.schneidercorp.com/Application.aspx?App=ClayCountyFLPA&PageType=Search`,                              label: "Clay PA" },
-      "putnam":     { url: `https://www.pa-putnamcountyfl.gov/PropertySearch.aspx`,                                                              label: "Putnam PA" },
-      "flagler":    { url: `https://qpublic.schneidercorp.com/Application.aspx?App=FlaglerCountyFLPA&PageType=Search`,                           label: "Flagler PA" },
-      "baker":      { url: `https://qpublic.schneidercorp.com/Application.aspx?App=BakerCountyFLPA&PageType=Search`,                             label: "Baker PA" },
-      "camden":     { url: `https://qpublic.schneidercorp.com/Application.aspx?App=CamdenCountyGA&PageType=Search`,                              label: "Camden PA" },
-      "charlton":   { url: `https://qpublic.schneidercorp.com/Application.aspx?App=CharltonCountyGA&PageType=Search`,                            label: "Charlton PA" },
-      "glynn":      { url: `https://qpublic.schneidercorp.com/Application.aspx?App=GlynnCountyGA&PageType=Search`,                               label: "Glynn PA" },
+      // v15.11.48 — all counties now route through our server-side /api/pa-lookup
+      // redirect endpoint. The server tries a real deep-link to the specific
+      // property page (Duval via ArcGIS parcel lookup → Detail.aspx?RE=...,
+      // Nassau via search.ncpafl.com → /parcel/<id>) and falls back to
+      // pre-filled search pages elsewhere. Keeps a single UX entry point.
+      "duval":      { url: `/api/pa-lookup?county=duval&address=${addr}`,     label: "Duval PA" },
+      "nassau":     { url: `/api/pa-lookup?county=nassau&address=${addr}`,    label: "Nassau PA" },
+      "st. johns":  { url: `/api/pa-lookup?county=st.%20johns&address=${addr}`,label: "St. Johns PA" },
+      "st johns":   { url: `/api/pa-lookup?county=st%20johns&address=${addr}`, label: "St. Johns PA" },
+      "st_johns":   { url: `/api/pa-lookup?county=st_johns&address=${addr}`,   label: "St. Johns PA" },
+      "clay":       { url: `/api/pa-lookup?county=clay&address=${addr}`,      label: "Clay PA" },
+      "putnam":     { url: `/api/pa-lookup?county=putnam&address=${addr}`,    label: "Putnam PA" },
+      "flagler":    { url: `/api/pa-lookup?county=flagler&address=${addr}`,   label: "Flagler PA" },
+      "baker":      { url: `/api/pa-lookup?county=baker&address=${addr}`,     label: "Baker PA" },
+      "camden":     { url: `/api/pa-lookup?county=camden&address=${addr}`,    label: "Camden PA" },
+      "charlton":   { url: `/api/pa-lookup?county=charlton&address=${addr}`,  label: "Charlton PA" },
+      "glynn":      { url: `/api/pa-lookup?county=glynn&address=${addr}`,     label: "Glynn PA" },
     };
     return map[c] || null;
   })();
@@ -1627,6 +1701,8 @@ function LeadCard({ lead }: { lead: Lead }) {
 
       {/* ── Confetti celebration (appointment) ── */}
       {showConfetti && <ConfettiCelebration onDone={() => setShowConfetti(false)} />}
+      {/* ── Grand gold-shimmer celebration (Keep in Touch) v15.11.48 ── */}
+      {showGrandCelebration && <GrandCelebration onDone={() => setShowGrandCelebration(false)} />}
 
       {/* ── Outcome success flash overlay ── */}
       {outcomeFlash && (

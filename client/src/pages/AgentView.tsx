@@ -3197,23 +3197,28 @@ export function TeamPotCard() {
   if (expired) return null;
   if (!pot) return null; // wait for first fetch — no flash of empty ladder
 
-  // Ladder rungs (never include stretch until server exposes it).
-  const rungs: Array<{ tier: number; appts: number; pot: number; label: string }> = [
-    { tier: 1, appts: 20, pot: 250, label: "$250" },
-    { tier: 2, appts: 40, pot: 500, label: "$500" },
-    { tier: 3, appts: 60, pot: 750, label: "$750" },
-  ];
-  if (pot.stretchRevealed) {
-    rungs.push({ tier: 4, appts: 80, pot: 1000, label: "$1000" });
-  }
-  const maxAppts = rungs[rungs.length - 1].appts;
-  const progressPct = Math.min(100, (pot.teamAppts / maxAppts) * 100);
-
   const monthLabel: string = pot.monthLabel || "This Month";
   const teamAppts: number = pot.teamAppts || 0;
   const currentPot: number = pot.currentPot || 0;
   const apptsToNext: number = pot.apptsToNext || 0;
   const nextTierPot: number | null = pot.nextTier?.pot ?? null;
+  const nextTierMystery: boolean = !!pot.nextTierMystery;
+
+  // Ladder rungs. Tier 4 is ALWAYS on the ladder as a mystery slot — agents
+  // can see there's *something* past $750 all month, and the label flips from
+  // "$???" to "$1000" only after the team hits tier 3 (60 appts) OR admin
+  // manually reveals it. This is the "curious all month" hook Alex wanted.
+  const stretchUnlocked = pot.stretchUnlocked || pot.stretchRevealed || teamAppts >= 60;
+  const rungs: Array<{ tier: number; appts: number; pot: number; label: string; mystery?: boolean }> = [
+    { tier: 1, appts: 20, pot: 250, label: "$250" },
+    { tier: 2, appts: 40, pot: 500, label: "$500" },
+    { tier: 3, appts: 60, pot: 750, label: "$750" },
+    stretchUnlocked
+      ? { tier: 4, appts: 80, pot: 1000, label: "$1000" }
+      : { tier: 4, appts: 80, pot: 1000, label: "$???", mystery: true },
+  ];
+  const maxAppts = rungs[rungs.length - 1].appts;
+  const progressPct = Math.min(100, (teamAppts / maxAppts) * 100);
   const first = pot.standings?.first;
   const second = pot.standings?.second;
   const firstInitials = first?.name ? first.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase() : "—";
@@ -3229,6 +3234,13 @@ export function TeamPotCard() {
         @keyframes tpProgressShimmer {
           0%   { background-position: -200% 0; }
           100% { background-position: 200% 0; }
+        }
+        @keyframes tpMysteryPulse {
+          0%, 100% { opacity: 0.75; }
+          50%      { opacity: 1; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [style*="tpMysteryPulse"] { animation: none !important; }
         }
         .tp-progress-fill {
           background-image: linear-gradient(
@@ -3362,9 +3374,11 @@ export function TeamPotCard() {
           margin: "0 0 2px",
           color: "rgba(255,255,255,0.92)",
         }}>
-          {nextTierPot !== null
-            ? <><span style={{ color: "#fde047", fontWeight: 700 }}>{apptsToNext}</span> more appointments unlocks <span style={{ color: "#fde047", fontWeight: 700 }}>${nextTierPot}</span></>
-            : <>You maxed the pot. Push for the win.</>}
+          {nextTierMystery
+            ? <><span style={{ color: "#fde047", fontWeight: 700 }}>{apptsToNext}</span> more appointments unlocks <span style={{ color: "#fde047", fontWeight: 700, letterSpacing: "0.08em" }}>???</span></>
+            : nextTierPot !== null
+              ? <><span style={{ color: "#fde047", fontWeight: 700 }}>{apptsToNext}</span> more appointments unlocks <span style={{ color: "#fde047", fontWeight: 700 }}>${nextTierPot}</span></>
+              : <>You maxed the pot. Push for the win.</>}
         </div>
         <p style={{
           position: "relative", zIndex: 1,
@@ -3399,20 +3413,31 @@ export function TeamPotCard() {
             {rungs.map((r) => {
               const pct = (r.appts / maxAppts) * 100;
               const reached = teamAppts >= r.appts;
+              const mystery = !!r.mystery;
               return (
                 <div key={r.tier} style={{
                   position: "absolute", left: `${pct}%`, transform: "translateX(-50%)",
                   textAlign: "center",
-                  fontSize: 9, letterSpacing: "0.10em", textTransform: "uppercase",
-                  color: reached ? "#fde047" : "rgba(255,255,255,0.4)",
+                  fontSize: 9, letterSpacing: mystery ? "0.14em" : "0.10em", textTransform: "uppercase",
+                  color: reached
+                    ? "#fde047"
+                    : mystery ? "rgba(200,170,90,0.85)" : "rgba(255,255,255,0.4)",
                   fontWeight: 700, whiteSpace: "nowrap",
-                  textShadow: reached ? "0 0 8px rgba(250,204,21,0.5)" : "none",
+                  textShadow: reached
+                    ? "0 0 8px rgba(250,204,21,0.5)"
+                    : mystery ? "0 0 6px rgba(200,170,90,0.35)" : "none",
+                  animation: mystery ? "tpMysteryPulse 2.6s ease-in-out infinite" : "none",
                 }}>
                   <div style={{
-                    width: 5, height: 5, borderRadius: "50%",
-                    background: reached ? "#facc15" : "rgba(255,255,255,0.25)",
-                    boxShadow: reached ? "0 0 6px #facc15" : "none",
-                    margin: "-9px auto 3px",
+                    width: mystery ? 7 : 5, height: mystery ? 7 : 5, borderRadius: "50%",
+                    background: reached
+                      ? "#facc15"
+                      : mystery ? "transparent" : "rgba(255,255,255,0.25)",
+                    border: mystery ? "1px dashed rgba(200,170,90,0.85)" : "none",
+                    boxShadow: reached
+                      ? "0 0 6px #facc15"
+                      : mystery ? "0 0 8px rgba(200,170,90,0.5)" : "none",
+                    margin: mystery ? "-10px auto 3px" : "-9px auto 3px",
                   }} />
                   {r.label}
                 </div>

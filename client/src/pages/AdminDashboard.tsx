@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import ActivityFeed from "../components/ld/ActivityFeed";
@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
-import { CallbackLookupModal, BonusCard } from "./AgentView";
+import { CallbackLookupModal, TeamPotCard } from "./AgentView";
 
 // ── Logo ─────────────────────────────────────────────────────────────────────
 function LogoIcon({ size = 28 }: { size?: number }) {
@@ -939,6 +939,68 @@ function HealthWidget() {
   );
 }
 
+// v15.11.50 — Admin-only Team Pot stretch-tier toggle. When flipped ON, the
+// hidden $1000/80-appt rung appears on the TeamPotCard for the whole team.
+// When OFF (default), agents see $750 as the final rung. Auto-resets to OFF
+// on the 1st of every month via the monthly leaderboard reset scheduler.
+function TeamPotStretchAdmin() {
+  const qc = useQueryClient();
+  const { data: pot } = useQuery<any>({
+    queryKey: ["/api/team-pot"],
+    queryFn: () => apiRequest("GET", "/api/team-pot").then(r => r.json()),
+    refetchInterval: 30000,
+  });
+  const [busy, setBusy] = React.useState(false);
+  const revealed = !!pot?.stretchRevealed;
+
+  async function toggle() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await apiRequest("POST", "/api/admin/team-pot/stretch", { revealed: !revealed });
+      await qc.invalidateQueries({ queryKey: ["/api/team-pot"] });
+    } catch (e) {
+      console.error("[stretch-toggle] error", e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+      margin: "0 16px", padding: "10px 14px",
+      borderRadius: 12,
+      background: "rgba(255,255,255,0.03)",
+      border: "1px dashed rgba(200,170,90,0.35)",
+    }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+        <div style={{ fontSize: 9, letterSpacing: "0.18em", color: "#c8aa5a", textTransform: "uppercase", fontWeight: 700 }}>
+          Admin only · secret stretch tier
+        </div>
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.75)", lineHeight: 1.4 }}>
+          Reveal <span style={{ color: "#fde047", fontWeight: 700 }}>$1000</span> at 80 team appointments. Currently <b style={{ color: revealed ? "#4ade80" : "rgba(255,255,255,0.55)" }}>{revealed ? "revealed to team" : "hidden"}</b>.
+        </div>
+      </div>
+      <button
+        onClick={toggle}
+        disabled={busy}
+        style={{
+          flexShrink: 0,
+          padding: "8px 14px", borderRadius: 8, cursor: busy ? "wait" : "pointer",
+          fontSize: 11, letterSpacing: "0.10em", textTransform: "uppercase", fontWeight: 700,
+          border: `1px solid ${revealed ? "rgba(74,222,128,0.55)" : "rgba(200,170,90,0.55)"}`,
+          background: revealed ? "rgba(74,222,128,0.14)" : "rgba(200,170,90,0.12)",
+          color: revealed ? "#4ade80" : "#fde047",
+          transition: "all 200ms ease",
+        }}
+      >
+        {busy ? "…" : revealed ? "Hide stretch" : "Reveal stretch"}
+      </button>
+    </div>
+  );
+}
+
 export default function AdminDashboard({
   onWorkMyLeads,
   onOpenAgentTab,
@@ -1752,7 +1814,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v15.11.49
+              v15.11.50
             </p>
           </div>
         </div>
@@ -2083,9 +2145,13 @@ export default function AdminDashboard({
 
           {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
           <TabsContent value="leaderboard" className="mt-5 space-y-5">
-            {/* v15.11.39 — admins compete for the monthly prize too. Same BonusCard
+            {/* v15.11.50 — admins compete for the monthly prize too. Same TeamPotCard
                 the agents see at the top of Dial, rendered here above the KPIs. */}
-            <BonusCard />
+            <TeamPotCard />
+            {/* v15.11.50 — Admin-only stretch tier toggle. Default hidden. Flip once
+                you're comfortable showing the team that $1000 is on the table if
+                they cross 80 team appointments. */}
+            <TeamPotStretchAdmin />
             {/* v15.11.39 — Live On Air widget: who is dialing RIGHT NOW, by name. */}
             <LiveOnAirWidget />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

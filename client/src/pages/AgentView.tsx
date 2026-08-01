@@ -2868,6 +2868,11 @@ export function CallbackLookupModal({ onClose, onPickLead }: { onClose: () => vo
 // foil + gold shimmer. Auto-hides after the deadline unless we ship a
 // "winner" replacement card. Deadline + amount + copy live in one config
 // block below so Alex can change them without hunting through JSX.
+//
+// v15.11.50 — Replaced flat $500 by the TeamPotCard component (tiered pot
+// that grows with team Appt Sets). BONUS_CONFIG is retained only for the
+// countdown deadline resolver + monthLabel fallback; the money-shimmer keyframes
+// are reused by TeamPotCard so we keep the CSS in one place.
 const BONUS_CONFIG = {
   amount: 500,
   // Jul 31, 2026 23:59:59 ET → Aug 1, 2026 03:59:59 UTC (EDT = UTC−4)
@@ -2877,6 +2882,22 @@ const BONUS_CONFIG = {
   subhead: "Top of the leaderboard on July 31 · 11:59 PM walks away with $500 cash.",
   cta: "Dial. Rank. Win. →",
 };
+
+// Compute end-of-current-month deadline in ET (matches server's team-pot
+// month bounds — keep in sync). Returns an ISO string for last-ms of month.
+function endOfMonthEtIso(): string {
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric" });
+  const parts = fmt.formatToParts(now);
+  const year = parseInt(parts.find(p => p.type === "year")!.value, 10);
+  const monthNum = parseInt(parts.find(p => p.type === "month")!.value, 10);
+  const nextMonth = monthNum === 12 ? 1 : monthNum + 1;
+  const nextYear = monthNum === 12 ? year + 1 : year;
+  const isDst = (m: number) => m >= 3 && m <= 11;
+  const offsetHours = isDst(nextMonth) ? 4 : 5;
+  const nextUtcMs = Date.UTC(nextYear, nextMonth - 1, 1, offsetHours, 0, 0, 0) - 1;
+  return new Date(nextUtcMs).toISOString();
+}
 
 export function BonusCard() {
   const { data: leaderboard = [] } = useQuery<any[]>({
@@ -3106,6 +3127,362 @@ export function BonusCard() {
   );
 }
 
+
+// v15.11.50 — TeamPotCard. Replaces the flat July $500 BonusCard with a
+// tiered team pot that grows as the group books more Appt Sets across the
+// month. Only "contacted_appointment" outcomes fuel the pot (per Alex's
+// spec — no dials, no KITs). Server aggregates in /api/team-pot and
+// broadcasts a `team_pot_stretch_toggled` event whenever admin flips the
+// secret $1000 stretch tier. Card auto-refreshes every 15s and on every
+// WebSocket update. Visual DNA = July hero card: deep emerald + midnight
+// gradient, drifting green/gold blobs, engraved gold hairlines, Cormorant
+// Garamond shimmer for the dollar amount, monospace countdown, live green
+// dot. What's new: a tier ladder progress bar (rungs with dollar amounts),
+// dual 1st/2nd standings row, "on the line" payout dollar chips (70/30 split),
+// and a one-shot gold-confetti burst the moment a new tier unlocks.
+export function TeamPotCard() {
+  const qc = useQueryClient();
+  const { data: pot } = useQuery<any>({
+    queryKey: ["/api/team-pot"],
+    queryFn: () => apiRequest("GET", "/api/team-pot").then(r => r.json()),
+    refetchInterval: 15000,
+    staleTime: 5000,
+  });
+
+  // Live countdown clock — refreshes every second.
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const deadlineMs = React.useMemo(() => new Date(endOfMonthEtIso()).getTime(), []);
+  const ms = Math.max(0, deadlineMs - now);
+  const days = Math.floor(ms / 86400000);
+  const hours = Math.floor((ms % 86400000) / 3600000);
+  const mins = Math.floor((ms % 3600000) / 60000);
+  const secs = Math.floor((ms % 60000) / 1000);
+  const expired = ms === 0;
+  const countdown = days > 0
+    ? `${days}d ${String(hours).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m`
+    : `${String(hours).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
+
+  // Tier-unlock celebration — fire a one-shot gold burst the moment the
+  // returned currentTier.tier increases. Remembered in localStorage so a
+  // page refresh doesn't retrigger.
+  const [celebrating, setCelebrating] = React.useState<null | number>(null);
+  React.useEffect(() => {
+    if (!pot?.currentTier?.tier) return;
+    const key = `ld.teampot.lastTier.${pot.monthLabel || "current"}`;
+    const prev = Number(localStorage.getItem(key) || "0");
+    if (pot.currentTier.tier > prev) {
+      setCelebrating(pot.currentTier.tier);
+      localStorage.setItem(key, String(pot.currentTier.tier));
+      setTimeout(() => setCelebrating(null), 4200);
+    }
+  }, [pot?.currentTier?.tier, pot?.monthLabel]);
+
+  // Refetch on WebSocket bumps.
+  React.useEffect(() => {
+    const wanted = new Set(["team_pot_stretch_toggled", "leaderboard_reset", "activity_event", "leads_updated"]);
+    const listener = (evt: MessageEvent) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (wanted.has(msg?.type)) qc.invalidateQueries({ queryKey: ["/api/team-pot"] });
+      } catch {}
+    };
+    try { (window as any).__ldWs?.addEventListener?.("message", listener); } catch {}
+    return () => { try { (window as any).__ldWs?.removeEventListener?.("message", listener); } catch {} };
+  }, [qc]);
+
+  if (expired) return null;
+  if (!pot) return null; // wait for first fetch — no flash of empty ladder
+
+  // Ladder rungs (never include stretch until server exposes it).
+  const rungs: Array<{ tier: number; appts: number; pot: number; label: string }> = [
+    { tier: 1, appts: 20, pot: 250, label: "$250" },
+    { tier: 2, appts: 40, pot: 500, label: "$500" },
+    { tier: 3, appts: 60, pot: 750, label: "$750" },
+  ];
+  if (pot.stretchRevealed) {
+    rungs.push({ tier: 4, appts: 80, pot: 1000, label: "$1000" });
+  }
+  const maxAppts = rungs[rungs.length - 1].appts;
+  const progressPct = Math.min(100, (pot.teamAppts / maxAppts) * 100);
+
+  const monthLabel: string = pot.monthLabel || "This Month";
+  const teamAppts: number = pot.teamAppts || 0;
+  const currentPot: number = pot.currentPot || 0;
+  const apptsToNext: number = pot.apptsToNext || 0;
+  const nextTierPot: number | null = pot.nextTier?.pot ?? null;
+  const first = pot.standings?.first;
+  const second = pot.standings?.second;
+  const firstInitials = first?.name ? first.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase() : "—";
+  const secondInitials = second?.name ? second.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase() : "—";
+
+  return (
+    <>
+      <style>{`
+        @keyframes tpConfetti {
+          0%   { transform: translate(0,0) rotate(0deg); opacity: 1; }
+          100% { transform: translate(var(--dx,0), var(--dy,-140px)) rotate(var(--rot,180deg)); opacity: 0; }
+        }
+        @keyframes tpProgressShimmer {
+          0%   { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        .tp-progress-fill {
+          background-image: linear-gradient(
+            90deg,
+            #86efac 0%, #4ade80 25%, #facc15 60%, #fbbf24 85%, #a16207 100%
+          );
+          background-size: 200% 100%;
+          animation: tpProgressShimmer 6s linear infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .tp-progress-fill { animation: none; }
+        }
+      `}</style>
+      <div
+        style={{
+          position: "relative",
+          margin: "14px 16px 18px",
+          borderRadius: 20,
+          padding: "20px 20px 18px",
+          overflow: "hidden",
+          background:
+            "radial-gradient(circle at 20% 0%, rgba(74,222,128,0.14), transparent 55%)," +
+            "radial-gradient(circle at 85% 100%, rgba(200,170,90,0.18), transparent 55%)," +
+            "linear-gradient(155deg, #0f2818 0%, #0a1a10 55%, #0a0908 100%)",
+          border: "1px solid rgba(200,170,90,0.45)",
+          boxShadow:
+            "0 0 0 1px rgba(200,170,90,0.14) inset," +
+            "0 20px 60px -20px rgba(74,222,128,0.28)," +
+            "0 8px 24px -8px rgba(0,0,0,0.9)",
+          color: "#fff",
+        }}
+        onClick={() => { try { (window as any).location.hash = "leaderboard"; } catch {} }}
+        role="button"
+        tabIndex={0}
+      >
+        {/* Ambient drifting blobs */}
+        <div className="bonus-blob-1" style={{
+          position: "absolute", top: -60, left: -40, width: 220, height: 220,
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(74,222,128,0.35), transparent 65%)",
+          filter: "blur(30px)",
+          animation: "bonusFloat1 8s ease-in-out infinite",
+          pointerEvents: "none", zIndex: 0,
+        }} />
+        <div className="bonus-blob-2" style={{
+          position: "absolute", bottom: -70, right: -50, width: 240, height: 240,
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(250,204,21,0.28), transparent 65%)",
+          filter: "blur(34px)",
+          animation: "bonusFloat2 9s ease-in-out infinite",
+          pointerEvents: "none", zIndex: 0,
+        }} />
+        {/* Diagonal shine sweep */}
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.05) 50%, transparent 60%)",
+          pointerEvents: "none", zIndex: 0,
+        }} />
+        {/* Top engraved gold hairline */}
+        <div style={{
+          position: "absolute", left: 20, right: 20, top: 8, height: 1,
+          background: "linear-gradient(90deg, transparent, rgba(200,170,90,0.55), transparent)",
+          pointerEvents: "none", zIndex: 0,
+        }} />
+
+        {/* Tier-unlock confetti burst */}
+        {celebrating && (
+          <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 3 }} aria-hidden>
+            {Array.from({ length: 24 }).map((_, i) => {
+              const angle = (i / 24) * Math.PI * 2;
+              const dist = 90 + Math.random() * 40;
+              const dx = Math.cos(angle) * dist;
+              const dy = Math.sin(angle) * dist - 20;
+              const rot = 180 + Math.random() * 540;
+              const size = 4 + Math.random() * 4;
+              const colors = ["#facc15", "#fbbf24", "#fef08a", "#c8aa5a", "#4ade80"];
+              const color = colors[i % colors.length];
+              return (
+                <span key={i} style={{
+                  position: "absolute", left: "50%", top: "42%",
+                  width: size, height: size, borderRadius: 2,
+                  background: color,
+                  boxShadow: `0 0 6px ${color}`,
+                  transform: "translate(-50%,-50%)",
+                  animation: "tpConfetti 3.6s cubic-bezier(0.2,0.7,0.3,1) forwards",
+                  ["--dx" as any]: `${dx}px`,
+                  ["--dy" as any]: `${dy}px`,
+                  ["--rot" as any]: `${rot}deg`,
+                }} />
+              );
+            })}
+          </div>
+        )}
+
+        {/* Kicker + timer */}
+        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9, letterSpacing: "0.24em", color: "#4ade80", fontWeight: 700, textTransform: "uppercase" }}>
+            <span className="bonus-live-dot" style={{
+              display: "inline-block", width: 6, height: 6, borderRadius: "50%",
+              background: "#4ade80", boxShadow: "0 0 10px #4ade80",
+              animation: "bonusDotPulse 1.6s ease-in-out infinite",
+            }} />
+            {monthLabel} Team Pot
+          </div>
+          <div style={{ fontFamily: "ui-monospace, 'JetBrains Mono', monospace", fontSize: 10, letterSpacing: "0.10em", color: "rgba(255,255,255,0.55)", fontWeight: 600, textTransform: "uppercase" }}>
+            <span style={{ color: "#fde047", fontWeight: 700 }}>{countdown}</span> to win
+          </div>
+        </div>
+
+        {/* $ Amount — shimmering gold */}
+        <div style={{ position: "relative", zIndex: 1, textAlign: "center", margin: "6px 0 2px" }}>
+          <span
+            className="bonus-money-shimmer"
+            style={{
+              fontFamily: "'Cormorant Garamond', Georgia, serif",
+              fontWeight: 600,
+              fontSize: 92,
+              letterSpacing: "0.01em",
+              lineHeight: 1,
+              display: "inline-block",
+            }}
+          >${currentPot}</span>
+        </div>
+
+        {/* Subhead: appts to next tier */}
+        <div style={{
+          position: "relative", zIndex: 1,
+          textAlign: "center",
+          fontFamily: "'Cormorant Garamond', Georgia, serif",
+          fontWeight: 500, fontSize: 20, letterSpacing: "0.02em",
+          margin: "0 0 2px",
+          color: "rgba(255,255,255,0.92)",
+        }}>
+          {nextTierPot !== null
+            ? <><span style={{ color: "#fde047", fontWeight: 700 }}>{apptsToNext}</span> more appointments unlocks <span style={{ color: "#fde047", fontWeight: 700 }}>${nextTierPot}</span></>
+            : <>You maxed the pot. Push for the win.</>}
+        </div>
+        <p style={{
+          position: "relative", zIndex: 1,
+          textAlign: "center", fontSize: 11.5, color: "rgba(255,255,255,0.55)",
+          margin: "0 0 14px", lineHeight: 1.5, letterSpacing: "0.02em",
+        }}>
+          {teamAppts} team appointments booked so far this month · 70/30 split at #1 & #2
+        </p>
+
+        {/* Ladder progress bar with rungs */}
+        <div style={{ position: "relative", zIndex: 1, margin: "0 4px 16px" }}>
+          <div style={{
+            position: "relative",
+            height: 10, borderRadius: 6,
+            background: "rgba(0,0,0,0.42)",
+            border: "1px solid rgba(200,170,90,0.28)",
+            overflow: "hidden",
+          }}>
+            <div
+              className="tp-progress-fill"
+              style={{
+                position: "absolute", left: 0, top: 0, bottom: 0,
+                width: `${progressPct}%`,
+                borderRadius: 6,
+                boxShadow: "0 0 12px rgba(74,222,128,0.55)",
+                transition: "width 800ms cubic-bezier(0.22,0.61,0.36,1)",
+              }}
+            />
+          </div>
+          {/* Rung labels */}
+          <div style={{ position: "relative", marginTop: 6, height: 22 }}>
+            {rungs.map((r) => {
+              const pct = (r.appts / maxAppts) * 100;
+              const reached = teamAppts >= r.appts;
+              return (
+                <div key={r.tier} style={{
+                  position: "absolute", left: `${pct}%`, transform: "translateX(-50%)",
+                  textAlign: "center",
+                  fontSize: 9, letterSpacing: "0.10em", textTransform: "uppercase",
+                  color: reached ? "#fde047" : "rgba(255,255,255,0.4)",
+                  fontWeight: 700, whiteSpace: "nowrap",
+                  textShadow: reached ? "0 0 8px rgba(250,204,21,0.5)" : "none",
+                }}>
+                  <div style={{
+                    width: 5, height: 5, borderRadius: "50%",
+                    background: reached ? "#facc15" : "rgba(255,255,255,0.25)",
+                    boxShadow: reached ? "0 0 6px #facc15" : "none",
+                    margin: "-9px auto 3px",
+                  }} />
+                  {r.label}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Standings row: 1st + 2nd side by side */}
+        <div style={{ position: "relative", zIndex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {[
+            { rank: 1, data: first, payout: first?.payout ?? 0, ring: "linear-gradient(135deg,#fef9c3,#facc15)", chipBg: "rgba(250,204,21,0.14)", chipBorder: "rgba(250,204,21,0.45)", chipText: "#fde047", initials: firstInitials },
+            { rank: 2, data: second, payout: second?.payout ?? 0, ring: "linear-gradient(135deg,#e5e7eb,#9ca3af)", chipBg: "rgba(200,200,200,0.10)", chipBorder: "rgba(200,200,200,0.35)", chipText: "#d1d5db", initials: secondInitials },
+          ].map(row => (
+            <div key={row.rank} style={{
+              display: "flex", alignItems: "center", gap: 10,
+              background: "rgba(0,0,0,0.42)",
+              border: "1px solid rgba(200,170,90,0.28)",
+              padding: "10px 10px", borderRadius: 12,
+              minWidth: 0,
+            }}>
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                {row.data?.headshotUrl ? (
+                  <img src={row.data.headshotUrl} alt={row.data.name}
+                    style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(200,170,90,0.5)" }} />
+                ) : (
+                  <div style={{
+                    width: 32, height: 32, borderRadius: "50%",
+                    background: row.ring,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#080808", fontWeight: 800, fontSize: 12,
+                  }}>{row.initials}</div>
+                )}
+                <div style={{
+                  position: "absolute", top: -6, right: -6,
+                  width: 16, height: 16, borderRadius: "50%",
+                  background: row.ring,
+                  color: "#080808", fontSize: 9, fontWeight: 800,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.55)",
+                }}>{row.rank}</div>
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 8.5, letterSpacing: "0.16em", color: "rgba(200,170,90,0.8)", textTransform: "uppercase", fontWeight: 700 }}>
+                  {row.rank === 1 ? "1st · 70%" : "2nd · 30%"}
+                </div>
+                <div style={{ fontSize: 12, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {row.data?.name || (row.rank === 1 ? "Up for grabs" : "—")}
+                </div>
+                <div style={{
+                  fontSize: 10, color: row.chipText, fontWeight: 700,
+                  fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                  letterSpacing: "0.02em", marginTop: 1,
+                }}>
+                  {row.data?.appts ?? 0} appts · ${row.payout}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* CTA */}
+        <div style={{ position: "relative", zIndex: 1, textAlign: "center", marginTop: 12, fontSize: 10, letterSpacing: "0.26em", color: "rgba(200,170,90,0.85)", textTransform: "uppercase", fontWeight: 700 }}>
+          Set the appointment. Take the pot. →
+        </div>
+      </div>
+    </>
+  );
+}
+
 // v15.3 — Optimal call-time meter. Displays receptivity right now (0-100),
 // tier label (PRIME TIME / GOOD / OK / COLD), and a one-line reason drawn from
 // the MIT/InsideSales, PhoneBurner, CallHippo, and Cognism studies. See
@@ -3327,7 +3704,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
       {/* v15.11.29 — End-of-Month Bonus card (seller depot only). Hero card at the
           top: cash amount, live countdown to deadline, current leader row.
           Auto-hides after the deadline. */}
-      {mode === "seller" && <BonusCard />}
+      {mode === "seller" && <TeamPotCard />}
 
       {/* v15.3 — Optimal call-time meter (seller depot only). Hot/Warm/Cool/Cold
           receptivity weighted from MIT/InsideSales, CallHippo, PhoneBurner, Cognism. */}

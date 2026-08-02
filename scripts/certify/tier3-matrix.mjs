@@ -58,11 +58,12 @@ async function runRow(row) {
     }
     const versionOk = EXPECT_VERSION ? html.includes(EXPECT_VERSION) : /v\d+\.\d+/.test(html);
 
-    // Login
-    await page.fill('input[type="email"], input[name="email"]', ADMIN_EMAIL);
-    await page.fill('input[type="password"]', ADMIN_PASSWORD);
-    const btn = await page.$('button:has-text("Sign in"), button:has-text("Log in"), button[type="submit"]');
-    if (btn) await btn.click();
+    // Login — v16.5: use locator() instead of elementHandle so Playwright
+    // auto-retries when a re-render (e.g. watermark mounting) detaches the
+    // handle before .click(). Firefox is stricter about this than Chromium.
+    await page.locator('input[type="email"], input[name="email"]').first().fill(ADMIN_EMAIL);
+    await page.locator('input[type="password"]').first().fill(ADMIN_PASSWORD);
+    await page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Log in")').first().click().catch(() => {});
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.waitForTimeout(1500);
     const root = await page.evaluate(() => document.getElementById('root')?.innerHTML?.length || 0);

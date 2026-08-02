@@ -1,9 +1,9 @@
 /**
- * TutorialFlow — v16.3
+ * TutorialFlow — v16.4
  * Fullscreen fixed overlay (z-index 100), dark canvas background matching
  * the app. Cinematic + hands-on onboarding experience.
  *
- * v16.3 changes vs v15.x:
+ * v16.4 changes vs v15.x:
  *   - 8 chapters (was 7). New Ch 6.5 = Keep in Touch celebration.
  *     Matches the grand-celebration + gold shimmer an agent sees in prod.
  *   - New Ch 7 = The Team Pot + Champion's Bonus. Teaches the pre-filled
@@ -78,7 +78,7 @@ const MINI_NAV = [
 ] as const;
 
 const TAB_COPY: Record<string, string> = {
-  // v16.3 — copy updated to match current app: Pipeline permanence, Team Pot
+  // v16.4 — copy updated to match current app: Pipeline permanence, Team Pot
   // on the leaderboard, offline queue safety.
   leaderboard: "The team scoreboard — dials, contacts, and appointments, updated live. Also home to the Team Pot: everyone's shot at the monthly $1,000 pool. Effort is visible.",
   pipeline:    "Every lead you personally moved forward — Keep in Touch, Appointments, and closed wins. This never gets pulled back to the pool. Ever. Boot to boot, month to month, it stays yours.",
@@ -106,7 +106,7 @@ const TAB_COPY: Record<string, string> = {
 // diverges from AgentView's (bg/border/hoverBg) — they're intentionally
 // separate types, but the labels/keys/order/positions are contract.
 const OUTCOME_TILES = [
-  // v16.3 — descriptions rewritten for current app behavior:
+  // v16.4 — descriptions rewritten for current app behavior:
   //   • Owner–No Answer: never say "voicemail." This is confirmed-owner intel.
   //   • Recycle spelled out as the Callback successor (Callback is retired).
   //   • Keep in Touch calls out permanent Pipeline placement + celebration.
@@ -446,14 +446,14 @@ const RULES = [
     extra: null,
   },
   {
-    // v16.3 — Pipeline permanence promise. Alex's non-negotiable: pipeline
+    // v16.4 — Pipeline permanence promise. Alex's non-negotiable: pipeline
     // and points cannot disappear between reset, boot, or deploy.
     title: "Your Pipeline stays yours.",
     body: "Every KIT and Appt Set you log gets pinned to your Pipeline tab — permanent, boot to boot, month to month. Monthly leaderboard resets don't touch it. Nothing here ever falls back into the shared pool.",
     extra: null,
   },
   {
-    // v16.3 — Offline safety. Every outcome tap carries a UUID and is
+    // v16.4 — Offline safety. Every outcome tap carries a UUID and is
     // persisted to localStorage before the request leaves the phone.
     title: "Nothing gets lost.",
     body: "Every outcome tap is receipted. If you're offline or the network hiccups, the tap sits safely on your phone and syncs the moment you're back — no dial ever disappears, no point ever gets counted twice.",
@@ -929,7 +929,7 @@ function FakeField({ label, value }: { label: string; value: string }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// Chapter 6.5 — Log a Keep in Touch + Celebration (NEW in v16.3)
+// Chapter 6.5 — Log a Keep in Touch + Celebration (NEW in v16.4)
 // Mirrors Ch 6 structurally: fake lead, glowing target tile, small modal,
 // then the grand-shimmer celebration that fires in production for KIT.
 // This closes the gap where an agent going through onboarding never saw
@@ -1097,7 +1097,7 @@ function ChapterKIT({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// Chapter 8 (in flow) — The Team Pot + Champion's Bonus (v16.3 ladder)
+// Chapter 8 (in flow) — The Team Pot + Champion's Bonus (v16.4 ladder)
 // Teaches the pre-committed $250 floor, the 10/20/30 team-appts ladder to
 // $1,000, and the $100–$500 flat Champion's Bonus brackets.
 // ══════════════════════════════════════════════════════════════════════════
@@ -1288,7 +1288,7 @@ function Chapter7({ onFinish, showSkip, onSkip }: { onFinish: () => void; showSk
 // ══════════════════════════════════════════════════════════════════════════
 // Main TutorialFlow
 // ══════════════════════════════════════════════════════════════════════════
-// v16.3 — 9 chapters (was 7). Added ChapterKIT (index 6) and ChapterTeamPot
+// v16.4 — 9 chapters (was 7). Added ChapterKIT (index 6) and ChapterTeamPot
 // (index 7); the original Chapter7 (Finish) shifted to index 8.
 const TOTAL_CHAPTERS = 9;
 

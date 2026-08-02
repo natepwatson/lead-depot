@@ -6252,8 +6252,10 @@ Brothers Group Real Estate Team at Momentum Realty
     // initial incentive. First appointment doesn't unlock the pot; it's already open.
     let currentPot = TEAM_POT_LADDER[0].pot;
     let currentTier: any = TEAM_POT_LADDER[0];
-    let nextTier: any = fullLadder[1] || null;
-    for (const step of fullLadder) {
+    let nextTier: any = null;
+    // Skip tier 1 in the loop — it's the pre-committed floor.
+    for (let i = 1; i < fullLadder.length; i++) {
+      const step = fullLadder[i];
       if (teamAppts >= step.appts) {
         currentPot = step.pot;
         currentTier = step;

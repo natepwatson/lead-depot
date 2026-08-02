@@ -25,7 +25,7 @@ import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
 import { computeCallHeat } from "@/lib/callHeat";
 import type { Lead as LeadRow } from "@shared/schema";
-import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v16.2
+import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v16.3
 
 // v14.81 — myAttemptsToday is a synthetic field the server attaches on top of
 // the real lead row (see server/routes.ts countMyAttemptsToday call sites) —
@@ -1446,7 +1446,7 @@ function LeadCard({ lead }: { lead: Lead }) {
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string; followUpTiming?: string }) => {
       // v14.20 — include alsoBuying + Buyer LPMAMA inside lpmamab payload so
       // server /outcome handler + pushOutcomeToFub both get the buyer context.
-      // v16.2 — Route through offline tap queue. Every tap gets a UUID + is
+      // v16.3 — Route through offline tap queue. Every tap gets a UUID + is
       // persisted before send. If offline or the server hiccups, it retries in
       // the background until the server returns a receipt. Server-side dedup by
       // clientTapId prevents double-counting on retry.
@@ -3211,7 +3211,7 @@ export function TeamPotCard() {
   // Ladder rungs. Tier 1 is the pre-committed $250 floor at 0 appts — the
   // pot opens the month already funded. Real unlocks are at 10/20/30 team
   // appts. Champion's Bonus arms at the $1000 tier.
-  // v16.2 — rescale: floor $250 (0 appts), 10 → $500, 20 → $750, 30 → $1000.
+  // v16.3 — rescale: floor $250 (0 appts), 10 → $500, 20 → $750, 30 → $1000.
   const rungs: Array<{ tier: number; appts: number; pot: number; label: string; mystery?: boolean }> = [
     { tier: 1, appts: 0,  pot: 250,  label: "$250" },
     { tier: 2, appts: 10, pot: 500,  label: "$500" },
@@ -3500,7 +3500,7 @@ export function TeamPotCard() {
           ))}
         </div>
 
-        {/* v16.2 — Champion's Bonus panel. Locked until team reaches 30 appts,
+        {/* v16.3 — Champion's Bonus panel. Locked until team reaches 30 appts,
             then flips to show the bonus the current champion would earn. */}
         {pot.championBonus && (() => {
           const cb = pot.championBonus;
@@ -3736,14 +3736,34 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
   };
 
   const myStats = stats?.find(s => s.agent.id === user?.id);
+
+  // v16.3 — Leaderboard window tab. Server now returns per-agent .windows.today
+  // / .weekly / .monthly / .allTime blocks; each block has {points, appts, dials,
+  // kit, refs}. Falls back to legacy cycle stats if the server hasn't shipped
+  // yet (older cached client).
+  const [lbWindow, setLbWindow] = useState<"today" | "weekly" | "monthly" | "allTime">("weekly");
+  const pickWin = (s: any) => {
+    if (s?.windows?.[lbWindow]) return s.windows[lbWindow];
+    // Legacy fallback: current-cycle values shaped like a window block.
+    return {
+      points: s?.points || 0,
+      appts:  s?.appointmentsSet || 0,
+      dials:  s?.totalAttempts || 0,
+      kit:    s?.outcomes?.keep_in_touch || 0,
+      refs:   s?.refs || 0,
+    };
+  };
+
   // v15.11.24 — UNIFIED SORT: Points → Dials → Appts. Matches admin leaderboard exactly.
   // Points are what determine #1 (they already weight appts heaviest and layer in tier
   // multipliers); dials break ties on raw effort; appts as final tiebreaker.
-  const ranked  = stats ? [...stats].sort((a, b) =>
-    ((b.points || 0) - (a.points || 0)) ||
-    (b.totalAttempts - a.totalAttempts) ||
-    (b.appointmentsSet - a.appointmentsSet)
-  ) : [];
+  // v16.3 — sort by the currently selected window.
+  const ranked  = stats ? [...stats].sort((a, b) => {
+    const wa = pickWin(a), wb = pickWin(b);
+    return ((wb.points || 0) - (wa.points || 0)) ||
+           ((wb.dials  || 0) - (wa.dials  || 0)) ||
+           ((wb.appts  || 0) - (wa.appts  || 0));
+  }) : [];
 
   // v15.11.24 — Gap-to-next-rank helper. Points-first, so show "X more points to catch [Name]".
   const myRankIdx = ranked.findIndex(s => s.agent.id === user?.id);
@@ -3859,10 +3879,33 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
       <div style={{ marginBottom: 32 }}>
         <p style={{
           fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase",
-          color: "rgba(200,170,90,0.6)", marginBottom: 14, fontWeight: 600,
+          color: "rgba(200,170,90,0.6)", marginBottom: 10, fontWeight: 600,
         }}>
           Team Leaderboard
         </p>
+
+        {/* v16.3 — window tabs (Today / Week / Month / All). Matches admin leaderboard tabs. */}
+        <div style={{ display: "flex", gap: 0, marginBottom: 12, borderRadius: 8, overflow: "hidden", border: "1px solid rgba(200,170,90,0.2)", width: "fit-content" }}>
+          {(["today", "weekly", "monthly", "allTime"] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setLbWindow(t)}
+              style={{
+                padding: "5px 12px",
+                fontSize: 10, fontWeight: 600, letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                background: lbWindow === t ? "rgba(200,170,90,0.15)" : "transparent",
+                color: lbWindow === t ? "#c8aa5a" : "rgba(255,255,255,0.4)",
+                border: "none", cursor: "pointer",
+                borderBottom: lbWindow === t ? "2px solid #c8aa5a" : "2px solid transparent",
+                transition: "all 0.15s",
+              }}
+            >
+              {t === "today" ? "Today" : t === "weekly" ? "Week" : t === "monthly" ? "Month" : "All"}
+            </button>
+          ))}
+        </div>
+
         {isLoading ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[1,2,3].map(i => <div key={i} style={{ height: 58, borderRadius: 10, background: "rgba(255,255,255,0.04)" }} />)}
@@ -3961,26 +4004,35 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                        represent what has been achieved. From left to right: points, appts, dials, email."
                        PTS is now the hero (largest, gold pill), then APPTS, DIALS, EMAILS. Same order
                        matches the admin leaderboard for consistency. */}
-                  <div style={{ display: "flex", gap: 12, flexShrink: 0, alignItems: "center" }}>
-                    <div style={{ textAlign: "right", minWidth: 44 }}>
-                      <p style={{ fontSize: 22, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif", background: "rgba(200,170,90,0.12)", borderRadius: 8, padding: "2px 8px", display: "inline-block" }}>{s.points ?? 0}</p>
-                      <p style={{ fontSize: 9, color: "rgba(200,170,90,0.7)", letterSpacing: "0.14em", marginTop: 4, fontWeight: 700 }}>PTS</p>
-                    </div>
-                    <div style={{ textAlign: "right", minWidth: 34 }}>
-                      <p style={{ fontSize: 17, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{s.appointmentsSet}</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>APPTS</p>
-                    </div>
-                    <div style={{ textAlign: "right", minWidth: 30 }}>
-                      <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.7)", lineHeight: 1 }}>{s.totalAttempts}</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>DIALS</p>
-                    </div>
-                    {/* v15.11.31 — Emails column removed. Alex: we do not send emails
-                        as an outcome anymore. KIT stays; nothing replaces Emails. */}
-                    <div style={{ textAlign: "right", minWidth: 30 }}>
-                      <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(249,168,212,0.85)", lineHeight: 1 }}>{(s.outcomes?.keep_in_touch) ?? 0}</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>KIT</p>
-                    </div>
-                  </div>
+                  {/* v16.3 — metrics come from the selected window (Today / Week /
+                      Month / All), plus a new Refs column for network referrals. */}
+                  {(() => {
+                    const w = pickWin(s);
+                    return (
+                      <div style={{ display: "flex", gap: 12, flexShrink: 0, alignItems: "center" }}>
+                        <div style={{ textAlign: "right", minWidth: 44 }}>
+                          <p style={{ fontSize: 22, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif", background: "rgba(200,170,90,0.12)", borderRadius: 8, padding: "2px 8px", display: "inline-block" }}>{w.points ?? 0}</p>
+                          <p style={{ fontSize: 9, color: "rgba(200,170,90,0.7)", letterSpacing: "0.14em", marginTop: 4, fontWeight: 700 }}>PTS</p>
+                        </div>
+                        <div style={{ textAlign: "right", minWidth: 34 }}>
+                          <p style={{ fontSize: 17, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{w.appts ?? 0}</p>
+                          <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>APPTS</p>
+                        </div>
+                        <div style={{ textAlign: "right", minWidth: 30 }}>
+                          <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.7)", lineHeight: 1 }}>{w.dials ?? 0}</p>
+                          <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>DIALS</p>
+                        </div>
+                        <div style={{ textAlign: "right", minWidth: 30 }}>
+                          <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(249,168,212,0.85)", lineHeight: 1 }}>{w.kit ?? 0}</p>
+                          <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>KIT</p>
+                        </div>
+                        <div style={{ textAlign: "right", minWidth: 30 }}>
+                          <p style={{ fontSize: 15, fontWeight: 600, color: "#fde68a", lineHeight: 1 }}>{w.refs ?? 0}</p>
+                          <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>REF</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}

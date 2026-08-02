@@ -939,7 +939,7 @@ function HealthWidget() {
   );
 }
 
-// v16.2 — Admin-only Team Pot stretch-tier toggle. When flipped ON, the
+// v16.3 — Admin-only Team Pot stretch-tier toggle. When flipped ON, the
 // hidden $1000/80-appt rung appears on the TeamPotCard for the whole team.
 // When OFF (default), agents see $750 as the final rung. Auto-resets to OFF
 // on the 1st of every month via the monthly leaderboard reset scheduler.
@@ -1108,7 +1108,8 @@ export default function AdminDashboard({
     refetchInterval: 15000,
   });
 
-  const [lbTab, setLbTab] = useState<"today" | "weekly">("today");
+  // v16.3 — added "monthly" tab. Server now returns a .monthly block on each row.
+  const [lbTab, setLbTab] = useState<"today" | "weekly" | "monthly">("today");
 
   // ── Confirmation dialog state ──────────────────────────────────────────────
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -1814,7 +1815,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v16.2
+              v16.3
             </p>
           </div>
         </div>
@@ -2145,10 +2146,10 @@ export default function AdminDashboard({
 
           {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
           <TabsContent value="leaderboard" className="mt-5 space-y-5">
-            {/* v16.2 — admins compete for the monthly prize too. Same TeamPotCard
+            {/* v16.3 — admins compete for the monthly prize too. Same TeamPotCard
                 the agents see at the top of Dial, rendered here above the KPIs. */}
             <TeamPotCard />
-            {/* v16.2 — Admin-only stretch tier toggle. Default hidden. Flip once
+            {/* v16.3 — Admin-only stretch tier toggle. Default hidden. Flip once
                 you're comfortable showing the team that $1000 is on the table if
                 they cross 80 team appointments. */}
             <TeamPotStretchAdmin />
@@ -2177,9 +2178,9 @@ export default function AdminDashboard({
                 </Button>
               </div>
 
-              {/* Today / This Week switcher */}
+              {/* Today / This Week / This Month switcher — v16.3 */}
               <div style={{ display: "flex", gap: 0, marginBottom: 16, borderRadius: 10, overflow: "hidden", border: "1px solid rgba(200,170,90,0.2)", width: "fit-content" }}>
-                {(["today", "weekly"] as const).map(t => (
+                {(["today", "weekly", "monthly"] as const).map(t => (
                   <button
                     key={t}
                     onClick={() => setLbTab(t)}
@@ -2194,7 +2195,7 @@ export default function AdminDashboard({
                       transition: "all 0.15s",
                     }}
                   >
-                    {t === "today" ? "Today" : "This Week"}
+                    {t === "today" ? "Today" : t === "weekly" ? "This Week" : "This Month"}
                   </button>
                 ))}
               </div>
@@ -2270,9 +2271,16 @@ export default function AdminDashboard({
                 // v15.11.26 — UNIFIED SORT across Today + Weekly + Agent leaderboard:
                 // Points → Dials → Appts. Points are what determine #1 (they already
                 // weight appts heaviest); dials break ties on effort; appts as final tiebreaker.
+                // v16.3 — respects the new monthly tab. Falls back to weekly if
+                // the server hasn't shipped .monthly yet (older cached response).
+                const pickStat = (r: any) => lbTab === "today"
+                  ? r.today
+                  : lbTab === "monthly"
+                    ? (r.monthly ?? r.weekly)
+                    : r.weekly;
                 const sorted = [...dualLb].sort((a, b) => {
-                  const sa = lbTab === "today" ? a.today : a.weekly;
-                  const sb = lbTab === "today" ? b.today : b.weekly;
+                  const sa = pickStat(a);
+                  const sb = pickStat(b);
                   return ((b.points || 0) - (a.points || 0)) ||
                          (sb.dials - sa.dials) ||
                          (sb.appts - sa.appts);
@@ -2281,7 +2289,7 @@ export default function AdminDashboard({
                   <div className="space-y-2">
                     {sorted.map((stat: any, idx: number) => {
                       const isTop = idx === 0;
-                      const s = lbTab === "today" ? stat.today : stat.weekly;
+                      const s = pickStat(stat);
                       const dot = activityDot(stat.lastActivityAt ?? null);
                       // v15.11.26 — Trophy graphic for top 3 (only if they've scored points).
                       const hasPoints = (stat.points || 0) > 0;

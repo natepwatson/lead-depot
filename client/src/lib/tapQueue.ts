@@ -1,4 +1,4 @@
-// v15.11.53 — Outcome tap queue with UUID + localStorage persistence + retry.
+// v16.0 — Outcome tap queue with UUID + localStorage persistence + retry.
 //
 // Goal: no outcome tap ever disappears silently. Every button press generates
 // a UUID immediately, is persisted to localStorage, sent to the server, and

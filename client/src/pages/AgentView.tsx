@@ -25,7 +25,7 @@ import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
 import { computeCallHeat } from "@/lib/callHeat";
 import type { Lead as LeadRow } from "@shared/schema";
-import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v15.11.53
+import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v16.0
 
 // v14.81 — myAttemptsToday is a synthetic field the server attaches on top of
 // the real lead row (see server/routes.ts countMyAttemptsToday call sites) —
@@ -1446,7 +1446,7 @@ function LeadCard({ lead }: { lead: Lead }) {
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string; followUpTiming?: string }) => {
       // v14.20 — include alsoBuying + Buyer LPMAMA inside lpmamab payload so
       // server /outcome handler + pushOutcomeToFub both get the buyer context.
-      // v15.11.53 — Route through offline tap queue. Every tap gets a UUID + is
+      // v16.0 — Route through offline tap queue. Every tap gets a UUID + is
       // persisted before send. If offline or the server hiccups, it retries in
       // the background until the server returns a receipt. Server-side dedup by
       // clientTapId prevents double-counting on retry.
@@ -3212,7 +3212,7 @@ export function TeamPotCard() {
   // can see there's *something* past $750 all month, and the label flips from
   // "$???" to "$1000" only after the team hits tier 3 (60 appts) OR admin
   // manually reveals it. This is the "curious all month" hook Alex wanted.
-  // v15.11.53 — half-scale ladder: 10 / 20 / 30 / 60 appts.
+  // v16.0 — half-scale ladder: 10 / 20 / 30 / 60 appts.
   // $1000 stretch is now permanently visible. Champion's Bonus is the new curiosity hook.
   const rungs: Array<{ tier: number; appts: number; pot: number; label: string; mystery?: boolean }> = [
     { tier: 1, appts: 10, pot: 250, label: "$250" },
@@ -3502,7 +3502,7 @@ export function TeamPotCard() {
           ))}
         </div>
 
-        {/* v15.11.53 — Champion's Bonus panel. Locked until team reaches 60 appts,
+        {/* v16.0 — Champion's Bonus panel. Locked until team reaches 60 appts,
             then flips to show the bonus the current champion would earn. */}
         {pot.championBonus && (() => {
           const cb = pot.championBonus;

@@ -13,6 +13,7 @@ import HeadshotGate from "./components/ld/HeadshotGate";
 import HomeCountyGate from "./components/ld/HomeCountyGate";
 import WatsonEmailNudge from "./components/ld/WatsonEmailNudge";
 import OnAirBanner from "./components/ld/OnAirBanner";
+import Watermark from "./components/ld/Watermark";
 // v15.11.3 — push subscription removed. The always-visible Prime bar IS the
 // notifier. No web-push, no iOS-permission dance, no opt-in. Everyone who
 // opens the app sees the same red/amber/gray broadcast light at the top of
@@ -151,6 +152,8 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        {/* v16.5 — Identity watermark on every authenticated screen. */}
+        <Watermark />
         <Router hook={useHashLocation}>
           <Switch>
             {/* Public recruiting form — no auth required */}

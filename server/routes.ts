@@ -346,7 +346,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v16.4 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v16.5 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -405,7 +405,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v16.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v16.5 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -690,7 +690,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v16.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v16.5 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1931,7 +1931,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v16.4</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v16.5</p>
             </div>
           `,
         });
@@ -2091,7 +2091,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v16.4 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v16.5 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3485,7 +3485,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
   // ─── OUTCOMES ─────────────────────────────────────────────────────────────
-  // v16.4 — Tap-receipt table. Every outcome POST from the client carries a
+  // v16.5 — Tap-receipt table. Every outcome POST from the client carries a
   // clientTapId (UUID generated on the phone the moment the button is tapped).
   // If a network glitch causes the client to retry, we hit this table first: same
   // tap_id = short-circuit and return the ORIGINAL receipt instead of double-
@@ -3509,9 +3509,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     const { agentId, outcome, notes, lpmamab, callbackDate,
             apptEmail, confirmedAddress, apptDate, apptTime, stage, intention,
-            followUpTiming, clientTapId } = req.body; // v16.4 — clientTapId for dedup
+            followUpTiming, clientTapId } = req.body; // v16.5 — clientTapId for dedup
 
-    // v16.4 — If we've already seen this exact tap, replay the original response.
+    // v16.5 — If we've already seen this exact tap, replay the original response.
     if (clientTapId && typeof clientTapId === "string") {
       const existing = rawDb.prepare(`SELECT response_json FROM tap_receipts WHERE client_tap_id = ?`).get(clientTapId) as any;
       if (existing?.response_json) {
@@ -3523,7 +3523,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
     }
 
-    // v16.4 — Wrap res.json so every success response persists a receipt.
+    // v16.5 — Wrap res.json so every success response persists a receipt.
     const _origJson = res.json.bind(res);
     (res as any).json = (body: any) => {
       // Only persist for successful outcome writes (no error field, has agentId).
@@ -4544,6 +4544,70 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       LIMIT ?
     `).all(scope, limit) as any[];
     res.json(rows.reverse()); // oldest first for the feed
+  });
+
+  // ─── v16.5 ─ DAILY METRICS SNAPSHOTS (audit + reversion) ──────────────────
+  // List every date we have a snapshot for.
+  app.get("/api/admin/daily-snapshots", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const rows = rawDb.prepare(`
+      SELECT et_date, COUNT(*) as agent_count, MAX(captured_at) as captured_at
+      FROM daily_metrics_snapshots
+      GROUP BY et_date
+      ORDER BY et_date DESC
+      LIMIT 400
+    `).all();
+    res.json(rows);
+  });
+
+  // Read every agent's row for one specific ET date.
+  app.get("/api/admin/daily-snapshots/:date", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const date = String(req.params.date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+    }
+    const rows = rawDb.prepare(`
+      SELECT * FROM daily_metrics_snapshots
+      WHERE et_date = ?
+      ORDER BY all_points DESC, agent_name ASC
+    `).all(date);
+    res.json({ date, rows });
+  });
+
+  // Read one agent's full history across all snapshotted days.
+  app.get("/api/admin/daily-snapshots/agent/:id", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const aid = parseInt(String(req.params.id));
+    if (!Number.isFinite(aid)) return res.status(400).json({ error: "invalid agent id" });
+    const rows = rawDb.prepare(`
+      SELECT * FROM daily_metrics_snapshots
+      WHERE agent_id = ?
+      ORDER BY et_date DESC
+      LIMIT 400
+    `).all(aid);
+    res.json({ agent_id: aid, rows });
+  });
+
+  // Manual trigger — admin can force a snapshot for yesterday (idempotent UPSERT).
+  app.post("/api/admin/daily-snapshots/run-now", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      // Inline call — same logic as the scheduler's performDailySnapshot(),
+      // exposed via a global hook the scheduler installs on boot.
+      const hook = (global as any).__leadDepotDailySnapshot;
+      if (typeof hook !== "function") {
+        return res.status(503).json({ error: "snapshot job not initialized" });
+      }
+      await hook();
+      const yesterdayEt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
+      }).format(new Date(Date.now() - 86_400_000));
+      const count = rawDb.prepare(`SELECT COUNT(*) as c FROM daily_metrics_snapshots WHERE et_date = ?`).get(yesterdayEt) as any;
+      res.json({ ok: true, et_date: yesterdayEt, agents_captured: count?.c || 0 });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message || err) });
+    }
   });
 
   // ─── AGENT POINTS TOTAL ───────────────────────────────────────────────────
@@ -5701,14 +5765,14 @@ Brothers Group Real Estate Team at Momentum Realty
   app.get("/api/admin/leaderboard", (req, res) => {
     const now = new Date();
 
-    // v16.4 — Today window in AMERICA/NEW_YORK (the team's clock), not server
+    // v16.5 — Today window in AMERICA/NEW_YORK (the team's clock), not server
     // local UTC. Reuses todayEdtMidnightIso() which is DST-aware. Bug caught
     // during Aug 1 audit: server ran in UTC so `setHours(0,0,0,0)` set the
     // cutoff to UTC midnight; Bronson's 8-11pm ET dials landed AFTER UTC
     // midnight so "Today" showed 0 while Weekly/Monthly correctly showed 30.
     let todayStartISO = todayEdtMidnightIso();
 
-    // v16.4 — Week: Monday 00:00 in AMERICA/NEW_YORK. Same DST-aware bounds
+    // v16.5 — Week: Monday 00:00 in AMERICA/NEW_YORK. Same DST-aware bounds
     // helper approach as monthStartEt below. Uses the current calendar day in
     // ET as the anchor, then walks back to Monday.
     const weekStartISO_Et = (() => {
@@ -5726,7 +5790,7 @@ Brothers Group Real Estate Team at Momentum Realty
     })();
     let weekStartISO = weekStartISO_Et;
 
-    // v16.4 — Month window. Calendar-month bounds in America/New_York (the
+    // v16.5 — Month window. Calendar-month bounds in America/New_York (the
     // leaderboard clock the team lives on). Uses the same helper approach as
     // /api/team-pot bounds.
     const monthStartEt = (() => {
@@ -5740,7 +5804,7 @@ Brothers Group Real Estate Team at Momentum Realty
     })();
     let monthStartISO = monthStartEt;
 
-    // v16.4 — Reconcile with the agent leaderboard. `/api/agent/leaderboard`
+    // v16.5 — Reconcile with the agent leaderboard. `/api/agent/leaderboard`
     // reads lead_activity + agent_points filtered by `> leaderboard_reset_at`
     // (no today/week split — it's always the current cycle). Admin has TODAY/
     // WEEK/ALL-TIME tabs that use calendar-midnight boundaries. When a reset
@@ -5761,7 +5825,7 @@ Brothers Group Real Estate Team at Momentum Realty
     const allAgents = storage.getAllAgents().filter(a => a.isActive);
 
     // ── SQL: aggregate activity counts per agent per outcome for today + week + month + all-time ──
-    // v16.4 — added month_* columns to power the new MONTH tab.
+    // v16.5 — added month_* columns to power the new MONTH tab.
     const aggRows: any[] = rawDb.prepare(`
       SELECT agent_id,
         SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as today_total,
@@ -5815,7 +5879,7 @@ Brothers Group Real Estate Team at Momentum Realty
     const weekReferralsMap: Record<number, number> = {};
     for (const r of weekRefRows) weekReferralsMap[r.uploaded_by] = r.cnt;
 
-    // v16.4 — monthly referrals for the MONTH tab.
+    // v16.5 — monthly referrals for the MONTH tab.
     const monthRefRows: any[] = rawDb.prepare(`
       SELECT uploaded_by, COUNT(*) as cnt
       FROM leads
@@ -5849,7 +5913,7 @@ Brothers Group Real Estate Team at Momentum Realty
     const allReferralsMap: Record<number, number> = {};
     for (const r of allRefRows) allReferralsMap[r.uploaded_by] = r.cnt;
 
-    // v16.4 — buildStats now supports "month" period.
+    // v16.5 — buildStats now supports "month" period.
     const buildStats = (agg: any, period: "today" | "week" | "month" | "all", agentId: number) => {
       if (!agg) return { dials: 0, appts: 0, kit: 0, emails: 0, noAnswer: 0, convRate: 0, referrals: 0 };
       const p = period;
@@ -6168,9 +6232,9 @@ Brothers Group Real Estate Team at Momentum Realty
       )
     );
 
-    // v16.4 — window bounds. Today/Week/Month are calendar boundaries in ET,
+    // v16.5 — window bounds. Today/Week/Month are calendar boundaries in ET,
     // but never earlier than the leaderboard_reset_at floor (matches admin).
-    // v16.4 — switched to ET-aware bounds (was using server-local UTC).
+    // v16.5 — switched to ET-aware bounds (was using server-local UTC).
     const nowW = new Date();
     let todayStartAg = todayEdtMidnightIso();
     let weekStartAg = (() => {
@@ -6202,7 +6266,11 @@ Brothers Group Real Estate Team at Momentum Realty
     }
 
     // SQL aggregation — avoids loading all leads/activities (v11.70).
-    // v16.4 — added today/week/month per-outcome sums.
+    // v16.5 — added today/week/month per-outcome sums.
+    // v16.5 — dropped the outer `resetAt` filter so that raw COUNT/SUM columns
+    //   (used for allTime) truly report lifetime totals. Windowed columns
+    //   (today/week/month) still respect the reset because they're clamped to
+    //   `MAX(period_start, resetAt)` above.
     const agentStatsRows: any[] = rawDb.prepare(`
       SELECT agent_id,
         COUNT(*) as total_all,
@@ -6225,20 +6293,18 @@ Brothers Group Real Estate Team at Momentum Realty
         SUM(CASE WHEN outcome = 'email_sent' AND created_at >= ? THEN 1 ELSE 0 END) as month_emails
       FROM lead_activity
       WHERE agent_id IS NOT NULL
-        ${resetAt ? "AND created_at > ?" : ""}
       GROUP BY agent_id
     `).all(
       todayStartAg, weekStartAg, monthStartAg,
       todayStartAg, weekStartAg, monthStartAg,
       todayStartAg, weekStartAg, monthStartAg,
-      todayStartAg, weekStartAg, monthStartAg,
-      ...(resetAt ? [resetAt] : [])
+      todayStartAg, weekStartAg, monthStartAg
     );
     const agentStatsMap: Record<number, any> = {};
     for (const r of agentStatsRows) agentStatsMap[r.agent_id] = r;
 
     // v14.29 — pull points from agent_points table for unified leaderboard sort.
-    // v16.4 — plus today/week/month/all-time buckets for the new tabs.
+    // v16.5 — plus today/week/month/all-time buckets for the new tabs.
     const ptsSqlA = `SELECT agent_id, SUM(points) as total FROM agent_points WHERE scope = 'seller' ${resetAt ? "AND created_at >= ?" : ""} GROUP BY agent_id`;
     const ptsRowsA: any[] = rawDb.prepare(ptsSqlA).all(...(resetAt ? [resetAt] : []));
     const ptsMapA: Record<number, number> = {};
@@ -6260,7 +6326,7 @@ Brothers Group Real Estate Team at Momentum Realty
     const ptsAllMap: Record<number, number> = {};
     for (const p of ptsAllRows) ptsAllMap[p.agent_id] = p.total || 0;
 
-    // v16.4 — referrals per window (network leads uploaded_by that agent).
+    // v16.5 — referrals per window (network leads uploaded_by that agent).
     const refBucket = (floor: string | null): Record<number, number> => {
       const rows: any[] = floor
         ? rawDb.prepare(`
@@ -6337,7 +6403,7 @@ Brothers Group Real Estate Team at Momentum Realty
           keep_in_touch: r.kit || 0,
         },
         refs: refCycMap[agent.id] || 0,
-        // v16.4 — per-window blocks powering TODAY/WEEK/MONTH/ALL tabs.
+        // v16.5 — per-window blocks powering TODAY/WEEK/MONTH/ALL tabs.
         windows: {
           today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap),
           weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap),
@@ -6373,7 +6439,7 @@ Brothers Group Real Estate Team at Momentum Realty
   // count for the month (not points). Once a Set is logged, it counts — no
   // decrement on cancel/reschedule (Alex's call, v15.11.50 spec).
 
-  // v16.4 — Ladder rescale. $250 is a pre-committed floor from day 1 (no
+  // v16.5 — Ladder rescale. $250 is a pre-committed floor from day 1 (no
   // threshold), then real unlocks at 10/20/30 team appts.
   //   Floor: $250 (0 appts, pre-committed)
   //   10 team appts → $500
@@ -6389,7 +6455,7 @@ Brothers Group Real Estate Team at Momentum Realty
   ];
   const TEAM_POT_STRETCH = { tier: 4, appts: 30, pot: 1000 };
   const TEAM_POT_PAYOUT = { first: 0.70, second: 0.30 };
-  // v16.4 — Champion's Bonus. Only pays out if the team reaches the $1000
+  // v16.5 — Champion's Bonus. Only pays out if the team reaches the $1000
   // tier (30 team appts). Sized by the champion's INDIVIDUAL appointment count
   // for the month. Flat brackets, hard cap $500. Champion only — second place
   // gets their standard 30% pot share with no bonus.
@@ -6460,7 +6526,7 @@ Brothers Group Real Estate Team at Momentum Realty
     // to show the dollar amount or the mystery placeholder.
     const fullLadder = [...TEAM_POT_LADDER, TEAM_POT_STRETCH];
 
-    // v16.4 — Month starts with the tier-1 amount ($250) pre-committed as the
+    // v16.5 — Month starts with the tier-1 amount ($250) pre-committed as the
     // initial incentive. First appointment doesn't unlock the pot; it's already open.
     let currentPot = TEAM_POT_LADDER[0].pot;
     let currentTier: any = TEAM_POT_LADDER[0];
@@ -6476,7 +6542,7 @@ Brothers Group Real Estate Team at Momentum Realty
         break;
       }
     }
-    // v16.4 — Mystery mode retired. The $1000 stretch amount is now VISIBLE
+    // v16.5 — Mystery mode retired. The $1000 stretch amount is now VISIBLE
     // from day 1 so the whole team is pulling toward a known target. The Champion's
     // Bonus becomes the new curiosity hook — it only pays if the team reaches
     // $1000 AND the champion has 15+ personal appts.
@@ -6490,7 +6556,7 @@ Brothers Group Real Estate Team at Momentum Realty
     const firstPayout = Math.round(currentPot * TEAM_POT_PAYOUT.first);
     const secondPayout = Math.round(currentPot * TEAM_POT_PAYOUT.second);
 
-    // v16.4 — Champion's Bonus preview. Only paid if the team hits $1000.
+    // v16.5 — Champion's Bonus preview. Only paid if the team hits $1000.
     const teamReachedStretch = teamAppts >= TEAM_POT_STRETCH.appts;
     const championAppts = first?.appts || 0;
     let championBonus = 0;
@@ -6519,7 +6585,7 @@ Brothers Group Real Estate Team at Momentum Realty
       stretchRevealed,
       stretchUnlocked,
       payoutSplit: TEAM_POT_PAYOUT,
-      // v16.4 — Champion's Bonus preview. Client shows this card only when
+      // v16.5 — Champion's Bonus preview. Client shows this card only when
       // stretch is unlocked; below $1000 it's just a locked teaser.
       championBonus: {
         active: teamReachedStretch,
@@ -6632,7 +6698,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v16.4 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v16.5 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -7139,7 +7205,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v16.4",
+      version: "v16.5",
       services: results,
     });
   });
@@ -8257,7 +8323,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v16.4`,
+              subject: `${firstName}, your BGRE application — Lead Depot v16.5`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -8896,7 +8962,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v16.4</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v16.5</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -9024,7 +9090,7 @@ scheduleDailyDigest();
 // same snapshot + settings key as the admin manual reset (keys:
 // leaderboard_reset_at, leaderboard_snapshots table). Idempotent within a
 // single ET day — if server restarts after the fire, it won't double-reset.
-// v16.4 — Rebuilt monthly reset with bulletproof guarantees:
+// v16.5 — Rebuilt monthly reset with bulletproof guarantees:
 //   1. "Already reset this ET month?" idempotency — not a 6h window
 //   2. Precise DST-aware next-fire calculation using Intl (no month-range guess)
 //   3. Hourly self-check (every process wake re-evaluates) so a missed setTimeout
@@ -9074,9 +9140,9 @@ function scheduleMonthlyLeaderboardReset() {
       const resetKey = "leaderboard_reset_at";
       const now = new Date().toISOString();
 
-      // v16.4 — IDEMPOTENCY: skip if the last reset was in the CURRENT ET
+      // v16.5 — IDEMPOTENCY: skip if the last reset was in the CURRENT ET
       // wall-clock month. This is 100% safe against setTimeout misfires, process
-      // restarts, and the double-fire we saw in v16.4. Only exactly ONE
+      // restarts, and the double-fire we saw in v16.5. Only exactly ONE
       // reset per ET calendar month is possible.
       const prevRow = rawDb.prepare(`SELECT value FROM settings WHERE key = ?`).get(resetKey) as any;
       if (prevRow?.value) {
@@ -9133,7 +9199,7 @@ function scheduleMonthlyLeaderboardReset() {
     }
   }
 
-  // v16.4 — Two independent triggers, both guarded by "already reset this
+  // v16.5 — Two independent triggers, both guarded by "already reset this
   // ET month" idempotency. Belt-and-suspenders design.
   //
   //   (A) Precise setTimeout to next ET month start. Fires within seconds of 00:00 ET.
@@ -9162,14 +9228,236 @@ function scheduleMonthlyLeaderboardReset() {
   setTimeout(() => performMonthlyReset(), 5_000);
 }
 
-// v16.4 — RE-ENABLED with rebuilt scheduler. Auto-monthly reset now:
+// v16.5 — RE-ENABLED with rebuilt scheduler. Auto-monthly reset now:
 //   – Fires exactly once per ET calendar month (idempotency by year-month key)
 //   – Has three redundant triggers: precise setTimeout, hourly self-check, boot check
 //   – Uses Intl for DST-aware timing (not month-range guess)
 //   – Snapshots current standings before reset for audit/undo
 scheduleMonthlyLeaderboardReset();
 
-// ─── v16.4 ─ NIGHTLY LEDGER RECONCILIATION (9pm ET) ────────────────────
+// ─── v16.5 ─ DAILY METRICS SNAPSHOT (00:05 ET) ───────────────────────────────
+// Every day at 00:05 America/New_York, capture every active agent's full metrics
+// (all-time + "yesterday" + current cycle) into daily_metrics_snapshots. Row
+// keyed by (et_date, agent_id, scope) so it's idempotent — the job can re-run
+// safely and will UPSERT the same row. Never deletes historical rows.
+//
+// Use cases:
+//   • Audit trail: "what did Bronson have on July 15?" → SELECT ... WHERE et_date='2026-07-15'
+//   • Bug diagnosis: if a live value looks wrong, diff against last night's snapshot
+//   • Reversion: if a bad merge/repair corrupts data, the snapshot survives
+function scheduleDailyMetricsSnapshot() {
+  function etDateAtMs(atMs: number = Date.now()): string {
+    const fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
+    });
+    return fmt.format(new Date(atMs));  // YYYY-MM-DD
+  }
+
+  function msUntilNextEt0005(): number {
+    const now = new Date();
+    // Find the next occurrence of 00:05 ET. Search 25 hours of UTC candidates.
+    const nowEt = etDateAtMs(now.getTime());
+    const [y, m, d] = nowEt.split("-").map(Number);
+    // Try today's 00:05 first (may be in the past); then tomorrow's.
+    for (let dayOffset = 0; dayOffset <= 1; dayOffset++) {
+      const target = new Date(Date.UTC(y, m - 1, d + dayOffset, 4, 5, 0, 0)); // guess EDT
+      // Refine via Intl — search ±3 hours to snap to true 00:05 ET.
+      for (let dh = -3; dh <= 3; dh++) {
+        const candidate = target.getTime() + dh * 3600_000;
+        const fmt = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
+        });
+        const parts = fmt.formatToParts(new Date(candidate));
+        const hh = parts.find(p => p.type === "hour")!.value;
+        const mm = parts.find(p => p.type === "minute")!.value;
+        if (hh === "00" && mm === "05" && candidate > now.getTime()) {
+          return candidate - now.getTime();
+        }
+      }
+    }
+    return 3600_000;  // fallback: 1 hour
+  }
+
+  async function performDailySnapshot() {
+    try {
+      // The day just closed = yesterday in ET wall-clock.
+      const now = new Date();
+      const nowMs = now.getTime();
+      const yesterdayMs = nowMs - 86_400_000;
+      const yesterdayEtDate = (() => {
+        const fmt = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit"
+        });
+        return fmt.format(new Date(yesterdayMs));
+      })();
+
+      // Day boundaries in UTC.
+      const [dy, dmo, dd] = yesterdayEtDate.split("-").map(Number);
+      const dst = dmo >= 3 && dmo <= 11;
+      const off = dst ? 4 : 5;
+      const dayStartUtc = new Date(Date.UTC(dy, dmo - 1, dd, off, 0, 0, 0)).toISOString();
+      const dayEndUtc   = new Date(Date.UTC(dy, dmo - 1, dd + 1, off, 0, 0, 0)).toISOString();
+
+      const resetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
+      const resetAt: string | null = resetRow?.value || null;
+
+      const agents = storage.getAllAgents().filter((a: any) => a.isActive);
+      const scope = "seller";
+      const capturedAt = new Date().toISOString();
+
+      const upsert = rawDb.prepare(`
+        INSERT INTO daily_metrics_snapshots (
+          et_date, agent_id, agent_name, scope,
+          all_points, all_dials, all_appts, all_kit, all_emails, all_no_answer, all_not_interested, all_referrals,
+          day_points, day_dials, day_appts, day_kit, day_emails, day_no_answer, day_not_interested, day_referrals,
+          cycle_points, cycle_dials, cycle_appts, cycle_kit,
+          reset_at_when_captured, captured_at
+        ) VALUES (?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?
+        )
+        ON CONFLICT(et_date, agent_id, scope) DO UPDATE SET
+          all_points = excluded.all_points,
+          all_dials = excluded.all_dials, all_appts = excluded.all_appts, all_kit = excluded.all_kit,
+          all_emails = excluded.all_emails, all_no_answer = excluded.all_no_answer,
+          all_not_interested = excluded.all_not_interested, all_referrals = excluded.all_referrals,
+          day_points = excluded.day_points,
+          day_dials = excluded.day_dials, day_appts = excluded.day_appts, day_kit = excluded.day_kit,
+          day_emails = excluded.day_emails, day_no_answer = excluded.day_no_answer,
+          day_not_interested = excluded.day_not_interested, day_referrals = excluded.day_referrals,
+          cycle_points = excluded.cycle_points, cycle_dials = excluded.cycle_dials,
+          cycle_appts = excluded.cycle_appts, cycle_kit = excluded.cycle_kit,
+          reset_at_when_captured = excluded.reset_at_when_captured,
+          captured_at = excluded.captured_at
+      `);
+
+      const tx = rawDb.transaction(() => {
+        for (const a of agents) {
+          const aid = a.id;
+          const aname = a.name;
+
+          // ALL-TIME activity (unfiltered).
+          const allAct = rawDb.prepare(`
+            SELECT
+              SUM(CASE WHEN outcome != 'email_sent' THEN 1 ELSE 0 END) as dials,
+              SUM(CASE WHEN outcome = 'contacted_appointment' THEN 1 ELSE 0 END) as appts,
+              SUM(CASE WHEN outcome = 'keep_in_touch' THEN 1 ELSE 0 END) as kit,
+              SUM(CASE WHEN outcome = 'email_sent' THEN 1 ELSE 0 END) as emails,
+              SUM(CASE WHEN outcome = 'no_answer' THEN 1 ELSE 0 END) as no_answer,
+              SUM(CASE WHEN outcome = 'contacted_not_interested' THEN 1 ELSE 0 END) as not_interested
+            FROM lead_activity WHERE agent_id = ?
+          `).get(aid) as any;
+          const allPts = rawDb.prepare(`SELECT SUM(points) as p FROM agent_points WHERE agent_id = ? AND scope = ?`).get(aid, scope) as any;
+          const allRefs = rawDb.prepare(`
+            SELECT COUNT(*) as c FROM leads
+            WHERE uploaded_by = ? AND json_extract(extra_data,'$.source') = 'network'
+          `).get(aid) as any;
+
+          // YESTERDAY (the ET calendar day just closed).
+          const dayAct = rawDb.prepare(`
+            SELECT
+              SUM(CASE WHEN outcome != 'email_sent' THEN 1 ELSE 0 END) as dials,
+              SUM(CASE WHEN outcome = 'contacted_appointment' THEN 1 ELSE 0 END) as appts,
+              SUM(CASE WHEN outcome = 'keep_in_touch' THEN 1 ELSE 0 END) as kit,
+              SUM(CASE WHEN outcome = 'email_sent' THEN 1 ELSE 0 END) as emails,
+              SUM(CASE WHEN outcome = 'no_answer' THEN 1 ELSE 0 END) as no_answer,
+              SUM(CASE WHEN outcome = 'contacted_not_interested' THEN 1 ELSE 0 END) as not_interested
+            FROM lead_activity WHERE agent_id = ? AND created_at >= ? AND created_at < ?
+          `).get(aid, dayStartUtc, dayEndUtc) as any;
+          const dayPts = rawDb.prepare(`
+            SELECT SUM(points) as p FROM agent_points
+            WHERE agent_id = ? AND scope = ? AND created_at >= ? AND created_at < ?
+          `).get(aid, scope, dayStartUtc, dayEndUtc) as any;
+          const dayRefs = rawDb.prepare(`
+            SELECT COUNT(*) as c FROM leads
+            WHERE uploaded_by = ? AND json_extract(extra_data,'$.source') = 'network'
+              AND uploaded_at >= ? AND uploaded_at < ?
+          `).get(aid, dayStartUtc, dayEndUtc) as any;
+
+          // CURRENT CYCLE (since leaderboard_reset_at).
+          const cyclePts = rawDb.prepare(`
+            SELECT SUM(points) as p FROM agent_points
+            WHERE agent_id = ? AND scope = ? ${resetAt ? "AND created_at >= ?" : ""}
+          `).get(...(resetAt ? [aid, scope, resetAt] : [aid, scope])) as any;
+          const cycleAct = rawDb.prepare(`
+            SELECT
+              SUM(CASE WHEN outcome != 'email_sent' THEN 1 ELSE 0 END) as dials,
+              SUM(CASE WHEN outcome = 'contacted_appointment' THEN 1 ELSE 0 END) as appts,
+              SUM(CASE WHEN outcome = 'keep_in_touch' THEN 1 ELSE 0 END) as kit
+            FROM lead_activity WHERE agent_id = ? ${resetAt ? "AND created_at >= ?" : ""}
+          `).get(...(resetAt ? [aid, resetAt] : [aid])) as any;
+
+          upsert.run(
+            yesterdayEtDate, aid, aname, scope,
+            allPts?.p || 0,
+            allAct?.dials || 0, allAct?.appts || 0, allAct?.kit || 0,
+            allAct?.emails || 0, allAct?.no_answer || 0, allAct?.not_interested || 0,
+            allRefs?.c || 0,
+            dayPts?.p || 0,
+            dayAct?.dials || 0, dayAct?.appts || 0, dayAct?.kit || 0,
+            dayAct?.emails || 0, dayAct?.no_answer || 0, dayAct?.not_interested || 0,
+            dayRefs?.c || 0,
+            cyclePts?.p || 0,
+            cycleAct?.dials || 0, cycleAct?.appts || 0, cycleAct?.kit || 0,
+            resetAt, capturedAt
+          );
+        }
+      });
+      tx();
+
+      console.log(`[daily-snapshot] Captured ${agents.length} agents for ${yesterdayEtDate}`);
+    } catch (err) {
+      console.error("[daily-snapshot] Error:", err);
+    }
+  }
+
+  // Trigger 1: precise setTimeout to next 00:05 ET.
+  const scheduleNext = () => {
+    const wait = msUntilNextEt0005();
+    setTimeout(async () => {
+      await performDailySnapshot();
+      scheduleNext();  // reschedule for the following day
+    }, wait);
+    console.log(`[daily-snapshot] Next fire in ${Math.round(wait / 60000)} min`);
+  };
+
+  // Trigger 2: hourly self-check — if today's ET date has no row yet AND we're
+  // past 00:05 ET, run it. Belt-and-suspenders for setTimeout drift/restart.
+  setInterval(() => {
+    try {
+      const now = new Date();
+      const nowEt = etDateAtMs(now.getTime());
+      const [ny, nm, nd] = nowEt.split("-").map(Number);
+      // Yesterday in ET wall-clock:
+      const yesterdayMs = now.getTime() - 86_400_000;
+      const yesterdayEt = etDateAtMs(yesterdayMs);
+      const hasRow = rawDb.prepare(`SELECT 1 FROM daily_metrics_snapshots WHERE et_date = ? LIMIT 1`).get(yesterdayEt);
+      // Only fire if we're past 00:05 ET on the new day
+      const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
+      const parts = fmt.formatToParts(now);
+      const hh = parseInt(parts.find(p => p.type === "hour")!.value, 10);
+      const mm = parseInt(parts.find(p => p.type === "minute")!.value, 10);
+      const past0005 = hh > 0 || (hh === 0 && mm >= 5);
+      if (!hasRow && past0005) {
+        console.log(`[daily-snapshot] Hourly self-check: missing row for ${yesterdayEt}, firing now`);
+        performDailySnapshot();
+      }
+    } catch (err) {
+      console.error("[daily-snapshot] Hourly self-check error:", err);
+    }
+  }, 3600_000);  // every hour
+
+  // Expose the snapshot function so the admin manual-trigger endpoint can
+  // invoke the exact same code path (single source of truth).
+  (global as any).__leadDepotDailySnapshot = performDailySnapshot;
+
+  scheduleNext();
+}
+scheduleDailyMetricsSnapshot();
+
+// ─── v16.5 ─ NIGHTLY LEDGER RECONCILIATION (9pm ET) ────────────────────
 // At 9pm ET every night, compare lead_activity outcome rows against agent_points
 // rows created since the current leaderboard reset. Any activity that logged
 // without a matching agent_points row (or vice versa) is a bug we need to know
@@ -9303,7 +9591,7 @@ function scheduleNightlyReconciliation() {
 }
 scheduleNightlyReconciliation();
 
-// ─── v16.4 ─ ONE-SHOT MERGE (retires the v15.11.52 repairAug1Points block) ─────
+// ─── v16.5 ─ ONE-SHOT MERGE (retires the v15.11.52 repairAug1Points block) ─────
 // Rationale (documented during Aug 1 audit with Alex):
 //   The v15.11.52 block wrote `<outcome>_<tier>_<mult>x_backfill` DELTA rows
 //   paired 1:1 with the original raw-base rows so that sum == correct total.
@@ -9366,9 +9654,9 @@ scheduleNightlyReconciliation();
     tx();
 
     rawDb.prepare(`INSERT INTO settings (key, value) VALUES ('merge_backfill_pairs_v16_4', 'done') ON CONFLICT(key) DO UPDATE SET value = 'done'`).run();
-    console.log(`[merge-backfill v16.4] merged ${merged} pairs, deleted ${deleted} backfill rows. Ledger is now 1 row per event.`);
+    console.log(`[merge-backfill v16.5] merged ${merged} pairs, deleted ${deleted} backfill rows. Ledger is now 1 row per event.`);
   } catch (err) {
-    console.error('[merge-backfill v16.4] failed:', err);
+    console.error('[merge-backfill v16.5] failed:', err);
   }
 })();
 

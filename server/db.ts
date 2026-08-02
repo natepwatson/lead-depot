@@ -462,6 +462,49 @@ rawDb.prepare(`
   )
 `).run();
 
+// v16.5 — Daily metrics snapshots: forever-log of every agent's full metrics
+// captured at 00:05 ET every day. One row per (et_date, agent_id, scope).
+// Never deleted. Used for: (a) audit trail so any bug can be diagnosed
+// against a known-good baseline, (b) daily comparison views ("who did what
+// yesterday"), (c) reversion if a bad merge/repair corrupts live data.
+rawDb.prepare(`
+  CREATE TABLE IF NOT EXISTS daily_metrics_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    et_date TEXT NOT NULL,           -- YYYY-MM-DD in America/New_York, the day just closed
+    agent_id INTEGER NOT NULL,
+    agent_name TEXT NOT NULL,
+    scope TEXT NOT NULL,             -- 'seller' | 'recruiting'
+    -- Cumulative all-time counters at the moment of capture:
+    all_points INTEGER NOT NULL DEFAULT 0,
+    all_dials INTEGER NOT NULL DEFAULT 0,
+    all_appts INTEGER NOT NULL DEFAULT 0,
+    all_kit INTEGER NOT NULL DEFAULT 0,
+    all_emails INTEGER NOT NULL DEFAULT 0,
+    all_no_answer INTEGER NOT NULL DEFAULT 0,
+    all_not_interested INTEGER NOT NULL DEFAULT 0,
+    all_referrals INTEGER NOT NULL DEFAULT 0,
+    -- "Yesterday's activity" (the ET calendar day just closed):
+    day_points INTEGER NOT NULL DEFAULT 0,
+    day_dials INTEGER NOT NULL DEFAULT 0,
+    day_appts INTEGER NOT NULL DEFAULT 0,
+    day_kit INTEGER NOT NULL DEFAULT 0,
+    day_emails INTEGER NOT NULL DEFAULT 0,
+    day_no_answer INTEGER NOT NULL DEFAULT 0,
+    day_not_interested INTEGER NOT NULL DEFAULT 0,
+    day_referrals INTEGER NOT NULL DEFAULT 0,
+    -- Current cycle (since leaderboard_reset_at) at capture time:
+    cycle_points INTEGER NOT NULL DEFAULT 0,
+    cycle_dials INTEGER NOT NULL DEFAULT 0,
+    cycle_appts INTEGER NOT NULL DEFAULT 0,
+    cycle_kit INTEGER NOT NULL DEFAULT 0,
+    reset_at_when_captured TEXT,     -- the leaderboard_reset_at floor at capture time
+    captured_at TEXT NOT NULL,       -- ISO UTC when snapshot ran
+    UNIQUE (et_date, agent_id, scope)
+  )
+`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_daily_snapshots_date ON daily_metrics_snapshots(et_date)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_daily_snapshots_agent ON daily_metrics_snapshots(agent_id, et_date)`).run();
+
 // ─── DBPR Scraper columns (v11.71, renamed from FREC in v13.4) ──────────────
 // Added to agent_leads for DBPR licensee integration
 const agentLeadCols = rawDb.prepare("PRAGMA table_info(agent_leads)").all().map((c: any) => c.name);

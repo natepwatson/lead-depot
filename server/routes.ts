@@ -346,7 +346,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v16.0 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v16.1 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -405,7 +405,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v16.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v16.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -690,7 +690,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v16.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v16.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1931,7 +1931,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v16.0</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v16.1</p>
             </div>
           `,
         });
@@ -2091,7 +2091,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v16.0 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v16.1 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3485,7 +3485,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   });
 
   // ─── OUTCOMES ─────────────────────────────────────────────────────────────
-  // v16.0 — Tap-receipt table. Every outcome POST from the client carries a
+  // v16.1 — Tap-receipt table. Every outcome POST from the client carries a
   // clientTapId (UUID generated on the phone the moment the button is tapped).
   // If a network glitch causes the client to retry, we hit this table first: same
   // tap_id = short-circuit and return the ORIGINAL receipt instead of double-
@@ -3509,9 +3509,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     const { agentId, outcome, notes, lpmamab, callbackDate,
             apptEmail, confirmedAddress, apptDate, apptTime, stage, intention,
-            followUpTiming, clientTapId } = req.body; // v16.0 — clientTapId for dedup
+            followUpTiming, clientTapId } = req.body; // v16.1 — clientTapId for dedup
 
-    // v16.0 — If we've already seen this exact tap, replay the original response.
+    // v16.1 — If we've already seen this exact tap, replay the original response.
     if (clientTapId && typeof clientTapId === "string") {
       const existing = rawDb.prepare(`SELECT response_json FROM tap_receipts WHERE client_tap_id = ?`).get(clientTapId) as any;
       if (existing?.response_json) {
@@ -3523,7 +3523,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
     }
 
-    // v16.0 — Wrap res.json so every success response persists a receipt.
+    // v16.1 — Wrap res.json so every success response persists a receipt.
     const _origJson = res.json.bind(res);
     (res as any).json = (body: any) => {
       // Only persist for successful outcome writes (no error field, has agentId).
@@ -6168,7 +6168,7 @@ Brothers Group Real Estate Team at Momentum Realty
   // count for the month (not points). Once a Set is logged, it counts — no
   // decrement on cancel/reschedule (Alex's call, v15.11.50 spec).
 
-  // v16.0 — Cut appointment scale in half. First tier is $250 at just 10 appts;
+  // v16.1 — Cut appointment scale in half. First tier is $250 at just 10 appts;
   // $1000 stretch tier now unlocks at 60 appts (was 80).
   const TEAM_POT_LADDER = [
     { tier: 1, appts: 10, pot: 250 },
@@ -6177,7 +6177,7 @@ Brothers Group Real Estate Team at Momentum Realty
   ];
   const TEAM_POT_STRETCH = { tier: 4, appts: 60, pot: 1000 };
   const TEAM_POT_PAYOUT = { first: 0.70, second: 0.30 };
-  // v16.0 — Champion's Bonus. Only pays out if the team reaches the $1000
+  // v16.1 — Champion's Bonus. Only pays out if the team reaches the $1000
   // tier (60 team appts). Sized by the champion's INDIVIDUAL appointment count
   // for the month. Flat brackets, hard cap $500. Champion only — second place
   // gets their standard 30% pot share with no bonus.
@@ -6248,7 +6248,7 @@ Brothers Group Real Estate Team at Momentum Realty
     // to show the dollar amount or the mystery placeholder.
     const fullLadder = [...TEAM_POT_LADDER, TEAM_POT_STRETCH];
 
-    // v16.0 — Month starts with the tier-1 amount ($250) pre-committed as the
+    // v16.1 — Month starts with the tier-1 amount ($250) pre-committed as the
     // initial incentive. First appointment doesn't unlock the pot; it's already open.
     let currentPot = TEAM_POT_LADDER[0].pot;
     let currentTier: any = TEAM_POT_LADDER[0];
@@ -6264,7 +6264,7 @@ Brothers Group Real Estate Team at Momentum Realty
         break;
       }
     }
-    // v16.0 — Mystery mode retired. The $1000 stretch amount is now VISIBLE
+    // v16.1 — Mystery mode retired. The $1000 stretch amount is now VISIBLE
     // from day 1 so the whole team is pulling toward a known target. The Champion's
     // Bonus becomes the new curiosity hook — it only pays if the team reaches
     // $1000 AND the champion has 15+ personal appts.
@@ -6278,7 +6278,7 @@ Brothers Group Real Estate Team at Momentum Realty
     const firstPayout = Math.round(currentPot * TEAM_POT_PAYOUT.first);
     const secondPayout = Math.round(currentPot * TEAM_POT_PAYOUT.second);
 
-    // v16.0 — Champion's Bonus preview. Only paid if the team hits $1000.
+    // v16.1 — Champion's Bonus preview. Only paid if the team hits $1000.
     const teamReachedStretch = teamAppts >= TEAM_POT_STRETCH.appts;
     const championAppts = first?.appts || 0;
     let championBonus = 0;
@@ -6307,7 +6307,7 @@ Brothers Group Real Estate Team at Momentum Realty
       stretchRevealed,
       stretchUnlocked,
       payoutSplit: TEAM_POT_PAYOUT,
-      // v16.0 — Champion's Bonus preview. Client shows this card only when
+      // v16.1 — Champion's Bonus preview. Client shows this card only when
       // stretch is unlocked; below $1000 it's just a locked teaser.
       championBonus: {
         active: teamReachedStretch,
@@ -6420,7 +6420,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v16.0 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v16.1 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6927,7 +6927,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v16.0",
+      version: "v16.1",
       services: results,
     });
   });
@@ -8045,7 +8045,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v16.0`,
+              subject: `${firstName}, your BGRE application — Lead Depot v16.1`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -8684,7 +8684,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v16.0</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v16.1</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -8812,7 +8812,7 @@ scheduleDailyDigest();
 // same snapshot + settings key as the admin manual reset (keys:
 // leaderboard_reset_at, leaderboard_snapshots table). Idempotent within a
 // single ET day — if server restarts after the fire, it won't double-reset.
-// v16.0 — Rebuilt monthly reset with bulletproof guarantees:
+// v16.1 — Rebuilt monthly reset with bulletproof guarantees:
 //   1. "Already reset this ET month?" idempotency — not a 6h window
 //   2. Precise DST-aware next-fire calculation using Intl (no month-range guess)
 //   3. Hourly self-check (every process wake re-evaluates) so a missed setTimeout
@@ -8862,9 +8862,9 @@ function scheduleMonthlyLeaderboardReset() {
       const resetKey = "leaderboard_reset_at";
       const now = new Date().toISOString();
 
-      // v16.0 — IDEMPOTENCY: skip if the last reset was in the CURRENT ET
+      // v16.1 — IDEMPOTENCY: skip if the last reset was in the CURRENT ET
       // wall-clock month. This is 100% safe against setTimeout misfires, process
-      // restarts, and the double-fire we saw in v16.0. Only exactly ONE
+      // restarts, and the double-fire we saw in v16.1. Only exactly ONE
       // reset per ET calendar month is possible.
       const prevRow = rawDb.prepare(`SELECT value FROM settings WHERE key = ?`).get(resetKey) as any;
       if (prevRow?.value) {
@@ -8921,7 +8921,7 @@ function scheduleMonthlyLeaderboardReset() {
     }
   }
 
-  // v16.0 — Two independent triggers, both guarded by "already reset this
+  // v16.1 — Two independent triggers, both guarded by "already reset this
   // ET month" idempotency. Belt-and-suspenders design.
   //
   //   (A) Precise setTimeout to next ET month start. Fires within seconds of 00:00 ET.
@@ -8950,14 +8950,14 @@ function scheduleMonthlyLeaderboardReset() {
   setTimeout(() => performMonthlyReset(), 5_000);
 }
 
-// v16.0 — RE-ENABLED with rebuilt scheduler. Auto-monthly reset now:
+// v16.1 — RE-ENABLED with rebuilt scheduler. Auto-monthly reset now:
 //   – Fires exactly once per ET calendar month (idempotency by year-month key)
 //   – Has three redundant triggers: precise setTimeout, hourly self-check, boot check
 //   – Uses Intl for DST-aware timing (not month-range guess)
 //   – Snapshots current standings before reset for audit/undo
 scheduleMonthlyLeaderboardReset();
 
-// ─── v16.0 ─ NIGHTLY LEDGER RECONCILIATION (9pm ET) ────────────────────
+// ─── v16.1 ─ NIGHTLY LEDGER RECONCILIATION (9pm ET) ────────────────────
 // At 9pm ET every night, compare lead_activity outcome rows against agent_points
 // rows created since the current leaderboard reset. Any activity that logged
 // without a matching agent_points row (or vice versa) is a bug we need to know
@@ -9091,7 +9091,7 @@ function scheduleNightlyReconciliation() {
 }
 scheduleNightlyReconciliation();
 
-// ─── v16.0 ─ ONE-SHOT REPAIR (runs once, then guarded) ──────────────────
+// ─── v16.1 ─ ONE-SHOT REPAIR (runs once, then guarded) ──────────────────
 (function repairAug1Points() {
   try {
     const alreadyRan = rawDb.prepare(`SELECT value FROM settings WHERE key = 'repair_aug1_v15_11_52'`).get() as any;

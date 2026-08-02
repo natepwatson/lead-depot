@@ -1,13 +1,25 @@
 /**
- * TutorialFlow — v14.81
+ * TutorialFlow — v16.1
  * Fullscreen fixed overlay (z-index 100), dark canvas background matching
- * the app. Replaces the old TutorialModal.tsx (help-button reference tour)
- * with a 7-chapter cinematic + hands-on onboarding experience.
+ * the app. Cinematic + hands-on onboarding experience.
+ *
+ * v16.1 changes vs v15.x:
+ *   - 8 chapters (was 7). New Ch 6.5 = Keep in Touch celebration.
+ *     Matches the grand-celebration + gold shimmer an agent sees in prod.
+ *   - New Ch 7 = The Team Pot + Champion's Bonus. Teaches the pre-filled
+ *     $250 floor, the 10/20/30/60 ladder to $1,000, and the $100–$500 flat
+ *     Champion's Bonus brackets.
+ *   - Rewrote Ch 5 outcome descriptions to match current app: Owner–No
+ *     Answer (never say "voicemail"), Recycle explicitly labeled as the
+ *     Callback successor, Not a Working Line side effects called out.
+ *   - Ch 3 rules updated: Pipeline persistence promise added, On-Air 5-tier
+ *     card kept, offline-tap-queue promise added ("Nothing gets lost").
+ *   - Ch 2 tab copy updated for the current 5-tab bottom nav order.
  *
  * Triggered from App.tsx when an agent's tutorialCompletedAt is NULL
  * (first login) or after "Replay tutorial" from Profile (rewatch).
  *
- * Alex's culture lines used verbatim throughout, per the onboarding spec:
+ * Alex's culture lines used verbatim throughout:
  *   "Lead Depot doesn't create producers; it reveals them."
  *   "Around here, effort is visible and results are public."
  *   "We keep it simple and real."
@@ -20,7 +32,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   Trophy, Layers, Phone, UserPlus, UserCircle2, ChevronDown,
   PhoneMissed, AlertTriangle, PhoneOff, XCircle, RefreshCw, Heart,
-  CheckCircle2, Home,
+  CheckCircle2, Home, Award, Coins, Sparkles,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { playSound, forceTutorialSounds } from "@/lib/sounds";
@@ -66,15 +78,15 @@ const MINI_NAV = [
 ] as const;
 
 const TAB_COPY: Record<string, string> = {
-  // v15.11.17 — copy tightened for clarity and to match the current app.
-  leaderboard: "The team scoreboard. Dials, contacts, and appointments — updated live. Effort is visible.",
-  pipeline:    "Every lead you personally moved forward — Keep in Touch, Appointments, and closed wins. Nothing here ever gets pulled back into the pool.",
-  leads:       "The gold button. Tap the phone, run LPMAMAB, log the outcome. This is where the money gets made.",
-  // v14.81 — Corrected per Alex: Network/Referral leads are NOT leads given
-  // away to us — they're leads the agent personally sourced (church, gym, in
-  // person) and works themselves. If it fizzles, it goes back in the pool.
+  // v16.1 — copy updated to match current app: Pipeline permanence, Team Pot
+  // on the leaderboard, offline queue safety.
+  leaderboard: "The team scoreboard — dials, contacts, and appointments, updated live. Also home to the Team Pot: everyone's shot at the monthly $1,000 pool. Effort is visible.",
+  pipeline:    "Every lead you personally moved forward — Keep in Touch, Appointments, and closed wins. This never gets pulled back to the pool. Ever. Boot to boot, month to month, it stays yours.",
+  leads:       "The gold button. Tap the phone, run LPMAMAB, log the outcome. Every tap is receipted — offline or online, no dial ever gets lost. This is where the money gets made.",
+  // Network/Referral leads: leads the agent personally sourced (church, gym,
+  // in person) and works themselves. If it fizzles, it goes back in the pool.
   refer:       "Referrals — leads YOU sourced from your own network (church, gym, in person). You keep them, work them, and if one fizzles you toss it back and grab another.",
-  profile:     "Your headshot, rank, and settings. Also where you replay this tutorial.",
+  profile:     "Your headshot, rank, sound preferences, and settings. Also where you replay this tutorial.",
 };
 
 // v15.0 — Tutorial OUTCOME_TILES now mirrors AgentView's OUTCOMES array
@@ -94,24 +106,25 @@ const TAB_COPY: Record<string, string> = {
 // diverges from AgentView's (bg/border/hoverBg) — they're intentionally
 // separate types, but the labels/keys/order/positions are contract.
 const OUTCOME_TILES = [
-  // v15.11.17 — descriptions rewritten for clarity + current behavior:
-  //   • Recycle spelled out as the Callback replacement (returns to pool, no owner).
-  //   • Keep in Touch calls out the Pipeline tab by name.
-  //   • Appt Set calls out Pipeline + FUB push.
-  //   • Not a Working Line calls out the phone-line-removal side effect.
-  //   • Listed calls out that the lead stays out until the listing expires.
+  // v16.1 — descriptions rewritten for current app behavior:
+  //   • Owner–No Answer: never say "voicemail." This is confirmed-owner intel.
+  //   • Recycle spelled out as the Callback successor (Callback is retired).
+  //   • Keep in Touch calls out permanent Pipeline placement + celebration.
+  //   • Appt Set calls out Pipeline + FUB Meet & Greet + celebration.
+  //   • Not a Working Line calls out phone-line-removal side effect.
+  //   • Listed calls out that lead stays out until listing expires.
   // Row 1 — fast per-line taps (what you tap FOR THIS PHONE NUMBER)
   { key: "no_answer",                label: "No Answer",     icon: PhoneMissed,   color: "#facc15", desc: "They didn't pick up. Lead goes back to the pool for someone else to try." },
   { key: "wrong_number",             label: "Wrong #",       icon: AlertTriangle, color: "#f87171", desc: "Not the person we're looking for. Lead is removed. Move on." },
-  { key: "disconnected",             label: "Not a Working Line", icon: PhoneOff,   color: "#cbd5e1", desc: "Line is dead — no ring, nonstop tone, or 'not in service.' System drops this number from the lead's phone list." },
+  { key: "disconnected",             label: "Not a Working Line", icon: PhoneOff,   color: "#cbd5e1", desc: "Line is dead — no ring, nonstop tone, or 'not in service.' The system drops this number from the lead's phone list so no one calls it again." },
   // Row 2 — lead-level decisions (what you tap FOR THIS LEAD)
   { key: "contacted_not_interested", label: "Not Interested",icon: XCircle,       color: "#fca5a5", desc: "A real 'no.' We respect it. Lead is closed out." },
-  { key: "recycled",                 label: "Recycle",       icon: RefreshCw,     color: "#67e8f9", desc: "Called them, revisit later. Replaces the old Callback — lead goes back to the pool with no owner and no strings attached." },
+  { key: "recycled",                 label: "Recycle",       icon: RefreshCw,     color: "#67e8f9", desc: "Called them, revisit later. This replaces the old Callback — lead returns to the pool with no owner and no strings, so anyone can grab it next time." },
   { key: "listed",                   label: "Listed",        icon: Home,          color: "#c4b5fd", desc: "They already re-listed with another agent. Lead is paused until the listing expires, then re-enters the pool." },
   // Row 3 — wins
-  { key: "contacted_appointment",    label: "Appt Set",      icon: CheckCircle2,  color: "#86efac", desc: "The green one. Appointment on the books — pushed to Follow Up Boss and pinned to your Pipeline." },
-  { key: "keep_in_touch",            label: "Keep in Touch", icon: Heart,         color: "#f9a8d4", desc: "Interested but not ready. Lead is yours forever — lives in your Pipeline tab so you can nurture it." },
-  { key: "left_voicemail",           label: "Owner - No Answer", icon: PhoneOff, color: "#93c5fd", desc: "You confirmed the owner picks up on this line. The app strikes every other number on the lead, recycles it to the FRONT of the pool, and awards +6 pts." },
+  { key: "contacted_appointment",    label: "Appt Set",      icon: CheckCircle2,  color: "#86efac", desc: "The green one. Appointment on the books — confetti fires, FUB Meet & Greet is pushed, and the lead is pinned to your Pipeline forever." },
+  { key: "keep_in_touch",            label: "Keep in Touch", icon: Heart,         color: "#f9a8d4", desc: "Interested but not ready. Gold-shimmer celebration fires and the lead is yours — permanent Pipeline entry, no timeout, no pool-return." },
+  { key: "left_voicemail",           label: "Owner - No Answer", icon: PhoneOff, color: "#93c5fd", desc: "You confirmed the owner picks up on this line but didn't answer today. The app strikes every other number on the lead, recycles it to the FRONT of the pool, and awards +6 points. This is NOT a voicemail — it's confirmed-owner intel." },
 ] as const;
 
 // v15.0 — Grid position index for Appt Set. Used by Chapter 6 to glow the
@@ -433,13 +446,26 @@ const RULES = [
     extra: null,
   },
   {
-    // v15.11.17 — 5th rule card: the On-Air banner + 5-tier call heat.
+    // v16.1 — Pipeline permanence promise. Alex's non-negotiable: pipeline
+    // and points cannot disappear between reset, boot, or deploy.
+    title: "Your Pipeline stays yours.",
+    body: "Every KIT and Appt Set you log gets pinned to your Pipeline tab — permanent, boot to boot, month to month. Monthly leaderboard resets don't touch it. Nothing here ever falls back into the shared pool.",
+    extra: null,
+  },
+  {
+    // v16.1 — Offline safety. Every outcome tap carries a UUID and is
+    // persisted to localStorage before the request leaves the phone.
+    title: "Nothing gets lost.",
+    body: "Every outcome tap is receipted. If you're offline or the network hiccups, the tap sits safely on your phone and syncs the moment you're back — no dial ever disappears, no point ever gets counted twice.",
+    extra: null,
+  },
+  {
+    // v15.11.17 — On-Air banner + 5-tier call heat.
     title: "Call when the light is right.",
     body: "The banner at the top of the app is your On-Air light. It reads the day and hour and tells you what kind of dialing time this is — there are five tiers.",
     extra: "PRIME (red) — go now · MID (amber) — solid · LOW (yellow) — slow, confirm to dial · DOWN (grey) — poor odds, confirm to dial · TCPA BLOCK (dark) — illegal to call, hard-blocked.",
   },
   {
-    // v14.81 — 4th culture card, kept per Alex.
     title: "We're a well-oiled machine.",
     body: "All hands on deck. Everyone has a role. Your job on any given dial is simple — run the play, log the outcome, move to the next one. The system does the rest.",
     extra: null,
@@ -903,7 +929,312 @@ function FakeField({ label, value }: { label: string; value: string }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// Chapter 7 — Finish
+// Chapter 6.5 — Log a Keep in Touch + Celebration (NEW in v16.1)
+// Mirrors Ch 6 structurally: fake lead, glowing target tile, small modal,
+// then the grand-shimmer celebration that fires in production for KIT.
+// This closes the gap where an agent going through onboarding never saw
+// what a KIT tap looks like.
+// ══════════════════════════════════════════════════════════════════════════
+const KIT_TILE_IDX = 7; // Row 3 Col 2 in the 9-tile grid (keep_in_touch)
+
+function ChapterKIT({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: boolean; onSkip: () => void }) {
+  const [showModal, setShowModal] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [showContinue, setShowContinue] = useState(false);
+
+  const handleSave = () => {
+    setSaved(true);
+    setShowModal(false);
+    setShowCelebration(true);
+    playSound("chime");
+    setTimeout(() => playSound("lift"), 250);
+    setTimeout(() => setShowContinue(true), 2200);
+  };
+
+  return (
+    <div style={{ ...chapterWrap, position: "relative" }}>
+      {showSkip && !showCelebration && <SkipButton onSkip={onSkip} />}
+
+      {!showCelebration ? (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px", gap: 20 }}>
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.75)", textAlign: "center", maxWidth: 420 }}>
+            This one's interested but not ready yet. Let's Keep in Touch — permanent Pipeline entry.
+          </p>
+
+          <FakeLeadCard name="MARCUS DEMO" address="789 Nurture Ln, Jacksonville" score={76} phone="904-555-KEEP" tag="PRACTICE LEAD" />
+
+          <div style={{ position: "relative", width: "100%", maxWidth: 380 }}>
+            {!showModal && (
+              <CalloutPill style={{
+                position: "absolute", zIndex: 5,
+                bottom: -34, left: "50%", transform: "translateX(-50%)",
+              }}>
+                ↑ Tap Keep in Touch
+              </CalloutPill>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginTop: 30 }}>
+              {OUTCOME_TILES.map((o, i) => {
+                const Icon = o.icon;
+                const isKit = i === KIT_TILE_IDX;
+                if (isKit) {
+                  return (
+                    <button
+                      key={o.key}
+                      data-testid="tutorial-kit"
+                      onClick={() => setShowModal(true)}
+                      style={{
+                        display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                        padding: "11px 3px", borderRadius: 10, cursor: "pointer",
+                        background: "rgba(249,168,212,0.28)", border: "1px solid rgba(249,168,212,0.75)",
+                        animation: "kitTilePulse 1.6s ease-in-out infinite",
+                      }}
+                    >
+                      <Icon size={15} style={{ color: "rgb(249,168,212)" }} />
+                      <span style={{ fontSize: 9, color: "rgb(249,168,212)", fontWeight: 700, lineHeight: 1.1 }}>Keep in Touch</span>
+                    </button>
+                  );
+                }
+                return (
+                  <div key={o.key} style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                    padding: "11px 3px", borderRadius: 10,
+                    background: `${o.color}14`, border: `1px solid ${o.color}44`, opacity: 0.45,
+                  }}>
+                    <Icon size={14} style={{ color: o.color }} />
+                    <span style={{ fontSize: 9, color: o.color, fontWeight: 700, lineHeight: 1.1 }}>{o.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {showModal && (
+            <div style={{
+              position: "fixed", inset: 0, zIndex: 110,
+              background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)",
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+            }}>
+              <div style={{
+                width: "100%", maxWidth: 400, maxHeight: "85vh", overflowY: "auto",
+                background: "linear-gradient(160deg,#141414 0%,#0c0c0c 100%)",
+                border: "1px solid rgba(249,168,212,0.4)", borderRadius: 16, padding: "22px 20px",
+                animation: "cardSlideIn 220ms ease",
+              }}>
+                <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgb(249,168,212)", marginBottom: 16, fontWeight: 700 }}>
+                  Keep in Touch
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20, fontSize: 13 }}>
+                  <FakeField label="Email" value="marcus@example.com" />
+                  <FakeField label="Address" value="789 Nurture Ln, Jacksonville, FL" />
+                  <FakeField label="Stage" value="Nurture — 6-12 months" />
+                  <FakeField label="Intention" value="Sell eventually" />
+                  <FakeField label="Source" value="Practice lead" />
+                </div>
+                <button
+                  data-testid="tutorial-kit-save"
+                  onClick={handleSave}
+                  style={{
+                    width: "100%", padding: "14px", borderRadius: 8,
+                    background: "linear-gradient(135deg,#f9a8d4 0%,#ec4899 100%)",
+                    border: "none", color: "#3b0764", fontWeight: 700, fontSize: 13,
+                    letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer",
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 100,
+          background: "rgba(4,4,4,0.97)",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          padding: 24, textAlign: "center",
+        }}>
+          {/* Gold shimmer sweep — matches the KIT celebration in production */}
+          <div style={{
+            position: "absolute", inset: 0,
+            background: "linear-gradient(100deg, transparent 30%, rgba(200,170,90,0.45) 50%, transparent 70%)",
+            backgroundSize: "250% 100%",
+            animation: "apptShimmerSweep 500ms ease-out",
+            pointerEvents: "none",
+          }} />
+          <Confetti duration={2600} />
+          <p style={{
+            fontFamily: "'Cormorant Garamond','Georgia',serif", fontWeight: 500,
+            fontSize: "clamp(1.8rem,6vw,2.6rem)", color: GOLD, marginBottom: 14,
+            letterSpacing: "0.01em", position: "relative", zIndex: 3,
+          }}>
+            THAT'S YOURS. FOR GOOD.
+          </p>
+          <p style={{
+            fontSize: 14, color: "rgba(255,255,255,0.7)", maxWidth: 420, lineHeight: 1.6,
+            marginBottom: 32, position: "relative", zIndex: 3,
+          }}>
+            Every KIT gets a celebration and a permanent home in your Pipeline. Same energy as an Appt Set — because a nurture today is a commission next quarter.
+          </p>
+          {showContinue && (
+            <div style={{ position: "relative", zIndex: 3, animation: "cardSlideIn 300ms ease" }}>
+              <GoldPillButton onClick={onNext} testId="tutorial-next">
+                CONTINUE
+              </GoldPillButton>
+            </div>
+          )}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes kitTilePulse {
+          0%,100% { box-shadow: 0 0 0 0 rgba(249,168,212,0.5); }
+          50%     { box-shadow: 0 0 0 6px rgba(249,168,212,0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Chapter 8 (in flow) — The Team Pot + Champion's Bonus (NEW in v16.1)
+// Teaches the pre-filled $250 floor, the 10/20/30/60 team-appts ladder to
+// $1,000, and the $100–$500 flat Champion's Bonus brackets.
+// ══════════════════════════════════════════════════════════════════════════
+const POT_TIERS = [
+  { appts: "START",  amount: 250,  label: "Pre-committed floor",           locked: false },
+  { appts: 10,       amount: 500,  label: "Tier 1 unlock",                 locked: true  },
+  { appts: 20,       amount: 750,  label: "Tier 2 unlock",                 locked: true  },
+  { appts: 30,       amount: 1000, label: "Tier 3 — monthly team goal",     locked: true  },
+  { appts: 60,       amount: 1000, label: "Stretch — Champion's Bonus arms",locked: true  },
+];
+
+const CHAMPION_BRACKETS = [
+  { appts: 15, bonus: 100 },
+  { appts: 20, bonus: 200 },
+  { appts: 25, bonus: 300 },
+  { appts: 30, bonus: 500 },
+];
+
+function ChapterTeamPot({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: boolean; onSkip: () => void }) {
+  const [step, setStep] = useState(0); // 0 = ladder, 1 = champion bonus, 2 = ready
+
+  return (
+    <div style={{ ...chapterWrap, position: "relative" }}>
+      {showSkip && <SkipButton onSkip={onSkip} />}
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "36px 22px", gap: 22 }}>
+        <p style={{ fontSize: 10, letterSpacing: "0.24em", textTransform: "uppercase", color: GOLD_DIM }}>
+          The Team Pot
+        </p>
+
+        <p style={{
+          fontFamily: "'Cormorant Garamond','Georgia',serif",
+          fontSize: "clamp(1.6rem,5.5vw,2.2rem)", color: "#fff", textAlign: "center",
+          maxWidth: 460, lineHeight: 1.25,
+        }}>
+          Everyone's shot at a monthly $1,000 pool.
+        </p>
+
+        {step === 0 && (
+          <div style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 10 }}>
+            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", textAlign: "center", lineHeight: 1.6, marginBottom: 6 }}>
+              The pot starts pre-filled at $250 and unlocks as the TEAM stacks appointments this month:
+            </p>
+            {POT_TIERS.map((t, i) => (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "12px 16px", borderRadius: 10,
+                background: i === 0 ? "rgba(200,170,90,0.12)" : "rgba(255,255,255,0.03)",
+                border: i === 0 ? "1px solid rgba(200,170,90,0.4)" : "1px solid rgba(200,170,90,0.15)",
+                animation: `cardSlideIn ${180 + i * 80}ms ease`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  {i === 0 ? (
+                    <Coins size={18} style={{ color: GOLD }} />
+                  ) : (
+                    <Sparkles size={16} style={{ color: GOLD_DIM }} />
+                  )}
+                  <div>
+                    <p style={{ fontSize: 13, color: "#fff", fontWeight: 600 }}>
+                      {typeof t.appts === "number" ? `${t.appts} team appts` : t.appts}
+                    </p>
+                    <p style={{ fontSize: 11, color: GOLD_DIM, marginTop: 2 }}>{t.label}</p>
+                  </div>
+                </div>
+                <p style={{
+                  fontFamily: "'Cormorant Garamond','Georgia',serif",
+                  fontSize: 22, color: GOLD, fontWeight: 600,
+                }}>
+                  ${t.amount.toLocaleString()}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {step === 1 && (
+          <div style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ textAlign: "center" }}>
+              <Award size={32} style={{ color: GOLD, margin: "0 auto 6px" }} />
+              <p style={{ fontSize: 16, color: "#fff", fontWeight: 600, marginBottom: 6 }}>
+                The Champion's Bonus
+              </p>
+              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", lineHeight: 1.6 }}>
+                When the team hits $1,000, the #1 agent gets a flat bonus on top of the pot — based on YOUR personal appointment count.
+              </p>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+              {CHAMPION_BRACKETS.map((b, i) => (
+                <div key={i} style={{
+                  padding: "14px 12px", borderRadius: 10,
+                  background: "rgba(200,170,90,0.08)",
+                  border: "1px solid rgba(200,170,90,0.3)",
+                  textAlign: "center",
+                  animation: `cardSlideIn ${160 + i * 70}ms ease`,
+                }}>
+                  <p style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: GOLD_DIM, marginBottom: 4 }}>
+                    {b.appts}+ appts
+                  </p>
+                  <p style={{
+                    fontFamily: "'Cormorant Garamond','Georgia',serif",
+                    fontSize: 26, color: GOLD, fontWeight: 600,
+                  }}>
+                    +${b.bonus}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", textAlign: "center", lineHeight: 1.5, marginTop: 6 }}>
+              Only pays if the team hits $1,000. Only #1 gets it. Cap: $500.
+            </p>
+          </div>
+        )}
+
+        {step === 2 && (
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.75)", textAlign: "center", maxWidth: 440, lineHeight: 1.7 }}>
+            Every appointment YOU set moves the team pot forward. Every appointment YOU set puts you closer to the Champion's Bonus. The system is simple: hustle harder, everyone eats.
+          </p>
+        )}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "center", padding: "0 0 44px" }}>
+        <GoldPillButton
+          testId="tutorial-next"
+          onClick={() => {
+            if (step < 2) setStep(step + 1);
+            else onNext();
+          }}
+        >
+          {step < 2 ? "NEXT" : "I'M IN"}
+        </GoldPillButton>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Chapter 9 (in flow) — Finish
 // ══════════════════════════════════════════════════════════════════════════
 function Chapter7({ onFinish, showSkip, onSkip }: { onFinish: () => void; showSkip: boolean; onSkip: () => void }) {
   const [lineIdx, setLineIdx] = useState(0);
@@ -958,10 +1289,12 @@ function Chapter7({ onFinish, showSkip, onSkip }: { onFinish: () => void; showSk
 // ══════════════════════════════════════════════════════════════════════════
 // Main TutorialFlow
 // ══════════════════════════════════════════════════════════════════════════
-const TOTAL_CHAPTERS = 7;
+// v16.1 — 9 chapters (was 7). Added ChapterKIT (index 6) and ChapterTeamPot
+// (index 7); the original Chapter7 (Finish) shifted to index 8.
+const TOTAL_CHAPTERS = 9;
 
 export default function TutorialFlow({ isFirstTime, onComplete }: { isFirstTime: boolean; onComplete: () => void }) {
-  const [chapter, setChapter] = useState(0); // 0-indexed, 0..6
+  const [chapter, setChapter] = useState(0); // 0-indexed, 0..8
 
   // v14.81 — Force sounds on for the whole tutorial (celebration must always
   // sing) even if the agent has sound effects off. Restore preference on unmount.
@@ -1018,7 +1351,9 @@ export default function TutorialFlow({ isFirstTime, onComplete }: { isFirstTime:
       {chapter === 3 && <Chapter4 onNext={next} showSkip={showSkip} onSkip={finish} />}
       {chapter === 4 && <Chapter5 onNext={next} showSkip={showSkip} onSkip={finish} />}
       {chapter === 5 && <Chapter6 onNext={next} showSkip={showSkip} onSkip={finish} />}
-      {chapter === 6 && <Chapter7 onFinish={finish} showSkip={showSkip} onSkip={finish} />}
+      {chapter === 6 && <ChapterKIT onNext={next} showSkip={showSkip} onSkip={finish} />}
+      {chapter === 7 && <ChapterTeamPot onNext={next} showSkip={showSkip} onSkip={finish} />}
+      {chapter === 8 && <Chapter7 onFinish={finish} showSkip={showSkip} onSkip={finish} />}
     </div>
   );
 }

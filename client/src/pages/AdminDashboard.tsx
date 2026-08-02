@@ -939,7 +939,7 @@ function HealthWidget() {
   );
 }
 
-// v16.0 — Admin-only Team Pot stretch-tier toggle. When flipped ON, the
+// v16.1 — Admin-only Team Pot stretch-tier toggle. When flipped ON, the
 // hidden $1000/80-appt rung appears on the TeamPotCard for the whole team.
 // When OFF (default), agents see $750 as the final rung. Auto-resets to OFF
 // on the 1st of every month via the monthly leaderboard reset scheduler.
@@ -1814,7 +1814,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v16.0
+              v16.1
             </p>
           </div>
         </div>
@@ -2145,10 +2145,10 @@ export default function AdminDashboard({
 
           {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
           <TabsContent value="leaderboard" className="mt-5 space-y-5">
-            {/* v16.0 — admins compete for the monthly prize too. Same TeamPotCard
+            {/* v16.1 — admins compete for the monthly prize too. Same TeamPotCard
                 the agents see at the top of Dial, rendered here above the KPIs. */}
             <TeamPotCard />
-            {/* v16.0 — Admin-only stretch tier toggle. Default hidden. Flip once
+            {/* v16.1 — Admin-only stretch tier toggle. Default hidden. Flip once
                 you're comfortable showing the team that $1000 is on the table if
                 they cross 80 team appointments. */}
             <TeamPotStretchAdmin />

@@ -25,6 +25,7 @@ import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
 import { computeCallHeat } from "@/lib/callHeat";
 import type { Lead as LeadRow } from "@shared/schema";
+import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v15.11.53
 
 // v14.81 — myAttemptsToday is a synthetic field the server attaches on top of
 // the real lead row (see server/routes.ts countMyAttemptsToday call sites) —
@@ -1442,16 +1443,19 @@ function LeadCard({ lead }: { lead: Lead }) {
   });
 
   const outcomeMutation = useMutation({
-    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string; followUpTiming?: string }) =>
+    mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string; followUpTiming?: string }) => {
       // v14.20 — include alsoBuying + Buyer LPMAMA inside lpmamab payload so
       // server /outcome handler + pushOutcomeToFub both get the buyer context.
-      apiRequest("POST", `/api/leads/${lead.id}/outcome`, {
+      // v15.11.53 — Route through offline tap queue. Every tap gets a UUID + is
+      // persisted before send. If offline or the server hiccups, it retries in
+      // the background until the server returns a receipt. Server-side dedup by
+      // clientTapId prevents double-counting on retry.
+      return enqueueAndSendTap(`/api/leads/${lead.id}/outcome`, {
         ...data,
         agentId: user?.id,
-        // v14.53 — include intent so server persists it + FUB note reflects the right script
-        // v15.11.27 — serialize buyerTarget as JSON string so server persists it as-is
         lpmamab: { ...lpmData, alsoBuying, intent, buyerTarget: JSON.stringify(buyerTarget) },
-      }).then(r => r.json()),
+      });
+    },
     onSuccess: (data, variables) => {
       // Show success flash for 900ms, then load next lead
       const flash = OUTCOME_FLASH[variables.outcome] ?? { label: "Outcome Logged", color: "#c8aa5a" };
@@ -3208,14 +3212,13 @@ export function TeamPotCard() {
   // can see there's *something* past $750 all month, and the label flips from
   // "$???" to "$1000" only after the team hits tier 3 (60 appts) OR admin
   // manually reveals it. This is the "curious all month" hook Alex wanted.
-  const stretchUnlocked = pot.stretchUnlocked || pot.stretchRevealed || teamAppts >= 60;
+  // v15.11.53 — half-scale ladder: 10 / 20 / 30 / 60 appts.
+  // $1000 stretch is now permanently visible. Champion's Bonus is the new curiosity hook.
   const rungs: Array<{ tier: number; appts: number; pot: number; label: string; mystery?: boolean }> = [
-    { tier: 1, appts: 20, pot: 250, label: "$250" },
-    { tier: 2, appts: 40, pot: 500, label: "$500" },
-    { tier: 3, appts: 60, pot: 750, label: "$750" },
-    stretchUnlocked
-      ? { tier: 4, appts: 80, pot: 1000, label: "$1000" }
-      : { tier: 4, appts: 80, pot: 1000, label: "$???", mystery: true },
+    { tier: 1, appts: 10, pot: 250, label: "$250" },
+    { tier: 2, appts: 20, pot: 500, label: "$500" },
+    { tier: 3, appts: 30, pot: 750, label: "$750" },
+    { tier: 4, appts: 60, pot: 1000, label: "$1000" },
   ];
   const maxAppts = rungs[rungs.length - 1].appts;
   const progressPct = Math.min(100, (teamAppts / maxAppts) * 100);
@@ -3498,6 +3501,74 @@ export function TeamPotCard() {
             </div>
           ))}
         </div>
+
+        {/* v15.11.53 — Champion's Bonus panel. Locked until team reaches 60 appts,
+            then flips to show the bonus the current champion would earn. */}
+        {pot.championBonus && (() => {
+          const cb = pot.championBonus;
+          const active = !!cb.active;
+          const amount = cb.amount || 0;
+          const chAppts = cb.championAppts || 0;
+          const capAppts = cb.capApptCount || 30;
+          const capAmt = cb.capAmount || 500;
+          return (
+            <div style={{
+              position: "relative", zIndex: 1, marginTop: 10,
+              padding: "10px 12px", borderRadius: 12,
+              background: active
+                ? "linear-gradient(120deg, rgba(250,204,21,0.10), rgba(250,204,21,0.04))"
+                : "rgba(0,0,0,0.35)",
+              border: active ? "1px solid rgba(250,204,21,0.55)" : "1px dashed rgba(200,170,90,0.35)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ fontSize: 14 }}>{active ? "👑" : "🔒"}</div>
+                  <div>
+                    <div style={{ fontSize: 8.5, letterSpacing: "0.18em", color: active ? "#fde047" : "rgba(200,170,90,0.7)", textTransform: "uppercase", fontWeight: 800 }}>
+                      Champion&apos;s Bonus
+                    </div>
+                    <div style={{ fontSize: 10.5, color: active ? "#fff" : "rgba(255,255,255,0.6)", marginTop: 1 }}>
+                      {active
+                        ? (amount > 0
+                            ? `${first?.name || "Champion"} — ${chAppts} appts locks in a bonus`
+                            : `Champion needs 15+ personal appts to unlock`)
+                        : `Unlocks when team hits 60 team appts (up to $${capAmt})`}
+                    </div>
+                  </div>
+                </div>
+                <div style={{
+                  fontSize: 15, fontWeight: 800,
+                  color: active && amount > 0 ? "#fde047" : "rgba(200,170,90,0.55)",
+                  fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                  textShadow: active && amount > 0 ? "0 0 8px rgba(250,204,21,0.45)" : "none",
+                }}>
+                  {active && amount > 0 ? `+$${amount}` : `$0–$${capAmt}`}
+                </div>
+              </div>
+              {/* Bracket ladder */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginTop: 8 }}>
+                {[...(cb.brackets || [])].reverse().map((b: any) => {
+                  const hit = chAppts >= b.appts && active;
+                  return (
+                    <div key={b.appts} style={{
+                      padding: "5px 4px", borderRadius: 7,
+                      background: hit ? "rgba(250,204,21,0.18)" : "rgba(0,0,0,0.32)",
+                      border: hit ? "1px solid rgba(250,204,21,0.55)" : "1px solid rgba(200,170,90,0.14)",
+                      textAlign: "center",
+                    }}>
+                      <div style={{ fontSize: 8, letterSpacing: "0.10em", color: hit ? "#fde047" : "rgba(200,170,90,0.6)", fontWeight: 700, textTransform: "uppercase" }}>
+                        {b.appts}+
+                      </div>
+                      <div style={{ fontSize: 10, color: hit ? "#fff" : "rgba(255,255,255,0.55)", fontWeight: 700, marginTop: 1 }}>
+                        ${b.bonus}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* CTA */}
         <div style={{ position: "relative", zIndex: 1, textAlign: "center", marginTop: 12, fontSize: 10, letterSpacing: "0.26em", color: "rgba(200,170,90,0.85)", textTransform: "uppercase", fontWeight: 700 }}>

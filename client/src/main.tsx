@@ -1,12 +1,19 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { startTapQueueWorker } from "./lib/tapQueue";
 
 if (!window.location.hash) {
   window.location.hash = "#/";
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+// v15.11.53 — Start the offline tap queue worker. Any outcome tap that failed
+// to reach the server (offline, network glitch, server 500) will retry on
+// interval + on the next 'online' event. Also flushes any pending taps from
+// a previous session on boot.
+startTapQueueWorker();
 
 // Register service worker for PWA install support (v14.21 cache-buster wired)
 if ("serviceWorker" in navigator) {

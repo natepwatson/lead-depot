@@ -25,7 +25,7 @@ import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
 import { computeCallHeat } from "@/lib/callHeat";
 import type { Lead as LeadRow } from "@shared/schema";
-import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v16.1
+import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v16.2
 
 // v14.81 — myAttemptsToday is a synthetic field the server attaches on top of
 // the real lead row (see server/routes.ts countMyAttemptsToday call sites) —
@@ -1446,7 +1446,7 @@ function LeadCard({ lead }: { lead: Lead }) {
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string; followUpTiming?: string }) => {
       // v14.20 — include alsoBuying + Buyer LPMAMA inside lpmamab payload so
       // server /outcome handler + pushOutcomeToFub both get the buyer context.
-      // v16.1 — Route through offline tap queue. Every tap gets a UUID + is
+      // v16.2 — Route through offline tap queue. Every tap gets a UUID + is
       // persisted before send. If offline or the server hiccups, it retries in
       // the background until the server returns a receipt. Server-side dedup by
       // clientTapId prevents double-counting on retry.
@@ -3208,17 +3208,15 @@ export function TeamPotCard() {
   const nextTierPot: number | null = pot.nextTier?.pot ?? null;
   const nextTierMystery: boolean = !!pot.nextTierMystery;
 
-  // Ladder rungs. Tier 4 is ALWAYS on the ladder as a mystery slot — agents
-  // can see there's *something* past $750 all month, and the label flips from
-  // "$???" to "$1000" only after the team hits tier 3 (60 appts) OR admin
-  // manually reveals it. This is the "curious all month" hook Alex wanted.
-  // v16.1 — half-scale ladder: 10 / 20 / 30 / 60 appts.
-  // $1000 stretch is now permanently visible. Champion's Bonus is the new curiosity hook.
+  // Ladder rungs. Tier 1 is the pre-committed $250 floor at 0 appts — the
+  // pot opens the month already funded. Real unlocks are at 10/20/30 team
+  // appts. Champion's Bonus arms at the $1000 tier.
+  // v16.2 — rescale: floor $250 (0 appts), 10 → $500, 20 → $750, 30 → $1000.
   const rungs: Array<{ tier: number; appts: number; pot: number; label: string; mystery?: boolean }> = [
-    { tier: 1, appts: 10, pot: 250, label: "$250" },
-    { tier: 2, appts: 20, pot: 500, label: "$500" },
-    { tier: 3, appts: 30, pot: 750, label: "$750" },
-    { tier: 4, appts: 60, pot: 1000, label: "$1000" },
+    { tier: 1, appts: 0,  pot: 250,  label: "$250" },
+    { tier: 2, appts: 10, pot: 500,  label: "$500" },
+    { tier: 3, appts: 20, pot: 750,  label: "$750" },
+    { tier: 4, appts: 30, pot: 1000, label: "$1000" },
   ];
   const maxAppts = rungs[rungs.length - 1].appts;
   const progressPct = Math.min(100, (teamAppts / maxAppts) * 100);
@@ -3502,7 +3500,7 @@ export function TeamPotCard() {
           ))}
         </div>
 
-        {/* v16.1 — Champion's Bonus panel. Locked until team reaches 60 appts,
+        {/* v16.2 — Champion's Bonus panel. Locked until team reaches 30 appts,
             then flips to show the bonus the current champion would earn. */}
         {pot.championBonus && (() => {
           const cb = pot.championBonus;
@@ -3532,7 +3530,7 @@ export function TeamPotCard() {
                         ? (amount > 0
                             ? `${first?.name || "Champion"} — ${chAppts} appts locks in a bonus`
                             : `Champion needs 15+ personal appts to unlock`)
-                        : `Unlocks when team hits 60 team appts (up to $${capAmt})`}
+                        : `Unlocks when team hits 30 team appts (up to $${capAmt})`}
                     </div>
                   </div>
                 </div>

@@ -7,6 +7,7 @@ import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
 import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubCreateCandidate, fubPostQuestionnaireNote, ENTRY_PATH_CONFIG, type CandidateEntryPath } from "./fub";
+import { getCallHeatTier, tierForCell } from "../shared/prime-schedule";
 import { computeRecommendation, formatQuestionnaireForHumans } from "./recommendation";
 import QRCode from "qrcode";
 import {
@@ -105,14 +106,15 @@ function awardPoints(
   let multiplier = 1;
   let tier: string = "base";
   try {
-    const { getCallHeatTier } = require("../shared/prime-schedule");
     tier = getCallHeatTier();
     if (tier === "prime") multiplier = 2;
     else if (tier === "mid") multiplier = 1.5;
     else if (tier === "low") multiplier = 1.25;
     else if (tier === "down") multiplier = 1;
     else multiplier = 1; // illegal shouldn't reach here, but be safe
-  } catch {}
+  } catch (err) {
+    console.error("[awardPoints] tier lookup failed", err);
+  }
   // If the base points are 0 (emails, voicemail), no multiplier can save them.
   if (basePoints === 0) return;
   const points = Math.round(basePoints * multiplier);
@@ -344,7 +346,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.51 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.52 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -403,7 +405,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.51 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.52 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -688,7 +690,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.51 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v15.11.52 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1929,7 +1931,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.51</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v15.11.52</p>
             </div>
           `,
         });
@@ -2089,7 +2091,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.51 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v15.11.52 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -6332,7 +6334,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v15.11.51 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v15.11.52 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6839,7 +6841,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v15.11.51",
+      version: "v15.11.52",
       services: results,
     });
   });
@@ -7957,7 +7959,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v15.11.51`,
+              subject: `${firstName}, your BGRE application — Lead Depot v15.11.52`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -8596,7 +8598,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v15.11.51</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v15.11.52</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -8815,7 +8817,73 @@ function scheduleMonthlyLeaderboardReset() {
   }, delay);
 }
 
-scheduleMonthlyLeaderboardReset();
+// v15.11.52 — DISABLED. The auto-monthly reset scheduler double-fired on Aug 1
+// 2026, wiping the day twice. One reset per month, admin-triggered only.
+// scheduleMonthlyLeaderboardReset();
+
+// ─── v15.11.52 ─ ONE-SHOT REPAIR (runs once, then guarded) ──────────────────
+(function repairAug1Points() {
+  try {
+    const alreadyRan = rawDb.prepare(`SELECT value FROM settings WHERE key = 'repair_aug1_v15_11_52'`).get() as any;
+    if (alreadyRan?.value === 'done') return;
+
+    const AUG1_ET_MIDNIGHT_UTC = '2026-08-01T04:00:00.000Z';
+    rawDb.prepare(`INSERT INTO settings (key, value) VALUES ('leaderboard_reset_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(AUG1_ET_MIDNIGHT_UTC);
+
+    const rows = rawDb.prepare(`
+      SELECT id, agent_id, points, reason, lead_id, scope, created_at
+      FROM agent_points
+      WHERE scope = 'seller' AND created_at >= ?
+    `).all(AUG1_ET_MIDNIGHT_UTC) as any[];
+
+    const pts: Record<string, number> = {
+      contacted_appointment: 60, network_referral: 20, keep_in_touch: 15,
+      left_voicemail: 6, contacted_not_interested: 5, nice_not_interested: 5,
+      listed: 3, recycled: 2, no_answer: 2, wrong_number: 1, disconnected: 1,
+    };
+
+    let repaired = 0;
+    let deltaTotal = 0;
+    for (const r of rows) {
+      if (/_((prime|mid|low|down))_[0-9.]+x/.test(r.reason)) continue;
+      const outcome = r.reason;
+      const base = pts[outcome];
+      if (!base || base === 0) continue;
+
+      const at = new Date(r.created_at);
+      const wdParts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', hour12: false }).formatToParts(at);
+      const wdStr = wdParts.find(p => p.type === 'weekday')?.value ?? 'Mon';
+      const hStr = wdParts.find(p => p.type === 'hour')?.value ?? '0';
+      const dowMap: Record<string, number> = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+      const dow = dowMap[wdStr] ?? 1;
+      let hour = parseInt(hStr, 10);
+      if (hour === 24) hour = 0;
+      const tier = tierForCell(dow, hour);
+      let mult = 1;
+      if (tier === 'prime') mult = 2;
+      else if (tier === 'mid') mult = 1.5;
+      else if (tier === 'low') mult = 1.25;
+      if (mult === 1) continue;
+
+      const shouldHaveEarned = Math.round(base * mult);
+      const already = r.points;
+      const delta = shouldHaveEarned - already;
+      if (delta <= 0) continue;
+
+      rawDb.prepare(
+        `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(r.agent_id, delta, `${outcome}_${tier}_${mult}x_backfill`, r.lead_id ?? null, r.scope, r.created_at);
+      repaired++;
+      deltaTotal += delta;
+    }
+
+    rawDb.prepare(`INSERT INTO settings (key, value) VALUES ('repair_aug1_v15_11_52', 'done') ON CONFLICT(key) DO UPDATE SET value = 'done'`).run();
+    console.log(`[repair-aug1] repaired ${repaired} rows, +${deltaTotal} pts total. Floor reset to ${AUG1_ET_MIDNIGHT_UTC}.`);
+    try { broadcast({ type: 'leaderboard_reset', periodLabel: 'Aug 1 repair', at: new Date().toISOString() }); } catch {}
+  } catch (err) {
+    console.error('[repair-aug1] failed:', err);
+  }
+})();
 
 // ─── REDISTRIBUTION: Unassigned / Redistributed Leads ────────────────────────
 // Runs at server startup and daily at 8am EDT to push any

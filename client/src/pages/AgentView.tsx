@@ -16,7 +16,7 @@ import {
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
   Home, Voicemail, Layers, Calendar, FileText,
   Camera, DoorOpen, Zap, X, ArrowLeft, Plus,
-  Share2, Instagram,
+  Share2, Instagram, Target, Shield,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
@@ -4416,6 +4416,270 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
 }
 
 
+// ─── Challenges Tab (v18.3) ─────────────────────────────────────────────────
+// Replaces the old Leaderboard bottom-nav slot. Home tab keeps the leaderboard
+// content; this tab is 100% challenges (daily / weekly toggle). Accept-to-notify
+// on non-gated, Claim-with-evidence sheet on gated.
+type ChallengeState = {
+  key: string; cadence: "daily" | "weekly"; leg: string; tier: 1|2|3;
+  points: number; label: string; detail: string; gated: boolean;
+  accepted: boolean; progress: number; threshold: number | null;
+  completion: { status: string; pointsAwarded: number; completedAt: string; approvedAt?: string; rejectedReason?: string } | null;
+  evidencePrompt?: string;
+};
+type ChallengeFeed = { dailyKey: string; weeklyKey: string; daily: ChallengeState[]; weekly: ChallengeState[] };
+
+const TIER_STYLES: Record<1|2|3, { bg: string; border: string; ring: string; label: string }> = {
+  1: { bg: "rgba(120,140,160,0.05)", border: "rgba(160,180,200,0.20)", ring: "rgba(160,180,200,0.35)", label: "BRONZE" },
+  2: { bg: "rgba(200,170,90,0.05)",  border: "rgba(200,170,90,0.25)",  ring: "rgba(200,170,90,0.55)",  label: "SILVER" },
+  3: { bg: "rgba(220,120,90,0.06)",  border: "rgba(220,120,90,0.30)",  ring: "rgba(220,120,90,0.65)",  label: "GOLD"   },
+};
+
+function ChallengesTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [cadence, setCadence] = useState<"daily" | "weekly">("daily");
+  const [claimOpen, setClaimOpen] = useState<ChallengeState | null>(null);
+  const [unlockOpen, setUnlockOpen] = useState<ChallengeState | null>(null);
+
+  const { data, isLoading } = useQuery<ChallengeFeed>({
+    queryKey: ["/api/challenges"],
+    queryFn: () => apiRequest("GET", "/api/challenges").then(r => r.json()),
+    refetchInterval: 45_000,
+  });
+
+  const acceptMut = useMutation({
+    mutationFn: async (key: string) => apiRequest("POST", `/api/challenges/${key}/accept`).then(r => r.json()),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/challenges"] }); },
+  });
+
+  const claimMut = useMutation({
+    mutationFn: async ({ key, notes }: { key: string; notes: string }) =>
+      apiRequest("POST", `/api/challenges/${key}/claim`, { notes }).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/challenges"] });
+      setClaimOpen(null);
+      toast({ title: "Submitted for approval", description: "Nate will approve or reject in the admin queue." });
+    },
+  });
+
+  // Full-screen unlock modal fires ONE-SHOT the first time a completion appears
+  // that we haven't shown. Track shown keys in sessionStorage.
+  useEffect(() => {
+    if (!data) return;
+    const shownRaw = sessionStorage.getItem("challenge-unlocks-shown") || "[]";
+    const shown = new Set<string>(JSON.parse(shownRaw));
+    const all = [...data.daily, ...data.weekly];
+    const fresh = all.find(c => c.completion && (c.completion.status === "complete" || c.completion.status === "approved") && !shown.has(c.key));
+    if (fresh) {
+      setUnlockOpen(fresh);
+      shown.add(fresh.key);
+      sessionStorage.setItem("challenge-unlocks-shown", JSON.stringify([...shown]));
+    }
+  }, [data]);
+
+  const list = cadence === "daily" ? data?.daily ?? [] : data?.weekly ?? [];
+  const doneCount = list.filter(c => c.completion && (c.completion.status === "complete" || c.completion.status === "approved")).length;
+  const pendingCount = list.filter(c => c.completion?.status === "pending").length;
+
+  return (
+    <div style={{ width: "100%", padding: "0 0 40px" }}>
+      {/* Header */}
+      <div style={{ padding: "0 20px 12px" }}>
+        <p style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 26, fontWeight: 500, color: "#fff", lineHeight: 1.1 }}>
+          Challenges
+        </p>
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 4, letterSpacing: "0.06em" }}>
+          {doneCount} completed · {pendingCount} pending approval · {list.length} total
+        </p>
+      </div>
+
+      {/* Toggle */}
+      <div style={{ display: "flex", gap: 6, padding: "0 20px 16px" }}>
+        {(["daily", "weekly"] as const).map(c => (
+          <button key={c} onClick={() => setCadence(c)} style={{
+            flex: 1, padding: "10px 14px",
+            background: cadence === c ? "rgba(200,170,90,0.18)" : "rgba(255,255,255,0.03)",
+            border: cadence === c ? "1px solid rgba(200,170,90,0.45)" : "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 10, color: cadence === c ? "#c8aa5a" : "rgba(255,255,255,0.55)",
+            fontSize: 12, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+            cursor: "pointer",
+          }}>{c}</button>
+        ))}
+      </div>
+
+      {isLoading && (
+        <div style={{ padding: "0 20px" }}>
+          <Skeleton className="h-[100px] w-full rounded-xl mb-3" style={{ background: "rgba(255,255,255,0.03)" }} />
+          <Skeleton className="h-[100px] w-full rounded-xl mb-3" style={{ background: "rgba(255,255,255,0.03)" }} />
+          <Skeleton className="h-[100px] w-full rounded-xl" style={{ background: "rgba(255,255,255,0.03)" }} />
+        </div>
+      )}
+
+      {/* Cards */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "0 20px" }}>
+        {list.map(c => {
+          const tier = TIER_STYLES[c.tier];
+          const done = c.completion && (c.completion.status === "complete" || c.completion.status === "approved");
+          const pending = c.completion?.status === "pending";
+          const rejected = c.completion?.status === "rejected";
+          const pct = c.threshold ? Math.min(100, Math.round((c.progress / c.threshold) * 100)) : (done ? 100 : 0);
+
+          return (
+            <div key={c.key} style={{
+              position: "relative",
+              background: done ? "rgba(79,184,163,0.08)" : tier.bg,
+              border: done ? "1px solid rgba(79,184,163,0.45)" : `1px solid ${tier.border}`,
+              borderRadius: 12, padding: 14,
+            }}>
+              {/* Tier chip + points */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", color: tier.ring }}>
+                  {tier.label} · {c.leg.replace("_", " ").toUpperCase()}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: done ? "#4fb8a3" : "#c8aa5a" }}>
+                  +{c.points} pts
+                </span>
+              </div>
+
+              {/* Label + detail */}
+              <p style={{ fontSize: 15, fontWeight: 600, color: done ? "#4fb8a3" : "#fff", marginBottom: 4, lineHeight: 1.25 }}>
+                {c.label}{done ? " ✓" : ""}
+              </p>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.35, marginBottom: 10 }}>
+                {c.detail}
+              </p>
+
+              {/* Progress bar (non-gated with threshold) */}
+              {c.threshold != null && !c.gated && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%", width: `${pct}%`,
+                      background: done ? "#4fb8a3" : tier.ring,
+                      transition: "width 400ms ease",
+                    }}/>
+                  </div>
+                  <p style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 4, letterSpacing: "0.04em" }}>
+                    {c.progress} / {c.threshold}
+                  </p>
+                </div>
+              )}
+
+              {/* Actions */}
+              {done && (
+                <div style={{ fontSize: 11, color: "#4fb8a3", fontWeight: 700, letterSpacing: "0.08em" }}>
+                  COMPLETED · +{c.completion?.pointsAwarded ?? c.points} PTS
+                </div>
+              )}
+              {pending && (
+                <div style={{ fontSize: 11, color: "#c8aa5a", fontWeight: 700, letterSpacing: "0.08em" }}>
+                  PENDING ADMIN APPROVAL
+                </div>
+              )}
+              {rejected && (
+                <div style={{ fontSize: 11, color: "#e77070", fontWeight: 700 }}>
+                  REJECTED{c.completion?.rejectedReason ? ` — ${c.completion.rejectedReason}` : ""}
+                </div>
+              )}
+              {!done && !pending && !rejected && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  {c.gated ? (
+                    <button onClick={() => setClaimOpen(c)} style={{
+                      flex: 1, padding: "9px 12px",
+                      background: "rgba(200,170,90,0.15)",
+                      border: "1px solid rgba(200,170,90,0.35)",
+                      borderRadius: 8, color: "#c8aa5a",
+                      fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer",
+                    }}>Claim with Evidence</button>
+                  ) : (
+                    <button
+                      disabled={c.accepted || acceptMut.isPending}
+                      onClick={() => acceptMut.mutate(c.key)}
+                      style={{
+                        flex: 1, padding: "9px 12px",
+                        background: c.accepted ? "rgba(79,184,163,0.10)" : "rgba(200,170,90,0.15)",
+                        border: c.accepted ? "1px solid rgba(79,184,163,0.35)" : "1px solid rgba(200,170,90,0.35)",
+                        borderRadius: 8, color: c.accepted ? "#4fb8a3" : "#c8aa5a",
+                        fontSize: 12, fontWeight: 700, letterSpacing: "0.06em",
+                        cursor: c.accepted ? "default" : "pointer",
+                        opacity: c.accepted ? 0.85 : 1,
+                      }}>{c.accepted ? "Accepted ✓" : "Accept Challenge"}</button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Claim sheet */}
+      {claimOpen && (
+        <div onClick={() => setClaimOpen(null)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 100,
+          display: "flex", alignItems: "flex-end", justifyContent: "center",
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: "100%", maxWidth: 480, background: "#0a0908",
+            borderTop: "1px solid rgba(200,170,90,0.35)", padding: 24, borderRadius: "16px 16px 0 0",
+          }}>
+            <p style={{ fontSize: 18, fontWeight: 600, color: "#c8aa5a", marginBottom: 6 }}>{claimOpen.label}</p>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 14, lineHeight: 1.4 }}>
+              {claimOpen.evidencePrompt || "Add a note describing what you did — admin will review."}
+            </p>
+            <Textarea
+              id="claim-notes"
+              placeholder="Notes for admin (address, teammate name, count, etc.)"
+              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.20)", color: "#fff", marginBottom: 14 }}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setClaimOpen(null)} style={{
+                flex: 1, padding: "11px 14px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 8, color: "rgba(255,255,255,0.65)", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}>Cancel</button>
+              <button
+                disabled={claimMut.isPending}
+                onClick={() => {
+                  const notes = (document.getElementById("claim-notes") as HTMLTextAreaElement | null)?.value || "";
+                  claimMut.mutate({ key: claimOpen.key, notes });
+                }}
+                style={{
+                  flex: 1, padding: "11px 14px",
+                  background: "linear-gradient(135deg, #c8aa5a 0%, #a88a44 100%)", border: "none",
+                  borderRadius: 8, color: "#0a0908", fontSize: 13, fontWeight: 800, letterSpacing: "0.06em", cursor: "pointer",
+                }}>{claimMut.isPending ? "Submitting…" : "Submit for Approval"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full-screen unlock celebration */}
+      {unlockOpen && (
+        <div onClick={() => setUnlockOpen(null)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 200,
+          display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", padding: 32,
+          cursor: "pointer",
+        }}>
+          <ConfettiCelebration onDone={() => {}} />
+          <p style={{ fontSize: 11, color: "#c8aa5a", letterSpacing: "0.28em", fontWeight: 800, marginBottom: 18 }}>
+            CHALLENGE UNLOCKED
+          </p>
+          <p style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 44, fontWeight: 500, color: "#fff", textAlign: "center", lineHeight: 1.05, marginBottom: 14 }}>
+            {unlockOpen.label}
+          </p>
+          <p style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", textAlign: "center", maxWidth: 360, marginBottom: 24, lineHeight: 1.35 }}>
+            {unlockOpen.detail}
+          </p>
+          <div style={{ fontSize: 34, fontWeight: 800, color: "#4fb8a3", letterSpacing: "0.04em", marginBottom: 24 }}>
+            +{unlockOpen.completion?.pointsAwarded ?? unlockOpen.points} pts
+          </div>
+          <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: "0.15em" }}>TAP TO CLOSE</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Referrals Hub (v14.50) ─────────────────────────────────────────────────
 // Consolidates Client Referral (network lead → auto-assigned to referring agent,
 // jumps to Work-the-Lead card immediately) and Agent Referral (recruiting).
@@ -4815,17 +5079,20 @@ export const WARM_LEAD_INTENTS: {
 // the yellow radial chooser (5 lead-gen legs: Dial / OH / Knock / Direct Mail /
 // Network Referral). Tab order: Home / Pipeline / [+] / Leaderboard / Profile.
 // "refer" tab retired — folds into the radial chooser's Network Referral leg.
-type Tab = "leads" | "leaderboard" | "pipeline" | "refer" | "profile" | "home";
+// v18.4 — Leaderboard slot swapped for Challenges. Home tab still renders the
+// leaderboard content (that's the dashboard). "leaderboard" id kept in the union
+// to gracefully fall through for anyone with a stale initialTab or bookmark.
+type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "refer" | "profile" | "home";
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
-  { id: "home",        label: "Home",         icon: Home },
-  { id: "pipeline",    label: "Pipeline",     icon: Layers },
-  { id: "leads",       label: "Lead Gen",     icon: Phone },
-  { id: "leaderboard", label: "Leaderboard",  icon: Trophy },
-  { id: "profile",     label: "Profile",      icon: UserCircle2 },
+  { id: "home",       label: "Home",       icon: Home },
+  { id: "pipeline",   label: "Pipeline",   icon: Layers },
+  { id: "leads",      label: "Lead Gen",   icon: Phone },
+  { id: "challenges", label: "Challenges", icon: Target },
+  { id: "profile",    label: "Profile",    icon: UserCircle2 },
 ];
 
 // ─── Main AgentView ───────────────────────────────────────────────────────────
-export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }: { onBackToAdmin?: () => void; initialTab?: Tab; mode?: "seller" } = {}) {
+export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode = "seller" }: { onBackToAdmin?: () => void; onOpenAdmin?: () => void; initialTab?: Tab; mode?: "seller" } = {}) {
   const { user, logout } = useAuth();
   // v17.2 — Both roles land on Home. Prior default was "leaderboard".
   const [tab, setTab] = useState<Tab>(initialTab ?? "home");
@@ -5067,9 +5334,12 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
         borderBottom: "1px solid rgba(200,170,90,0.2)",
         boxShadow: "0 2px 20px rgba(0,0,0,0.5)",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* v17.2 — Admin Panel + Map icons top-left (admins only). Beefier
-              chip treatment than the old ‹ Admin text link. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* v18.4 — UNIFIED SHELL top-bar. Every user sees: DEPOT + name + version.
+              Admins see one extra thing to the LEFT: an "Admin" pill that opens
+              the full-screen tools takeover. onBackToAdmin (legacy, in case admins
+              jump into an agent tab from elsewhere) still honored. onOpenAdmin
+              is the primary entry point post-v18.4. */}
           {onBackToAdmin && (
             <button onClick={onBackToAdmin} style={{
               display: "flex", alignItems: "center", gap: 5,
@@ -5077,37 +5347,37 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
               color: "#c8aa5a",
               background: "rgba(200,170,90,0.10)", border: "1px solid rgba(200,170,90,0.30)",
               borderRadius: 8, padding: "6px 9px", cursor: "pointer",
-              marginRight: 4,
             }}>
               <ChevronLeft size={12} /> Admin
             </button>
           )}
-          {isAdmin && (
+          {isAdmin && onOpenAdmin && !onBackToAdmin && (
             <button
-              onClick={() => toast({ title: "Map — coming soon", description: "Full team map + overlays lands in Phase 7. Placeholder wired up so the icon is real." })}
-              title="Open team map"
+              onClick={onOpenAdmin}
+              title="Open admin tools"
               style={{
-                display: "flex", alignItems: "center", justifyContent: "center",
-                width: 30, height: 30, borderRadius: 8,
+                display: "flex", alignItems: "center", gap: 5,
+                fontSize: 10, letterSpacing: "0.10em", textTransform: "uppercase", fontWeight: 700,
                 color: "#c8aa5a",
-                background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.25)",
-                cursor: "pointer", marginRight: 4,
+                background: "rgba(200,170,90,0.12)",
+                border: "1px solid rgba(200,170,90,0.35)",
+                borderRadius: 8, padding: "6px 10px", cursor: "pointer",
               }}
             >
-              <MapPin size={14} />
+              <Shield size={12} /> Admin
             </button>
           )}
-          {/* v14.54 — removed the dead LogoIcon (home glyph). Alex called out header clutter
-              in IMG_9238: he only wants ‹ Admin, Who called?, and Sign out. Title + username stay. */}
           <div>
             <p style={{
               fontFamily: "'Cormorant Garamond','Georgia',serif",
               fontSize: 15, fontWeight: 500, letterSpacing: "0.2em",
               color: "#fff", textTransform: "uppercase", lineHeight: 1,
             }}>Lead Depot</p>
-            <p style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em", marginTop: 2 }}>{user?.name}</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+              <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v18.4</span>
+            </div>
           </div>
-          {/* v18.0 — Recruiting cross-link removed with recruiting system. */}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* v15.3 — REAL dialing-now pill. Green + pulse when ≥ 1 agent has
@@ -5220,6 +5490,7 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
             sticky-swipe agent selector. Placeholder for now so the nav renders. */}
         {tab === "home" && <LeaderboardTab mode={mode} />}
         {tab === "leaderboard" && <LeaderboardTab mode={mode} />}
+        {tab === "challenges" && <ChallengesTab />}
 
         {tab === "leads" && (
           <div>

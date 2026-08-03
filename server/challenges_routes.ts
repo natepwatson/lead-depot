@@ -1,7 +1,12 @@
 // v18.3 — Challenge routes + detection sweep.
+//
+// Guard style matches the rest of routes.ts: requireSession / requireAdmin
+// are called INSIDE the handler and return boolean. `req.currentAgent` is the
+// authenticated agent record set by attachCurrentAgent middleware.
 
 import type { Express, Request, Response } from "express";
 import { rawDb } from "./db";
+import { requireSession, requireAdmin } from "./auth";
 import {
   ALL_CHALLENGES, CHALLENGE_MAP, currentDailyKey, currentWeeklyKey,
   ensureChallengeSchema, type ChallengeDef,
@@ -25,24 +30,19 @@ function getCompletionMap(agentId: number, periodKey: string): Record<string, an
   return m;
 }
 
-// ─── AUTO-DETECT (rough heuristics — improves in later versions) ───────────
-// We check counts in lead_activity + agent_points for the current period and
-// flip completions to complete when threshold is met.
-// This is a "good enough" first pass; specific event types (piggyback, sunday
-// route, etc.) fall back to manual claim until we wire per-event tagging.
+// ─── AUTO-DETECT ───────────────────────────────────────────────────────────
+// Detection reads counts from lead_activity for this agent in this period,
+// then flips non-gated completions whose threshold is met and credits points.
 
 function computeProgressForAgent(agentId: number, periodKey: string, cadence: "daily" | "weekly"): Record<string, number> {
-  // Determine time window for the period.
   let sinceISO: string;
   if (cadence === "daily") {
     const [y, m, d] = periodKey.split("-").map(Number);
-    const start = new Date(Date.UTC(y, m - 1, d, 5, 0, 0));   // ET midnight ≈ 05:00 UTC
+    const start = new Date(Date.UTC(y, m - 1, d, 5, 0, 0)); // ET midnight ≈ 05:00 UTC
     sinceISO = start.toISOString();
   } else {
-    // Weekly ISO: start of ISO week (Monday 00:00 ET)
     const [ystr, wstr] = periodKey.split("-W");
     const y = Number(ystr), w = Number(wstr);
-    // Jan 4th is always in week 1; find Monday of week 1 then add (w-1)*7 days
     const jan4 = new Date(Date.UTC(y, 0, 4));
     const jan4Day = jan4.getUTCDay() || 7;
     const week1Mon = new Date(jan4);
@@ -55,23 +55,26 @@ function computeProgressForAgent(agentId: number, periodKey: string, cadence: "d
 
   const progress: Record<string, number> = {};
 
-  // Aggregated stats for this agent in this window.
-  const agg: any = rawDb.prepare(`
-    SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN outcome IN ('no_answer','contacted_appointment','contacted_not_interested','keep_in_touch','wrong_number','listed','recycled') THEN 1 ELSE 0 END) as dials,
-      SUM(CASE WHEN outcome = 'contacted_appointment' THEN 1 ELSE 0 END) as appts,
-      SUM(CASE WHEN outcome = 'keep_in_touch' THEN 1 ELSE 0 END) as kits,
-      SUM(CASE WHEN outcome = 'network_referral' THEN 1 ELSE 0 END) as refs,
-      SUM(CASE WHEN outcome = 'open_house_log' OR outcome = 'open_house_lead' THEN 1 ELSE 0 END) as oh,
-      SUM(CASE WHEN outcome = 'door_knock' THEN 1 ELSE 0 END) as doors,
-      SUM(CASE WHEN outcome = 'oh_knock_route' THEN 1 ELSE 0 END) as routes,
-      SUM(CASE WHEN outcome = 'direct_mail' THEN 1 ELSE 0 END) as mail
-    FROM lead_activity
-    WHERE agent_id = ? AND created_at >= ?
-  `).get(agentId, sinceISO);
+  let agg: any;
+  try {
+    agg = rawDb.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN outcome IN ('no_answer','contacted_appointment','contacted_not_interested','keep_in_touch','wrong_number','listed','recycled') THEN 1 ELSE 0 END) as dials,
+        SUM(CASE WHEN outcome = 'contacted_appointment' THEN 1 ELSE 0 END) as appts,
+        SUM(CASE WHEN outcome = 'keep_in_touch' THEN 1 ELSE 0 END) as kits,
+        SUM(CASE WHEN outcome = 'network_referral' THEN 1 ELSE 0 END) as refs,
+        SUM(CASE WHEN outcome = 'open_house_log' OR outcome = 'open_house_lead' THEN 1 ELSE 0 END) as oh,
+        SUM(CASE WHEN outcome = 'door_knock' THEN 1 ELSE 0 END) as doors,
+        SUM(CASE WHEN outcome = 'oh_knock_route' THEN 1 ELSE 0 END) as routes,
+        SUM(CASE WHEN outcome = 'direct_mail' THEN 1 ELSE 0 END) as mail
+      FROM lead_activity
+      WHERE agent_id = ? AND created_at >= ?
+    `).get(agentId, sinceISO);
+  } catch {
+    agg = { total: 0, dials: 0, appts: 0, kits: 0, refs: 0, oh: 0, doors: 0, routes: 0, mail: 0 };
+  }
 
-  // Daily
   progress["daily.dial.25"]        = agg.dials || 0;
   progress["daily.dial.50"]        = agg.dials || 0;
   progress["daily.dial.100"]       = agg.dials || 0;
@@ -84,7 +87,6 @@ function computeProgressForAgent(agentId: number, periodKey: string, cadence: "d
   progress["daily.net.r1"]         = agg.refs || 0;
   progress["daily.net.r2"]         = agg.refs || 0;
 
-  // Weekly
   progress["weekly.vol.dial500"]   = agg.dials || 0;
   progress["weekly.vol.knock250"]  = agg.doors || 0;
   progress["weekly.vol.oh4"]       = agg.oh || 0;
@@ -107,7 +109,6 @@ function checkAndAwardAutoDetect(agentId: number, periodKey: string, cadence: "d
     const p = progress[ch.key];
     if (p == null) continue;
 
-    // Threshold parsing from autoDetect
     const match = ch.autoDetect?.match(/:(\d+)/);
     const threshold = match ? Number(match[1]) : null;
     if (threshold == null) continue;
@@ -119,32 +120,32 @@ function checkAndAwardAutoDetect(agentId: number, periodKey: string, cadence: "d
             (agent_id, challenge_key, period_key, status, points_awarded, completed_at)
           VALUES (?, ?, ?, 'complete', ?, datetime('now'))
         `).run(agentId, ch.key, periodKey, ch.points);
-        // Also credit points to agent_points ledger so leaderboard reflects it.
         rawDb.prepare(`
           INSERT INTO agent_points (agent_id, points, reason, scope, created_at)
           VALUES (?, ?, ?, 'seller', datetime('now'))
         `).run(agentId, ch.points, `challenge:${ch.key}`);
         awarded++;
-      } catch (e: any) {
-        // UNIQUE constraint — already completed this tick, skip.
+      } catch {
+        // UNIQUE violation — already awarded this tick.
       }
     }
   }
   return awarded;
 }
 
-export function registerChallengeRoutes(app: Express, requireAuth: any, requireAdmin: any) {
+// ─── ROUTES ────────────────────────────────────────────────────────────────
+
+export function registerChallengeRoutes(app: Express) {
   ensureChallengeSchema();
 
-  // GET /api/challenges — list all challenges + agent state for current period.
-  app.get("/api/challenges", requireAuth, (req: any, res: Response) => {
-    const agentId = req.user?.id;
-    if (!agentId) return res.status(401).json({ error: "auth required" });
+  // GET /api/challenges — list + agent state for current period.
+  app.get("/api/challenges", (req: Request, res: Response) => {
+    if (!requireSession(req, res)) return;
+    const agentId = (req as any).currentAgent!.id;
 
     const dailyKey = currentDailyKey();
     const weeklyKey = currentWeeklyKey();
 
-    // Run auto-detect on read (cheap enough — bounded aggregate query per agent).
     try { checkAndAwardAutoDetect(agentId, dailyKey,  "daily"); } catch (e) { console.error("[challenges] daily autodetect:", e); }
     try { checkAndAwardAutoDetect(agentId, weeklyKey, "weekly"); } catch (e) { console.error("[challenges] weekly autodetect:", e); }
 
@@ -185,10 +186,11 @@ export function registerChallengeRoutes(app: Express, requireAuth: any, requireA
     });
   });
 
-  // POST /api/challenges/:key/accept — agent accepts a challenge (notify).
-  app.post("/api/challenges/:key/accept", requireAuth, (req: any, res: Response) => {
-    const agentId = req.user?.id;
-    const key = req.params.key;
+  // POST /api/challenges/:key/accept
+  app.post("/api/challenges/:key/accept", (req: Request, res: Response) => {
+    if (!requireSession(req, res)) return;
+    const agentId = (req as any).currentAgent!.id;
+    const key = String(req.params.key);
     const ch = CHALLENGE_MAP[key];
     if (!ch) return res.status(404).json({ error: "unknown challenge" });
     const periodKey = ch.cadence === "daily" ? currentDailyKey() : currentWeeklyKey();
@@ -197,46 +199,44 @@ export function registerChallengeRoutes(app: Express, requireAuth: any, requireA
         INSERT INTO challenge_accepts (agent_id, challenge_key, period_key)
         VALUES (?, ?, ?)
       `).run(agentId, key, periodKey);
-    } catch {
-      // already accepted — idempotent
-    }
+    } catch { /* idempotent */ }
     res.json({ ok: true, key, periodKey });
   });
 
-  // POST /api/challenges/:key/claim — agent claims a gated challenge with evidence.
-  app.post("/api/challenges/:key/claim", requireAuth, (req: any, res: Response) => {
-    const agentId = req.user?.id;
-    const key = req.params.key;
-    const { evidence, notes } = req.body;
+  // POST /api/challenges/:key/claim — gated challenges only
+  app.post("/api/challenges/:key/claim", (req: Request, res: Response) => {
+    if (!requireSession(req, res)) return;
+    const agent = (req as any).currentAgent!;
+    const key = String(req.params.key);
+    const { evidence, notes } = req.body || {};
     const ch = CHALLENGE_MAP[key];
     if (!ch) return res.status(404).json({ error: "unknown challenge" });
     if (!ch.gated) return res.status(400).json({ error: "not a gated challenge" });
     const periodKey = ch.cadence === "daily" ? currentDailyKey() : currentWeeklyKey();
 
-    // Insert approval_request + link.
-    const agent: any = rawDb.prepare(`SELECT name FROM agents WHERE id = ?`).get(agentId);
     const payload = JSON.stringify({ challengeKey: key, evidence: evidence || null, notes: notes || "", periodKey });
     const info = rawDb.prepare(`
       INSERT INTO approval_requests (kind, agent_id, agent_name, status, points_potential, payload_json)
       VALUES (?, ?, ?, 'pending', ?, ?)
-    `).run(`challenge:${key}`, agentId, agent?.name || "Agent", ch.points, payload);
+    `).run(`challenge:${key}`, agent.id, agent.name || "Agent", ch.points, payload);
     const approvalId = info.lastInsertRowid;
 
-    // Insert completion row in pending state.
     try {
       rawDb.prepare(`
         INSERT INTO challenge_completions (agent_id, challenge_key, period_key, status, approval_request_id)
         VALUES (?, ?, ?, 'pending', ?)
-      `).run(agentId, key, periodKey, approvalId);
+      `).run(agent.id, key, periodKey, approvalId);
     } catch {
       return res.status(409).json({ error: "already claimed" });
     }
     res.json({ ok: true, approvalId, status: "pending" });
   });
 
-  // POST /api/admin/challenges/approve — admin approves a claim.
-  app.post("/api/admin/challenges/approve", requireAdmin, (req: any, res: Response) => {
-    const { approvalId, notes } = req.body;
+  // POST /api/admin/challenges/approve
+  app.post("/api/admin/challenges/approve", (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const admin = (req as any).currentAgent!;
+    const { approvalId, notes } = req.body || {};
     const approval: any = rawDb.prepare(`SELECT * FROM approval_requests WHERE id = ?`).get(approvalId);
     if (!approval) return res.status(404).json({ error: "approval not found" });
     if (approval.status !== "pending") return res.status(400).json({ error: `already ${approval.status}` });
@@ -245,20 +245,18 @@ export function registerChallengeRoutes(app: Express, requireAuth: any, requireA
     const ch = CHALLENGE_MAP[payload.challengeKey];
     if (!ch) return res.status(400).json({ error: "unknown challenge key" });
 
-    const adminId = req.user?.id;
     rawDb.prepare(`
       UPDATE approval_requests
       SET status = 'approved', decided_at = datetime('now'), decided_by = ?, decision_notes = ?, points_awarded = ?
       WHERE id = ?
-    `).run(adminId, notes || null, ch.points, approvalId);
+    `).run(admin.id, notes || null, ch.points, approvalId);
 
     rawDb.prepare(`
       UPDATE challenge_completions
       SET status = 'approved', points_awarded = ?, approved_by = ?, approved_at = datetime('now')
       WHERE approval_request_id = ?
-    `).run(ch.points, adminId, approvalId);
+    `).run(ch.points, admin.id, approvalId);
 
-    // Credit points ledger
     rawDb.prepare(`
       INSERT INTO agent_points (agent_id, points, reason, scope, created_at)
       VALUES (?, ?, ?, 'seller', datetime('now'))
@@ -267,19 +265,20 @@ export function registerChallengeRoutes(app: Express, requireAuth: any, requireA
     res.json({ ok: true });
   });
 
-  // POST /api/admin/challenges/reject — admin rejects a claim.
-  app.post("/api/admin/challenges/reject", requireAdmin, (req: any, res: Response) => {
-    const { approvalId, reason } = req.body;
+  // POST /api/admin/challenges/reject
+  app.post("/api/admin/challenges/reject", (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const admin = (req as any).currentAgent!;
+    const { approvalId, reason } = req.body || {};
     const approval: any = rawDb.prepare(`SELECT * FROM approval_requests WHERE id = ?`).get(approvalId);
     if (!approval) return res.status(404).json({ error: "approval not found" });
     if (approval.status !== "pending") return res.status(400).json({ error: `already ${approval.status}` });
 
-    const adminId = req.user?.id;
     rawDb.prepare(`
       UPDATE approval_requests
       SET status = 'rejected', decided_at = datetime('now'), decided_by = ?, decision_notes = ?
       WHERE id = ?
-    `).run(adminId, reason || null, approvalId);
+    `).run(admin.id, reason || null, approvalId);
 
     rawDb.prepare(`
       UPDATE challenge_completions
@@ -290,5 +289,5 @@ export function registerChallengeRoutes(app: Express, requireAuth: any, requireA
     res.json({ ok: true });
   });
 
-  console.log("[challenges] routes registered");
+  console.log("[challenges] routes registered — 37 daily + 25 weekly");
 }

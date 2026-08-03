@@ -1005,10 +1005,15 @@ function _WasTeamPotStretchAdmin_v17_2_removed() {
 export default function AdminDashboard({
   onWorkMyLeads,
   onOpenAgentTab,
+  onCloseAdmin,
 }: {
   onWorkMyLeads?: () => void;
   // v14.51 — admin bottom nav jumps into AgentView on a specific tab.
   onOpenAgentTab?: (tab: "leads" | "refer" | "leaderboard" | "profile" | "pipeline") => void;
+  // v18.4 — UNIFIED SHELL close button. When set, renders a back-pill in the
+  // top bar and any Work My Leads / Open Agent Tab actions dismiss the admin
+  // takeover instead of navigating internally.
+  onCloseAdmin?: () => void;
 } = {}) {
   const { user, logout } = useAuth();
   useRealtimeUpdates();
@@ -1702,6 +1707,19 @@ export default function AdminDashboard({
         borderBottom: "1px solid rgba(200,170,90,0.1)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* v18.4 — UNIFIED SHELL back button. When mounted as a takeover from
+              AgentView, tapping this returns the admin to the shared dashboard. */}
+          {onCloseAdmin && (
+            <button onClick={onCloseAdmin} style={{
+              display: "flex", alignItems: "center", gap: 5,
+              fontSize: 10, letterSpacing: "0.10em", textTransform: "uppercase", fontWeight: 700,
+              color: "#c8aa5a",
+              background: "rgba(200,170,90,0.10)", border: "1px solid rgba(200,170,90,0.30)",
+              borderRadius: 8, padding: "6px 9px", cursor: "pointer",
+            }}>
+              ‹ Back
+            </button>
+          )}
           <LogoIcon size={26} />
           <div>
             <p style={{
@@ -1715,7 +1733,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v18.3
+              v18.4
             </p>
           </div>
         </div>

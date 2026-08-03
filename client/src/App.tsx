@@ -52,9 +52,12 @@ function AppRoutes() {
     }
      
   }, [user?.id]);
-  // v14.51 — admin bottom nav can jump to any agent-side tab, not just leads.
-  // null = show AdminDashboard. "leads"/"refer"/"leaderboard"/"profile" = show AgentView on that tab.
-  const [adminAgentTab, setAdminAgentTab] = useState<null | "leads" | "refer" | "leaderboard" | "profile" | "pipeline">(null);
+  // v18.4 — UNIFIED SHELL. Admins land on the exact same AgentView as agents.
+  // AdminDashboard is now a full-screen takeover that only mounts when the admin
+  // taps the "Admin" button in the top bar. adminMode true = show AdminDashboard.
+  // The old adminAgentTab state (Nov ’25 era) is dead — admins navigate the
+  // same 5-tab bottom nav as agents.
+  const [adminMode, setAdminMode] = useState(false);
   const [location, navigate] = useLocation();
 
   if (!user) return <LoginPage />;
@@ -116,27 +119,29 @@ function AppRoutes() {
   // see a dismissible per-session nudge to get their team email provisioned.
   const showEmailNudge = isAgent;
 
-  if (user.role === "admin" && adminAgentTab) {
+  // v18.4 — Admin toolset opens as a full-screen takeover.
+  // Admins do NOT get a separate landing page anymore — they see AgentView by
+  // default (Home / Pipeline / Lead Gen / Challenges / Profile), same as agents,
+  // with an extra "Admin" button in the top bar to enter the toolset.
+  if (user.role === "admin" && adminMode) {
     return (
       <>
         <OnAirBanner agentId={String(user.id)} />
-        <AgentView mode="seller" onBackToAdmin={() => setAdminAgentTab(null)} initialTab={adminAgentTab} />
+        <AdminDashboard
+          onWorkMyLeads={() => setAdminMode(false)}
+          onOpenAgentTab={() => setAdminMode(false)}
+          onCloseAdmin={() => setAdminMode(false)}
+        />
       </>
     );
   }
-  if (user.role === "admin") return (
-    <>
-      <OnAirBanner agentId={String(user.id)} />
-      <AdminDashboard
-        onWorkMyLeads={() => setAdminAgentTab("leads")}
-        onOpenAgentTab={(t) => setAdminAgentTab(t)}
-      />
-    </>
-  );
   return (
     <>
       <OnAirBanner agentId={String(user.id)} />
-      <AgentView mode="seller" />
+      <AgentView
+        mode="seller"
+        onOpenAdmin={user.role === "admin" ? () => setAdminMode(true) : undefined}
+      />
       {showEmailNudge && <WatsonEmailNudge userEmail={user.email} userName={user.name} />}
     </>
   );

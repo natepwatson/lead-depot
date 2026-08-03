@@ -180,7 +180,7 @@ function saveStreakRow(agentId: number, data: {
 
 // Count dials for a given agent on a given ET calendar day. This uses the ET
 // day boundaries expressed as UTC ISO strings for the BETWEEN comparison against
-// agent_lead_activity.created_at.
+// lead_activity.created_at. (v18.0 — was agent_lead_activity, table dropped.)
 function countDialsForDay(agentId: number, etDay: string): number {
   // ET day = day at 00:00 ET → next day 00:00 ET. ET is UTC-5 or UTC-4.
   // We over-cover both offsets by scanning 04:00–05:00 UTC bookends and then
@@ -190,8 +190,8 @@ function countDialsForDay(agentId: number, etDay: string): number {
   const endProbe   = `${addDaysToKey(etDay, 1)}T12:00:00Z`;
   const rows = rawDb.prepare(`
     SELECT outcome, created_at
-    FROM agent_lead_activity
-    WHERE caller_id = ?
+    FROM lead_activity
+    WHERE agent_id = ?
       AND created_at BETWEEN ? AND ?
   `).all(agentId, addDaysToKey(etDay, -1) + "T00:00:00Z", endProbe) as { outcome: string; created_at: string }[];
   let n = 0;
@@ -344,10 +344,11 @@ export function crownMonthlyChampion(): ChampionInfo {
   const nextMonthDate = new Date(Date.UTC(y, m, 1));
   const monthEndExclusive = nextMonthDate.toISOString();
 
+  // v18.0 — was agent_lead_activity/caller_id, table dropped. Seller-side only now.
   const winner = rawDb.prepare(`
     SELECT a.id as id, a.name as name, COUNT(*) as appts
-    FROM agent_lead_activity la
-    JOIN agents a ON a.id = la.caller_id
+    FROM lead_activity la
+    JOIN agents a ON a.id = la.agent_id
     WHERE la.outcome = 'contacted_appointment'
       AND la.created_at >= ?
       AND la.created_at <  ?

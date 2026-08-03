@@ -663,15 +663,15 @@ ${a.applicantNotes}
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
   `).run(`agent_streak:${a}`,r)}function CF(a,t){let r=`${t}T00:00:00Z`,e=`${Xu(t,1)}T12:00:00Z`,c=A.prepare(`
     SELECT outcome, created_at
-    FROM agent_lead_activity
-    WHERE caller_id = ?
+    FROM lead_activity
+    WHERE agent_id = ?
       AND created_at BETWEEN ? AND ?
   `).all(a,Xu(t,-1)+"T00:00:00Z",e),u=0;for(let f of c){if(!qY.has(f.outcome))continue;Sx(new Date(f.created_at))===t&&u++}return u}function Hf(a){let t=Sx(),r=NF(),e=VY(a),c=t;CF(a,c)>=FF||(c=Xu(c,-1));let f=0,h=null,x=!1,b=e.freezeUsedWeekKey!==r;for(let W=0;W<90;W++){if(CF(a,c)>=FF){h===null&&(h=c),f++,c=Xu(c,-1);continue}if(b&&NF(new Date(`${c}T18:00:00Z`))===r){b=!1,x=!0,c=Xu(c,-1);continue}break}let F=f,L=Math.max(e.best,F),U=zY(F),j=GY(F);return XY(a,{current:F,best:L,lastQualifiedDate:h,freezeUsedWeekKey:x?r:e.freezeUsedWeekKey}),{agentId:a,current:F,best:L,lastQualifiedDate:h,freezeUsedWeekKey:x?r:e.freezeUsedWeekKey,tier:U.tier,tierLabel:U.label,tierBadge:U.badge,nextTierDays:j?.days??null,nextTierLabel:j?.label??null}}function RF(){let a=Date.now(),t=A.prepare(`
     SELECT id FROM agents WHERE is_active = 1
   `).all();for(let r of t)Hf(r.id);return{count:t.length,ms:Date.now()-a}}function IF(){let a=DF(),t=A.prepare("SELECT value FROM app_settings WHERE key = ?").get("champion_current_month");if(!t)return{agentId:null,agentName:null,monthKey:a,awardedForMonth:"",awardedAt:null,appts:0};try{let r=JSON.parse(t.value);return r.monthKey!==a?{agentId:null,agentName:null,monthKey:a,awardedForMonth:"",awardedAt:null,appts:0}:{agentId:r.agentId,agentName:r.agentName,monthKey:r.monthKey,awardedForMonth:r.awardedForMonth||"",awardedAt:r.awardedAt||null,appts:Number(r.appts)||0}}catch{return{agentId:null,agentName:null,monthKey:a,awardedForMonth:"",awardedAt:null,appts:0}}}function Ax(){let t=DF(new Date),r=`${t}-01T04:00:00Z`,[e,c]=t.split("-").map(Number),f=new Date(Date.UTC(e,c,1)).toISOString(),h=A.prepare(`
     SELECT a.id as id, a.name as name, COUNT(*) as appts
-    FROM agent_lead_activity la
-    JOIN agents a ON a.id = la.caller_id
+    FROM lead_activity la
+    JOIN agents a ON a.id = la.agent_id
     WHERE la.outcome = 'contacted_appointment'
       AND la.created_at >= ?
       AND la.created_at <  ?

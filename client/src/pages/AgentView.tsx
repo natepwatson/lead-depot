@@ -16,6 +16,7 @@ import {
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
   Home, Voicemail, Layers, Calendar, FileText,
   Camera, DoorOpen, Zap, X, ArrowLeft, Plus,
+  Share2, Instagram,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
@@ -4872,6 +4873,7 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
   const [leadGenView, setLeadGenView] = useState<
     "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral"
     | "door-knock" | "door-knock-lead" | "direct-mail" | "direct-mail-lead"
+    | "oh-knock-route" | "social"
   >("root");
   const { connected: wsConnected } = useRealtimeUpdates();
   const qc = useQueryClient();
@@ -5804,6 +5806,7 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
 // submitter; FUB push waits for KIT/Appt outcome per standing rule).
 function LeadGenSheet(props: {
   view: "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral"
+    | "oh-knock-route" | "social"
     | "door-knock" | "door-knock-lead" | "direct-mail" | "direct-mail-lead";
   setView: (v: any) => void;
   close: () => void;
@@ -5931,6 +5934,10 @@ function LeadGenSheet(props: {
                 icon: <Users size={22} />, title: "Network Referral", sub: "Submit a client you know — auto-assigned to you.",
                 onClick: () => setView("network-referral"),
               })}
+              {tile({
+                icon: <Share2 size={22} />, title: "Social Post", sub: "Log a brand-tagged post — 15 pts, one per day.",
+                onClick: () => setView("social" as any),
+              })}
             </div>
           </>
         )}
@@ -5952,9 +5959,8 @@ function LeadGenSheet(props: {
                 onClick: () => setView("oh-lead"),
               })}
               {tile({
-                icon: <DoorOpen size={22} />, title: "Neighborhood Knock Route", sub: "Piggyback the OH — knock the block. Bonus pts on Nate's approval.",
-                comingSoon: true,
-                onClick: () => toast({ title: "Coming soon", description: "Rep-card evidence + door tally. Nate reviews and approves bonus points, same as OH." }),
+                icon: <DoorOpen size={22} />, title: "Neighborhood Knock Route", sub: "Piggyback the OH — knock the block. 40 pts on Nate's approval.",
+                onClick: () => setView("oh-knock-route" as any),
               })}
             </div>
           </>
@@ -6044,6 +6050,20 @@ function LeadGenSheet(props: {
           <>
             {header("Direct Mail Lead", () => setView("direct-mail"))}
             <ClientReferralForm source="direct_mail" onSubmitted={() => close()} />
+          </>
+        )}
+
+        {view === "oh-knock-route" && (
+          <>
+            {header("Neighborhood Knock Route", () => setView("open-house"))}
+            <OpenHouseKnockRouteForm user={props.user} toast={props.toast} onDone={close} />
+          </>
+        )}
+
+        {view === "social" && (
+          <>
+            {header("Social Post", () => setView("root"))}
+            <SocialPostForm user={props.user} toast={props.toast} onDone={close} />
           </>
         )}
       </div>
@@ -6486,6 +6506,307 @@ function DirectMailLogForm(props: { user: any; toast: any; onDone: () => void })
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
       }}>
         <Send size={14} /> {submitting ? "Submitting…" : "Submit for approval"}
+      </button>
+    </div>
+  );
+}
+
+// ─── v17.6 OH Knock Route form ──────────────────────────────────────────────
+// Piggyback an open house — walk the block, knock 25+ doors, log tally + selfie.
+// 40 pts flat on Nate's approval. Kind = "oh_knock_route".
+function OpenHouseKnockRouteForm(props: { user: any; toast: any; onDone: () => void }) {
+  const { user, toast, onDone } = props;
+  const [ohAddress, setOhAddress] = useState("");
+  const [routeArea, setRouteArea] = useState("");
+  const [doorsKnocked, setDoorsKnocked] = useState("");
+  const [contacts, setContacts] = useState("");
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!("geolocation" in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      pos => setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {}, { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+    );
+  }, []);
+
+  const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 6 * 1024 * 1024) { toast({ title: "Photo too large", variant: "destructive" }); return; }
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        const MAX = 1024;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) { const s = MAX / Math.max(width, height); width = Math.round(width*s); height = Math.round(height*s); }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) ctx.drawImage(img, 0, 0, width, height);
+        setPhotoDataUrl(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(f);
+  };
+
+  const submit = async () => {
+    if (!ohAddress.trim()) { toast({ title: "OH address required", variant: "destructive" }); return; }
+    const doors = parseInt(doorsKnocked || "0", 10);
+    if (!doors || doors < 25) { toast({ title: "Minimum 25 doors", description: "Knock 25+ to log a route.", variant: "destructive" }); return; }
+    if (!photoDataUrl) { toast({ title: "Selfie required", description: "Snap a selfie on the block.", variant: "destructive" }); return; }
+    setSubmitting(true);
+    try {
+      const r = await apiRequest("POST", "/api/lead-gen/oh-knock-route", {
+        agentId: user?.id,
+        ohAddress: ohAddress.trim(),
+        routeArea: routeArea.trim() || null,
+        doorsKnocked: doors,
+        contacts: parseInt(contacts || "0", 10) || 0,
+        photoDataUrl,
+        gpsLat: gps?.lat ?? null, gpsLng: gps?.lng ?? null,
+        notes: notes.trim(),
+        timestamp: new Date().toISOString(),
+      });
+      const data = await r.json();
+      if (r.ok && data.submitted) {
+        toast({ title: "Submitted for approval", description: "Nate will approve your +40 pts." });
+        onDone();
+      } else {
+        toast({ title: "Failed to submit", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Failed to submit", description: err?.message || String(err), variant: "destructive" });
+    } finally { setSubmitting(false); }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "12px 14px", borderRadius: 8,
+    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(200,170,90,0.22)",
+    color: "#fff", fontSize: 14,
+  };
+  const labelStyle: React.CSSProperties = { display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ padding: "12px 14px", background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.22)", borderRadius: 10 }}>
+        <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.75)", lineHeight: 1.55 }}>
+          Piggyback the open house. Knock the block while you're there.
+          Minimum <strong>25 doors</strong> — 40 pts flat.
+        </p>
+      </div>
+
+      <div>
+        <label style={labelStyle}>Selfie on the block *</label>
+        <input ref={fileRef} type="file" accept="image/*" capture="user" onChange={onPickPhoto} style={{ display: "none" }} />
+        {photoDataUrl ? (
+          <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(74,222,128,0.28)" }}>
+            <img src={photoDataUrl} alt="Route selfie" style={{ width: "100%", display: "block", maxHeight: 320, objectFit: "cover" }} />
+            <button onClick={() => { setPhotoDataUrl(null); if (fileRef.current) fileRef.current.value = ""; }} style={{
+              position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#fff", fontSize: 11, fontWeight: 600,
+              display: "flex", alignItems: "center", gap: 4,
+            }}><X size={12} /> Retake</button>
+          </div>
+        ) : (
+          <button onClick={() => fileRef.current?.click()} style={{
+            width: "100%", padding: "24px 14px", background: "rgba(74,222,128,0.05)",
+            border: "1px dashed rgba(74,222,128,0.4)", borderRadius: 12, cursor: "pointer",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 8, color: "#4ade80",
+          }}>
+            <Camera size={28} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Tap to take selfie</span>
+          </button>
+        )}
+      </div>
+
+      <div>
+        <label style={labelStyle}>OH address *</label>
+        <input value={ohAddress} onChange={e => setOhAddress(e.target.value)} placeholder="123 Oak St, Fernandina Beach, FL" style={inputStyle} />
+      </div>
+
+      <div>
+        <label style={labelStyle}>Route area / neighborhood</label>
+        <input value={routeArea} onChange={e => setRouteArea(e.target.value)} placeholder="Oak St, blocks 100-300" style={inputStyle} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div>
+          <label style={labelStyle}>Doors knocked *</label>
+          <input type="number" min={25} inputMode="numeric" value={doorsKnocked} onChange={e => setDoorsKnocked(e.target.value)} placeholder="25" style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}># conversations</label>
+          <input type="number" min={0} inputMode="numeric" value={contacts} onChange={e => setContacts(e.target.value)} placeholder="0" style={inputStyle} />
+        </div>
+      </div>
+
+      <div>
+        <label style={labelStyle}>Notes</label>
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything notable — hot neighborhoods, warm doors, follow-ups…" rows={3} style={{ ...inputStyle, resize: "vertical" as any }} />
+      </div>
+
+      <button onClick={submit} disabled={submitting} style={{
+        width: "100%", marginTop: 4, padding: "14px 16px",
+        background: submitting ? "rgba(74,222,128,0.4)" : "linear-gradient(135deg,#86efac 0%,#4ade80 100%)",
+        border: "none", borderRadius: 12, cursor: submitting ? "wait" : "pointer",
+        fontSize: 15, fontWeight: 700, letterSpacing: "0.02em", color: "#0a2a10",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      }}>
+        <Send size={14} /> {submitting ? "Submitting…" : "Submit for +40 pts approval"}
+      </button>
+    </div>
+  );
+}
+
+// ─── v17.6 Social Post form ─────────────────────────────────────────────────
+// 15 pts flat, 1/day ET cap. Kind = "social_post". Screenshot + platform + link.
+function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
+  const { user, toast, onDone } = props;
+  const [platform, setPlatform] = useState<"instagram" | "facebook" | "tiktok" | "youtube" | "linkedin" | "x">("instagram");
+  const [postUrl, setPostUrl] = useState("");
+  const [caption, setCaption] = useState("");
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 6 * 1024 * 1024) { toast({ title: "Photo too large", variant: "destructive" }); return; }
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        const MAX = 1024;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) { const s = MAX / Math.max(width, height); width = Math.round(width*s); height = Math.round(height*s); }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) ctx.drawImage(img, 0, 0, width, height);
+        setPhotoDataUrl(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(f);
+  };
+
+  const submit = async () => {
+    if (!photoDataUrl) { toast({ title: "Screenshot required", description: "Attach a screenshot of the post.", variant: "destructive" }); return; }
+    if (!postUrl.trim() && !caption.trim()) { toast({ title: "Add a link or caption", variant: "destructive" }); return; }
+    setSubmitting(true);
+    try {
+      const r = await apiRequest("POST", "/api/lead-gen/social-post", {
+        agentId: user?.id,
+        platform,
+        postUrl: postUrl.trim() || null,
+        caption: caption.trim() || null,
+        photoDataUrl,
+        timestamp: new Date().toISOString(),
+      });
+      const data = await r.json();
+      if (r.ok && data.submitted) {
+        toast({ title: "Submitted for approval", description: "+15 pts pending Nate's review." });
+        onDone();
+      } else if (r.status === 409) {
+        toast({ title: "Already logged today", description: "One social post per day. Come back tomorrow.", variant: "destructive" });
+      } else {
+        toast({ title: "Failed to submit", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Failed to submit", description: err?.message || String(err), variant: "destructive" });
+    } finally { setSubmitting(false); }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "12px 14px", borderRadius: 8,
+    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(200,170,90,0.22)",
+    color: "#fff", fontSize: 14,
+  };
+  const labelStyle: React.CSSProperties = { display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 };
+
+  const platforms: Array<{ id: typeof platform; label: string }> = [
+    { id: "instagram", label: "Instagram" },
+    { id: "facebook", label: "Facebook" },
+    { id: "tiktok", label: "TikTok" },
+    { id: "youtube", label: "YouTube" },
+    { id: "linkedin", label: "LinkedIn" },
+    { id: "x", label: "X / Twitter" },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ padding: "12px 14px", background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.18)", borderRadius: 10 }}>
+        <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.75)", lineHeight: 1.55 }}>
+          Post about real estate — tag <strong>@watsonbrothersgroup</strong> or the brand. 15 pts flat, one per day.
+        </p>
+      </div>
+
+      <div>
+        <label style={labelStyle}>Screenshot of the post *</label>
+        <input ref={fileRef} type="file" accept="image/*" onChange={onPickPhoto} style={{ display: "none" }} />
+        {photoDataUrl ? (
+          <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(200,170,90,0.28)" }}>
+            <img src={photoDataUrl} alt="Post screenshot" style={{ width: "100%", display: "block", maxHeight: 400, objectFit: "cover" }} />
+            <button onClick={() => { setPhotoDataUrl(null); if (fileRef.current) fileRef.current.value = ""; }} style={{
+              position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#fff", fontSize: 11, fontWeight: 600,
+              display: "flex", alignItems: "center", gap: 4,
+            }}><X size={12} /> Replace</button>
+          </div>
+        ) : (
+          <button onClick={() => fileRef.current?.click()} style={{
+            width: "100%", padding: "24px 14px", background: "rgba(200,170,90,0.05)",
+            border: "1px dashed rgba(200,170,90,0.4)", borderRadius: 12, cursor: "pointer",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 8, color: "#c8aa5a",
+          }}>
+            <Instagram size={28} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Tap to attach screenshot</span>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Show the caption, hashtags, or brand tag</span>
+          </button>
+        )}
+      </div>
+
+      <div>
+        <label style={labelStyle}>Platform *</label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+          {platforms.map(p => (
+            <button key={p.id} type="button" onClick={() => setPlatform(p.id)} style={{
+              padding: "10px 8px", borderRadius: 8,
+              background: platform === p.id ? "rgba(200,170,90,0.18)" : "rgba(255,255,255,0.04)",
+              border: platform === p.id ? "1px solid rgba(200,170,90,0.55)" : "1px solid rgba(255,255,255,0.08)",
+              color: platform === p.id ? "#fde047" : "rgba(255,255,255,0.65)",
+              fontSize: 12, fontWeight: 600, cursor: "pointer",
+            }}>{p.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label style={labelStyle}>Post link (optional)</label>
+        <input value={postUrl} onChange={e => setPostUrl(e.target.value)} placeholder="https://instagram.com/p/…" style={inputStyle} />
+      </div>
+
+      <div>
+        <label style={labelStyle}>Caption / notes</label>
+        <textarea value={caption} onChange={e => setCaption(e.target.value)} placeholder="What was the post about? (helps Nate approve faster)" rows={3} style={{ ...inputStyle, resize: "vertical" as any }} />
+      </div>
+
+      <button onClick={submit} disabled={submitting} style={{
+        width: "100%", marginTop: 4, padding: "14px 16px",
+        background: submitting ? "rgba(200,170,90,0.4)" : "linear-gradient(135deg,#fde047 0%,#c8aa5a 100%)",
+        border: "none", borderRadius: 12, cursor: submitting ? "wait" : "pointer",
+        fontSize: 15, fontWeight: 700, letterSpacing: "0.02em", color: "#080808",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      }}>
+        <Send size={14} /> {submitting ? "Submitting…" : "Submit for +15 pts approval"}
       </button>
     </div>
   );

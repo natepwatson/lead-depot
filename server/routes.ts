@@ -23,6 +23,29 @@ import {
   getSnapshotsFiltered,
   scheduleDailySnapshotCron,
 } from "./dailySnapshots";
+import {
+  ensureDiversityChallengeSchema,
+  awardDiversityBonusesForWeek,
+  categoriesHitForAgent,
+  bonusForCount,
+  streakForAgent,
+  weekBoundsET,
+  reawardWeekFor,
+  scheduleDiversityChallengeCron,
+} from "./diversity";
+import { runFullAudit } from "./db-audit";
+import {
+  ensureRepairLogSchema,
+  recomputePointsForAgent,
+  recomputePointsForAll,
+  pruneStaleEvidence,
+  reassignLeadsFromDeactivated,
+  repairSnapshotGaps,
+  listRepairLog,
+} from "./db-repair";
+// v17.6 — removed duplicate ./approvals module. All approval traffic goes
+// through the existing approval_requests table via routes below (§ v17.0
+// ADMIN APPROVAL QUEUE and the per-kind lead-gen POST endpoints).
 import { computeRecommendation, formatQuestionnaireForHumans } from "./recommendation";
 import QRCode from "qrcode";
 import {
@@ -99,10 +122,11 @@ function awardPoints(
     keep_in_touch:             15,   // v15.11.31 — trimmed 20→15. Still real convo value but no longer dial-farmable.
     network_referral:          20,   // v15.11.31 — bumped 15→20. Referrals ARE revenue-direct.
     open_house_lead:           20,   // v16.7 — OH captured lead. Same value as network referral (real capture, revenue-direct).
-    open_house_log:            20,   // v16.7 — OH physical presence log (photo + address). Same value — rewards showing up.
-    oh_knock_route:            15,   // v17.5 — Piggyback knock route while agent is on-site for an OH. Rep-card evidence, Nate approves. Placeholder 15 pts — tune after first live submissions.
-    direct_mail:                1,   // v17.5 — Direct Mail per-address checkpoint approval (1 per address per approved checkpoint, 3 checkpoints max). Placeholder — tune with Nate.
-    door_knock:                 5,   // v17.5 — Standalone door-knock activity (not OH piggyback). Placeholder pending evidence spec.
+    open_house_log:            50,   // v17.6 — OH physical presence log, bumped 20→50 (evidence bar higher, encourages field work).
+    oh_knock_route:            40,   // v17.6 — OH knock route piggyback, bumped 15→40 (SetRep evidence, real effort during OH).
+    direct_mail:                3,   // v17.6 — Direct Mail per-address checkpoint, bumped 1→3 (3 max per address = 9 pts full sequence).
+    door_knock:                 2,   // v17.6 — Base per-door value. Actual session points_potential = doors × 2 (25+ doors min).
+    social_post:               15,   // v17.6 — FB / social real-estate post tagging brand + valid RE content. 1/day cap enforced upstream.
     contacted_not_interested:   5,   // Real contact, worth something.
     listed:                     3,   // Rare informational outcome.
     recycled:                   2,   // Re-queue, minor effort.
@@ -115,6 +139,19 @@ function awardPoints(
     // Any other outcome falls back to base dial (1).
   };
   const basePoints = pts[outcome] ?? 1;
+  // v17.6 — Evidence-gated field activities are FLAT (no Prime multiplier).
+  // The dial multiplier exists because dial connect rates vary by hour; field
+  // work happens whenever the agent shows up and admin approval can be delayed
+  // hours or days, so multiplying by tier-at-approval is arbitrary and gameable.
+  // Award the flat rate and short-circuit.
+  const FLAT_OUTCOMES = new Set(["open_house_log", "open_house_lead", "oh_knock_route", "direct_mail", "door_knock", "social_post", "network_referral"]);
+  if (FLAT_OUTCOMES.has(outcome)) {
+    if (basePoints === 0) return;
+    rawDb.prepare(
+      `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(agentId, basePoints, outcome, leadId ?? null, scope, new Date().toISOString());
+    return;
+  }
   // v15.11.26 — 5-TIER call-heat multiplier (was 2-tier). Multipliers align with
   // the 5-tier schedule grid in shared/prime-schedule.ts and drive the leaderboard
   // toward proven high-connect hours.
@@ -366,7 +403,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v17.5 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v17.6 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -425,7 +462,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.5 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -710,7 +747,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.5 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1949,7 +1986,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v17.5</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v17.6</p>
             </div>
           `,
         });
@@ -2109,7 +2146,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v17.5 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v17.6 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -4843,6 +4880,142 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
+  // ─── v17.6 DIVERSITY CHALLENGE ─────────────────────────────
+  // Weekly bonus tiers: 3 cats = +150, 4 cats = +200, 5 cats = +250.
+  // Categories: phone, open_house, door_knock, direct_mail, social.
+  // Awarded Sundays 23:59 ET via cron. Admin can preview + re-award.
+  ensureDiversityChallengeSchema();
+
+  // Agent-facing: current week categories hit + potential bonus + streak
+  app.get("/api/diversity/mine", (req: any, res) => {
+    if (!requireSession(req, res)) return;
+    try {
+      const today = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }))
+        .toISOString().slice(0, 10);
+      const { start, end } = weekBoundsET(today);
+      const cats = categoriesHitForAgent(req.currentAgent.id, start, end);
+      const potential = bonusForCount(cats.length);
+      const streak = streakForAgent(req.currentAgent.id);
+      res.json({ weekStart: start, weekEnd: end, categories: cats, count: cats.length, potentialBonus: potential, streak });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "diversity_mine_error" });
+    }
+  });
+
+  // Admin: recent bonus history (last 12 weeks)
+  app.get("/api/admin/diversity/history", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const rows = rawDb.prepare(`
+        SELECT db.*, a.name AS agent_name
+        FROM diversity_bonuses db
+        LEFT JOIN agents a ON a.id = db.agent_id
+        ORDER BY week_start DESC, points_awarded DESC
+        LIMIT 500
+      `).all();
+      res.json({ rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "diversity_history_error" });
+    }
+  });
+
+  // Admin: preview current week (dry run — no awards)
+  app.get("/api/admin/diversity/preview", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const dateInWeek = req.query.date ? String(req.query.date) : new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" })).toISOString().slice(0, 10);
+      const { start, end } = weekBoundsET(dateInWeek);
+      const agents = rawDb.prepare(`SELECT id, name FROM agents WHERE deactivated IS NULL OR deactivated = 0`).all() as any[];
+      const preview = agents.map((a: any) => {
+        const cats = categoriesHitForAgent(a.id, start, end);
+        return { agentId: a.id, agentName: a.name, categories: cats, count: cats.length, potentialBonus: bonusForCount(cats.length) };
+      }).filter((r: any) => r.count > 0);
+      res.json({ weekStart: start, weekEnd: end, rows: preview });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "diversity_preview_error" });
+    }
+  });
+
+  // Admin: re-award a specific week (idempotent — uses INSERT OR IGNORE)
+  app.post("/api/admin/diversity/reaward", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const dateInWeek = req.body?.date ? String(req.body.date) : new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" })).toISOString().slice(0, 10);
+      const awards = reawardWeekFor(dateInWeek);
+      res.json({ ok: true, awardsCount: awards.length, awards });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "diversity_reaward_error" });
+    }
+  });
+
+  // ─── v17.6 DB AUDIT + REPAIR ────────────────────────────────
+  // Read-only sweep + dry-run-default repair actions. All writes journaled.
+  ensureRepairLogSchema();
+
+  app.get("/api/admin/db-audit", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const report = runFullAudit();
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "db_audit_error" });
+    }
+  });
+
+  app.post("/api/admin/db-repair/recompute-points", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const dryRun = req.body?.dryRun !== false; // default true
+      const agentId = req.body?.agentId ? Number(req.body.agentId) : null;
+      const actor = req.currentAgent ? { id: req.currentAgent.id, name: req.currentAgent.name } : null;
+      if (agentId) {
+        const r = recomputePointsForAgent(agentId, dryRun, actor);
+        res.json({ ok: true, dryRun, result: r });
+      } else {
+        const rs = recomputePointsForAll(dryRun, actor);
+        const drift = rs.filter((r) => r.delta !== 0);
+        res.json({ ok: true, dryRun, checked: rs.length, drift: drift.length, driftRows: drift });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "recompute_error" });
+    }
+  });
+
+  app.post("/api/admin/db-repair/prune-evidence", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const dryRun = req.body?.dryRun !== false;
+      const olderThanDays = Math.max(30, Number(req.body?.olderThanDays || 180));
+      const actor = req.currentAgent ? { id: req.currentAgent.id, name: req.currentAgent.name } : null;
+      const r = pruneStaleEvidence(olderThanDays, dryRun, actor);
+      res.json({ ok: true, dryRun, olderThanDays, ...r });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "prune_error" });
+    }
+  });
+
+  app.post("/api/admin/db-repair/reassign-orphan-leads", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const dryRun = req.body?.dryRun !== false;
+      const actor = req.currentAgent ? { id: req.currentAgent.id, name: req.currentAgent.name } : null;
+      const r = reassignLeadsFromDeactivated(dryRun, actor);
+      res.json({ ok: true, dryRun, ...r });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "reassign_error" });
+    }
+  });
+
+  app.get("/api/admin/db-repair/log", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const rows = listRepairLog(Number(req.query.limit || 100));
+      res.json({ rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "repair_log_error" });
+    }
+  });
+
   // ─── SCRIPTS (DB-backed, editable) ────────────────────────────────────────
   // Initialize default scripts on first run
   const initScript = (leadType: string, defaultContent: string) => {
@@ -6936,7 +7109,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v17.5 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v17.6 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6986,7 +7159,7 @@ Brothers Group Real Estate Team at Momentum Realty
     const info = rawDb.prepare(`
       INSERT INTO approval_requests
         (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
-      VALUES ('open_house_log', ?, ?, 'pending', 20, ?, ?)
+      VALUES ('open_house_log', ?, ?, 'pending', 50, ?, ?)
     `).run(submitterId, submitter?.name || "Agent", JSON.stringify(payloadObj), now);
     const requestId = Number(info.lastInsertRowid);
 
@@ -7047,26 +7220,27 @@ Brothers Group Real Estate Team at Momentum Realty
       },
     });
 
-    res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: 20 });
+    res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: 50 });
   });
 
-  // ─── v17.5 DOOR KNOCK LOG → APPROVAL QUEUE ────────────────────────
-  // Field-prospecting flow. Agent submits address/block + doors-knocked count
-  // + notes + optional GPS. Evidence comes from the rep-card app (external),
-  // no photo required here. Points = 2 × doors, awarded on Nate's approval.
+  // ─── v17.6 DOOR KNOCK LOG → APPROVAL QUEUE ────────────────────────
+  // Standalone door-knock session (not OH piggyback). Minimum 25 doors per
+  // session — planned ahead, real route. 2 pts per door. Evidence is the
+  // rep-card app export/reconciliation on Nate's side. Fakers caught by low
+  // leads-per-1000-doors ratio over time.
   app.post("/api/lead-gen/door-knock-log", (req, res) => {
     const { agentId, address, doorsCount, notes, gpsLat, gpsLng, timestamp } = req.body;
     const submitterId = agentId ? parseInt(String(agentId)) : null;
     if (!submitterId) return res.status(400).json({ error: "agentId required" });
     if (!address || !String(address).trim()) return res.status(400).json({ error: "Address / block required" });
     const doors = doorsCount != null ? Math.max(0, parseInt(String(doorsCount)) || 0) : 0;
-    if (doors < 1) return res.status(400).json({ error: "Doors count must be > 0" });
+    if (doors < 25) return res.status(400).json({ error: "Door knock session requires 25 or more doors" });
 
     const now = new Date().toISOString();
     const submitter = storage.getAgentById(submitterId);
     const cleanAddr = String(address).trim();
-    const cappedDoors = Math.min(doors, 250); // sane per-submission cap
-    const points = cappedDoors * 2;
+    const cappedDoors = Math.min(doors, 500); // sane per-submission cap
+    const points = cappedDoors * 2; // v17.6 — 2 pts per door
     const payloadObj = {
       address: cleanAddr,
       doorsCount: cappedDoors,
@@ -7100,7 +7274,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: points, doorsCount: cappedDoors });
   });
 
-  // ─── v17.5 DIRECT MAIL LOG → APPROVAL QUEUE ───────────────────────
+  // ─── v17.6 DIRECT MAIL LOG → APPROVAL QUEUE ───────────────────────
   // Log a mailer campaign for admin approval. Agent submits audience description,
   // count of addresses mailed, mailer photo, notes. Row goes into approval_requests
   // status='pending'. points_potential = mailedCount (1 pt per address, capped
@@ -7148,6 +7322,110 @@ Brothers Group Real Estate Team at Momentum Realty
     });
 
     res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: capped });
+  });
+
+  // ─── v17.6 SOCIAL POST → APPROVAL QUEUE ─────────────────────
+  // Real-estate post on Facebook / Instagram / LinkedIn. Must tag Watson Brothers
+  // Group OR Momentum Realty and be a valid RE post (education, listing,
+  // just-sold, market update, local hotspot, OH promotion, behind-the-scenes).
+  // 15 pts flat per approved post. 1 pending+approved per agent per ET day.
+  app.post("/api/lead-gen/social-post", (req, res) => {
+    const { agentId, platform, postUrl, category, notes, photoDataUrl, timestamp } = req.body;
+    const submitterId = agentId ? parseInt(String(agentId)) : null;
+    if (!submitterId) return res.status(400).json({ error: "agentId required" });
+    if (!photoDataUrl) return res.status(400).json({ error: "Screenshot required" });
+    const cleanPlatform = platform ? String(platform).trim().slice(0, 40) : "";
+    const cleanCategory = category ? String(category).trim().slice(0, 40) : "";
+
+    // 1/day cap per agent, ET date. Count pending + approved.
+    const etDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }))
+      .toISOString().slice(0, 10);
+    const capRow = rawDb.prepare(`
+      SELECT COUNT(*) AS n FROM approval_requests
+      WHERE kind = 'social_post' AND agent_id = ? AND status IN ('pending','approved')
+        AND substr(submitted_at, 1, 10) = ?
+    `).get(submitterId, etDate) as any;
+    if ((capRow?.n || 0) >= 1) {
+      return res.status(400).json({ error: "You already have a social post submitted today (1/day max)" });
+    }
+
+    const now = new Date().toISOString();
+    const submitter = storage.getAgentById(submitterId);
+    const payloadObj = {
+      platform: cleanPlatform,
+      category: cleanCategory,
+      postUrl: postUrl ? String(postUrl).trim().slice(0, 500) : "",
+      notes: notes ? String(notes).trim().slice(0, 2000) : "",
+      capturedAt: timestamp || now,
+      photoDataUrl: String(photoDataUrl).slice(0, 4_000_000),
+    };
+    const info = rawDb.prepare(`
+      INSERT INTO approval_requests
+        (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
+      VALUES ('social_post', ?, ?, 'pending', 15, ?, ?)
+    `).run(submitterId, submitter?.name || "Agent", JSON.stringify(payloadObj), now);
+    const requestId = Number(info.lastInsertRowid);
+
+    broadcast({
+      type: "approval_event",
+      event: {
+        type: "approval_submitted",
+        kind: "social_post",
+        requestId,
+        agentId: submitterId,
+        agentName: submitter?.name || "Agent",
+        agentHeadshot: (submitter as any)?.headshotUrl || null,
+        platform: cleanPlatform,
+        ts: now,
+      },
+    });
+
+    res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: 15 });
+  });
+
+  // ─── v17.6 OH KNOCK ROUTE → APPROVAL QUEUE ──────────────────
+  // SetRep knock route piggybacked on an Open House. Min 25 doors visited.
+  // 40 pts flat per approved route.
+  app.post("/api/lead-gen/oh-knock-route", (req, res) => {
+    const { agentId, ohAddress, doorsVisited, setRepSessionId, notes, timestamp } = req.body;
+    const submitterId = agentId ? parseInt(String(agentId)) : null;
+    if (!submitterId) return res.status(400).json({ error: "agentId required" });
+    if (!ohAddress || !String(ohAddress).trim()) return res.status(400).json({ error: "OH address required" });
+    const doors = doorsVisited != null ? Math.max(0, parseInt(String(doorsVisited)) || 0) : 0;
+    if (doors < 25) return res.status(400).json({ error: "OH knock route requires 25 or more doors" });
+
+    const now = new Date().toISOString();
+    const submitter = storage.getAgentById(submitterId);
+    const cleanAddr = String(ohAddress).trim();
+    const payloadObj = {
+      address: cleanAddr,
+      doorsVisited: Math.min(doors, 500),
+      setRepSessionId: setRepSessionId ? String(setRepSessionId).trim().slice(0, 100) : "",
+      notes: notes ? String(notes).trim().slice(0, 4000) : "",
+      capturedAt: timestamp || now,
+    };
+    const info = rawDb.prepare(`
+      INSERT INTO approval_requests
+        (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
+      VALUES ('oh_knock_route', ?, ?, 'pending', 40, ?, ?)
+    `).run(submitterId, submitter?.name || "Agent", JSON.stringify(payloadObj), now);
+    const requestId = Number(info.lastInsertRowid);
+
+    broadcast({
+      type: "approval_event",
+      event: {
+        type: "approval_submitted",
+        kind: "oh_knock_route",
+        requestId,
+        agentId: submitterId,
+        agentName: submitter?.name || "Agent",
+        agentHeadshot: (submitter as any)?.headshotUrl || null,
+        address: cleanAddr,
+        ts: now,
+      },
+    });
+
+    res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: 40 });
   });
 
 
@@ -7217,8 +7495,18 @@ Brothers Group Real Estate Team at Momentum Realty
     `).run(row.agent_id, outcome, row.payload_json, now, addrSnap);
     const activityId = Number(activityInfo.lastInsertRowid);
 
-    try { awardPoints(row.agent_id, outcome); } catch (err) { console.error("[approve] awardPoints failed:", err); }
+    // v17.6 — Award points_potential directly to the ledger with the kind as reason.
+    // Field/evidence activities are FLAT (no Prime multiplier) and points_potential
+    // was locked at submission time, so this is deterministic. Bypasses awardPoints()
+    // to keep ledger and points_awarded in sync (they used to diverge — awardPoints
+    // used its own dict which didn't match approval_requests kinds like
+    // 'door_knock_log' or 'direct_mail_log').
     const pointsAwarded = row.points_potential || 0;
+    if (pointsAwarded > 0) {
+      rawDb.prepare(
+        `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, NULL, 'seller', ?)`
+      ).run(row.agent_id, pointsAwarded, `approval:${outcome}`, now);
+    }
 
     rawDb.prepare(`
       UPDATE approval_requests
@@ -7816,7 +8104,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v17.5",
+      version: "v17.6",
       services: results,
     });
   });
@@ -8934,7 +9222,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v17.5`,
+              subject: `${firstName}, your BGRE application — Lead Depot v17.6`,
               html,
               text: invitationBody,
               replyTo: "alex@watsonbrothersgroup.com",
@@ -9573,7 +9861,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v17.5</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v17.6</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -9703,6 +9991,7 @@ scheduleDailyDigest();
 // counters freeze before the ET midnight boundary. Also captures once at
 // boot so today always has a row. Idempotent — safe to re-fire.
 scheduleDailySnapshotCron();
+scheduleDiversityChallengeCron();
 
 // ─── v15.11.50 ─ MONTHLY LEADERBOARD RESET ──────────────────────────────────
 // Fires at 00:00 America/New_York on the 1st of every month. Snapshots the

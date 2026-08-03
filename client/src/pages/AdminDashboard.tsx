@@ -940,7 +940,7 @@ function HealthWidget() {
   );
 }
 
-// v17.3 — TeamPotStretchAdmin REMOVED per Alex. The $1000/80-appt tier is now
+// v17.4 — TeamPotStretchAdmin REMOVED per Alex. The $1000/80-appt tier is now
 // permanently visible to the team; no toggle. Below shell retained as a no-op
 // stub to keep any lingering render sites compiling.
 function _RemovedInV17_2_TeamPotStretchAdmin() { return null as unknown as JSX.Element; }
@@ -1816,7 +1816,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v17.3
+              v17.4
             </p>
           </div>
         </div>
@@ -2152,7 +2152,7 @@ export default function AdminDashboard({
             {/* v16.7 — admins compete for the monthly prize too. Same TeamPotCard
                 the agents see at the top of Dial, rendered here above the KPIs. */}
             <TeamPotCard />
-            {/* v17.3 — Stretch reveal toggle removed. $1000 tier now permanently visible on TeamPotCard. */}
+            {/* v17.4 — Stretch reveal toggle removed. $1000 tier now permanently visible on TeamPotCard. */}
             {/* v15.11.39 — Live On Air widget: who is dialing RIGHT NOW, by name. */}
             <LiveOnAirWidget />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

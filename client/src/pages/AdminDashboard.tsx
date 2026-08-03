@@ -939,11 +939,11 @@ function HealthWidget() {
   );
 }
 
-// v16.7 — Admin-only Team Pot stretch-tier toggle. When flipped ON, the
-// hidden $1000/80-appt rung appears on the TeamPotCard for the whole team.
-// When OFF (default), agents see $750 as the final rung. Auto-resets to OFF
-// on the 1st of every month via the monthly leaderboard reset scheduler.
-function TeamPotStretchAdmin() {
+// v17.2 — TeamPotStretchAdmin REMOVED per Alex. The $1000/80-appt tier is now
+// permanently visible to the team; no toggle. Below shell retained as a no-op
+// stub to keep any lingering render sites compiling.
+function _RemovedInV17_2_TeamPotStretchAdmin() { return null as unknown as JSX.Element; }
+function _WasTeamPotStretchAdmin_v17_2_removed() {
   const qc = useQueryClient();
   const { data: pot } = useQuery<any>({
     queryKey: ["/api/team-pot"],
@@ -1815,7 +1815,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v17.1
+              v17.2
             </p>
           </div>
         </div>
@@ -2151,10 +2151,7 @@ export default function AdminDashboard({
             {/* v16.7 — admins compete for the monthly prize too. Same TeamPotCard
                 the agents see at the top of Dial, rendered here above the KPIs. */}
             <TeamPotCard />
-            {/* v16.7 — Admin-only stretch tier toggle. Default hidden. Flip once
-                you're comfortable showing the team that $1000 is on the table if
-                they cross 80 team appointments. */}
-            <TeamPotStretchAdmin />
+            {/* v17.2 — Stretch reveal toggle removed. $1000 tier now permanently visible on TeamPotCard. */}
             {/* v15.11.39 — Live On Air widget: who is dialing RIGHT NOW, by name. */}
             <LiveOnAirWidget />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

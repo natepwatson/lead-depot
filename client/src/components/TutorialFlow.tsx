@@ -82,7 +82,7 @@ const TAB_COPY: Record<string, string> = {
   // on the leaderboard, offline queue safety.
   leaderboard: "The team scoreboard — dials, contacts, and appointments, updated live. Also home to the Team Pot: everyone's shot at the monthly $1,000 pool. Effort is visible.",
   pipeline:    "Every lead you personally moved forward — Keep in Touch, Appointments, and closed wins. This never gets pulled back to the pool. Ever. Boot to boot, month to month, it stays yours.",
-  leads:       "The gold button. Tap the phone, run LPMAMAB, log the outcome. Every tap is receipted — offline or online, no dial ever gets lost. This is where the money gets made.",
+  leads:       "The gold button. Tap the phone, run LPMAMA (buyer) or CPMAMA (seller), log the outcome. Every tap is receipted — offline or online, no dial ever gets lost. This is where the money gets made.",
   // Network/Referral leads: leads the agent personally sourced (church, gym,
   // in person) and works themselves. If it fizzles, it goes back in the pool.
   refer:       "Referrals — leads YOU sourced from your own network (church, gym, in person). You keep them, work them, and if one fizzles you toss it back and grab another.",
@@ -432,8 +432,8 @@ function Chapter2({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: 
 const RULES = [
   {
     title: "We keep it simple and real.",
-    body: "No scripts to memorize — LPMAMAB is the checklist. Say hi like a human, then walk it.",
-    extra: "L — Location · P — Price · M — Motivation · A — Agent · M — Mortgage · A — Appointment · B — Buyer",
+    body: "No scripts to memorize — LPMAMA / CPMAMA / LPMA is the checklist. Say hi like a human, then walk it.",
+    extra: "LPMAMA (buyer): Location · Price · Motivation · Agent · Mortgage · Appointment —— CPMAMA (seller): Condition · Price · Motivation · Agent · Mortgage · Appointment —— LPMA (renter): Location · Price · Motivation · Appointment",
   },
   {
     title: "Lead Depot exists to remove friction.",

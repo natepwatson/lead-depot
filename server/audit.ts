@@ -33,7 +33,8 @@ export type AgentAuditEvent =
   | "merge_received"              // target-side row: another row merged into this one
   | "role_changed"
   | "fk_remap"                    // one-off data-normalization migration
-  | "profile_updated";            // catch-all for name/phone/brokerage/etc.
+  | "profile_updated"              // catch-all for name/phone/brokerage/etc.
+  | "skip_quota_reset";            // admin cleared an agent's skip quota / released holdouts
 
 export interface LogAgentEventArgs {
   actorId: number | null;

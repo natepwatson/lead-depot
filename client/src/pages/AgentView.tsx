@@ -15,7 +15,7 @@ import {
   Trophy, Users, Send, UserPlus, Heart,
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
   Home, Voicemail, Layers, Calendar, FileText,
-  Camera, DoorOpen, Zap, X, ArrowLeft,
+  Camera, DoorOpen, Zap, X, ArrowLeft, Plus,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
@@ -56,6 +56,17 @@ const BUYER_LPMAMA_FIELDS = [
   { key: "bMotivation", label: "B-M — Motivation", color: "#93c5fd", hint: "Why buying? Upsizing, downsizing, first home, investment?",     leadField: "bMotivation" },
   { key: "bAgent",      label: "B-A — Agent",      color: "#93c5fd", hint: "Working with a buyer's agent already? Signed anything?",        leadField: "bAgent" },
   { key: "bMortgage",   label: "B-M — Mortgage",   color: "#93c5fd", hint: "Pre-approved? Cash? Need a lender referral?",                    leadField: "bMortgage" },
+] as const;
+
+// v17.2 — Renter LPMA (Location, Price, Motivation, Appointment). No Agent /
+// no Mortgage — renters don't sign buyer agency agreements and don't need
+// lender pre-approval. Stored in extraData.renterLpma (JSON) to avoid a schema
+// migration.
+const RENTER_LPMA_FIELDS = [
+  { key: "rLocation",   label: "R-L — Location",   color: "#4ade80", hint: "Where do they want to rent? Area / commute / school?" },
+  { key: "rPrice",      label: "R-P — Price",      color: "#4ade80", hint: "Monthly rent budget? Any concessions expected?" },
+  { key: "rMotivation", label: "R-M — Motivation", color: "#4ade80", hint: "Why renting? New to town, saving to buy, in-between?" },
+  { key: "rAppointment",label: "R-A — Appointment",color: "#4ade80", hint: "When can they walk properties? Best day / time?" },
 ] as const;
 
 // ─── Outcome configs ───────────────────────────────────────────────────────────
@@ -1254,6 +1265,11 @@ function LeadCard({ lead }: { lead: Lead }) {
     bMotivation: (lead as any).bMotivation ?? "",
     bAgent:      (lead as any).bAgent      ?? "",
     bMortgage:   (lead as any).bMortgage   ?? "",
+    // v17.2 — Renter LPMA (JSON-in-extraData; no SQL columns)
+    rLocation:    (() => { try { return JSON.parse((lead as any).extraData || "{}").renterLpma?.rLocation    ?? ""; } catch { return ""; } })(),
+    rPrice:       (() => { try { return JSON.parse((lead as any).extraData || "{}").renterLpma?.rPrice       ?? ""; } catch { return ""; } })(),
+    rMotivation:  (() => { try { return JSON.parse((lead as any).extraData || "{}").renterLpma?.rMotivation  ?? ""; } catch { return ""; } })(),
+    rAppointment: (() => { try { return JSON.parse((lead as any).extraData || "{}").renterLpma?.rAppointment ?? ""; } catch { return ""; } })(),
   });
 
   // v15.11.27 — Buyer Target (future home the buyer wants to acquire).
@@ -1273,20 +1289,30 @@ function LeadCard({ lead }: { lead: Lead }) {
     areas:     initialBuyerTarget.areas     ?? "",
     mustHaves: initialBuyerTarget.mustHaves ?? "",
   });
-  // v14.53 — Intent selector: 3-way mutually-exclusive choice.
-  //   sell_only     → Seller CPMAMA only
-  //   sell_and_buy  → Seller CPMAMA + Buyer LPMAMA
-  //   buy_only      → Buyer LPMAMA only (no seller card at all)
-  // Backward compat: derive from existing lead.intent if present, otherwise from alsoBuying flag.
-  type Intent = "sell_only" | "sell_and_buy" | "buy_only";
-  const initialIntent: Intent = ((lead as any).intent as Intent) ||
+  // v14.53 / v17.2 — Intent selector: mutually-exclusive choice powering the
+  // Work-the-Lead script tabs.
+  //   sell_only        → Seller CPMAMA only
+  //   sell_and_buy     → Seller CPMAMA + Buyer LPMAMA
+  //   buy_only         → Buyer LPMAMA only
+  //   rent_only        → Renter LPMA only (v17.2 — new)
+  //   sell_and_rent    → Seller CPMAMA + Renter LPMA (v17.2 — new)
+  // Priority: extraData.warmLeadIntent (v17.2 unified) > lead.intent > alsoBuying flag > default.
+  type Intent = "sell_only" | "sell_and_buy" | "buy_only" | "rent_only" | "sell_and_rent";
+  const extra = (() => { try { return JSON.parse(lead.extraData || "{}"); } catch { return {}; } })();
+  const warmLeadIntentRaw = String(extra?.warmLeadIntent || "");
+  const warmToLegacy: Record<string, Intent | null> = {
+    buyer: "buy_only", seller: "sell_only", renter: "rent_only",
+    seller_and_buyer: "sell_and_buy", seller_and_renter: "sell_and_rent",
+    future_buyer: "buy_only", future_seller: "sell_only", future_renter: "rent_only",
+    future_seller_and_buyer: "sell_and_buy", future_seller_and_renter: "sell_and_rent",
+  };
+  const initialIntent: Intent = warmToLegacy[warmLeadIntentRaw] || ((lead as any).intent as Intent) ||
     ((lead as any).alsoBuying ? "sell_and_buy" : "sell_only");
   const [intent, setIntent] = useState<Intent>(initialIntent);
   const alsoBuying = intent === "sell_and_buy"; // preserved derived flag for downstream code / FUB
-  const showSellerCard = intent !== "buy_only";
-  const showBuyerCard = intent !== "sell_only";
-
-  const extra = (() => { try { return JSON.parse(lead.extraData || "{}"); } catch { return {}; } })();
+  const showSellerCard = intent === "sell_only" || intent === "sell_and_buy" || intent === "sell_and_rent";
+  const showBuyerCard = intent === "buy_only" || intent === "sell_and_buy";
+  const showRenterCard = intent === "rent_only" || intent === "sell_and_rent";
 
   const { data: script } = useQuery<{ content: string }>({
     queryKey: ["/api/scripts", lead.leadType],
@@ -1767,12 +1793,16 @@ function LeadCard({ lead }: { lead: Lead }) {
               Only shows when intent is explicitly set so unlogged leads stay clean. */}
           {(() => {
             const rawIntent = (lead as any).intent as string | null | undefined;
-            const derived = rawIntent || ((lead as any).alsoBuying ? "sell_and_buy" : null);
+            // v17.2 — prefer warmLeadIntent from extraData over legacy lead.intent.
+            const warmDerived = warmToLegacy[warmLeadIntentRaw];
+            const derived = warmDerived || rawIntent || ((lead as any).alsoBuying ? "sell_and_buy" : null);
             if (!derived) return null;
             const styles: Record<string, { bg: string; fg: string; border: string; label: string; title: string }> = {
-              sell_only:    { bg: "rgba(200,170,90,0.18)", fg: "#c8aa5a", border: "rgba(200,170,90,0.55)", label: "SELL",       title: "Seller intent — CPMAMA script" },
-              buy_only:     { bg: "rgba(147,197,253,0.18)", fg: "#93c5fd", border: "rgba(59,130,246,0.55)", label: "BUY",       title: "Buyer intent — Buyer LPMAMA script" },
-              sell_and_buy: { bg: "linear-gradient(90deg, rgba(200,170,90,0.22) 0%, rgba(147,197,253,0.22) 100%)", fg: "#f0f0f0", border: "rgba(200,170,90,0.5)", label: "SELL & BUY", title: "Multi-transaction — CPMAMA + Buyer LPMAMA" },
+              sell_only:     { bg: "rgba(200,170,90,0.18)", fg: "#c8aa5a", border: "rgba(200,170,90,0.55)", label: "SELL",       title: "Seller intent — CPMAMA script" },
+              buy_only:      { bg: "rgba(147,197,253,0.18)", fg: "#93c5fd", border: "rgba(59,130,246,0.55)", label: "BUY",       title: "Buyer intent — Buyer LPMAMA script" },
+              rent_only:     { bg: "rgba(74,222,128,0.18)",  fg: "#4ade80", border: "rgba(34,197,94,0.55)",  label: "RENT",      title: "Renter intent — LPMA script" },
+              sell_and_buy:  { bg: "linear-gradient(90deg, rgba(200,170,90,0.22) 0%, rgba(147,197,253,0.22) 100%)", fg: "#f0f0f0", border: "rgba(200,170,90,0.5)", label: "SELL & BUY",  title: "Multi-transaction — CPMAMA + Buyer LPMAMA" },
+              sell_and_rent: { bg: "linear-gradient(90deg, rgba(200,170,90,0.22) 0%, rgba(74,222,128,0.22) 100%)",  fg: "#f0f0f0", border: "rgba(200,170,90,0.5)", label: "SELL & RENT", title: "Multi-transaction — CPMAMA + Renter LPMA" },
             };
             const s = styles[derived];
             if (!s) return null;
@@ -2146,7 +2176,7 @@ function LeadCard({ lead }: { lead: Lead }) {
                     background: "rgba(196,181,253,0.08)", border: "1px solid rgba(196,181,253,0.3)",
                     fontSize: 11, color: "#c4b5fd", fontWeight: 600,
                   }}>
-                    🏠 {outOfState ? `Out-of-state investor (${mailState})` : `Absentee owner — lives in ${extra.ownerMailing.city}`}
+                    🏠 {outOfState ? `Out-of-state investor (${mailState})` : `Owner lives in ${extra.ownerMailing.city}`}
                   </div>
                 )}
                 {extra.ownerOccupied === true && (
@@ -2199,9 +2229,11 @@ function LeadCard({ lead }: { lead: Lead }) {
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
             {([
-              { key: "sell_only",    label: "Sell only",   bg: "rgba(200,170,90,0.20)",  fg: "#c8aa5a", border: "rgba(200,170,90,0.55)" },
-              { key: "sell_and_buy", label: "Sell & Buy",  bg: "rgba(147,197,253,0.22)", fg: "#93c5fd", border: "rgba(59,130,246,0.60)" },
-              { key: "buy_only",     label: "Buy only",    bg: "rgba(147,197,253,0.22)", fg: "#93c5fd", border: "rgba(59,130,246,0.60)" },
+              { key: "sell_only",     label: "Sell",           bg: "rgba(200,170,90,0.20)",  fg: "#c8aa5a", border: "rgba(200,170,90,0.55)" },
+              { key: "buy_only",      label: "Buy",            bg: "rgba(147,197,253,0.22)", fg: "#93c5fd", border: "rgba(59,130,246,0.60)" },
+              { key: "rent_only",     label: "Rent",           bg: "rgba(74,222,128,0.22)",  fg: "#4ade80", border: "rgba(34,197,94,0.60)" },
+              { key: "sell_and_buy",  label: "Sell + Buy",     bg: "linear-gradient(90deg, rgba(200,170,90,0.22) 0%, rgba(147,197,253,0.22) 100%)", fg: "#f0f0f0", border: "rgba(200,170,90,0.50)" },
+              { key: "sell_and_rent", label: "Sell + Rent",    bg: "linear-gradient(90deg, rgba(200,170,90,0.22) 0%, rgba(74,222,128,0.22) 100%)",  fg: "#f0f0f0", border: "rgba(200,170,90,0.50)" },
             ] as const).map(opt => {
               const active = intent === opt.key;
               return (
@@ -2374,6 +2406,48 @@ function LeadCard({ lead }: { lead: Lead }) {
         </div>
       )}
 
+      {/* v17.2 ── Renter LPMA card ── */}
+      {showRenterCard && (
+        <div style={{ padding: "0 20px 18px" }}>
+          <div style={{
+            background: "linear-gradient(180deg, rgba(34,197,94,0.08), rgba(34,197,94,0.02))",
+            border: "1px solid rgba(34,197,94,0.28)", borderRadius: 12,
+            padding: "14px 14px 12px",
+          }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+              <p style={{ margin: 0, fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(74,222,128,0.85)", fontWeight: 600 }}>Renter LPMA</p>
+              {RENTER_LPMA_FIELDS.some(f => lpmData[f.key]?.trim()) && (
+                <span style={{ fontSize: 9, letterSpacing: "0.12em", color: "#4ade80", background: "rgba(34,197,94,0.18)", padding: "2px 8px", borderRadius: 99 }}>
+                  FILLED
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {RENTER_LPMA_FIELDS.map(f => (
+                <div key={f.key}>
+                  <label style={{ display: "block", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: f.color, fontWeight: 700, marginBottom: 5, opacity: 0.85 }}>{f.label}</label>
+                  <input
+                    value={lpmData[f.key] ?? ""}
+                    onChange={e => setLpmData(d => ({ ...d, [f.key]: e.target.value }))}
+                    placeholder={f.hint}
+                    style={{
+                      width: "100%",
+                      background: "rgba(255,255,255,0.05)",
+                      border: `1px solid ${lpmData[f.key]?.trim() ? f.color + "66" : "rgba(255,255,255,0.10)"}`,
+                      padding: "10px 12px", borderRadius: 8,
+                      color: "#fff", fontSize: 13,
+                      fontFamily: "'Switzer','Inter',sans-serif",
+                      outline: "none", boxSizing: "border-box" as const,
+                      transition: "border-color 0.15s",
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* v14.20 ── CALL NOTES (last before outcomes) ── */}
       <div style={{ padding: "0 20px 18px" }}>
         <SectionLabel>Call Notes</SectionLabel>
@@ -2460,8 +2534,28 @@ function LeadCard({ lead }: { lead: Lead }) {
             What each outcome means
           </button>
         </div>
-        <div style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "repeat(3, 1fr)", gap: 5 }}>
-          {OUTCOMES.map(o => {
+        {/* v17.2 — Per-leg outcome filter.
+            Warm leads (Network / OH / Door-Knock / Direct-Mail) skip all cold-
+            dialer outcomes: no No-Answer, no Wrong-#, no Recycle, no Not-
+            Interested, no Left-VM, no Listed, no Disconnected. You already
+            talked to them face-to-face or by referral — the only decisions are
+            "appt set" or "keep in touch".
+            Same rule applies when the ACTIVE INTENT TAB is renter: renters don't
+            hit voicemail via the LPMA script (that's a warm interaction).
+            Cold leads (Expired dialer) keep the full 9-outcome grid. */}
+        {(() => {
+          const warmSources = new Set(["network", "open_house", "door_knock", "direct_mail"]);
+          const isWarmLead = warmSources.has(lead.leadType);
+          const isRenterTab = intent === "rent_only";
+          const useWarmGrid = isWarmLead || isRenterTab;
+          const visibleOutcomes = useWarmGrid
+            ? OUTCOMES.filter(o => o.key === "contacted_appointment" || o.key === "keep_in_touch")
+            : OUTCOMES;
+          const gridCols = useWarmGrid ? "1fr 1fr" : "1fr 1fr 1fr";
+          const gridRows = useWarmGrid ? "1fr" : "repeat(3, 1fr)";
+          return (
+        <div style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: gridCols, gridTemplateRows: gridRows, gap: 5 }}>
+          {visibleOutcomes.map(o => {
             const Icon = o.icon;
             const isHovered = hoveredOutcome === o.key;
             // v14.80 — Tier 3: Appt Set tile gets a 400ms gold shimmer sweep + chime
@@ -2504,6 +2598,8 @@ function LeadCard({ lead }: { lead: Lead }) {
             );
           })}
         </div>
+          );
+        })()}
 
         {/* v15.11.43 — Skip escape hatch. Token bucket: 3 skips, +1 every 15 min
             (escalating to 30/60 min at 10/20 skips in rolling 24h). Blocked on
@@ -4386,21 +4482,62 @@ function ReferralsHub() {
 }
 
 // ─── Client Referral Form (v14.50) ────────────────────────────────────────
-function ClientReferralForm() {
+function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: string; onSubmitted?: (leadId: number) => void } = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const source: WarmLeadSource = props.source || "network";
   const [netName, setNetName]   = useState("");
   const [netPhone, setNetPhone] = useState("");
   const [netEmail, setNetEmail] = useState("");
-  const [netAddr, setNetAddr]   = useState("");
+  const [netAddr, setNetAddr]   = useState(props.addressPrefill || "");
   const [netNotes, setNetNotes] = useState("");
+  const [intent, setIntent]     = useState<WarmLeadIntent | "">("");
+  const [dupeStatus, setDupeStatus] = useState<null | { checking: boolean; existing: any | null }>(null);
   const [netSending, setNetSending] = useState(false);
+
+  // Phone dupe check — fires 500ms after user stops typing a 10+ digit phone.
+  useEffect(() => {
+    const digits = netPhone.replace(/[^0-9]/g, "");
+    if (digits.length < 10) { setDupeStatus(null); return; }
+    let cancelled = false;
+    setDupeStatus({ checking: true, existing: null });
+    const timer = setTimeout(async () => {
+      try {
+        const r = await apiRequest("GET", `/api/leads/lookup-by-phone?phone=${encodeURIComponent(digits)}`);
+        if (cancelled) return;
+        if (r.ok) {
+          const data = await r.json();
+          setDupeStatus({ checking: false, existing: data.lead || null });
+        } else {
+          setDupeStatus({ checking: false, existing: null });
+        }
+      } catch {
+        if (!cancelled) setDupeStatus({ checking: false, existing: null });
+      }
+    }, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [netPhone]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!netName.trim() || !netPhone.trim()) {
       toast({ title: "Name and phone required", variant: "destructive" }); return;
+    }
+    if (!netEmail.trim()) {
+      toast({ title: "Email required", description: "Warm leads need an email for follow-up.", variant: "destructive" }); return;
+    }
+    if (!netNotes.trim()) {
+      toast({ title: "Notes required", description: "How did you meet? What's their situation?", variant: "destructive" }); return;
+    }
+    if (!intent) {
+      const proceed = window.confirm("No client intent selected — the Work-the-Lead card won't show a script tab. Submit anyway?");
+      if (!proceed) return;
+    }
+    if (dupeStatus?.existing) {
+      const owner = dupeStatus.existing.assignedAgentName || "another agent";
+      const proceed = window.confirm(`This phone is already in Depot (assigned to ${owner}). Submit anyway?`);
+      if (!proceed) return;
     }
     setNetSending(true);
     try {
@@ -4409,14 +4546,17 @@ function ClientReferralForm() {
         email: netEmail.trim(), address: netAddr.trim(),
         notes: netNotes.trim(),
         submittedBy: user?.id, submittedByName: user?.name,
+        warmLeadIntent: intent || null,
+        warmLeadSource: source,
       });
       const data = await r.json();
       if (r.ok && data.leadId) {
-        toast({ title: "Client referral submitted", description: "Opening Work-the-Lead card…" });
-        setNetName(""); setNetPhone(""); setNetEmail(""); setNetAddr(""); setNetNotes("");
+        toast({ title: "Warm lead captured", description: "Opening Work-the-Lead card…" });
+        setNetName(""); setNetPhone(""); setNetEmail(""); setNetAddr(""); setNetNotes(""); setIntent("");
         try { sessionStorage.setItem("pending_lead_jump", String(data.leadId)); } catch {}
         window.dispatchEvent(new Event("pending_lead_jump_changed"));
         qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+        if (props.onSubmitted) props.onSubmitted(data.leadId);
       } else {
         toast({ title: "Failed to submit", variant: "destructive" });
       }
@@ -4426,6 +4566,8 @@ function ClientReferralForm() {
       setNetSending(false);
     }
   };
+
+  const sourcePill = WARM_LEAD_SOURCE_PILLS[source];
 
   return (
     <div style={{
@@ -4441,17 +4583,22 @@ function ClientReferralForm() {
         }}>
           <Users size={14} style={{ color: "#c8aa5a" }} />
         </div>
-        <div>
+        <div style={{ flex: 1 }}>
           <p style={{ fontSize: 13, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700, margin: 0 }}>
-            Submit a Client Lead
+            Warm Lead Capture
           </p>
           <p style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(200,170,90,0.45)", fontWeight: 500, marginTop: 2 }}>
-            You'll be dropped straight into their Work the Lead card
+            You'll be dropped straight into their Work-the-Lead card
           </p>
         </div>
+        <span style={{
+          fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700,
+          color: sourcePill.fg, background: sourcePill.bg, border: `1px solid ${sourcePill.border}`,
+          borderRadius: 999, padding: "4px 10px",
+        }}>{sourcePill.label}</span>
       </div>
       <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 18, lineHeight: 1.55 }}>
-        Know someone thinking about selling or buying? Drop their info here — the lead is auto-assigned to you and opens instantly.
+        Know someone thinking about selling, buying, or renting? Drop their info here — the lead is auto-assigned to you and opens instantly.
       </p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -4464,8 +4611,21 @@ function ClientReferralForm() {
             <input value={netPhone} onChange={e => setNetPhone(e.target.value)} placeholder="(904) 555-0100" type="tel" style={inputStyle} />
           </div>
         </div>
+        {dupeStatus?.existing && (
+          <div style={{
+            padding: "8px 12px", borderRadius: 8,
+            background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)",
+            fontSize: 11, color: "#fca5a5", lineHeight: 1.5,
+          }}>
+            <strong>Duplicate:</strong> This phone is already in Depot
+            {dupeStatus.existing.assignedAgentName ? ` (assigned to ${dupeStatus.existing.assignedAgentName})` : ""}. You can submit anyway.
+          </div>
+        )}
+        {dupeStatus?.checking && (
+          <div style={{ fontSize: 10, color: "rgba(200,170,90,0.55)", letterSpacing: "0.08em" }}>Checking Depot for duplicates…</div>
+        )}
         <div>
-          <label style={labelStyle}>Email</label>
+          <label style={labelStyle}>Email *</label>
           <input value={netEmail} onChange={e => setNetEmail(e.target.value)} placeholder="john@email.com" type="email" style={inputStyle} />
         </div>
         <div>
@@ -4473,9 +4633,35 @@ function ClientReferralForm() {
           <input value={netAddr} onChange={e => setNetAddr(e.target.value)} placeholder="123 Oak St, Fernandina Beach, FL" style={inputStyle} />
         </div>
         <div>
-          <label style={labelStyle}>Notes</label>
-          <textarea value={netNotes} onChange={e => setNetNotes(e.target.value)} placeholder="Any context about their situation…" rows={2}
+          <label style={labelStyle}>Notes *</label>
+          <textarea value={netNotes} onChange={e => setNetNotes(e.target.value)} placeholder="How you met + situation + timeline" rows={2}
             style={{ ...inputStyle, resize: "none", lineHeight: 1.5 }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Client Intent</label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {WARM_LEAD_INTENTS.map(opt => {
+              const active = intent === opt.key;
+              return (
+                <button key={opt.key} type="button" onClick={() => setIntent(opt.key)} style={{
+                  padding: "9px 10px", borderRadius: 8, cursor: "pointer",
+                  fontSize: 11, fontWeight: 600, letterSpacing: "0.04em",
+                  textAlign: "left",
+                  background: active ? opt.bg : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${active ? opt.border : "rgba(255,255,255,0.10)"}`,
+                  color: active ? opt.fg : "rgba(255,255,255,0.7)",
+                }}>
+                  {opt.future && <span style={{ opacity: 0.6, fontSize: 9, marginRight: 4 }}>FUTURE</span>}
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          {intent && (
+            <p style={{ fontSize: 10, color: "rgba(200,170,90,0.55)", marginTop: 6, letterSpacing: "0.04em" }}>
+              Work-the-Lead will open with the {WARM_LEAD_INTENTS.find(o => o.key === intent)?.script} script tab.
+            </p>
+          )}
         </div>
         <button type="submit" disabled={netSending} style={{
           display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
@@ -4491,6 +4677,7 @@ function ClientReferralForm() {
     </div>
   );
 }
+
 
 // ─── Referral Tab (agent recruiting) ─────────────────────────────────────
 function ReferralTab() {
@@ -4618,29 +4805,66 @@ const inputStyle: React.CSSProperties = {
   color: "#fff", outline: "none", boxSizing: "border-box",
 };
 
+// ─── v17.2 Warm-Lead unified capture form constants ──────────────────
+// One form handles all 4 lead-producing legs (Network Referral, OH Lead,
+// Door-Knock Lead, Direct-Mail Lead). `source` param drives the pill + downstream
+// analytics. Intent drives which script tab opens on the Work-the-Lead card:
+// LPMAMA (buyer), CPMAMA (seller), LPMA (renter), plus combos.
+export type WarmLeadSource = "network" | "open_house" | "door_knock" | "direct_mail";
+export type WarmLeadIntent =
+  | "buyer" | "seller" | "renter" | "seller_and_buyer" | "seller_and_renter"
+  | "future_buyer" | "future_seller" | "future_renter"
+  | "future_seller_and_buyer" | "future_seller_and_renter";
+
+export const WARM_LEAD_SOURCE_PILLS: Record<WarmLeadSource, { label: string; bg: string; fg: string; border: string }> = {
+  network:     { label: "Network",    bg: "rgba(200,170,90,0.14)", fg: "#c8aa5a", border: "rgba(200,170,90,0.4)" },
+  open_house:  { label: "Open House", bg: "rgba(147,197,253,0.14)", fg: "#93c5fd", border: "rgba(59,130,246,0.4)" },
+  door_knock:  { label: "Door Knock", bg: "rgba(74,222,128,0.14)",  fg: "#4ade80", border: "rgba(34,197,94,0.4)" },
+  direct_mail: { label: "Direct Mail",bg: "rgba(251,146,60,0.14)",  fg: "#fb923c", border: "rgba(249,115,22,0.4)" },
+};
+
+export const WARM_LEAD_INTENTS: {
+  key: WarmLeadIntent; label: string; script: "LPMAMA" | "CPMAMA" | "LPMA" | "CPMAMA + LPMAMA" | "CPMAMA + LPMA";
+  future: boolean; bg: string; fg: string; border: string;
+}[] = [
+  { key: "buyer",  label: "Buyer",              script: "LPMAMA", future: false, bg: "rgba(147,197,253,0.22)", fg: "#93c5fd", border: "rgba(59,130,246,0.55)" },
+  { key: "seller", label: "Seller",             script: "CPMAMA", future: false, bg: "rgba(200,170,90,0.22)",  fg: "#c8aa5a", border: "rgba(200,170,90,0.55)" },
+  { key: "renter", label: "Renter",             script: "LPMA",   future: false, bg: "rgba(74,222,128,0.22)",  fg: "#4ade80", border: "rgba(34,197,94,0.55)" },
+  { key: "seller_and_buyer",  label: "Seller + Buyer",  script: "CPMAMA + LPMAMA", future: false, bg: "linear-gradient(90deg, rgba(200,170,90,0.22) 0%, rgba(147,197,253,0.22) 100%)", fg: "#f0f0f0", border: "rgba(200,170,90,0.5)" },
+  { key: "seller_and_renter", label: "Seller + Renter", script: "CPMAMA + LPMA",   future: false, bg: "linear-gradient(90deg, rgba(200,170,90,0.22) 0%, rgba(74,222,128,0.22) 100%)",  fg: "#f0f0f0", border: "rgba(200,170,90,0.5)" },
+  { key: "future_buyer",  label: "Buyer",       script: "LPMAMA", future: true, bg: "rgba(147,197,253,0.10)", fg: "#93c5fd", border: "rgba(59,130,246,0.30)" },
+  { key: "future_seller", label: "Seller",      script: "CPMAMA", future: true, bg: "rgba(200,170,90,0.10)",  fg: "#c8aa5a", border: "rgba(200,170,90,0.30)" },
+  { key: "future_renter", label: "Renter",      script: "LPMA",   future: true, bg: "rgba(74,222,128,0.10)",  fg: "#4ade80", border: "rgba(34,197,94,0.30)" },
+  { key: "future_seller_and_buyer",  label: "Seller + Buyer",  script: "CPMAMA + LPMAMA", future: true, bg: "linear-gradient(90deg, rgba(200,170,90,0.10) 0%, rgba(147,197,253,0.10) 100%)", fg: "#e0e0e0", border: "rgba(200,170,90,0.30)" },
+  { key: "future_seller_and_renter", label: "Seller + Renter", script: "CPMAMA + LPMA",   future: true, bg: "linear-gradient(90deg, rgba(200,170,90,0.10) 0%, rgba(74,222,128,0.10) 100%)",  fg: "#e0e0e0", border: "rgba(200,170,90,0.30)" },
+];
+
 // ─── Nav tabs ─────────────────────────────────────────────────────────────────
-// v14.38 — "my-leads" tab removed. KIT lives in FUB.
-type Tab = "leads" | "leaderboard" | "pipeline" | "refer" | "profile";
-// v14.68 — Pipeline tab restored between Dial and Referrals. Nav order matters:
-// the middle slot (Dial) gets the prominent, elevated styling in the bottom nav.
+// v17.2 — SYMMETRICAL 4-tab bottom nav (both agents + admins). Middle slot is
+// the yellow radial chooser (5 lead-gen legs: Dial / OH / Knock / Direct Mail /
+// Network Referral). Tab order: Home / Pipeline / [+] / Leaderboard / Profile.
+// "refer" tab retired — folds into the radial chooser's Network Referral leg.
+type Tab = "leads" | "leaderboard" | "pipeline" | "refer" | "profile" | "home";
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
-  { id: "leaderboard", label: "Dashboard", icon: Trophy },
-  { id: "pipeline",    label: "Pipeline", icon: Layers },
-  { id: "leads",       label: "Lead Gen",  icon: Phone },
-  { id: "refer",       label: "Referrals", icon: UserPlus },
-  { id: "profile",     label: "Profile",   icon: UserCircle2 },
+  { id: "home",        label: "Home",         icon: Home },
+  { id: "pipeline",    label: "Pipeline",     icon: Layers },
+  { id: "leads",       label: "Lead Gen",     icon: Phone },
+  { id: "leaderboard", label: "Leaderboard",  icon: Trophy },
+  { id: "profile",     label: "Profile",      icon: UserCircle2 },
 ];
 
 // ─── Main AgentView ───────────────────────────────────────────────────────────
 export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }: { onBackToAdmin?: () => void; initialTab?: Tab; mode?: "seller" | "recruiting" } = {}) {
   const { user, logout } = useAuth();
-  const [tab, setTab] = useState<Tab>(initialTab ?? "leaderboard");
+  // v17.2 — Both roles land on Home. Prior default was "leaderboard".
+  const [tab, setTab] = useState<Tab>(initialTab ?? "home");
   // v16.7 — Lead Gen chooser state. Middle nav button opens the chooser sheet
   // instead of navigating straight to Dial. Chooser has 4 tiles; Dial tile sets
   // tab="leads" and closes chooser. Other tiles open sub-sheets or forms.
   const [leadGenOpen, setLeadGenOpen] = useState(false);
   const [leadGenView, setLeadGenView] = useState<
     "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral"
+    | "door-knock" | "door-knock-lead" | "direct-mail" | "direct-mail-lead"
   >("root");
   const { connected: wsConnected } = useRealtimeUpdates();
   const qc = useQueryClient();
@@ -4870,14 +5094,33 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
         boxShadow: "0 2px 20px rgba(0,0,0,0.5)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {/* v17.2 — Admin Panel + Map icons top-left (admins only). Beefier
+              chip treatment than the old ‹ Admin text link. */}
           {onBackToAdmin && (
             <button onClick={onBackToAdmin} style={{
-              display: "flex", alignItems: "center", gap: 4,
-              fontSize: 11, color: "rgba(200,170,90,0.6)",
-              background: "none", border: "none", cursor: "pointer",
-              letterSpacing: "0.06em", marginRight: 2,
+              display: "flex", alignItems: "center", gap: 5,
+              fontSize: 10, letterSpacing: "0.10em", textTransform: "uppercase", fontWeight: 700,
+              color: "#c8aa5a",
+              background: "rgba(200,170,90,0.10)", border: "1px solid rgba(200,170,90,0.30)",
+              borderRadius: 8, padding: "6px 9px", cursor: "pointer",
+              marginRight: 4,
             }}>
-              <ChevronLeft size={13} /> Admin
+              <ChevronLeft size={12} /> Admin
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => toast({ title: "Map — coming soon", description: "Full team map + overlays lands in Phase 7. Placeholder wired up so the icon is real." })}
+              title="Open team map"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 30, height: 30, borderRadius: 8,
+                color: "#c8aa5a",
+                background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.25)",
+                cursor: "pointer", marginRight: 4,
+              }}
+            >
+              <MapPin size={14} />
             </button>
           )}
           {/* v14.54 — removed the dead LogoIcon (home glyph). Alex called out header clutter
@@ -5030,6 +5273,12 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
 
       {/* ── Main ── */}
       <main ref={mainRef} style={{ flex: 1, overflowY: "auto", padding: "16px 12px 90px" }}>
+        {/* v17.2 — Both roles land on Home first. Home currently reuses the
+            LeaderboardTab body (which already includes Prime Time / Team Pot /
+            Live On Air / KPIs / challenges). Phase 3d will split them: Home stays
+            personal-focused; Leaderboard tab becomes standings-focused with the
+            sticky-swipe agent selector. Placeholder for now so the nav renders. */}
+        {tab === "home" && <LeaderboardTab mode={mode} />}
         {tab === "leaderboard" && <LeaderboardTab mode={mode} />}
 
         {tab === "leads" && (
@@ -5382,7 +5631,7 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
             }}
           />
         )}
-        {tab === "profile" && <ProfilePage onBack={() => setTab("leaderboard")} />}
+        {tab === "profile" && <ProfilePage onBack={() => setTab("home")} />}
       </main>
 
       {/* ── Bottom nav ── */}
@@ -5427,27 +5676,20 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
                  inset shadow so it reads as "pressed in", and a slow 2.4s ring pulse.
                  On other tabs, it stays big & raised as the CTA to enter dialing. */}
               {isDial ? (
-                <div className={!active ? `fab-breathe${fabNudge ? " fab-nudge" : ""}` : undefined} style={{
+                <div className={(!active && !leadGenOpen) ? `fab-breathe${fabNudge ? " fab-nudge" : ""}` : undefined} style={{
                   position: "relative",
-                  // v16.7 — Enlarged from 52→60 (44 active) per Alex's request —
-                  // now labeled "Lead Gen", opens chooser sheet.
-                  width: active ? 44 : 60, height: active ? 44 : 60,
-                  marginTop: active ? -6 : -22,
+                  // v17.2 — Yellow "+" chooser button. Rotates to "×" when chooser
+                  // sheet is open. Still gets the raised pill treatment.
+                  width: 60, height: 60,
+                  marginTop: -22,
                   borderRadius: "50%",
-                  // v14.80 — Tier 4: non-active FAB gets a slow gold gradient breathe
-                  // (fab-breathe class in style block below); active/pulsing state is
-                  // untouched (goModePulse already owns that state).
-                  background: active
-                    ? "linear-gradient(135deg, #8a6f2a 0%, #6a5320 100%)"
-                    : undefined,
+                  background: "linear-gradient(135deg, #fde047 0%, #c8aa5a 55%, #8a6f2a 100%)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: active
-                    ? "inset 0 2px 6px rgba(0,0,0,0.55), 0 0 0 2px rgba(6,6,6,0.98), 0 0 0 3px rgba(200,170,90,0.35)"
-                    : "0 4px 16px rgba(200,170,90,0.35), 0 0 0 3px rgba(6,6,6,0.98)",
-                  transition: "all 0.28s cubic-bezier(0.4, 0, 0.2, 1)",
-                  animation: active ? "goModePulse 2.4s ease-in-out infinite" : undefined,
+                  boxShadow: "0 4px 16px rgba(200,170,90,0.42), 0 0 0 3px rgba(6,6,6,0.98)",
+                  transition: "transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)",
+                  transform: leadGenOpen ? "rotate(135deg)" : "rotate(0deg)",
                 }}>
-                  <Icon size={active ? 22 : 30} style={{ color: active ? "#c8aa5a" : "#0a0700", transition: "all 0.28s" }} />
+                  <Plus size={32} style={{ color: "#0a0700", strokeWidth: 2.5 }} />
                   {showBadge && (
                     /* v14.68 — Red dot only (no count). Signals "there is activity" without dread. */
                     <span style={{
@@ -5554,7 +5796,8 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
 // Log OH Lead (full lead form, 20 pts, creates Depot lead assigned to
 // submitter; FUB push waits for KIT/Appt outcome per standing rule).
 function LeadGenSheet(props: {
-  view: "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral";
+  view: "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral"
+    | "door-knock" | "door-knock-lead" | "direct-mail" | "direct-mail-lead";
   setView: (v: any) => void;
   close: () => void;
   goToDial: () => void;
@@ -5661,7 +5904,7 @@ function LeadGenSheet(props: {
             {header("What are you doing?")}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {tile({
-                icon: <Phone size={22} />, title: "Dial", sub: "Work the phones — expired, absentee, referred.",
+                icon: <Phone size={22} />, title: "Dial", sub: "Work the phones — expired listings and warm leads.",
                 hero: true,
                 onClick: goToDial,
               })}
@@ -5670,14 +5913,12 @@ function LeadGenSheet(props: {
                 onClick: () => setView("open-house"),
               })}
               {tile({
-                icon: <DoorOpen size={22} />, title: "Door Knocking", sub: "Field prospecting — coming soon.",
-                comingSoon: true,
-                onClick: () => toast({ title: "Coming soon", description: "Door knocking evidence flow is still being designed." }),
+                icon: <DoorOpen size={22} />, title: "Door Knocking", sub: "Log a knock route — evidence + pending admin approval.",
+                onClick: () => setView("door-knock" as any),
               })}
               {tile({
-                icon: <Mail size={22} />, title: "Direct Mail", sub: "Bring materials to Nate — coming soon.",
-                comingSoon: true,
-                onClick: () => toast({ title: "Coming soon", description: "Bring your materials to Nate. He'll approve materials + plan + mailers sent, and you'll earn +1 per address." }),
+                icon: <Mail size={22} />, title: "Direct Mail", sub: "Log a mailer campaign — evidence + pending admin approval.",
+                onClick: () => setView("direct-mail" as any),
               })}
               {tile({
                 icon: <Users size={22} />, title: "Network Referral", sub: "Submit a client you know — auto-assigned to you.",
@@ -5722,14 +5963,80 @@ function LeadGenSheet(props: {
         {view === "oh-lead" && (
           <>
             {header("Open House Lead", () => setView("open-house"))}
-            <OpenHouseLeadForm user={user} toast={toast} onDone={close} />
+            <ClientReferralForm source="open_house" onSubmitted={() => close()} />
           </>
         )}
 
         {view === "network-referral" && (
           <>
             {header("Network Referral", () => setView("root"))}
-            <ClientReferralForm />
+            <ClientReferralForm source="network" onSubmitted={() => close()} />
+          </>
+        )}
+
+        {view === "door-knock" && (
+          <>
+            {header("Door Knock", () => setView("root"))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <DoorKnockLogForm user={props.user} toast={props.toast} onDone={close} />
+              <div style={{
+                padding: "14px 16px", borderRadius: 12,
+                background: "rgba(74,222,128,0.06)", border: "1px solid rgba(74,222,128,0.22)",
+              }}>
+                <p style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#4ade80", fontWeight: 700, margin: 0, marginBottom: 4 }}>
+                  Picked up a warm lead?
+                </p>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 10, lineHeight: 1.5 }}>
+                  Someone opened the door and wants to talk — capture them.
+                </p>
+                <button type="button" onClick={() => setView("door-knock-lead")} style={{
+                  width: "100%", padding: "11px 16px", borderRadius: 8,
+                  background: "rgba(74,222,128,0.14)", border: "1px solid rgba(74,222,128,0.4)",
+                  color: "#4ade80", fontWeight: 700, fontSize: 12, letterSpacing: "0.12em",
+                  textTransform: "uppercase", cursor: "pointer",
+                }}>+ Capture Warm Lead</button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {view === "door-knock-lead" && (
+          <>
+            {header("Door Knock Lead", () => setView("door-knock"))}
+            <ClientReferralForm source="door_knock" onSubmitted={() => close()} />
+          </>
+        )}
+
+        {view === "direct-mail" && (
+          <>
+            {header("Direct Mail", () => setView("root"))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <DirectMailLogForm user={props.user} toast={props.toast} onDone={close} />
+              <div style={{
+                padding: "14px 16px", borderRadius: 12,
+                background: "rgba(251,146,60,0.06)", border: "1px solid rgba(251,146,60,0.22)",
+              }}>
+                <p style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#fb923c", fontWeight: 700, margin: 0, marginBottom: 4 }}>
+                  Mailer got a call-back?
+                </p>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 10, lineHeight: 1.5 }}>
+                  Recipient reached out — capture them as a warm lead.
+                </p>
+                <button type="button" onClick={() => setView("direct-mail-lead")} style={{
+                  width: "100%", padding: "11px 16px", borderRadius: 8,
+                  background: "rgba(251,146,60,0.14)", border: "1px solid rgba(251,146,60,0.4)",
+                  color: "#fb923c", fontWeight: 700, fontSize: 12, letterSpacing: "0.12em",
+                  textTransform: "uppercase", cursor: "pointer",
+                }}>+ Capture Warm Lead</button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {view === "direct-mail-lead" && (
+          <>
+            {header("Direct Mail Lead", () => setView("direct-mail"))}
+            <ClientReferralForm source="direct_mail" onSubmitted={() => close()} />
           </>
         )}
       </div>
@@ -5954,14 +6261,15 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
   );
 }
 
-// ─── v16.7 Open House LEAD form (full lead → Depot + FUB-later) ─────────────
-function OpenHouseLeadForm(props: { user: any; toast: any; onDone: () => void }) {
+
+// ─── v17.2 Door Knock LOG form ──────────────────────────────
+// Field-prospecting flow. Address + doors-knocked count + notes. Evidence
+// lives in the rep-card app (external); no photo required in Depot. Points
+// = 2 pts x doors, awarded when Nate approves in the Phase 6 approvals queue.
+function DoorKnockLogForm(props: { user: any; toast: any; onDone: () => void }) {
   const { user, toast, onDone } = props;
-  const qc = useQueryClient();
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [addr, setAddr] = useState("");
+  const [address, setAddress] = useState("");
+  const [doorsCount, setDoorsCount] = useState("");
   const [notes, setNotes] = useState("");
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -5975,23 +6283,29 @@ function OpenHouseLeadForm(props: { user: any; toast: any; onDone: () => void })
     );
   }, []);
 
+  const doorsNum = doorsCount.trim() ? Math.max(0, parseInt(doorsCount.trim()) || 0) : 0;
+  const pointsPreview = Math.min(doorsNum, 250) * 2;
+
   const submit = async () => {
-    if (!name.trim() || !phone.trim()) { toast({ title: "Name and phone required", variant: "destructive" }); return; }
+    if (!address.trim()) { toast({ title: "Address / block required", variant: "destructive" }); return; }
+    if (!doorsNum) { toast({ title: "Doors count required", description: "How many doors did you knock?", variant: "destructive" }); return; }
     setSubmitting(true);
     try {
-      const r = await apiRequest("POST", "/api/lead-gen/open-house-lead", {
-        ownerName: name.trim(), phone: phone.trim(),
-        email: email.trim(), address: addr.trim(),
+      const r = await apiRequest("POST", "/api/lead-gen/door-knock-log", {
+        agentId: user?.id,
+        address: address.trim(),
+        doorsCount: doorsNum,
         notes: notes.trim(),
-        submittedBy: user?.id, submittedByName: user?.name,
-        gpsLat: gps?.lat ?? null, gpsLng: gps?.lng ?? null,
+        gpsLat: gps?.lat ?? null,
+        gpsLng: gps?.lng ?? null,
+        timestamp: new Date().toISOString(),
       });
       const data = await r.json();
-      if (r.ok && data.leadId) {
-        toast({ title: "Open House lead captured", description: "+20 pts. Opening Work-the-Lead card…" });
-        try { sessionStorage.setItem("pending_lead_jump", String(data.leadId)); } catch {}
-        window.dispatchEvent(new Event("pending_lead_jump_changed"));
-        qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+      if (r.ok && data.submitted) {
+        toast({
+          title: "Submitted for approval",
+          description: `Nate reconciles with the rep-card app. ${data.pointsPotential ?? pointsPreview} pts bank on approval.`,
+        });
         onDone();
       } else {
         toast({ title: "Failed to submit", description: data.error || "Unknown error", variant: "destructive" });
@@ -6003,41 +6317,168 @@ function OpenHouseLeadForm(props: { user: any; toast: any; onDone: () => void })
     }
   };
 
-  const inp: React.CSSProperties = {
-    width: "100%", padding: "12px 14px", borderRadius: 8,
-    background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.28)",
-    color: "#fff", fontSize: 14, boxSizing: "border-box", fontFamily: "'Switzer','Inter',sans-serif",
+  const inputStyle: React.CSSProperties = {
+    width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(200,170,90,0.22)",
+    borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 14, outline: "none",
   };
-  const lbl: React.CSSProperties = { display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: 0, lineHeight: 1.5 }}>
-        Captured a real lead at the open house? Drop their info — auto-assigned to you and lands in your queue. FUB push fires on the first KIT or Appt.
+      <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", margin: 0, lineHeight: 1.55 }}>
+        Log a knock route. Evidence lives in the rep-card app — Nate reconciles and approves. 2 pts per door.
       </p>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <div><label style={lbl}>Name *</label><input value={name} onChange={e => setName(e.target.value)} placeholder="John Smith" style={inp} /></div>
-        <div><label style={lbl}>Phone *</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(904) 555-0100" type="tel" style={inp} /></div>
-      </div>
-      <div><label style={lbl}>Email</label><input value={email} onChange={e => setEmail(e.target.value)} placeholder="john@email.com" type="email" style={inp} /></div>
-      <div><label style={lbl}>Property Address</label><input value={addr} onChange={e => setAddr(e.target.value)} placeholder="123 Oak St, Fernandina Beach, FL" style={inp} /></div>
-      <div><label style={lbl}>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What did they say? Timeline? Motivation?" rows={2} style={{ ...inp, resize: "none", lineHeight: 1.5 }} /></div>
-      {gps && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
-          <MapPin size={12} /> GPS · {gps.lat.toFixed(4)}, {gps.lng.toFixed(4)}
+      <input
+        style={inputStyle} placeholder="Block / cross-streets / neighborhood"
+        value={address} onChange={e => setAddress(e.target.value)}
+      />
+      <input
+        style={inputStyle} placeholder="Doors knocked"
+        inputMode="numeric" value={doorsCount} onChange={e => setDoorsCount(e.target.value.replace(/[^0-9]/g, ""))}
+      />
+      {doorsNum > 0 && (
+        <div style={{
+          padding: "10px 12px", borderRadius: 10,
+          background: "rgba(200,170,90,0.10)", border: "1px solid rgba(200,170,90,0.28)",
+          fontSize: 12, color: "#c8aa5a", letterSpacing: "0.04em",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <span>{doorsNum > 250 ? `250 doors capped (of ${doorsNum})` : `${doorsNum} doors x 2 pts`}</span>
+          <strong style={{ color: "#fde047", fontSize: 14 }}>+{pointsPreview} pts pending</strong>
         </div>
       )}
-      <button onClick={submit} disabled={submitting || !name.trim() || !phone.trim()} style={{
-        marginTop: 4, padding: "14px 20px",
-        background: (submitting || !name.trim() || !phone.trim())
-          ? "rgba(200,170,90,0.25)"
-          : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-        border: "none", borderRadius: 10, cursor: submitting ? "wait" : "pointer",
-        fontSize: 13, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
-        color: "#080808",
+      <textarea
+        style={{ ...inputStyle, minHeight: 80, resize: "vertical", fontFamily: "inherit" }}
+        placeholder="Notes — what did you say at the door? Any live prospects?"
+        value={notes} onChange={e => setNotes(e.target.value)}
+      />
+      <button onClick={submit} disabled={submitting} style={{
+        width: "100%", marginTop: 4, padding: "14px 16px",
+        background: submitting ? "rgba(200,170,90,0.4)" : "linear-gradient(135deg,#fde047 0%,#c8aa5a 100%)",
+        border: "none", borderRadius: 12, cursor: submitting ? "wait" : "pointer",
+        fontSize: 15, fontWeight: 700, letterSpacing: "0.02em", color: "#080808",
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
       }}>
-        <Send size={14} /> {submitting ? "Submitting…" : "Submit & +20 pts"}
+        <Send size={14} /> {submitting ? "Submitting…" : "Submit for approval"}
+      </button>
+    </div>
+  );
+}
+
+// ─── v17.2 Direct Mail LOG form ─────────────────────────────────────────────
+// Log a mailer campaign. Agent uploads evidence of the mailer (photo + audience
+// description + count). Nate approves and awards points (1 pt per address).
+function DirectMailLogForm(props: { user: any; toast: any; onDone: () => void }) {
+  const { user, toast, onDone } = props;
+  const [audience, setAudience] = useState("");
+  const [mailedCount, setMailedCount] = useState("");
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 6 * 1024 * 1024) {
+      toast({ title: "Photo too large", description: "Try a smaller image (< 6MB).", variant: "destructive" });
+      return;
+    }
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        const MAX = 1024;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) {
+          const scale = MAX / Math.max(width, height);
+          width = Math.round(width * scale); height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) { ctx.drawImage(img, 0, 0, width, height); }
+        setPhotoDataUrl(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(f);
+  };
+
+  const submit = async () => {
+    if (!audience.trim()) { toast({ title: "Audience required", variant: "destructive" }); return; }
+    if (!mailedCount.trim() || !parseInt(mailedCount.trim())) { toast({ title: "Address count required", variant: "destructive" }); return; }
+    if (!photoDataUrl) { toast({ title: "Mailer photo required", description: "Attach a photo of the mailer.", variant: "destructive" }); return; }
+    setSubmitting(true);
+    try {
+      const r = await apiRequest("POST", "/api/lead-gen/direct-mail-log", {
+        agentId: user?.id,
+        audience: audience.trim(),
+        mailedCount: parseInt(mailedCount.trim()),
+        photoDataUrl,
+        notes: notes.trim(),
+        timestamp: new Date().toISOString(),
+      });
+      const data = await r.json();
+      if (r.ok && data.submitted) {
+        toast({
+          title: "Submitted for approval",
+          description: "Nate reviews mailer + approves. Points bank at 1 pt per address on approval.",
+        });
+        onDone();
+      } else {
+        toast({ title: "Failed to submit", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Failed to submit", description: err?.message || String(err), variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(200,170,90,0.22)",
+    borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 14, outline: "none",
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", margin: 0, lineHeight: 1.55 }}>
+        Log a direct-mail campaign. Nate approves the mailer + audience + count. Points bank at approval.
+      </p>
+      <input
+        style={inputStyle} placeholder="Audience — e.g. 32082 zip, expired listings"
+        value={audience} onChange={e => setAudience(e.target.value)}
+      />
+      <input
+        style={inputStyle} placeholder="Addresses mailed (count)"
+        inputMode="numeric" value={mailedCount} onChange={e => setMailedCount(e.target.value)}
+      />
+      <textarea
+        style={{ ...inputStyle, minHeight: 80, resize: "vertical", fontFamily: "inherit" }}
+        placeholder="Notes — piece type, CTA, sending window, follow-up plan"
+        value={notes} onChange={e => setNotes(e.target.value)}
+      />
+      <div>
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onPickPhoto} />
+        <button onClick={() => fileRef.current?.click()} style={{
+          width: "100%", padding: "14px 16px", borderRadius: 12,
+          background: photoDataUrl ? "rgba(74,222,128,0.14)" : "rgba(200,170,90,0.14)",
+          border: `1px solid ${photoDataUrl ? "rgba(74,222,128,0.4)" : "rgba(200,170,90,0.35)"}`,
+          color: photoDataUrl ? "#4ade80" : "#c8aa5a",
+          fontSize: 14, fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        }}>
+          <Camera size={16} /> {photoDataUrl ? "Photo attached — tap to replace" : "Attach mailer photo"}
+        </button>
+      </div>
+      <button onClick={submit} disabled={submitting} style={{
+        width: "100%", marginTop: 4, padding: "14px 16px",
+        background: submitting ? "rgba(200,170,90,0.4)" : "linear-gradient(135deg,#fde047 0%,#c8aa5a 100%)",
+        border: "none", borderRadius: 12, cursor: submitting ? "wait" : "pointer",
+        fontSize: 15, fontWeight: 700, letterSpacing: "0.02em", color: "#080808",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      }}>
+        <Send size={14} /> {submitting ? "Submitting…" : "Submit for approval"}
       </button>
     </div>
   );

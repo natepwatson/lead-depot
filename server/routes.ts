@@ -85,9 +85,9 @@ function awardPoints(
     network_referral:          20,   // v15.11.31 — bumped 15→20. Referrals ARE revenue-direct.
     open_house_lead:           20,   // v16.7 — OH captured lead. Same value as network referral (real capture, revenue-direct).
     open_house_log:            20,   // v16.7 — OH physical presence log (photo + address). Same value — rewards showing up.
-    oh_knock_route:            15,   // v17.1 — Piggyback knock route while agent is on-site for an OH. Rep-card evidence, Nate approves. Placeholder 15 pts — tune after first live submissions.
-    direct_mail:                1,   // v17.1 — Direct Mail per-address checkpoint approval (1 per address per approved checkpoint, 3 checkpoints max). Placeholder — tune with Nate.
-    door_knock:                 5,   // v17.1 — Standalone door-knock activity (not OH piggyback). Placeholder pending evidence spec.
+    oh_knock_route:            15,   // v17.2 — Piggyback knock route while agent is on-site for an OH. Rep-card evidence, Nate approves. Placeholder 15 pts — tune after first live submissions.
+    direct_mail:                1,   // v17.2 — Direct Mail per-address checkpoint approval (1 per address per approved checkpoint, 3 checkpoints max). Placeholder — tune with Nate.
+    door_knock:                 5,   // v17.2 — Standalone door-knock activity (not OH piggyback). Placeholder pending evidence spec.
     contacted_not_interested:   5,   // Real contact, worth something.
     listed:                     3,   // Rare informational outcome.
     recycled:                   2,   // Re-queue, minor effort.
@@ -249,7 +249,7 @@ function escapeHtml(s: string): string {
 // Source label map
 const SOURCE_LABELS: Record<string, string> = {
   expired: "Expired Listing",
-  absentee: "Absentee Owner",
+
   network: "Network / Inbound Lead",
 };
 
@@ -351,7 +351,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v17.1 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v17.2 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -410,7 +410,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.1 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.2 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -695,7 +695,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.1 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.2 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -792,13 +792,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     try { rawDb.prepare("DELETE FROM sessions WHERE agent_id = ?").run(id); } catch { /* table may not exist */ }
     try {
       logAgentEvent({
-        agentId: id,
+        targetId: id,
         actorId: null,
-        actorEmail: "system:force-reset",
         event: "password_reset",
-        beforeJson: null,
-        afterJson: null,
-        notes: "force_reset_admin_bypass — password reset via INGEST_SECRET-guarded endpoint",
+        before: null,
+        after: null,
+        notes: "force_reset_admin_bypass [system:force-reset] — password reset via INGEST_SECRET-guarded endpoint",
       });
     } catch { /* audit optional */ }
     console.log(`[v15.11.11 force-reset] password reset for agent ${id} (${row.email})`);
@@ -825,13 +824,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     try { rawDb.prepare("DELETE FROM sessions WHERE agent_id = ?").run(id); } catch { /* table may not exist */ }
     try {
       logAgentEvent({
-        agentId: id,
+        targetId: id,
         actorId: req.currentAgent.id,
-        actorEmail: req.currentAgent.email,
         event: "password_reset",
-        beforeJson: null,
-        afterJson: null,
-        notes: `admin_set_password — rotated by ${req.currentAgent.name || req.currentAgent.email}. All sessions revoked.`,
+        before: null,
+        after: null,
+        notes: `admin_set_password — rotated by ${req.currentAgent.name || req.currentAgent.email} <${req.currentAgent.email}>. All sessions revoked.`,
       });
     } catch { /* audit optional */ }
     console.log(`[v15.11.26 admin-set-password] password set for agent ${id} (${row.email}) by admin ${req.currentAgent.email}`);
@@ -1936,7 +1934,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v17.1</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v17.2</p>
             </div>
           `,
         });
@@ -2096,7 +2094,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v17.1 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v17.2 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3054,9 +3052,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // ─── AGENT: NEXT LEAD (v14.4 — home-county-first, cross-county overflow) ─────
   // Priority order:
   //   1. Callbacks due now (agent's own, any county)
-  //   2. Home-county unassigned pool: expired → absentee
+  //   2. Home-county unassigned pool: expired only (absentee retired v17.2)
   //   3. Overflow to other counties ONLY when home county is completely dry
-  //      (expired → absentee across all other counties)
+  //      (expired only across all other counties — absentee retired v17.2)
   // Admins with home_county=NULL skip step 2/3 gating — they see everything.
   //
   // Locks a lead to the agent for 60 min so no other agent gets it.
@@ -3122,7 +3120,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (callback) return res.json({ ...toApiLead(callback), myAttemptsToday: countMyAttemptsToday(callback.id) });
 
     // Lead-type priority order (v14.4: FSBO and Land removed).
-    const TYPE_ORDER = ["expired", "absentee"];
+    // v17.2 — absentee retired. Only cold source is expired.
+    const TYPE_ORDER = ["expired"];
 
     // Helper: pull next unassigned+unlocked lead matching WHERE. Sorted score DESC.
     // v15.4 — Recycle cooldown filter REMOVED. Recycled leads re-enter the pool
@@ -3228,7 +3227,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       });
     }
     // Safeguard: validate leadType is a known value
-    const VALID_LEAD_TYPES = ["expired", "absentee", "network"];
+    // v17.2 — absentee retired. Warm sources (network / open_house / door_knock / direct_mail) are
+    // assigned directly at capture time, not routed through this endpoint.
+    const VALID_LEAD_TYPES = ["expired", "network", "open_house", "door_knock", "direct_mail"];
     if (!VALID_LEAD_TYPES.includes(leadType)) {
       return res.status(400).json({ error: `Unknown lead type: ${leadType}` });
     }
@@ -3327,6 +3328,38 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   //
   // IMPORTANT: this route MUST live above `/api/leads/:id` so express doesn't
   // route "callback-lookup" as a numeric id.
+  // v17.2 — warm-lead dupe check. Given a full phone (any format), returns the
+  // first existing lead with a matching normalized number so the capture form
+  // can warn the agent before submitting.
+  app.get("/api/leads/lookup-by-phone", (req, res) => {
+    try {
+      const digits = String(req.query.phone || "").replace(/\D/g, "");
+      if (digits.length < 10) return res.json({ lead: null });
+      const last10 = digits.slice(-10);
+      const stripSql = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone,''),'-',''),'(',''),')',''),' ',''),'.',''),'+','')`;
+      const like = `%${last10}`;
+      const row: any = rawDb.prepare(`
+        SELECT id, owner_name, phone, status, assigned_agent_id
+        FROM leads
+        WHERE ${stripSql} LIKE ?
+        ORDER BY uploaded_at DESC
+        LIMIT 1
+      `).get(like);
+      if (!row) return res.json({ lead: null });
+      let assignedAgentName: string | null = null;
+      if (row.assigned_agent_id) {
+        const ag = storage.getAgentById(row.assigned_agent_id);
+        assignedAgentName = ag?.name || null;
+      }
+      return res.json({ lead: {
+        id: row.id, ownerName: row.owner_name, phone: row.phone,
+        status: row.status, assignedAgentId: row.assigned_agent_id, assignedAgentName,
+      }});
+    } catch (e) {
+      return res.json({ lead: null });
+    }
+  });
+
   app.get("/api/leads/callback-lookup", (req, res) => {
     try {
       const raw = String(req.query.last4 || "").replace(/\D/g, "");
@@ -3663,21 +3696,22 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       // never want to lose a confirmed real owner just because the timing was
       // wrong on one call.
       const ICE_DAYS = 180;
-      const iceDate = Date.now() + ICE_DAYS * 24 * 60 * 60 * 1000;
+      const iceDateMs = Date.now() + ICE_DAYS * 24 * 60 * 60 * 1000;
+      const iceDateIso = new Date(iceDateMs).toISOString();
       const isNetwork = lead.leadType === "network";
       const referrerId = (lead as any).uploadedBy || (lead as any).uploaded_by || null;
       if (isNetwork && referrerId) {
         // Network: leave assigned to referrer but sleep 180d
         newStatus = "recycled";
         newAssignedId = referrerId;
-        newCallbackDate = iceDate;
+        newCallbackDate = iceDateIso;
       } else {
         newStatus = "recycled";
         newAssignedId = null;
-        newCallbackDate = iceDate;
+        newCallbackDate = iceDateIso;
       }
       rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(leadId);
-      console.log(`[v15.11.11 nice_ice] lead=${leadId} → 180d ICE recycle, thaw at ${new Date(iceDate).toISOString()}`);
+      console.log(`[v15.11.11 nice_ice] lead=${leadId} → 180d ICE recycle, thaw at ${iceDateIso}`);
 
     } else if (outcome === "no_answer") {
       // v14.40 — Per-LINE no-answer cap. Increment this phone's counter. At CAP it flips
@@ -4090,6 +4124,22 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       phones: JSON.stringify(newPhones),
       phoneStates: JSON.stringify(newPhoneStates),
       ...lpmamabUpdate,
+      // v17.2 — persist Renter LPMA fields into extraData.renterLpma so they survive
+      // reboots and flow to FUB on later outcomes. No schema change (see HARD RULE).
+      ...(lpmamab && (lpmamab.rLocation || lpmamab.rPrice || lpmamab.rMotivation || lpmamab.rAppointment) ? (() => {
+        const _prev: any = (() => { try { return JSON.parse(((lead as any).extraData) || "{}"); } catch { return {}; } })();
+        const _next = {
+          ..._prev,
+          renterLpma: {
+            ...(_prev.renterLpma || {}),
+            ...(lpmamab.rLocation    ? { rLocation:    lpmamab.rLocation    } : {}),
+            ...(lpmamab.rPrice       ? { rPrice:       lpmamab.rPrice       } : {}),
+            ...(lpmamab.rMotivation  ? { rMotivation:  lpmamab.rMotivation  } : {}),
+            ...(lpmamab.rAppointment ? { rAppointment: lpmamab.rAppointment } : {}),
+          },
+        };
+        return { extraData: JSON.stringify(_next) };
+      })() : {}),
     });
 
     // Log activity — merge appt/kit details into snapshot
@@ -4163,6 +4213,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
 
     // ── FUB Integration — push outcome to Follow Up Boss (v11.40) ────────────
+    // v17.2 — warm-lead source + 10-option intent + renter LPMA are all now
+    // stored inside lead.extraData JSON (no schema changes). Parse and pass
+    // them through to FUB so tags / stage / person.type / notes reflect everything.
+    const _extraParsed: any = (() => { try { return JSON.parse(((lead as any).extraData) || "{}"); } catch { return {}; } })();
+    const _warmLeadSource: string | undefined = _extraParsed?.warmLeadSource || undefined;
+    const _warmLeadIntent: string | undefined = _extraParsed?.warmLeadIntent || undefined;
+    const _renterLpma: any = _extraParsed?.renterLpma || {};
     const fubAgent = agentId ? storage.getAgentById(agentId) : null;
     if (fubAgent) {
       pushOutcomeToFub({
@@ -4188,6 +4245,14 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           bMotivation:    (lpmamab?.bMotivation) || lead.bMotivation || undefined,
           bAgent:         (lpmamab?.bAgent)      || lead.bAgent      || undefined,
           bMortgage:      (lpmamab?.bMortgage)   || lead.bMortgage   || undefined,
+          // v17.2 — warm-lead source + intent (from extraData)
+          warmLeadSource: _warmLeadSource,
+          warmLeadIntent: _warmLeadIntent,
+          // v17.2 — Renter LPMA (from extraData.renterLpma)
+          rLocation:      _renterLpma?.rLocation    || undefined,
+          rPrice:         _renterLpma?.rPrice       || undefined,
+          rMotivation:    _renterLpma?.rMotivation  || undefined,
+          rAppointment:   _renterLpma?.rAppointment || undefined,
         },
         agent: {
           id:    fubAgent.id,
@@ -4196,7 +4261,22 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         },
         outcome,
         notes:            notes            || undefined,
-        lpmamab:          lpmamab          || undefined,
+        // v17.2 — add renter LPMA fields to the lpmamab passthrough so the note
+        // builder can render the Renter LPMA block alongside seller/buyer blocks.
+        lpmamab: lpmamab ? {
+          ...lpmamab,
+          rLocation:    _renterLpma?.rLocation    || undefined,
+          rPrice:       _renterLpma?.rPrice       || undefined,
+          rMotivation:  _renterLpma?.rMotivation  || undefined,
+          rAppointment: _renterLpma?.rAppointment || undefined,
+          warmLeadIntent: _warmLeadIntent,
+        } : (Object.keys(_renterLpma).length ? {
+          rLocation:    _renterLpma?.rLocation    || undefined,
+          rPrice:       _renterLpma?.rPrice       || undefined,
+          rMotivation:  _renterLpma?.rMotivation  || undefined,
+          rAppointment: _renterLpma?.rAppointment || undefined,
+          warmLeadIntent: _warmLeadIntent,
+        } : undefined),
         apptDate:         apptDate         || undefined,
         apptTime:         apptTime         || undefined,
         apptEmail:        apptEmail        || undefined,
@@ -6516,9 +6596,9 @@ Brothers Group Real Estate Team at Momentum Realty
 
   app.get("/api/team-pot", (req, res) => {
     const { startIso, endIso, monthLabel } = currentMonthBoundsEt();
-    // Read stretch-reveal flag. Default hidden.
-    const stretchRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'team_pot_stretch_revealed'`).get() as any;
-    const stretchRevealed = stretchRow?.value === "1";
+    // v17.2 — stretch reveal toggle removed. $1000 tier now permanently visible.
+    // Emit `stretchRevealed: true` for legacy clients still reading the field.
+    const stretchRevealed = true;
 
     // Aggregate Appt Set counts per agent for this month.
     const rows: any[] = rawDb.prepare(`
@@ -6637,36 +6717,55 @@ Brothers Group Real Estate Team at Momentum Realty
     });
   });
 
-  // Admin toggle for the secret stretch tier. Flip once you're comfortable
-  // revealing $1000 as the ultimate target. Body: { revealed: true|false }.
+  // v17.2 — Endpoint REMOVED. Stretch tier is now permanently visible; toggle
+  // ripped out per Alex. Keeping a no-op response returning 410 Gone so any
+  // stale admin client that still POSTs here gets a clear signal, then the
+  // client will stop calling once the AdminDashboard bundle updates.
   app.post("/api/admin/team-pot/stretch", (req: any, res: any) => {
     if (!requireAdmin(req, res)) return;
-    const { revealed } = req.body || {};
-    const val = revealed ? "1" : "0";
-    rawDb.prepare(`
-      INSERT INTO settings (key, value) VALUES ('team_pot_stretch_revealed', ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run(val);
-    // Broadcast so every open tab flips instantly.
-    broadcast({ type: "team_pot_stretch_toggled", revealed: !!revealed });
-    res.json({ ok: true, revealed: !!revealed });
+    res.status(410).json({
+      ok: false,
+      removed: true,
+      message: "Endpoint removed in v17.2 — stretch tier is now permanently visible.",
+    });
   });
 
   // ─── NETWORK LEAD (agent submits a referral seller lead) ──────────────────
   app.post("/api/leads/network", (req, res) => {
-    const { ownerName, phone, email, address, notes, submittedBy, submittedByName } = req.body;
+    // v17.2 — unified warm-lead capture. This endpoint now serves all 4 lead-
+    // producing legs (Network Referral, OH Lead, Door-Knock Lead, Direct-Mail
+    // Lead). `warmLeadSource` distinguishes them; `warmLeadIntent` drives the
+    // Work-the-Lead script tab (LPMAMA / CPMAMA / LPMA / combos). Both are
+    // stored in extraData so no DB migration is needed.
+    const { ownerName, phone, email, address, notes, submittedBy, submittedByName, warmLeadIntent, warmLeadSource } = req.body;
     if (!ownerName || !phone) return res.status(400).json({ error: "Name and phone required" });
+    const ALLOWED_SOURCES = new Set(["network", "open_house", "door_knock", "direct_mail"]);
+    const source = ALLOWED_SOURCES.has(String(warmLeadSource)) ? String(warmLeadSource) : "network";
+    const ALLOWED_INTENTS = new Set([
+      "buyer", "seller", "renter", "seller_and_buyer", "seller_and_renter",
+      "future_buyer", "future_seller", "future_renter",
+      "future_seller_and_buyer", "future_seller_and_renter",
+    ]);
+    const intent = warmLeadIntent && ALLOWED_INTENTS.has(String(warmLeadIntent)) ? String(warmLeadIntent) : null;
     const now = new Date().toISOString();
     const extraData = JSON.stringify({
-      source: "network",
+      source,
+      warmLeadSource: source,
+      warmLeadIntent: intent,
       submittedByName: submittedByName || "Unknown",
       submittedById: submittedBy,
       networkNotes: notes || "",
       ingestedAt: now,
     });
     const submitterAgentId = submittedBy ? parseInt(String(submittedBy)) : null;
+    // v17.2 — leadType tracks the source (network / open_house / door_knock /
+    // direct_mail). Legacy "network" preserved for the default flow.
+    const leadTypeBySource: Record<string, string> = {
+      network: "network", open_house: "open_house",
+      door_knock: "door_knock", direct_mail: "direct_mail",
+    };
     const [created] = storage.createLeadsFromBatch([{
-      leadType: "network",
+      leadType: leadTypeBySource[source] || "network",
       address: address || "",
       ownerName,
       phone,
@@ -6678,12 +6777,12 @@ Brothers Group Real Estate Team at Momentum Realty
       attemptCount: 0,
       uploadedAt: now,
       uploadedBy: submitterAgentId,
-      batchId: `network_${Date.now()}`,
+      batchId: `${source}_${Date.now()}`,
     }]);
     broadcast({ type: "lead_created", leadId: created.id, assignedAgentId: submitterAgentId });
     // Activity feed + referral points (v11.40)
     const _refAgent = submitterAgentId ? storage.getAgentById(submitterAgentId) : null;
-    broadcast({ type: "activity_event", event: { type: "network_lead_submitted", agentId: submitterAgentId, agentName: _refAgent?.name || submittedByName || "Agent", agentHeadshot: (_refAgent as any)?.headshotUrl || null, address: created.address, ts: new Date().toISOString() } });
+    broadcast({ type: "activity_event", event: { type: "warm_lead_submitted", source, intent, agentId: submitterAgentId, agentName: _refAgent?.name || submittedByName || "Agent", agentHeadshot: (_refAgent as any)?.headshotUrl || null, address: created.address, ts: new Date().toISOString() } });
     awardPoints(submitterAgentId, "network_referral", created.id);
 
     // ── Notify admins + CRM manager on network lead submission ────────────────
@@ -6716,7 +6815,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v17.1 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v17.2 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6830,101 +6929,106 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: 20 });
   });
 
-  // ─── v16.7 OPEN HOUSE LEAD (full lead capture at OH → Depot + FUB-later) ───
-  // Mirrors /api/leads/network. Creates a Depot lead with leadType="open_house",
-  // auto-assigns to the submitting agent, awards 20 pts. Follows the standing
-  // rule: NO FUB push at submission; FUB fires later when the agent logs a KIT
-  // or Appt outcome (same behavior as network referrals).
-  app.post("/api/lead-gen/open-house-lead", (req, res) => {
-    const { ownerName, phone, email, address, notes, submittedBy, submittedByName, photoDataUrl, gpsLat, gpsLng } = req.body;
-    if (!ownerName || !phone) return res.status(400).json({ error: "Name and phone required" });
-    const submitterAgentId = submittedBy ? parseInt(String(submittedBy)) : null;
-    if (!submitterAgentId) return res.status(400).json({ error: "submittedBy required" });
+  // ─── v17.2 DOOR KNOCK LOG → APPROVAL QUEUE ────────────────────────
+  // Field-prospecting flow. Agent submits address/block + doors-knocked count
+  // + notes + optional GPS. Evidence comes from the rep-card app (external),
+  // no photo required here. Points = 2 × doors, awarded on Nate's approval.
+  app.post("/api/lead-gen/door-knock-log", (req, res) => {
+    const { agentId, address, doorsCount, notes, gpsLat, gpsLng, timestamp } = req.body;
+    const submitterId = agentId ? parseInt(String(agentId)) : null;
+    if (!submitterId) return res.status(400).json({ error: "agentId required" });
+    if (!address || !String(address).trim()) return res.status(400).json({ error: "Address / block required" });
+    const doors = doorsCount != null ? Math.max(0, parseInt(String(doorsCount)) || 0) : 0;
+    if (doors < 1) return res.status(400).json({ error: "Doors count must be > 0" });
 
     const now = new Date().toISOString();
-    const extraData = JSON.stringify({
-      source: "open_house",
-      submittedByName: submittedByName || "Unknown",
-      submittedById: submitterAgentId,
-      networkNotes: notes || "",
-      ohMeta: {
-        gpsLat: gpsLat != null ? Number(gpsLat) : null,
-        gpsLng: gpsLng != null ? Number(gpsLng) : null,
-        photoDataUrl: photoDataUrl ? String(photoDataUrl).slice(0, 4_000_000) : null,
-        capturedAt: now,
-      },
-      ingestedAt: now,
-    });
+    const submitter = storage.getAgentById(submitterId);
+    const cleanAddr = String(address).trim();
+    const cappedDoors = Math.min(doors, 250); // sane per-submission cap
+    const points = cappedDoors * 2;
+    const payloadObj = {
+      address: cleanAddr,
+      doorsCount: cappedDoors,
+      notes: notes ? String(notes).trim().slice(0, 4000) : "",
+      gpsLat: gpsLat != null ? Number(gpsLat) : null,
+      gpsLng: gpsLng != null ? Number(gpsLng) : null,
+      capturedAt: timestamp || now,
+      // no photoDataUrl — evidence is the rep-card app export/reconciliation
+    };
+    const info = rawDb.prepare(`
+      INSERT INTO approval_requests
+        (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
+      VALUES ('door_knock_log', ?, ?, 'pending', ?, ?, ?)
+    `).run(submitterId, submitter?.name || "Agent", points, JSON.stringify(payloadObj), now);
+    const requestId = Number(info.lastInsertRowid);
 
-    const [created] = storage.createLeadsFromBatch([{
-      leadType: "open_house",
-      address: address || "",
-      ownerName,
-      phone,
-      email: email || "",
-      motivation: notes || "",
-      extraData,
-      status: "assigned",
-      assignedAgentId: submitterAgentId,
-      attemptCount: 0,
-      uploadedAt: now,
-      uploadedBy: submitterAgentId,
-      batchId: `open_house_${Date.now()}`,
-    }]);
-
-    broadcast({ type: "lead_created", leadId: created.id, assignedAgentId: submitterAgentId });
-    const _ohAgent = storage.getAgentById(submitterAgentId);
     broadcast({
-      type: "activity_event",
+      type: "approval_event",
       event: {
-        type: "open_house_lead_submitted",
-        agentId: submitterAgentId,
-        agentName: _ohAgent?.name || submittedByName || "Agent",
-        agentHeadshot: (_ohAgent as any)?.headshotUrl || null,
-        address: created.address,
+        type: "approval_submitted",
+        kind: "door_knock_log",
+        requestId,
+        agentId: submitterId,
+        agentName: submitter?.name || "Agent",
+        agentHeadshot: (submitter as any)?.headshotUrl || null,
+        address: cleanAddr,
         ts: now,
       },
     });
-    awardPoints(submitterAgentId, "open_house_lead", created.id);
 
-    // Notify admins + CRM manager, mirroring the network-lead email pattern
-    if (resend) {
-      const agentName = submittedByName || "An agent";
-      const tdL = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px;vertical-align:top";
-      const tdR = "padding:8px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
-      resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-        to:   ["denise@watsonbrothersgroup.com"],
-        cc:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
-        subject: `\uD83C\uDFE0 Open House Lead \u2014 ${ownerName} | ${address || "No address"}`,
-        html: `
-<!DOCTYPE html><html><body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
-<div style="max-width:580px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid #2a2520">
-  <div style="background:linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%);padding:22px 28px">
-    <p style="margin:0 0 4px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#5a3e00;font-weight:700">Open House Lead \u2014 Lead Depot</p>
-    <h1 style="margin:0;font-size:20px;color:#080808;font-weight:700">\uD83C\uDFE0 ${agentName} captured a lead at an open house</h1>
-  </div>
-  <div style="padding:24px 28px">
-    <table style="width:100%;border-collapse:collapse">
-      <tr><td style="${tdL}">Client Name</td><td style="${tdR}">${ownerName}</td></tr>
-      <tr><td style="${tdL}">Phone</td><td style="${tdR}">${phone}</td></tr>
-      <tr><td style="${tdL}">Email</td><td style="${tdR}">${email || "\u2014"}</td></tr>
-      <tr><td style="${tdL}">Address</td><td style="${tdR}">${address || "\u2014"}</td></tr>
-      <tr><td style="${tdL}">Captured By</td><td style="${tdR}">${agentName}</td></tr>
-      <tr><td style="${tdL}">Notes</td><td style="${tdR}">${notes || "\u2014"}</td></tr>
-      <tr><td style="${tdL}">Assigned To</td><td style="${tdR}">${agentName} (auto-assigned)</td></tr>
-    </table>
-    <p style="margin:20px 0 0;font-size:12px;color:#555">Lead is live in Lead Depot assigned to ${agentName}. FUB push will fire on KIT or Appt.</p>
-  </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v17.1 \u2014 Brothers Group \u00b7 Momentum Realty
-  </div>
-</div></body></html>`,
-      }).catch(err => console.error("[open_house lead] Notify failed:", err));
-    }
-
-    res.json({ created: true, leadId: created.id, points: 20 });
+    res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: points, doorsCount: cappedDoors });
   });
+
+  // ─── v17.2 DIRECT MAIL LOG → APPROVAL QUEUE ───────────────────────
+  // Log a mailer campaign for admin approval. Agent submits audience description,
+  // count of addresses mailed, mailer photo, notes. Row goes into approval_requests
+  // status='pending'. points_potential = mailedCount (1 pt per address, capped
+  // at 500 for a single submission). Awarded on Nate's approval.
+  app.post("/api/lead-gen/direct-mail-log", (req, res) => {
+    const { agentId, audience, mailedCount, photoDataUrl, notes, timestamp } = req.body;
+    const submitterId = agentId ? parseInt(String(agentId)) : null;
+    if (!submitterId) return res.status(400).json({ error: "agentId required" });
+    if (!audience || !String(audience).trim()) return res.status(400).json({ error: "Audience required" });
+    const count = mailedCount != null ? parseInt(String(mailedCount)) : 0;
+    if (!count || count < 1) return res.status(400).json({ error: "Mailed count must be > 0" });
+    if (!photoDataUrl) return res.status(400).json({ error: "Mailer photo required" });
+
+    const now = new Date().toISOString();
+    const submitter = storage.getAgentById(submitterId);
+    const cleanAudience = String(audience).trim();
+    const capped = Math.min(count, 500);
+    const payloadObj = {
+      audience: cleanAudience,
+      mailedCount: capped,
+      notes: notes ? String(notes).trim().slice(0, 4000) : "",
+      capturedAt: timestamp || now,
+      photoDataUrl: String(photoDataUrl).slice(0, 4_000_000),
+    };
+    const info = rawDb.prepare(`
+      INSERT INTO approval_requests
+        (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
+      VALUES ('direct_mail_log', ?, ?, 'pending', ?, ?, ?)
+    `).run(submitterId, submitter?.name || "Agent", capped, JSON.stringify(payloadObj), now);
+    const requestId = Number(info.lastInsertRowid);
+
+    broadcast({
+      type: "approval_event",
+      event: {
+        type: "approval_submitted",
+        kind: "direct_mail_log",
+        requestId,
+        agentId: submitterId,
+        agentName: submitter?.name || "Agent",
+        agentHeadshot: (submitter as any)?.headshotUrl || null,
+        audience: cleanAudience,
+        mailedCount: capped,
+        ts: now,
+      },
+    });
+
+    res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: capped });
+  });
+
 
   // ─── v17.0 ADMIN APPROVAL QUEUE ────────────────────────────────────────
   // GET  /api/admin/approvals?status=pending|approved|rejected|all
@@ -7591,7 +7695,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v17.1",
+      version: "v17.2",
       services: results,
     });
   });
@@ -8709,10 +8813,10 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v17.1`,
+              subject: `${firstName}, your BGRE application — Lead Depot v17.2`,
               html,
               text: invitationBody,
-              reply_to: "alex@watsonbrothersgroup.com",
+              replyTo: "alex@watsonbrothersgroup.com",
             });
             deliveryPayload.emailSent = true;
           } catch (mailErr) {
@@ -8748,7 +8852,7 @@ Brothers Group Real Estate Team at Momentum Realty
       const row = rawDb.prepare(`SELECT * FROM candidates WHERE id = ?`).get(candidateId);
       const shaped = shapeCandidate(row);
 
-      broadcast("candidate_invited", { candidateId, entryPath, deliveryMode: dmode });
+      broadcast({ type: "candidate_invited", candidateId, entryPath, deliveryMode: dmode });
 
       res.json({
         ok: true,
@@ -9348,7 +9452,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v17.1</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v17.2</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -9574,8 +9678,9 @@ function scheduleMonthlyLeaderboardReset() {
 
       rawDb.prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(resetKey, now);
 
-      // Wipe the stretch-reveal flag so every new month starts hidden again.
-      rawDb.prepare(`INSERT INTO settings (key, value) VALUES ('team_pot_stretch_revealed', '0') ON CONFLICT(key) DO UPDATE SET value = '0'`).run();
+      // v17.2 — stretch reveal toggle removed; $1000 tier permanently visible.
+      // Historic wipe line retired. Legacy settings row (if present) is harmless.
+
 
       // Broadcast so every open tab flips instantly.
       try { broadcast({ type: "leaderboard_reset", periodLabel, at: now }); } catch {}

@@ -56,7 +56,7 @@ export function registerPushRoutes(app: Express) {
 
   // Get opt-in state
   app.get("/api/agents/:id/push-prefs", (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
     const row = rawDb.prepare("SELECT push_notif_on_air FROM agents WHERE id = ?").get(id) as { push_notif_on_air?: number } | undefined;
     res.json({ pushNotifOnAir: !!row?.push_notif_on_air });
@@ -64,7 +64,7 @@ export function registerPushRoutes(app: Express) {
 
   // Set opt-in state
   app.post("/api/agents/:id/push-prefs", (req: Request, res: Response) => {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
     const v = req.body?.pushNotifOnAir ? 1 : 0;
     rawDb.prepare("UPDATE agents SET push_notif_on_air = ? WHERE id = ?").run(v, id);

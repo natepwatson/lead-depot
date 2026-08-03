@@ -237,21 +237,28 @@ function buildTags(
   outcome: string,
   source?: string,
   intention?: string,
-  intent?: "sell_only" | "sell_and_buy" | "buy_only",
+  intent?: "sell_only" | "sell_and_buy" | "buy_only" | "rent_only" | "sell_and_rent",
+  warmLeadSource?: string,
 ): string[] {
   const tags: string[] = [];
 
   // v15.3 — Intent tags per INTENT_SPEC Q5 (plain English, no prefix).
+  // v17.2 — Renter + Sell-and-Rent added.
   // These sit alongside intention-derived tags so FUB smart lists can key off intent alone.
-  if (intent === "sell_only")    tags.push("Seller");
-  if (intent === "buy_only")     tags.push("Buyer");
-  if (intent === "sell_and_buy") tags.push("Buy&Sell");
+  if (intent === "sell_only")     tags.push("Seller");
+  if (intent === "buy_only")      tags.push("Buyer");
+  if (intent === "sell_and_buy")  tags.push("Buy&Sell");
+  if (intent === "rent_only")     tags.push("Renter");
+  if (intent === "sell_and_rent") tags.push("Sell&Rent");
 
   // Lead type → FUB source-style tag
+  // v17.2 — absentee retired; open_house / door_knock / direct_mail added as warm sources.
   const typeMap: Record<string, string> = {
-    expired:  "expired-listing",
-    absentee: "absentee-owner",
-    network:  "network-lead",
+    expired:      "expired-listing",
+    network:      "network-lead",
+    open_house:   "open-house-lead",
+    door_knock:   "door-knock-lead",
+    direct_mail:  "direct-mail-lead",
   };
   if (typeMap[leadType]) tags.push(typeMap[leadType]);
 
@@ -259,7 +266,18 @@ function buildTags(
   if (outcome === "contacted_appointment") tags.push("appointment-set");
   if (outcome === "keep_in_touch")        tags.push("kit");
 
-  // Source override
+  // v17.2 — warm-lead source tag (in case leadType wasn't set correctly upstream)
+  const warmMap: Record<string, string> = {
+    network:     "warm-network",
+    open_house:  "warm-open-house",
+    door_knock:  "warm-door-knock",
+    direct_mail: "warm-direct-mail",
+  };
+  if (warmLeadSource && warmMap[warmLeadSource] && !tags.includes(warmMap[warmLeadSource])) {
+    tags.push(warmMap[warmLeadSource]);
+  }
+
+  // Source override (legacy)
   if (source?.toLowerCase().includes("network")) tags.push("network-referral");
 
   // Geography
@@ -307,9 +325,15 @@ function buildLpmamabNote(opts: {
     mortgage?: string;
     appointment?: string;
     buy?: string;
+    // v17.2 — Renter LPMA passthrough (rendered as its own block)
+    rLocation?: string;
+    rPrice?: string;
+    rMotivation?: string;
+    rAppointment?: string;
   };
   // v14.53 — intent decides seller vs buyer vs both
-  intent?: "sell_only" | "sell_and_buy" | "buy_only";
+  // v17.2 — renter + sell_and_rent added
+  intent?: "sell_only" | "sell_and_buy" | "buy_only" | "rent_only" | "sell_and_rent";
   // v14.20 — Buyer LPMAMA (only rendered when alsoBuying=true / intent !== sell_only)
   alsoBuying?: boolean;
   buyerLpmama?: {
@@ -329,8 +353,12 @@ function buildLpmamabNote(opts: {
 }): string {
   const { agentName, outcome, notes, lpmamab, intent, alsoBuying, buyerLpmama, apptDate, apptTime, stage, intention, confirmedAddress, apptEmail, address } = opts;
   const effectiveIntent = intent || (alsoBuying ? "sell_and_buy" : "sell_only");
-  const showSeller = effectiveIntent !== "buy_only";
-  const showBuyer = effectiveIntent !== "sell_only";
+  // v17.2 — renter surfaces added. Same show-flag pattern as buyer/seller.
+  const showSeller = effectiveIntent === "sell_only" || effectiveIntent === "sell_and_buy" || effectiveIntent === "sell_and_rent";
+  const showBuyer  = effectiveIntent === "buy_only"  || effectiveIntent === "sell_and_buy";
+  const showRenter = effectiveIntent === "rent_only" || effectiveIntent === "sell_and_rent";
+  // Renter LPMA fields live on lpmamab (renamed r*). Buyer keeps buyerLpmama.
+  const renterLpma: any = lpmamab || {};
 
   const outcomeLabel: Record<string, string> = {
     contacted_appointment:    "✅ APPOINTMENT SET",
@@ -351,7 +379,14 @@ function buildLpmamabNote(opts: {
     ``,
   ];
 
-  lines.push(`Intent: ${effectiveIntent === "sell_only" ? "SELL ONLY" : effectiveIntent === "buy_only" ? "BUY ONLY" : "SELL & BUY"}`);
+  const intentLabel = ({
+    sell_only: "SELL ONLY",
+    buy_only: "BUY ONLY",
+    rent_only: "RENT ONLY",
+    sell_and_buy: "SELL & BUY",
+    sell_and_rent: "SELL & RENT",
+  } as Record<string, string>)[effectiveIntent] || effectiveIntent.toUpperCase();
+  lines.push(`Intent: ${intentLabel}`);
   lines.push(``);
 
   if (showSeller && lpmamab && Object.values(lpmamab).some(Boolean)) {
@@ -375,6 +410,17 @@ function buildLpmamabNote(opts: {
     if (buyerLpmama?.motivation) lines.push(`B-M — Motivation: ${buyerLpmama.motivation}`);
     if (buyerLpmama?.agent)      lines.push(`B-A — Agent:      ${buyerLpmama.agent}`);
     if (buyerLpmama?.mortgage)   lines.push(`B-M — Mortgage:   ${buyerLpmama.mortgage}`);
+    lines.push(``);
+  }
+
+  // v17.2 — Renter LPMA block (renders when intent = rent_only OR sell_and_rent).
+  //         Renters have Location / Price / Motivation / Appointment only — no Agent, no Mortgage.
+  if (showRenter) {
+    lines.push(`── RENTER LPMA ─────────────`);
+    if (renterLpma?.rLocation)    lines.push(`R-L — Location:    ${renterLpma.rLocation}`);
+    if (renterLpma?.rPrice)       lines.push(`R-P — Price/Rent:  ${renterLpma.rPrice}`);
+    if (renterLpma?.rMotivation)  lines.push(`R-M — Motivation:  ${renterLpma.rMotivation}`);
+    if (renterLpma?.rAppointment) lines.push(`R-A — Appointment: ${renterLpma.rAppointment}`);
     lines.push(``);
   }
 
@@ -421,12 +467,21 @@ export interface FubOutcomePayload {
     // v14.20 — Buyer LPMAMA
     alsoBuying?: boolean;
     // v15.3 — persisted intent on the lead row (fall-through when lpmamab.intent absent)
-    intent?: "sell_only" | "sell_and_buy" | "buy_only";
+    // v17.2 — renter + sell_and_rent added
+    intent?: "sell_only" | "sell_and_buy" | "buy_only" | "rent_only" | "sell_and_rent";
     bLocation?: string;
     bPrice?: string;
     bMotivation?: string;
     bAgent?: string;
     bMortgage?: string;
+    // v17.2 — warm-lead source + intent (stored in extraData; passed through here for FUB)
+    warmLeadSource?: string;
+    warmLeadIntent?: string;
+    // v17.2 — Renter LPMA (stored in extraData.renterLpma; passed through here)
+    rLocation?: string;
+    rPrice?: string;
+    rMotivation?: string;
+    rAppointment?: string;
   };
   agent: {
     id: number;
@@ -452,6 +507,13 @@ export interface FubOutcomePayload {
     bMotivation?: string;
     bAgent?: string;
     bMortgage?: string;
+    // v17.2 — Renter LPMA fields (Location / Price / Motivation / Appointment — no Agent / no Mortgage)
+    rLocation?: string;
+    rPrice?: string;
+    rMotivation?: string;
+    rAppointment?: string;
+    // v17.2 — broadened intent alias (warm-lead intent overrides lead.intent when present)
+    warmLeadIntent?: string;
   };
   apptDate?: string;
   apptTime?: string;
@@ -511,8 +573,25 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
   const fubType = outcomeToFubType(outcome, lead.leadType);
   const fubStage = outcomeToFubStage(outcome);
   // v15.3 — pass intent so buildTags can add Seller / Buyer / Buy&Sell tag per INTENT_SPEC Q5
-  const effectiveIntent = (lpmamab as any)?.intent || (lead as any).intent || undefined;
-  const tags = buildTags(lead.leadType, outcome, lead.source, intention, effectiveIntent);
+  // v17.2 — warm-lead intent (10-option, from unified capture) takes priority over legacy 3-option
+  //         intent. Map the 10-option warm intent back to the 5 canonical FUB intents.
+  const warmToFub: Record<string, "sell_only" | "sell_and_buy" | "buy_only" | "rent_only" | "sell_and_rent"> = {
+    seller: "sell_only",
+    buyer: "buy_only",
+    renter: "rent_only",
+    seller_and_buyer: "sell_and_buy",
+    seller_and_renter: "sell_and_rent",
+    future_seller: "sell_only",
+    future_buyer: "buy_only",
+    future_renter: "rent_only",
+    future_seller_and_buyer: "sell_and_buy",
+    future_seller_and_renter: "sell_and_rent",
+  };
+  const warmIntent = ((lpmamab as any)?.warmLeadIntent || (lead as any).warmLeadIntent) as string | undefined;
+  const mappedWarmIntent = warmIntent ? warmToFub[warmIntent] : undefined;
+  const effectiveIntent = mappedWarmIntent || (lpmamab as any)?.intent || (lead as any).intent || undefined;
+  const warmLeadSource = ((lead as any).warmLeadSource || undefined) as string | undefined;
+  const tags = buildTags(lead.leadType, outcome, lead.source, intention, effectiveIntent as any, warmLeadSource);
   // v15.11.8 — Append the outcome-specific tag so the plan and tag stay in sync
   if (planMapping && !tags.includes(planMapping.tag)) tags.push(planMapping.tag);
   const fubSource = getFubSource(lead.leadType, lead.source);
@@ -533,7 +612,13 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
     person: {
       firstName,
       lastName,
-      type: "Seller",  // All seller leads are Sellers — prevents FUB defaulting to Buyer on General Inquiry events
+      // v17.2 — person.type now reflects effective intent. FUB still defaults
+      // to Seller when intent is unknown (preserves the pre-existing safety).
+      type: (effectiveIntent === "buy_only" ? "Buyer"
+        : effectiveIntent === "rent_only" ? "Renter"
+        : effectiveIntent === "sell_and_buy" ? "Seller"    // multi-side; Seller is the primary contract type
+        : effectiveIntent === "sell_and_rent" ? "Seller"
+        : "Seller"),
       stage: fubStage.name,
       tags,
       assignedTo: agent.name,

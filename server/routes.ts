@@ -403,7 +403,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v18.1 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v18.2 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -462,7 +462,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v18.1 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v18.2 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -747,7 +747,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v18.1 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v18.2 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1983,7 +1983,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v18.1</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v18.2</p>
             </div>
           `,
         });
@@ -2143,7 +2143,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v18.1 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v18.2 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -6657,11 +6657,19 @@ Brothers Group Real Estate Team at Momentum Realty
         SUM(CASE WHEN outcome = 'keep_in_touch' AND created_at >= ? THEN 1 ELSE 0 END) as month_kit,
         SUM(CASE WHEN outcome = 'email_sent' AND created_at >= ? THEN 1 ELSE 0 END) as today_emails,
         SUM(CASE WHEN outcome = 'email_sent' AND created_at >= ? THEN 1 ELSE 0 END) as week_emails,
-        SUM(CASE WHEN outcome = 'email_sent' AND created_at >= ? THEN 1 ELSE 0 END) as month_emails
+        SUM(CASE WHEN outcome = 'email_sent' AND created_at >= ? THEN 1 ELSE 0 END) as month_emails,
+        SUM(CASE WHEN outcome = 'no_answer' AND created_at >= ? THEN 1 ELSE 0 END) as today_no_answer,
+        SUM(CASE WHEN outcome = 'no_answer' AND created_at >= ? THEN 1 ELSE 0 END) as week_no_answer,
+        SUM(CASE WHEN outcome = 'no_answer' AND created_at >= ? THEN 1 ELSE 0 END) as month_no_answer,
+        SUM(CASE WHEN outcome = 'contacted_not_interested' AND created_at >= ? THEN 1 ELSE 0 END) as today_not_int,
+        SUM(CASE WHEN outcome = 'contacted_not_interested' AND created_at >= ? THEN 1 ELSE 0 END) as week_not_int,
+        SUM(CASE WHEN outcome = 'contacted_not_interested' AND created_at >= ? THEN 1 ELSE 0 END) as month_not_int
       FROM lead_activity
       WHERE agent_id IS NOT NULL
       GROUP BY agent_id
     `).all(
+      todayStartAg, weekStartAg, monthStartAg,
+      todayStartAg, weekStartAg, monthStartAg,
       todayStartAg, weekStartAg, monthStartAg,
       todayStartAg, weekStartAg, monthStartAg,
       todayStartAg, weekStartAg, monthStartAg,
@@ -6729,15 +6737,29 @@ Brothers Group Real Estate Team at Momentum Realty
       refCycMap = { ...refAllMap };
     }
 
+    // v18.2 — unified window shape matching /api/admin/leaderboard exactly.
+    // Fields: dials, appts, kit, emails, noAnswer, convRate, referrals, points.
     const win = (r: any, p: "today" | "week" | "month", agentId: number, refMap: Record<number, number>, ptsMap: Record<number, number>) => {
-      const total  = r[`${p}_total`]  || 0;
-      const emails = r[`${p}_emails`] || 0;
+      const total    = r[`${p}_total`]    || 0;
+      const emails   = r[`${p}_emails`]   || 0;
+      const appts    = r[`${p}_appts`]    || 0;
+      const kit      = r[`${p}_kit`]      || 0;
+      const noAnswer = r[`${p}_no_answer`]|| 0;
+      const notInt   = r[`${p}_not_int`]  || 0;
+      const dials    = total - emails;
+      // v18.2 — match admin's convRate math exactly: (appts + notInt + kit) / dials.
+      const convRate = dials > 0 ? Math.round(((appts + notInt + kit) / dials) * 100) : 0;
       return {
-        points: ptsMap[agentId] || 0,
-        appts:  r[`${p}_appts`] || 0,
-        dials:  total - emails,
-        kit:    r[`${p}_kit`]   || 0,
-        refs:   refMap[agentId] || 0,
+        points:    ptsMap[agentId] || 0,
+        dials,
+        appts,
+        kit,
+        emails,
+        noAnswer,
+        convRate,
+        referrals: refMap[agentId] || 0,
+        // Back-compat aliases so existing UI code that reads `refs` still works.
+        refs:      refMap[agentId] || 0,
       };
     };
 
@@ -6771,6 +6793,30 @@ Brothers Group Real Estate Team at Momentum Realty
         },
         refs: refCycMap[agent.id] || 0,
         // v16.7 — per-window blocks powering TODAY/WEEK/MONTH/ALL tabs.
+        // v18.2 — window shape now matches /api/admin/leaderboard exactly.
+        // Also exposed at top level for admin dashboard compat.
+        today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap),
+        weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap),
+        monthly: win(r, "month", agent.id, refMonthMap, ptsMonthMap),
+        allTime: (() => {
+          const total    = r.total_all   || 0;
+          const emails   = r.emails_sent || 0;
+          const appts    = r.appts       || 0;
+          const kit      = r.kit         || 0;
+          const noAnswer = r.no_answer   || 0;
+          const notInt   = r.not_int     || 0;
+          const dials    = total - emails;
+          // v18.2 — match admin's convRate math exactly.
+          const convRate = dials > 0 ? Math.round(((appts + notInt + kit) / dials) * 100) : 0;
+          return {
+            points:    ptsAllMap[agent.id] || 0,
+            dials, appts, kit, emails, noAnswer, convRate,
+            referrals: refAllMap[agent.id] || 0,
+            refs:      refAllMap[agent.id] || 0,
+          };
+        })(),
+        // Back-compat: keep the old `windows` block so any old client caching
+        // still works during the flip.
         windows: {
           today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap),
           weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap),
@@ -7084,7 +7130,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v18.1 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v18.2 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8068,7 +8114,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v18.1",
+      version: "v18.2",
       services: results,
     });
   });
@@ -8696,7 +8742,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v18.1</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v18.2</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

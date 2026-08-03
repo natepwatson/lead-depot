@@ -132,7 +132,7 @@ export function awardDiversityBonusesForWeek(weekStart: string, weekEnd: string)
   const awards: Array<{ agentId: number; agentName: string; count: number; points: number; categories: string[] }> = [];
 
   // Iterate all active agents
-  const agents = rawDb.prepare(`SELECT id, name FROM agents WHERE deactivated IS NULL OR deactivated = 0`).all() as any[];
+  const agents = rawDb.prepare(`SELECT id, name FROM agents WHERE is_active = 1`).all() as any[];
   const now = new Date().toISOString();
 
   const insertBonus = rawDb.prepare(`

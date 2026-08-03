@@ -5691,7 +5691,7 @@ function LeadGenSheet(props: {
           <>
             {header("Open House", () => setView("root"))}
             <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 14, lineHeight: 1.55 }}>
-              Two options. Both count for 20 points. Log the open house even if nobody signs in — showing up matters.
+              Log the OH, capture a lead, or piggyback a knock route while you're on-site. Points bank when Nate approves.
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {tile({
@@ -5702,6 +5702,11 @@ function LeadGenSheet(props: {
                 icon: <UserPlus size={22} />, title: "Log Open House Lead", sub: "Captured a lead? Full lead form → auto-assigned. 20 pts.",
                 hero: true,
                 onClick: () => setView("oh-lead"),
+              })}
+              {tile({
+                icon: <DoorOpen size={22} />, title: "Neighborhood Knock Route", sub: "Piggyback the OH — knock the block. Bonus pts on Nate's approval.",
+                comingSoon: true,
+                onClick: () => toast({ title: "Coming soon", description: "Rep-card evidence + door tally. Nate reviews and approves bonus points, same as OH." }),
               })}
             </div>
           </>

@@ -1815,7 +1815,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v17.0
+              v17.1
             </p>
           </div>
         </div>
@@ -4620,6 +4620,7 @@ function ApprovalsPanel() {
   const counts = data?.counts || { pending: 0, approved: 0, rejected: 0 };
 
   const kindLabel = (k: string) => k === "open_house_log" ? "Open House"
+    : k === "oh_knock_route" ? "OH Knock Route"
     : k === "direct_mail" ? "Direct Mail"
     : k === "door_knock" ? "Door Knocking"
     : k;

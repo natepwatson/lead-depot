@@ -3879,28 +3879,8 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
   return (
     <div style={{ width: "100%", padding: "0 0 20px" }}>
 
-      {/* v14.16 — "Who called me?" quick-lookup button (visible on Dashboard for fast access from a lead callback) */}
-      {mode === "seller" && (
-        <div style={{ padding: "0 20px 14px" }}>
-          <button
-            onClick={() => setLookupOpen(true)}
-            style={{
-              width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
-              gap: 8, padding: "12px 14px",
-              background: "rgba(200,170,90,0.10)",
-              border: "1px solid rgba(200,170,90,0.35)",
-              borderRadius: 10, color: "#c8aa5a",
-              fontSize: 13, fontWeight: 600, letterSpacing: "0.04em",
-              cursor: "pointer", transition: "background 0.15s ease",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(200,170,90,0.18)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(200,170,90,0.10)")}
-          >
-            <PhoneCall size={14} />
-            Who called me?
-          </button>
-        </div>
-      )}
+      {/* v18.3 — Removed in-page "Who called me?" bar; dedicated global button lives
+          in the top bar on every tab. Modal stays wired here for that button. */}
       {lookupOpen && <CallbackLookupModal onClose={() => setLookupOpen(false)} />}
 
       {/* v15.11.29 — End-of-Month Bonus card (seller depot only). Hero card at the
@@ -5228,26 +5208,8 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
         </div>
       )}
 
-      {/* ── Leads notification banner ── */}
-      {!prospectingMode && hasLeads && tab !== "leads" && (
-        <button onClick={() => setTab("leads")} style={{
-          width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
-          padding: "13px 20px",
-          background: "linear-gradient(135deg, rgba(200,170,90,0.2) 0%, rgba(200,170,90,0.1) 100%)",
-          border: "none", borderBottom: "1px solid rgba(200,170,90,0.3)",
-          cursor: "pointer",
-        }}>
-          <div style={{
-            width: 9, height: 9, borderRadius: "50%", background: "#c8aa5a",
-            boxShadow: "0 0 10px rgba(200,170,90,0.9)",
-            animation: "pulse 2s infinite",
-          }} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#c8aa5a", letterSpacing: "0.1em" }}>
-            Leads Ready — Tap to Work Your Queue
-          </span>
-          <ChevronLeft size={13} style={{ color: "rgba(200,170,90,0.7)", transform: "rotate(180deg)" }} />
-        </button>
-      )}
+      {/* v18.3 — Removed "Leads Ready — Tap to Work Your Queue" banner.
+          Dial button up top + Leads tab in bottom nav make it redundant. */}
 
       {/* ── Main ── */}
       <main ref={mainRef} style={{ flex: 1, overflowY: "auto", padding: "16px 12px 90px" }}>

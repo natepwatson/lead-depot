@@ -22,7 +22,6 @@ import ProfileGate from "./components/ProfileGate";
 import TutorialFlow from "./components/TutorialFlow";
 import NotFound from "./pages/not-found";
 import JoinPage from "./pages/JoinPage";
-import CandidateLanding from "./pages/CandidateLanding";
 import { useEffect, useState } from "react";
 
 function AppRoutes() {
@@ -107,15 +106,10 @@ function AppRoutes() {
     );
   }
 
-  // v12.5 — Recruiting Depot is admin-only. Non-admin at #/recruiting → redirect.
-  const onRecruiting = location.startsWith("/recruiting");
-  if (onRecruiting && user.role !== "admin") {
+  // v18.0 — Recruiting Depot removed. #/recruiting redirects home for everyone.
+  if (location.startsWith("/recruiting")) {
     navigate("/", { replace: true });
     return null;
-  }
-  // Admin at #/recruiting sees the Recruiting Depot AgentView shell
-  if (onRecruiting && user.role === "admin") {
-    return <AgentView mode="recruiting" initialTab="leads" onBackToAdmin={() => navigate("/", { replace: true })} />;
   }
 
   // v14.29.1 — Non-admin agents whose email isn't @watsonbrothersgroup.com
@@ -156,16 +150,12 @@ export default function App() {
         <Watermark />
         <Router hook={useHashLocation}>
           <Switch>
-            {/* Public recruiting form — no auth required */}
-            {/* v15.5 — candidate landing must be checked BEFORE the generic /join route */}
-            <Route path="/join/:token" component={CandidateLanding} />
+            {/* Public /join marketing page — no auth required */}
             <Route path="/join" component={JoinPage} />
             {/* Account setup — no auth required, token-gated */}
             <Route path="/setup/:token" component={AccountSetupPage} />
             {/* Password reset — no auth required, token-gated */}
             <Route path="/reset-password/:token" component={ResetPasswordPage} />
-            {/* v12.5 — Recruiting Depot (admin-only, guarded in AppRoutes) */}
-            <Route path="/recruiting" component={AppRoutes} />
             <Route path="/" component={AppRoutes} />
             {/* v15.11.31 — defensive catch: any hash path we don't own routes home
                 instead of 404. Prevents stale bookmarks and mis-typed URLs from

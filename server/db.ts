@@ -228,33 +228,15 @@ rawDb.exec(`
 // On every boot: copies slug-named headshots to <id>.jpg in dist/public/headshots/
 // and updates headshot_url in DB. Safe to repeat — only overwrites stale/missing.
 
-// ─── Agent Prospecting tables (v11.46) ──────────────────────────────────────
+// ─── v18.0 — DROP recruiting/onboarding tables ────────────────────────────
+// Recruiting system removed. If the tables exist from prior versions, wipe them.
+// Idempotent: no-op if tables were never created.
+try { rawDb.exec(`DROP TABLE IF EXISTS agent_leads`); } catch (e) { console.error('[v18.0] drop agent_leads:', e); }
+try { rawDb.exec(`DROP TABLE IF EXISTS agent_lead_activity`); } catch (e) { console.error('[v18.0] drop agent_lead_activity:', e); }
+try { rawDb.exec(`DROP TABLE IF EXISTS candidates`); } catch (e) { console.error('[v18.0] drop candidates:', e); }
+try { rawDb.exec(`DROP TABLE IF EXISTS onboarding_checklist`); } catch (e) { console.error('[v18.0] drop onboarding_checklist:', e); }
+
 const existingTables = (rawDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as any[]).map((r:any) => r.name);
-if (!existingTables.includes('agent_leads')) rawDb.exec(`CREATE TABLE IF NOT EXISTS agent_leads (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  first_name TEXT NOT NULL DEFAULT '', last_name TEXT NOT NULL DEFAULT '',
-  email TEXT, phone TEXT,
-  license_status TEXT NOT NULL DEFAULT 'active',
-  license_number TEXT, license_state TEXT, years_experience TEXT,
-  current_brokerage TEXT, reason_for_leaving TEXT,
-  gci_range TEXT, transactions_last_12mo INTEGER,
-  territory TEXT, matched_territory TEXT,
-  referral_source TEXT, referred_by_name TEXT, applicant_notes TEXT,
-  status TEXT NOT NULL DEFAULT 'new',
-  assigned_admin_id INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0, callback_date TEXT,
-  r_license TEXT, r_production TEXT, r_motivation TEXT,
-  r_timeline TEXT, r_objections TEXT, r_territory TEXT, r_appointment TEXT,
-  fub_person_id INTEGER, fub_synced_at TEXT,
-  submitted_at TEXT NOT NULL DEFAULT '',
-  source TEXT NOT NULL DEFAULT 'recruiting_page',
-  uploaded_at TEXT, uploaded_by INTEGER, batch_id TEXT
-)`);
-if (!existingTables.includes('agent_lead_activity')) rawDb.exec(`CREATE TABLE IF NOT EXISTS agent_lead_activity (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  agent_lead_id INTEGER NOT NULL, caller_id INTEGER, outcome TEXT NOT NULL,
-  notes TEXT, latte_snapshot TEXT, points_awarded INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT ''
-)`);
 if (!existingTables.includes('territories')) rawDb.exec(`CREATE TABLE IF NOT EXISTS territories (
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, is_open INTEGER NOT NULL DEFAULT 1
 )`);
@@ -562,51 +544,19 @@ try {
   console.error('[v16.7] lead_activity migration failed:', err);
 }
 
-// ─── DBPR Scraper columns (v11.71, renamed from FREC in v13.4) ──────────────
-// Added to agent_leads for DBPR licensee integration
-const agentLeadCols = rawDb.prepare("PRAGMA table_info(agent_leads)").all().map((c: any) => c.name);
-if (!agentLeadCols.includes("dbpr_license_id"))    rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN dbpr_license_id TEXT").run();
-if (!agentLeadCols.includes("license_issue_date")) rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN license_issue_date TEXT").run();
-if (!agentLeadCols.includes("license_expire_date")) rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN license_expire_date TEXT").run();
-if (!agentLeadCols.includes("last_scraped_at"))    rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN last_scraped_at INTEGER").run();
-if (!agentLeadCols.includes("dedup_hash"))         rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN dedup_hash TEXT").run();
+// ─── v18.0 — DBPR/agent_leads column migrations REMOVED ─────────────────────
+// The agent_leads and agent_lead_activity tables are dropped at boot (above).
+// All DBPR/recruiting-related ALTER TABLE statements are removed.
+// The `can_recruit` column on `agents` is no longer added; existing rows keep
+// their column if present (SQLite doesn't support DROP COLUMN cheaply), but
+// no code paths reference it anymore.
 
-// v13.4 — one-shot migration: copy legacy frec_license_id → dbpr_license_id and
-// rewrite source='frec_scrape' → 'dbpr_scrape'. Safe to re-run.
-const agentLeadColsPostAdd = rawDb.prepare("PRAGMA table_info(agent_leads)").all().map((c: any) => c.name);
-if (agentLeadColsPostAdd.includes("frec_license_id")) {
-  rawDb.prepare(`
-    UPDATE agent_leads
-       SET dbpr_license_id = frec_license_id
-     WHERE dbpr_license_id IS NULL
-       AND frec_license_id IS NOT NULL
-  `).run();
-}
-rawDb.prepare(`UPDATE agent_leads SET source = 'dbpr_scrape' WHERE source = 'frec_scrape'`).run();
-
-// ─── v11.80 — Recruiting module: canRecruit, reactivate_at ────────────────────
-const agentColsV80 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
-if (!agentColsV80.includes("can_recruit")) rawDb.prepare("ALTER TABLE agents ADD COLUMN can_recruit INTEGER NOT NULL DEFAULT 0").run();
-const alColsV80 = rawDb.prepare("PRAGMA table_info(agent_leads)").all().map((c: any) => c.name);
-if (!alColsV80.includes("reactivate_at")) rawDb.prepare("ALTER TABLE agent_leads ADD COLUMN reactivate_at TEXT").run();
-// Index for thaw queries
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_reactivate ON agent_leads(reactivate_at) WHERE reactivate_at IS NOT NULL`).run();
-// Auto-ice any DBPR agent whose license was issued within the last 6 months (joined a brokerage recently)
-rawDb.prepare(`
-  UPDATE agent_leads
-  SET status = 'just_signed',
-      reactivate_at = date(license_issue_date, '+6 months')
-  WHERE source = 'dbpr_scrape'
-    AND license_issue_date IS NOT NULL
-    AND date(license_issue_date) >= date('now', '-6 months')
-    AND status = 'new'
-    AND reactivate_at IS NULL
-`).run();
-// Thaw any not_now / just_signed leads whose reactivate_at has passed
-rawDb.prepare(`
-  UPDATE agent_leads
-  SET status = 'new', reactivate_at = NULL, callback_date = NULL
-  WHERE status IN ('not_now', 'just_signed')
+// Placeholder no-op for downstream code that expected the old block:
+rawDb.prepare(`SELECT 1`).get();
+// The old auto-ice / thaw loop lived here — removed.
+if (false) rawDb.prepare(`
+  UPDATE agents SET id = id
+  WHERE 1=0 -- v18.0 dead branch, kept only to preserve grep readability
     AND reactivate_at IS NOT NULL
     AND date(reactivate_at) <= date('now')
 `).run();
@@ -1047,107 +997,9 @@ try {
   console.error("[db] Expired script seed failed:", e.message);
 }
 
-// ─── v15.5 — Bucket 5 Half 2, Phase 1: Onboarding candidate ingress ────────
-// New tables + agents columns to support the Stage-4 application flow:
-//   1) Admin invites a candidate (name/phone/email + entry path) after a
-//      real-world yes (F2F meet, phone yes, marketing-primed yes, referral).
-//   2) Candidate row + FUB HOT PROSPECT / AGENT RECRUIT LEAD / VENDOR created
-//      (stage depends on entry path — see server/fub.ts fubCreateCandidate).
-//   3) Admin picks delivery mode: Show QR on phone, Text link (sms: deep
-//      link), Email link, or Create only (Nurture default).
-//   4) Candidate opens /join/:token, completes 28-question form (Phase 2),
-//      Alex approves, agent row is created, onboarding_checklist rows fire.
-//
-// See references/ONBOARDING_SPEC.md for the full spec and 7-path entry grid.
+// v18.0 — Onboarding candidate ingress (candidates + onboarding_checklist tables) REMOVED.
+// Tables are DROPped at boot in the v18.0 block near line 231.
 
-// candidates: the row backing the whole flow. status transitions:
-//   invited → started → submitted → approved → active  (happy path)
-//              ↘ ghosted (48h no-open) ↘ expired (14d no-submit) ↘ declined
-if (!rawDb.prepare("PRAGMA table_info(candidates)").all().length) {
-  rawDb.exec(`
-    CREATE TABLE IF NOT EXISTS candidates (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      -- identity (3 fields captured at invite time)
-      first_name TEXT NOT NULL,
-      last_name TEXT NOT NULL,
-      email TEXT,
-      phone TEXT,
-      -- entry path (locks in FUB stage + tags): dbpr_phone_kit | f2f_nurture |
-      -- phone_tell_me_more | f2f_hot_prospect | marketing_phone_yes |
-      -- f2f_sit_down_yes | referral_yes
-      entry_path TEXT NOT NULL,
-      -- temperature tier derived from entry_path (nurture | hot_prospect | vendor)
-      temperature TEXT NOT NULL,
-      -- FUB stage label applied on create (Agent Recruit Lead | Agent Prospect | Vendor)
-      fub_stage TEXT NOT NULL,
-      -- current lifecycle status
-      status TEXT NOT NULL DEFAULT 'invited',
-      -- one-time token for /join/:token public landing + questionnaire
-      token TEXT UNIQUE,
-      token_expires_at TEXT,
-      -- delivery mode picked at invite: show_qr | text | email | create_only
-      delivery_mode TEXT NOT NULL DEFAULT 'create_only',
-      -- attribution
-      invited_by_agent_id INTEGER,
-      referred_by_agent_id INTEGER,
-      -- FUB sync
-      fub_person_id INTEGER,
-      fub_synced_at TEXT,
-      -- 28-question form (Phase 2) — stored as JSON blob when submitted
-      questionnaire_json TEXT,
-      questionnaire_submitted_at TEXT,
-      -- Alex's approval
-      approved_at TEXT,
-      approved_by_agent_id INTEGER,
-      -- If approved, the resulting agents.id (foreign key back once agent row created)
-      resulting_agent_id INTEGER,
-      -- decline path
-      declined_at TEXT,
-      declined_reason TEXT,
-      -- lifecycle timestamps
-      created_at TEXT NOT NULL DEFAULT '',
-      first_opened_at TEXT,
-      last_activity_at TEXT,
-      -- nurture nudge scheduling (30/90/180d admin reminders)
-      next_nurture_at TEXT
-    )
-  `);
-  console.log("[db] v15.5 candidates table created");
-}
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status)`).run();
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_token ON candidates(token) WHERE token IS NOT NULL`).run();
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates(email) WHERE email IS NOT NULL`).run();
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_phone ON candidates(phone) WHERE phone IS NOT NULL`).run();
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_temp ON candidates(temperature)`).run();
-
-// v15.7 — Phase 2 columns for questionnaire submission flow.
-// Idempotent adds so existing prod DB gets them on next boot.
-const candColsV156 = rawDb.prepare("PRAGMA table_info(candidates)").all().map((c: any) => c.name);
-if (!candColsV156.includes("recommendation"))       rawDb.prepare("ALTER TABLE candidates ADD COLUMN recommendation TEXT").run();          // STRONG_FIT | WORTH_A_CALL | SOFT_PASS | HARD_PASS
-if (!candColsV156.includes("recommendation_score")) rawDb.prepare("ALTER TABLE candidates ADD COLUMN recommendation_score INTEGER").run(); // 0..100
-if (!candColsV156.includes("recommendation_reason")) rawDb.prepare("ALTER TABLE candidates ADD COLUMN recommendation_reason TEXT").run();  // one-line why
-if (!candColsV156.includes("admin_notes"))          rawDb.prepare("ALTER TABLE candidates ADD COLUMN admin_notes TEXT").run();
-if (!candColsV156.includes("questionnaire_draft_json"))       rawDb.prepare("ALTER TABLE candidates ADD COLUMN questionnaire_draft_json TEXT").run();       // partial answers, saved as they type
-if (!candColsV156.includes("questionnaire_draft_updated_at")) rawDb.prepare("ALTER TABLE candidates ADD COLUMN questionnaire_draft_updated_at TEXT").run();
-
-// onboarding_checklist: the 13-item post-approval task list (Phase 3).
-// Rows are inserted when Alex approves a candidate and creates their agent row.
-// The Nate brief email fires on approval and links here.
-rawDb.exec(`
-  CREATE TABLE IF NOT EXISTS onboarding_checklist (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    agent_id INTEGER NOT NULL,
-    item_key TEXT NOT NULL,          -- e.g. "team_agreement_signed", "headshot_uploaded", "personal_address"
-    item_label TEXT NOT NULL,        -- human label shown in the checklist UI
-    item_order INTEGER NOT NULL,     -- display order 1..13
-    completed_at TEXT,               -- NULL until done
-    completed_by_agent_id INTEGER,   -- who checked it off (Alex/Nate or the agent themselves)
-    notes TEXT,
-    created_at TEXT NOT NULL DEFAULT ''
-  )
-`);
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_onboarding_agent ON onboarding_checklist(agent_id)`).run();
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_onboarding_pending ON onboarding_checklist(agent_id) WHERE completed_at IS NULL`).run();
 
 // agents: 9 new columns to hold the onboarding-derived fields.
 // These come from the 28-question form + Alex's approve step + FUB post-approve push.
@@ -1157,7 +1009,7 @@ if (!agentColsV155.includes("license_status"))   rawDb.prepare("ALTER TABLE agen
 if (!agentColsV155.includes("license_number"))   rawDb.prepare("ALTER TABLE agents ADD COLUMN license_number TEXT").run();
 if (!agentColsV155.includes("license_state"))    rawDb.prepare("ALTER TABLE agents ADD COLUMN license_state TEXT").run();
 if (!agentColsV155.includes("years_experience")) rawDb.prepare("ALTER TABLE agents ADD COLUMN years_experience TEXT").run();
-if (!agentColsV155.includes("candidate_id"))     rawDb.prepare("ALTER TABLE agents ADD COLUMN candidate_id INTEGER").run();
+// v18.0 — candidate_id column no longer added (candidates table removed).
 if (!agentColsV155.includes("onboarding_started_at")) rawDb.prepare("ALTER TABLE agents ADD COLUMN onboarding_started_at TEXT").run();
 if (!agentColsV155.includes("onboarding_completed_at")) rawDb.prepare("ALTER TABLE agents ADD COLUMN onboarding_completed_at TEXT").run();
 if (!agentColsV155.includes("tcpa_consent_at")) rawDb.prepare("ALTER TABLE agents ADD COLUMN tcpa_consent_at TEXT").run();

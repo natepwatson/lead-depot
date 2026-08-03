@@ -3773,7 +3773,7 @@ function CallHeatMeter() {
   );
 }
 
-function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } = {}) {
+function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -3788,35 +3788,18 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
   // v14.16 — Callback Lookup ("Who called me?") state
   const [lookupOpen, setLookupOpen] = useState(false);
 
-  // v12.5 — recruiting depot pulls its own isolated leaderboard (agent_lead_activity),
-  // seller depot pulls the seller-side leaderboard (lead_activity). Zero cross-bleed.
-  const leaderboardUrl = mode === "recruiting" ? "/api/admin/recruiting/leaderboard" : "/api/agent/leaderboard";
+  // v18.0 — Recruiting removed. Only seller leaderboard remains.
+  void mode;
+  const leaderboardUrl = "/api/agent/leaderboard";
   const { data: statsRaw, isLoading } = useQuery<any[]>({
     queryKey: [leaderboardUrl],
     queryFn: () => apiRequest("GET", leaderboardUrl).then(r => r.json()),
     refetchInterval: 60000,
   });
-  // Normalise recruiting rows into the AgentStat shape used by the tab renderer.
   const stats: AgentStat[] = React.useMemo(() => {
     if (!Array.isArray(statsRaw)) return [];
-    if (mode !== "recruiting") return statsRaw as AgentStat[];
-    return statsRaw.map((r: any) => {
-      const total = Number(r.total_dials || 0);
-      const contacted = Number(r.hot_prospects || 0) + Number(r.joined || 0) + Number(r.not_interested || 0);
-      return {
-        agent: { id: r.caller_id, name: r.agent_name || "Unknown", email: "" },
-        appointmentsSet: Number(r.joined || 0),
-        totalAttempts: total,
-        emailsSent: 0,
-        contactRate: total > 0 ? Math.round((contacted / total) * 100) : 0,
-        outcomes: {
-          contacted_appointment: Number(r.joined || 0),
-          no_answer: Number(r.no_answer || 0),
-          keep_in_touch: Number(r.kit || 0),
-        },
-      } as AgentStat;
-    });
-  }, [statsRaw, mode]);
+    return statsRaw as AgentStat[];
+  }, [statsRaw]);
 
   const handleNetworkLead = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -4862,7 +4845,7 @@ const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
 ];
 
 // ─── Main AgentView ───────────────────────────────────────────────────────────
-export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }: { onBackToAdmin?: () => void; initialTab?: Tab; mode?: "seller" | "recruiting" } = {}) {
+export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }: { onBackToAdmin?: () => void; initialTab?: Tab; mode?: "seller" } = {}) {
   const { user, logout } = useAuth();
   // v17.2 — Both roles land on Home. Prior default was "leaderboard".
   const [tab, setTab] = useState<Tab>(initialTab ?? "home");
@@ -4899,7 +4882,9 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
   // v12.5 — mode drives which depot this AgentView renders. Recruiting is
   // admin-only (guarded in App.tsx). prospectingMode is kept as an internal
   // flag so all existing recruiting-branch code needs zero rewrite.
-  const prospectingMode = mode === "recruiting";
+  // v18.0 — Recruiting removed. Kept as harmless `false` so downstream branches compile.
+  void mode;
+  const prospectingMode = false as boolean;
   const isAdmin = user?.role === "admin";
 
   // v14.0 — territories removed. Home County (Nassau/Duval/St Johns) is the only
@@ -5139,26 +5124,10 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
               fontFamily: "'Cormorant Garamond','Georgia',serif",
               fontSize: 15, fontWeight: 500, letterSpacing: "0.2em",
               color: "#fff", textTransform: "uppercase", lineHeight: 1,
-            }}>{mode === "recruiting" ? "Recruiting Depot" : "Lead Depot"}</p>
+            }}>Lead Depot</p>
             <p style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em", marginTop: 2 }}>{user?.name}</p>
           </div>
-          {/* v14.52 — Recruiting cross-link removed from header (overextended the right edge on iPhone).
-              Admins reach the recruiting side via the in-app Recruiting Depot tab. The ← Seller reverse
-              link on the recruiting side is preserved because there's no equivalent tab there. */}
-          {isAdmin && mode === "recruiting" && (
-            <a
-              href="#/"
-              style={{
-                marginLeft: 6, fontSize: 10, color: "rgba(79,184,163,0.85)",
-                textDecoration: "none", letterSpacing: "0.1em", textTransform: "uppercase",
-                background: "rgba(79,184,163,0.08)",
-                border: "1px solid rgba(79,184,163,0.25)",
-                borderRadius: 6, padding: "4px 8px", fontWeight: 700,
-              }}
-            >
-              ← Seller
-            </a>
-          )}
+          {/* v18.0 — Recruiting cross-link removed with recruiting system. */}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* v15.3 — REAL dialing-now pill. Green + pulse when ≥ 1 agent has

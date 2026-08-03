@@ -87,9 +87,8 @@ try { sqlite.exec(`ALTER TABLE leads ADD COLUMN buyer_target TEXT`); } catch {} 
 // lead_activity — lpmamab_snapshot column (v11.38)
 try { sqlite.exec(`ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT`); } catch {}
 
-// v11.80 — Recruiting module: canRecruit flag, new statuses, reactivate_at
-try { sqlite.exec(`ALTER TABLE agents ADD COLUMN can_recruit INTEGER NOT NULL DEFAULT 0`); } catch {}
-try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN reactivate_at TEXT`); } catch {}
+// v18.0 — Recruiting module removed. can_recruit column no longer added.
+// agent_leads / agent_lead_activity tables are DROPped in server/db.ts on boot.
 
 // v11.82 — Performance gate: minDialsPerWeek column
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN min_dials_per_week INTEGER NOT NULL DEFAULT 0`); } catch {}
@@ -155,126 +154,22 @@ try { sqlite.exec(`CREATE TABLE IF NOT EXISTS agent_audit_log (
 )`); } catch {}
 try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_agent_audit_log_target ON agent_audit_log(target_id, ts DESC)`); } catch {}
 
-// ─── v15.5 — Onboarding candidates (mirror of db.ts) ──────────────────────
-// MUST be a byte-for-byte mirror of the DDL in server/db.ts. storage.ts opens
-// its own drizzle handle to the same SQLite file; if db.ts adds a column that
-// storage.ts doesn't, any drizzle query against the affected table crashes
-// with "no such column". Kept in both places since v14.81 crash lesson.
-try { sqlite.exec(`CREATE TABLE IF NOT EXISTS candidates (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  email TEXT,
-  phone TEXT,
-  entry_path TEXT NOT NULL,
-  temperature TEXT NOT NULL,
-  fub_stage TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'invited',
-  token TEXT UNIQUE,
-  token_expires_at TEXT,
-  delivery_mode TEXT NOT NULL DEFAULT 'create_only',
-  invited_by_agent_id INTEGER,
-  referred_by_agent_id INTEGER,
-  fub_person_id INTEGER,
-  fub_synced_at TEXT,
-  questionnaire_json TEXT,
-  questionnaire_submitted_at TEXT,
-  approved_at TEXT,
-  approved_by_agent_id INTEGER,
-  resulting_agent_id INTEGER,
-  declined_at TEXT,
-  declined_reason TEXT,
-  created_at TEXT NOT NULL DEFAULT '',
-  first_opened_at TEXT,
-  last_activity_at TEXT,
-  next_nurture_at TEXT
-)`); } catch {}
-try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status)`); } catch {}
-try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_token ON candidates(token) WHERE token IS NOT NULL`); } catch {}
-try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates(email) WHERE email IS NOT NULL`); } catch {}
-try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_phone ON candidates(phone) WHERE phone IS NOT NULL`); } catch {}
-try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_candidates_temp ON candidates(temperature)`); } catch {}
-
-// v15.6 — Phase 2 columns on candidates (mirror of db.ts).
-try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN recommendation TEXT`); } catch {}
-try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN recommendation_score INTEGER`); } catch {}
-try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN recommendation_reason TEXT`); } catch {}
-try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN admin_notes TEXT`); } catch {}
-try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN questionnaire_draft_json TEXT`); } catch {}
-try { sqlite.exec(`ALTER TABLE candidates ADD COLUMN questionnaire_draft_updated_at TEXT`); } catch {}
-
-try { sqlite.exec(`CREATE TABLE IF NOT EXISTS onboarding_checklist (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  agent_id INTEGER NOT NULL,
-  item_key TEXT NOT NULL,
-  item_label TEXT NOT NULL,
-  item_order INTEGER NOT NULL,
-  completed_at TEXT,
-  completed_by_agent_id INTEGER,
-  notes TEXT,
-  created_at TEXT NOT NULL DEFAULT ''
-)`); } catch {}
-try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_onboarding_agent ON onboarding_checklist(agent_id)`); } catch {}
-try { sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_onboarding_pending ON onboarding_checklist(agent_id) WHERE completed_at IS NULL`); } catch {}
-
-// agents — 9 new columns (v15.5)
+// v18.0 — Onboarding candidates + agents onboarding cols removed.
+// candidates / onboarding_checklist tables are DROPped in server/db.ts on boot.
+// Keeping bio/license_status/license_number/license_state/years_experience/tcpa_consent_at
+// column adds since existing agent Profile page reads them.
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN bio TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN license_status TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN license_number TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN license_state TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN years_experience TEXT`); } catch {}
-try { sqlite.exec(`ALTER TABLE agents ADD COLUMN candidate_id INTEGER`); } catch {}
-try { sqlite.exec(`ALTER TABLE agents ADD COLUMN onboarding_started_at TEXT`); } catch {}
-try { sqlite.exec(`ALTER TABLE agents ADD COLUMN onboarding_completed_at TEXT`); } catch {}
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN tcpa_consent_at TEXT`); } catch {}
-
-// v15.8 — Published phone for cold email outreach (falls back to `phone`).
-// MUST run here (in storage.ts) because Drizzle bakes schema column names
-// into query builders at module init — before db.ts's PRAGMA-guarded migrations
-// have a chance to run. Skipping this line = SqliteError at boot on Railway.
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN published_phone TEXT`); } catch {}
-// v15.11.10 — On Air push opt-in (default 0). Same drizzle-init rule as above.
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN push_notif_on_air INTEGER NOT NULL DEFAULT 0`); } catch {}
 
 try { sqlite.exec(`ALTER TABLE agent_points ADD COLUMN scope TEXT NOT NULL DEFAULT 'seller'`); } catch {}
-// DBPR fields (v11.71, renamed from FREC in v13.4 — in case table was created before these existed)
-try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN dbpr_license_id TEXT`); } catch {}
-try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN license_issue_date TEXT`); } catch {}
-try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN license_expire_date TEXT`); } catch {}
-try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN last_scraped_at INTEGER`); } catch {}
-try { sqlite.exec(`ALTER TABLE agent_leads ADD COLUMN dedup_hash TEXT`); } catch {}
-
-// ─── Agent Prospecting tables (v11.46) ──────────────────────────────────────
-try { sqlite.exec(`CREATE TABLE IF NOT EXISTS agent_leads (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  first_name TEXT NOT NULL DEFAULT '',
-  last_name TEXT NOT NULL DEFAULT '',
-  email TEXT, phone TEXT,
-  license_status TEXT NOT NULL DEFAULT 'active',
-  license_number TEXT, license_state TEXT, years_experience TEXT,
-  current_brokerage TEXT, reason_for_leaving TEXT,
-  gci_range TEXT, transactions_last_12mo INTEGER,
-  territory TEXT, matched_territory TEXT,
-  referral_source TEXT, referred_by_name TEXT, applicant_notes TEXT,
-  status TEXT NOT NULL DEFAULT 'new',
-  assigned_admin_id INTEGER, attempt_count INTEGER NOT NULL DEFAULT 0,
-  callback_date TEXT,
-  r_license TEXT, r_production TEXT, r_motivation TEXT,
-  r_timeline TEXT, r_objections TEXT, r_territory TEXT, r_appointment TEXT,
-  fub_person_id INTEGER, fub_synced_at TEXT,
-  submitted_at TEXT NOT NULL DEFAULT '',
-  source TEXT NOT NULL DEFAULT 'recruiting_page',
-  uploaded_at TEXT, uploaded_by INTEGER, batch_id TEXT
-)`); } catch {}
-
-try { sqlite.exec(`CREATE TABLE IF NOT EXISTS agent_lead_activity (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  agent_lead_id INTEGER NOT NULL,
-  caller_id INTEGER, outcome TEXT NOT NULL,
-  notes TEXT, latte_snapshot TEXT,
-  points_awarded INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT ''
-)`); } catch {}
+// v18.0 — agent_leads + agent_lead_activity CREATE and ALTER blocks removed.
+// Tables are DROPped in server/db.ts on boot.
 
 try { sqlite.exec(`CREATE TABLE IF NOT EXISTS territories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

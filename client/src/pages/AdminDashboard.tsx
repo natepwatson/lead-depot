@@ -4,7 +4,6 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import ActivityFeed from "../components/ld/ActivityFeed";
 import { RankTrophy } from "../components/ld/RankTrophy";
 import { StreakBadge, ChampionFrame } from "../components/ld/StreakBadge";
-import CandidatesTab from "../components/ld/CandidatesTab";
 import ProfilePage from "./ProfilePage";
 import ScriptEditor from "../components/ScriptEditor";
 import MapView from "./MapView";
@@ -1052,38 +1051,7 @@ export default function AdminDashboard({
   const [uploadRowCount, setUploadRowCount] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadType, setUploadType] = useState<"expired">("expired");
-  // Agent recruiting state
-  const agentLeadFileRef = useRef<HTMLInputElement>(null);
-  const [agentLeadDragOver, setAgentLeadDragOver] = useState(false);
-  const [agentLeadUploading, setAgentLeadUploading] = useState(false);
-  const [agentLeadRowCount, setAgentLeadRowCount] = useState<number | null>(null);
-  const [quickAddForm, setQuickAddForm] = useState({ firstName: "", lastName: "", phone: "", email: "", currentBrokerage: "", licenseStatus: "", territory: "", notes: "" });
-  const [quickAddSubmitting, setQuickAddSubmitting] = useState(false);
-  const [recruitingSubTab, setRecruitingSubTab] = useState<"pipeline" | "leaderboard" | "quick" | "bulk">("pipeline");
-  const [recruitingStatusFilter, setRecruitingStatusFilter] = useState<string>("all");
-  const [recruitingDeleteConfirm, setRecruitingDeleteConfirm] = useState<number | null>(null);
-  const [recruitingDncConfirm, setRecruitingDncConfirm] = useState<number | null>(null);
-  const [recruitingLbPeriod, setRecruitingLbPeriod] = useState<"today" | "week" | "allTime">("week");
-  const [dbprRunning, setDbprRunning] = useState(false);
-  const [dbprResult, setDbprResult] = useState<any>(null);
-  // v14.46 — LandVoice OAuth state + handlers removed. LandVoice CSVs come in via /api/admin/import-batchleads-csv.
-  const dbprStatsQuery = useQuery({
-    queryKey: ["/api/admin/dbpr-stats"],
-    queryFn: () => apiRequest("GET", "/api/admin/dbpr-stats").then(r => r.json()),
-    staleTime: 60_000,
-  });
-  const recruitingPipelineQuery = useQuery({
-    queryKey: ["/api/admin/recruiting/pipeline", recruitingStatusFilter],
-    queryFn: () => apiRequest("GET", `/api/admin/recruiting/pipeline?status=${recruitingStatusFilter}`).then(r => r.json()),
-    staleTime: 30_000,
-    enabled: recruitingSubTab === "pipeline",
-  });
-  const recruitingLeaderboardQuery = useQuery({
-    queryKey: ["/api/admin/recruiting/leaderboard"],
-    queryFn: () => apiRequest("GET", "/api/admin/recruiting/leaderboard").then(r => r.json()),
-    staleTime: 30_000,
-    enabled: recruitingSubTab === "leaderboard",
-  });
+  // v18.0 — Recruiting/Candidate system removed. Lead Depot is seller-only.
   const [newAgent, setNewAgent] = useState({ name: "", email: "", role: "agent" });
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<any | null>(null);
@@ -1201,7 +1169,7 @@ export default function AdminDashboard({
   const openTerritoryNames = allTerritories.filter(t => t.isOpen).map(t => t.key);
 
   // v12.5 — Get Leads Now / Hard Reset helpers
-  const [hardResetOpen, setHardResetOpen] = useState<null | "seller" | "recruiting">(null);
+  const [hardResetOpen, setHardResetOpen] = useState<null | "seller">(null);
   const [hardResetBusy, setHardResetBusy] = useState(false);
   const [hardResetInput, setHardResetInput] = useState("");
   // v13.2 — Reactivate Retired Leads (go-live helper)
@@ -1225,7 +1193,7 @@ export default function AdminDashboard({
       setBusyReactivate(false);
     }
   };
-  const [busyGetLeads, setBusyGetLeads] = useState<null | "recruiting">(null);
+
   const [busyCsvImport, setBusyCsvImport] = useState(false);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const runCsvImport = async (file: File) => {
@@ -1255,25 +1223,13 @@ export default function AdminDashboard({
       if (csvInputRef.current) csvInputRef.current.value = "";
     }
   };
-  // v14.46 — Seller pipeline removed. Only recruiting DBPR fetch remains.
-  const runGetLeadsNow = async (which: "recruiting") => {
-    setBusyGetLeads(which);
-    try {
-      const r = await apiRequest("POST", "/api/admin/dbpr-run", {});
-      const j = await r.json().catch(() => ({}));
-      toast({ title: "Recruiting pipeline started", description: j.message || "Running now." });
-    } catch (err: any) {
-      toast({ title: "Failed to start pipeline", description: err?.message || String(err), variant: "destructive" });
-    } finally {
-      setBusyGetLeads(null);
-    }
-  };
+  // v18.0 — Recruiting pipeline (DBPR fetch) removed with rest of recruiting system.
   const runHardReset = async () => {
     if (!hardResetOpen || hardResetInput !== "RESET" || hardResetBusy) return;
     setHardResetBusy(true);
     const side = hardResetOpen;
     try {
-      const url = side === "seller" ? "/api/admin/seller-hard-reset" : "/api/admin/recruiting-hard-reset";
+      const url = "/api/admin/seller-hard-reset";
       const r = await apiRequest("POST", url, { confirm: "RESET" });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body?.error || `HTTP ${r.status}`);
@@ -1286,7 +1242,7 @@ export default function AdminDashboard({
       const cleared = body?.cleared || {};
       const n = cleared.leads ?? 0;
       toast({
-        title: `${side === "seller" ? "Seller" : "Recruiting"} depot cleared`,
+        title: `Seller depot cleared`,
         description: `${n} lead${n === 1 ? "" : "s"} deleted. Ready for a fresh upload.`,
       });
     } catch (err: any) {
@@ -1634,65 +1590,7 @@ export default function AdminDashboard({
     }
   };
 
-  // ── Agent Lead Handlers ────────────────────────────────────────────────────
-  const handleSubmitQuickAdd = async () => {
-    const { firstName, lastName, phone } = quickAddForm;
-    if (!firstName || !lastName || !phone) {
-      toast({ title: "Missing fields", description: "First name, last name, and phone are required.", variant: "destructive" });
-      return;
-    }
-    setQuickAddSubmitting(true);
-    try {
-      const res = await apiRequest("POST", "/api/agent-leads/manual-add", quickAddForm);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to add agent lead");
-      toast({ title: "Agent lead added", description: `${firstName} ${lastName} added to recruiting queue.` });
-      setQuickAddForm({ firstName: "", lastName: "", phone: "", email: "", currentBrokerage: "", licenseStatus: "", territory: "", notes: "" });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setQuickAddSubmitting(false);
-    }
-  };
-
-  const processAgentLeadFile = async (file: File) => {
-    if (!file) return;
-    setAgentLeadUploading(true);
-    setAgentLeadRowCount(null);
-    try {
-      const text = await file.text();
-      const rows = parseCSV(text);
-      if (!rows.length) throw new Error("No valid rows found in CSV");
-      setAgentLeadRowCount(rows.length);
-      const res = await apiRequest("POST", "/api/agent-leads/bulk-upload", { leads: rows });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
-      const skipNote = data.skipped > 0 ? ` ${data.skipped} skipped (missing name or phone).` : "";
-      toast({ title: `${data.created} agent prospects imported`, description: `Added to recruiting queue.${skipNote}` });
-      setAgentLeadRowCount(null);
-    } catch (err: any) {
-      toast({ title: "Upload error", description: err.message, variant: "destructive" });
-    } finally {
-      setAgentLeadUploading(false);
-      if (agentLeadFileRef.current) agentLeadFileRef.current.value = "";
-    }
-  };
-
-  const handleAgentLeadUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processAgentLeadFile(file);
-  };
-
-  const handleAgentLeadDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setAgentLeadDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.name.endsWith(".csv")) {
-      processAgentLeadFile(file);
-    } else {
-      toast({ title: "Please drop a .csv file", variant: "destructive" });
-    }
-  };
+  // v18.0 — Agent Lead Handlers removed with rest of recruiting system.
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1817,7 +1715,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v17.7
+              v18.0
             </p>
           </div>
         </div>
@@ -1840,7 +1738,6 @@ export default function AdminDashboard({
             <Activity size={15} style={{ color: feedOpen ? "#c8aa5a" : "rgba(255,255,255,0.5)" }} />
           </button>
           <style>{`@keyframes feedPulseBtn { 0%,100%{box-shadow:0 0 0 0 rgba(200,170,90,0.3)} 50%{box-shadow:0 0 0 4px rgba(200,170,90,0)} }`}</style>
-          {/* Prospecting Mode Toggle removed — Recruiting tab handles this separately */}
           {/* v14.49 — Admin always sees Work My Leads + Who called me? (receiveLeads gate removed). */}
           {user?.role === "admin" && (
             <>
@@ -1914,8 +1811,6 @@ export default function AdminDashboard({
               { value: "diversity",   icon: Sparkles,    label: "Diversity" },
               { value: "dbhealth",    icon: Database,    label: "DB Health" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
-              { value: "recruiting",  icon: Users,       label: "Recruiting" },
-              { value: "candidates",  icon: UserPlus,    label: "Candidates" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
               { value: "profile",     icon: Settings,    label: "My Profile" },
@@ -1940,7 +1835,7 @@ export default function AdminDashboard({
               <StatCard label="Appointments Set" value={stats?.appointmentsSet ?? 0} accent="text-green-400" />
             </div>
 
-            {/* Seller Depot admin toolbar: Get Leads Now, Hard Reset, Territory management, Recruiting link */}
+            {/* Seller Depot admin toolbar: Hard Reset, Territory management */}
             <div style={{
               display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16, alignItems: "center",
               padding: 12, background: "rgba(200,170,90,0.04)",
@@ -1974,15 +1869,6 @@ export default function AdminDashboard({
                   background: "rgba(200,170,90,0.08)", color: "#c8aa5a",
                 }}
               >{busyReactivate ? "Reactivating…" : "♻ Reactivate Retired Leads"}</button>
-              <a
-                href="#/recruiting"
-                style={{
-                  fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
-                  padding: "7px 14px", borderRadius: 6, textDecoration: "none",
-                  background: "rgba(79,184,163,0.1)", color: "#4fb8a3",
-                  border: "1px solid rgba(79,184,163,0.3)",
-                }}
-              >Recruiting Depot →</a>
               <div style={{ flex: 1 }} />
               <button
                 onClick={() => setHardResetOpen("seller")}
@@ -3014,12 +2900,12 @@ export default function AdminDashboard({
             <ApprovalsPanel />
           </TabsContent>
 
-          {/* v17.7 — Lead Diversity Challenge panel: weekly history + preview + re-award */}
+          {/* v18.0 — Lead Diversity Challenge panel: weekly history + preview + re-award */}
           <TabsContent value="diversity" className="mt-5">
             <DiversityPanel />
           </TabsContent>
 
-          {/* v17.7 — DB Health: read-only audit report + dry-run repair actions with journal */}
+          {/* v18.0 — DB Health: read-only audit report + dry-run repair actions with journal */}
           <TabsContent value="dbhealth" className="mt-5">
             <DbHealthPanel />
           </TabsContent>
@@ -3108,468 +2994,6 @@ export default function AdminDashboard({
                     </div>
 
               </div>
-            </div>
-          </TabsContent>
-
-          {/* ── AGENTS ──────────────────────────────────────────────────────── */}
-          {/* ── RECRUITING ──────────────────────────────────────────────────── */}
-          <TabsContent value="recruiting" className="mt-5">
-            <div style={{ maxWidth: 900 }}>
-              {/* v12.5 — Recruiting admin toolbar */}
-              <div style={{
-                display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16, alignItems: "center",
-                padding: 12, background: "rgba(79,184,163,0.04)",
-                border: "1px solid rgba(79,184,163,0.2)", borderRadius: 10,
-              }}>
-                <button
-                  onClick={() => runGetLeadsNow("recruiting")}
-                  disabled={busyGetLeads === "recruiting"}
-                  style={{
-                    fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
-                    padding: "7px 14px", borderRadius: 6, border: "none",
-                    cursor: busyGetLeads === "recruiting" ? "wait" : "pointer",
-                    background: "linear-gradient(135deg,#4fb8a3 0%,#2d8a75 100%)", color: "#080808",
-                  }}
-                >{busyGetLeads === "recruiting" ? "Running…" : "⚡ Get Agent Leads Now"}</button>
-                <a
-                  href="#/recruiting"
-                  style={{
-                    fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
-                    padding: "7px 14px", borderRadius: 6, textDecoration: "none",
-                    background: "rgba(79,184,163,0.1)", color: "#4fb8a3",
-                    border: "1px solid rgba(79,184,163,0.3)",
-                  }}
-                >Open Recruiting Depot →</a>
-                <div style={{ flex: 1 }} />
-                <button
-                  onClick={() => setHardResetOpen("recruiting")}
-                  style={{
-                    fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
-                    padding: "7px 14px", borderRadius: 6, cursor: "pointer",
-                    background: "rgba(239,68,68,0.1)", color: "#ef4444",
-                    border: "1px solid rgba(239,68,68,0.4)",
-                  }}
-                >⚠ Hard Reset Recruiting</button>
-              </div>
-
-              {/* Sub-tab switcher */}
-              <div style={{ display: "flex", gap: 6, marginBottom: 20, overflowX: "auto", paddingBottom: 2 }}>
-                {([
-                  { k: "pipeline",    label: "Pipeline" },
-                  { k: "leaderboard", label: "Leaderboard" },
-                  { k: "quick",       label: "Quick Add" },
-                  { k: "bulk",        label: "Bulk Import" },
-                ] as const).map(({ k, label }) => (
-                  <button key={k} onClick={() => setRecruitingSubTab(k)} style={{
-                    padding: "8px 16px", borderRadius: 6, fontSize: 11, fontWeight: 600,
-                    letterSpacing: "0.06em", textTransform: "uppercase", border: "1px solid", whiteSpace: "nowrap",
-                    borderColor: recruitingSubTab === k ? "rgba(79,184,163,0.5)" : "rgba(255,255,255,0.1)",
-                    background: recruitingSubTab === k ? "rgba(79,184,163,0.1)" : "rgba(255,255,255,0.03)",
-                    color: recruitingSubTab === k ? "#4fb8a3" : "rgba(255,255,255,0.4)",
-                    cursor: "pointer", transition: "all 0.15s",
-                  }}>{label}</button>
-                ))}
-              </div>
-
-              {/* ── PIPELINE TAB ── */}
-              {recruitingSubTab === "pipeline" && (() => {
-                const pData = recruitingPipelineQuery.data;
-                const leads = pData?.leads ?? [];
-                const counts = pData?.counts ?? [];
-                const totalActive = counts.filter((c: any) => !['joined','not_interested','do_not_contact'].includes(c.status)).reduce((s: number, c: any) => s + c.count, 0);
-                const statusColors: Record<string, string> = {
-                  new: "rgba(255,255,255,0.5)",
-                  contacted: "#4fb8a3",
-                  hot_prospect: "#f97316",
-                  appointment: "#c8aa5a",
-                  callback_requested: "#a78bfa",
-                  not_now: "rgba(255,255,255,0.3)",
-                  just_signed: "rgba(255,255,255,0.3)",
-                  joined: "#22c55e",
-                  not_interested: "rgba(239,68,68,0.6)",
-                  do_not_contact: "rgba(239,68,68,0.4)",
-                };
-                const statusLabels: Record<string, string> = {
-                  new: "New", contacted: "Contacted", hot_prospect: "🔥 Hot",
-                  appointment: "Appt", callback_requested: "Callback",
-                  not_now: "❄ Not Now", just_signed: "❄ Just Signed",
-                  joined: "✓ Joined", not_interested: "Not Interested", do_not_contact: "⛔ DNC",
-                };
-                const filterOptions = [
-                  { v: "all", label: "All Active" },
-                  { v: "new", label: "New" },
-                  { v: "contacted", label: "Contacted" },
-                  { v: "hot_prospect", label: "Hot" },
-                  { v: "appointment", label: "Appt" },
-                  { v: "callback_requested", label: "Callback" },
-                  { v: "not_now", label: "Not Now" },
-                  { v: "just_signed", label: "Just Signed" },
-                  { v: "joined", label: "Joined" },
-                  { v: "not_interested", label: "Not Interested" },
-                ];
-                return (
-                  <div>
-                    {/* Stats row */}
-                    <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-                      {counts.filter((c: any) => c.count > 0).map((c: any) => (
-                        <div key={c.status} style={{
-                          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
-                          borderRadius: 8, padding: "8px 14px", textAlign: "center",
-                        }}>
-                          <div style={{ fontSize: 18, fontWeight: 300, color: statusColors[c.status] || "#fff" }}>{c.count}</div>
-                          <div style={{ fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginTop: 2 }}>
-                            {statusLabels[c.status] || c.status}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Filter bar */}
-                    <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 2 }}>
-                      {filterOptions.map(({ v, label }) => (
-                        <button key={v} onClick={() => setRecruitingStatusFilter(v)} style={{
-                          padding: "5px 12px", borderRadius: 20, fontSize: 10, fontWeight: 600,
-                          letterSpacing: "0.05em", border: "1px solid", whiteSpace: "nowrap",
-                          borderColor: recruitingStatusFilter === v ? "rgba(79,184,163,0.5)" : "rgba(255,255,255,0.08)",
-                          background: recruitingStatusFilter === v ? "rgba(79,184,163,0.1)" : "transparent",
-                          color: recruitingStatusFilter === v ? "#4fb8a3" : "rgba(255,255,255,0.35)",
-                          cursor: "pointer",
-                        }}>{label}</button>
-                      ))}
-                    </div>
-
-                    {/* Lead rows */}
-                    {recruitingPipelineQuery.isLoading ? (
-                      <div style={{ padding: "40px 0", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>Loading pipeline…</div>
-                    ) : leads.length === 0 ? (
-                      <div style={{ padding: "40px 0", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>No recruits in this category.</div>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {leads.map((lead: any) => {
-                          const activity = lead.recent_activity || [];
-                          const statusColor = statusColors[lead.status] || "rgba(255,255,255,0.4)";
-                          const frozen = lead.status === "not_now" || lead.status === "just_signed";
-                          return (
-                            <div key={lead.id} style={{
-                              background: frozen ? "rgba(255,255,255,0.01)" : "rgba(255,255,255,0.02)",
-                              border: `1px solid ${frozen ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.08)"}`,
-                              borderRadius: 10, padding: "14px 16px",
-                              opacity: frozen ? 0.6 : 1,
-                            }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                    <span style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 16, fontWeight: 500, color: "#fff" }}>
-                                      {lead.first_name} {lead.last_name}
-                                    </span>
-                                    <span style={{
-                                      fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
-                                      color: statusColor, border: `1px solid ${statusColor}40`,
-                                      borderRadius: 10, padding: "2px 8px",
-                                    }}>{statusLabels[lead.status] || lead.status}</span>
-                                    {lead.attempt_count > 0 && (
-                                      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{lead.attempt_count} dials</span>
-                                    )}
-                                  </div>
-                                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 4 }}>
-                                    {[lead.current_brokerage, lead.territory || lead.matched_territory, lead.phone].filter(Boolean).join(" · ")}
-                                  </div>
-                                  {frozen && lead.reactivate_at && (
-                                    <div style={{ fontSize: 10, color: "rgba(200,170,90,0.6)", marginTop: 4 }}>
-                                      ❄ Re-enters queue {new Date(lead.reactivate_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                                    </div>
-                                  )}
-                                  {activity.length > 0 && (
-                                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
-                                      {activity.slice(0, 2).map((a: any, i: number) => (
-                                        <div key={i} style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
-                                          <span style={{ color: "rgba(255,255,255,0.5)" }}>{a.callerName || "Unknown"}</span>
-                                          {" · "}{statusLabels[a.outcome] || a.outcome}
-                                          {a.notes ? <span style={{ color: "rgba(255,255,255,0.2)" }}> — {a.notes.slice(0, 60)}{a.notes.length > 60 ? "…" : ""}</span> : null}
-                                          <span style={{ color: "rgba(255,255,255,0.2)", marginLeft: 6 }}>
-                                            {new Date(a.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                                          </span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                                {/* Actions */}
-                                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                                  {lead.status !== "do_not_contact" && (
-                                    <button
-                                      onClick={() => {
-                                        if (recruitingDncConfirm === lead.id) {
-                                          apiRequest("POST", `/api/agent-leads/${lead.id}/outcome`, { outcome: "do_not_contact", callerId: user?.id })
-                                            .then(() => { setRecruitingDncConfirm(null); recruitingPipelineQuery.refetch(); });
-                                        } else { setRecruitingDncConfirm(lead.id); setRecruitingDeleteConfirm(null); }
-                                      }}
-                                      style={{
-                                        padding: "5px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600,
-                                        border: "1px solid rgba(239,68,68,0.25)",
-                                        background: recruitingDncConfirm === lead.id ? "rgba(239,68,68,0.2)" : "transparent",
-                                        color: recruitingDncConfirm === lead.id ? "#ef4444" : "rgba(239,68,68,0.5)",
-                                        cursor: "pointer",
-                                      }}
-                                    >{recruitingDncConfirm === lead.id ? "Confirm DNC" : "DNC"}</button>
-                                  )}
-                                  <button
-                                    onClick={() => {
-                                      if (recruitingDeleteConfirm === lead.id) {
-                                        apiRequest("DELETE", `/api/agent-leads/${lead.id}`)
-                                          .then(() => { setRecruitingDeleteConfirm(null); recruitingPipelineQuery.refetch(); });
-                                      } else { setRecruitingDeleteConfirm(lead.id); setRecruitingDncConfirm(null); }
-                                    }}
-                                    style={{
-                                      padding: "5px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600,
-                                      border: "1px solid rgba(239,68,68,0.15)",
-                                      background: recruitingDeleteConfirm === lead.id ? "rgba(239,68,68,0.15)" : "transparent",
-                                      color: recruitingDeleteConfirm === lead.id ? "#ef4444" : "rgba(239,68,68,0.3)",
-                                      cursor: "pointer",
-                                    }}
-                                  >{recruitingDeleteConfirm === lead.id ? "Confirm Delete" : "Delete"}</button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* ── LEADERBOARD TAB ── */}
-              {recruitingSubTab === "leaderboard" && (() => {
-                const rows: any[] = recruitingLeaderboardQuery.data ?? [];
-                const periods = [{ v: "today", label: "Today" }, { v: "week", label: "This Week" }, { v: "allTime", label: "All Time" }] as const;
-                return (
-                  <div>
-                    <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-                      {periods.map(({ v, label }) => (
-                        <button key={v} onClick={() => setRecruitingLbPeriod(v)} style={{
-                          padding: "6px 14px", borderRadius: 6, fontSize: 11, fontWeight: 600,
-                          letterSpacing: "0.05em", border: "1px solid",
-                          borderColor: recruitingLbPeriod === v ? "rgba(79,184,163,0.5)" : "rgba(255,255,255,0.08)",
-                          background: recruitingLbPeriod === v ? "rgba(79,184,163,0.1)" : "transparent",
-                          color: recruitingLbPeriod === v ? "#4fb8a3" : "rgba(255,255,255,0.35)",
-                          cursor: "pointer",
-                        }}>{label}</button>
-                      ))}
-                    </div>
-                    {recruitingLeaderboardQuery.isLoading ? (
-                      <div style={{ padding: "40px 0", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>Loading leaderboard…</div>
-                    ) : rows.length === 0 ? (
-                      <div style={{ padding: "40px 0", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>No recruiting activity yet.</div>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {/* Header */}
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 60px 60px 60px 60px", gap: 8, padding: "0 12px", marginBottom: 4 }}>
-                          {["Agent","Dials","KIT","Hot","Appt","Joined"].map(h => (
-                            <div key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", textAlign: h === "Agent" ? "left" : "center" }}>{h}</div>
-                          ))}
-                        </div>
-                        {rows.map((row: any, idx: number) => {
-                          const dials = recruitingLbPeriod === "today" ? row.today_dials : recruitingLbPeriod === "week" ? row.week_dials : row.total_dials;
-                          const kit   = recruitingLbPeriod === "today" ? row.today_kit   : recruitingLbPeriod === "week" ? row.week_kit   : row.kit;
-                          const hot   = recruitingLbPeriod === "today" ? row.today_hot   : recruitingLbPeriod === "week" ? row.week_hot   : row.hot_prospects;
-                          const appt  = 0; // future
-                          const joined = recruitingLbPeriod === "today" ? row.today_joined : recruitingLbPeriod === "week" ? row.week_joined : row.joined;
-                          // v15.11.26 — trophy graphic for top 3 (only when they have any activity)
-                          const hasActivity = (dials || 0) + (kit || 0) + (hot || 0) + (joined || 0) > 0;
-                          const trophyRank: 1 | 2 | 3 | null = (hasActivity && idx === 0) ? 1
-                                     : (hasActivity && idx === 1) ? 2
-                                     : (hasActivity && idx === 2) ? 3
-                                     : null;
-                          return (
-                            <div key={row.caller_id} style={{
-                              display: "grid", gridTemplateColumns: "1fr 60px 60px 60px 60px 60px",
-                              gap: 8, alignItems: "center",
-                              background: idx === 0 ? "rgba(200,170,90,0.06)" : "rgba(255,255,255,0.02)",
-                              border: `1px solid ${idx === 0 ? "rgba(200,170,90,0.2)" : "rgba(255,255,255,0.06)"}`,
-                              borderRadius: 10, padding: "12px 12px",
-                            }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                {trophyRank !== null ? (
-                                  <RankTrophy
-                                    rank={trophyRank}
-                                    size={trophyRank === 1 ? 30 : trophyRank === 2 ? 26 : 22}
-                                  />
-                                ) : (
-                                  <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.3)", width: 26, textAlign: "center" }}>#{idx + 1}</span>
-                                )}
-                                {row.headshot_url ? (
-                                  <img src={row.headshot_url} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} />
-                                ) : (
-                                  <div style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(79,184,163,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#4fb8a3", fontWeight: 700 }}>
-                                    {(row.agent_name || "?")[0]}
-                                  </div>
-                                )}
-                                <span style={{ fontSize: 13, color: "#fff", fontWeight: 500 }}>{row.agent_name || "Unknown"}</span>
-                              </div>
-                              {[dials, kit, hot, appt, joined].map((val, i) => (
-                                <div key={i} style={{ textAlign: "center", fontSize: 16, fontWeight: 300, color: i === 4 && val > 0 ? "#22c55e" : i === 2 && val > 0 ? "#f97316" : "rgba(255,255,255,0.7)" }}>
-                                  {val || 0}
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* ── QUICK ADD TAB ── */}
-              {recruitingSubTab === "quick" && (
-                <div className="max-w-lg space-y-4">
-                  <p className="text-sm text-muted-foreground">Fast entry for events, open houses, or cold outreach. Name and phone are required.</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-foreground/70">First Name *</Label>
-                      <Input value={quickAddForm.firstName} onChange={e => setQuickAddForm(p => ({...p, firstName: e.target.value}))}
-                        className="bg-secondary border-border" placeholder="Sarah" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-foreground/70">Last Name *</Label>
-                      <Input value={quickAddForm.lastName} onChange={e => setQuickAddForm(p => ({...p, lastName: e.target.value}))}
-                        className="bg-secondary border-border" placeholder="Martinez" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-foreground/70">Phone *</Label>
-                      <Input value={quickAddForm.phone} onChange={e => setQuickAddForm(p => ({...p, phone: e.target.value}))}
-                        className="bg-secondary border-border" placeholder="9045550123" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-foreground/70">Email</Label>
-                      <Input value={quickAddForm.email} onChange={e => setQuickAddForm(p => ({...p, email: e.target.value}))}
-                        className="bg-secondary border-border" placeholder="sarah@realty.com" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-foreground/70">Current Brokerage</Label>
-                      <Input value={quickAddForm.currentBrokerage} onChange={e => setQuickAddForm(p => ({...p, currentBrokerage: e.target.value}))}
-                        className="bg-secondary border-border" placeholder="Keller Williams" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-foreground/70">License Status</Label>
-                      <Input value={quickAddForm.licenseStatus} onChange={e => setQuickAddForm(p => ({...p, licenseStatus: e.target.value}))}
-                        className="bg-secondary border-border" placeholder="Active FL" />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-foreground/70">Territory Interest</Label>
-                    <Input value={quickAddForm.territory} onChange={e => setQuickAddForm(p => ({...p, territory: e.target.value}))}
-                      className="bg-secondary border-border" placeholder="e.g. Ponte Vedra / Nocatee" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-foreground/70">Notes</Label>
-                    <Input value={quickAddForm.notes} onChange={e => setQuickAddForm(p => ({...p, notes: e.target.value}))}
-                      className="bg-secondary border-border" placeholder="Met at open house on Coastal Hwy..." />
-                  </div>
-                  <button onClick={handleSubmitQuickAdd} disabled={quickAddSubmitting} style={{
-                    width: "100%", padding: "14px",
-                    background: quickAddSubmitting ? "rgba(79,184,163,0.3)" : "linear-gradient(135deg, rgba(79,184,163,0.8), rgba(79,184,163,0.5))",
-                    border: "none", borderRadius: 6,
-                    fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
-                    color: quickAddSubmitting ? "rgba(255,255,255,0.4)" : "#080808",
-                    cursor: quickAddSubmitting ? "not-allowed" : "pointer",
-                  }}>{quickAddSubmitting ? "Adding..." : "Add to Recruiting Queue"}</button>
-                </div>
-              )}
-
-              {/* ── BULK IMPORT TAB ── */}
-              {recruitingSubTab === "bulk" && (
-                <div className="max-w-lg space-y-4">
-                  <p className="text-sm text-muted-foreground">Import a list of agent prospects via CSV. Supports up to 1,000 rows. Must include: First Name, Last Name, Phone.</p>
-                  <div
-                    style={{
-                      border: `2px dashed ${agentLeadDragOver ? "rgba(79,184,163,0.5)" : "rgba(255,255,255,0.1)"}`,
-                      borderRadius: 10, padding: "40px 20px", textAlign: "center",
-                      cursor: "pointer",
-                      background: agentLeadDragOver ? "rgba(79,184,163,0.04)" : "transparent",
-                      transition: "all 0.15s",
-                    }}
-                    onClick={() => agentLeadFileRef.current?.click()}
-                    onDragOver={(e) => { e.preventDefault(); setAgentLeadDragOver(true); }}
-                    onDragLeave={() => setAgentLeadDragOver(false)}
-                    onDrop={handleAgentLeadDrop}
-                  >
-                    <Upload style={{ margin: "0 auto 8px", color: agentLeadDragOver ? "#4fb8a3" : "rgba(255,255,255,0.3)" }} size={24} />
-                    <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)" }}>
-                      {agentLeadUploading
-                        ? (agentLeadRowCount ? `Importing ${agentLeadRowCount.toLocaleString()} prospects...` : "Importing...")
-                        : agentLeadDragOver ? "Drop CSV here" : "Click or drag a CSV file here"}
-                    </p>
-                    <p style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", marginTop: 4 }}>
-                      Columns: First Name, Last Name, Phone, Email, Current Brokerage, License Status, Territory, Notes
-                    </p>
-                  </div>
-                  <input ref={agentLeadFileRef} type="file" accept=".csv" className="hidden" onChange={handleAgentLeadUpload} />
-
-                  {/* DBPR Scraper Tile */}
-                  <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 20, marginTop: 4 }}>
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <div>
-                        <p style={{ fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 4 }}>DBPR Auto-Scraper</p>
-                        <p className="text-xs text-muted-foreground" style={{ lineHeight: 1.5 }}>
-                          Pulls active licensed agents from the Florida DBPR weekly extract across Nassau, Duval, and St. Johns counties. Runs automatically every Sunday at 2am.
-                        </p>
-                      </div>
-                      {dbprStatsQuery.data && (
-                        <div style={{ textAlign: "right", flexShrink: 0 }}>
-                          <div style={{ fontSize: 22, fontWeight: 300, color: "rgba(200,170,90,0.9)", lineHeight: 1 }}>{(dbprStatsQuery.data.total || 0).toLocaleString()}</div>
-                          <div style={{ fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginTop: 2 }}>DBPR agents</div>
-                        </div>
-                      )}
-                    </div>
-                    {dbprResult && (
-                      <div style={{
-                        background: dbprResult.error ? "rgba(161,44,123,0.08)" : "rgba(79,184,163,0.07)",
-                        border: `1px solid ${dbprResult.error ? "rgba(161,44,123,0.25)" : "rgba(79,184,163,0.2)"}`,
-                        borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12,
-                      }}>
-                        {dbprResult.error ? (
-                          <p style={{ color: "rgba(209,99,167,0.9)" }}>{dbprResult.error}</p>
-                        ) : (
-                          <div className="space-y-0.5" style={{ color: "rgba(255,255,255,0.7)" }}>
-                            <p>{dbprResult.message}</p>
-                            {dbprResult.inserted > 0 && (
-                              <p style={{ color: "rgba(79,184,163,0.8)", fontSize: 11 }}>
-                                +{dbprResult.inserted} new · {dbprResult.updated} refreshed · {dbprResult.filtered} filtered
-                                {dbprResult.runDurationMs ? ` · ${(dbprResult.runDurationMs / 1000 / 60).toFixed(1)} min` : ""}
-                              </p>
-                            )}
-                            {dbprResult.warning && <p style={{ color: "rgba(200,170,90,0.8)", fontSize: 11 }}>⚠ {dbprResult.warning}</p>}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {dbprStatsQuery.data?.lastRun && (
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Last run: {new Date(dbprStatsQuery.data.lastRun).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      </p>
-                    )}
-                    <Button size="sm" variant="outline" disabled={dbprRunning}
-                      style={{ borderColor: "rgba(200,170,90,0.35)", color: "rgba(200,170,90,0.9)", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}
-                      className="gap-1.5 hover:bg-yellow-900/20"
-                      onClick={async () => {
-                        setDbprRunning(true); setDbprResult(null);
-                        try {
-                          const res = await apiRequest("POST", "/api/admin/dbpr-run", {});
-                          const data = await res.json();
-                          setDbprResult(data);
-                          dbprStatsQuery.refetch();
-                        } catch (e: any) {
-                          setDbprResult({ error: e.message || "DBPR run failed" });
-                        } finally { setDbprRunning(false); }
-                      }}
-                    >
-                      {dbprRunning ? <><RefreshCw size={11} className="animate-spin" /> Scraping DBPR… (may take 10–30 min)</> : <><RefreshCw size={11} /> Run DBPR Scrape Now</>}
-                    </Button>
-                  </div>
-                </div>
-              )}
             </div>
           </TabsContent>
 
@@ -3671,7 +3095,7 @@ export default function AdminDashboard({
                                   }}
                                 >
                                   <option value="agent" style={{ background: "#111" }}>Agent — works seller leads</option>
-                                  <option value="admin" style={{ background: "#111" }}>Admin — full access (incl. Recruiting Depot)</option>
+                                  <option value="admin" style={{ background: "#111" }}>Admin — full access</option>
                                 </select>
                               </div>
                             </div>
@@ -4018,11 +3442,6 @@ export default function AdminDashboard({
             })()}
           </TabsContent>
 
-          {/* ── CANDIDATES (v15.5) ─────────────────────── */}
-          <TabsContent value="candidates">
-            <CandidatesTab />
-          </TabsContent>
-
           {/* ── SCRIPTS ─────────────────────────────────────────────────────── */}
           <TabsContent value="scripts" className="mt-5">
             <ScriptEditor />
@@ -4063,14 +3482,12 @@ export default function AdminDashboard({
             boxShadow: "0 20px 60px rgba(239,68,68,0.2)",
           }} onClick={e => e.stopPropagation()}>
             <p style={{ fontSize: 13, fontWeight: 700, color: "#ef4444", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>
-              ⚠ Hard Reset {hardResetOpen === "seller" ? "Seller Depot" : "Recruiting Depot"}
+              ⚠ Hard Reset Seller Depot
             </p>
             <p style={{ fontSize: 14, color: "rgba(255,255,255,0.75)", marginBottom: 8, lineHeight: 1.5 }}>
               This will permanently delete{" "}
               <b style={{ color: "#fff" }}>
-                {hardResetOpen === "seller"
-                  ? `${stats?.totalLeads ?? 0} seller lead${(stats?.totalLeads ?? 0) === 1 ? "" : "s"}, all activity, points, and appointments`
-                  : "every recruiting lead, all activity, and recruiting points"}
+                {`${stats?.totalLeads ?? 0} seller lead${(stats?.totalLeads ?? 0) === 1 ? "" : "s"}, all activity, points, and appointments`}
               </b>.
             </p>
             <p style={{ fontSize: 12, color: "rgba(239,68,68,0.85)", marginBottom: 16, lineHeight: 1.5 }}>
@@ -4804,7 +4221,7 @@ function ApprovalsPanel() {
   );
 }
 
-// ─── v17.7 Lead Diversity Challenge panel ─────────────────────────────────────
+// ─── v18.0 Lead Diversity Challenge panel ─────────────────────────────────────
 // Weekly bonus for hitting 3/4/5 different lead-gen categories.
 // Shows: current-week preview (who would win right now), history table, re-award button.
 function DiversityPanel() {
@@ -4997,7 +4414,7 @@ function DiversityPanel() {
   );
 }
 
-// ─── v17.7 DB Health panel ────────────────────────────────────────────────────
+// ─── v18.0 DB Health panel ────────────────────────────────────────────────────
 // Read-only audit + dry-run-default repair actions. Every repair journaled.
 function DbHealthPanel() {
   const { toast } = useToast();

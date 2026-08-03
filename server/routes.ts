@@ -6,7 +6,7 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubCreateCandidate, fubPostQuestionnaireNote, ENTRY_PATH_CONFIG, type CandidateEntryPath } from "./fub";
+import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence } from "./fub";
 import { getCallHeatTier, tierForCell } from "../shared/prime-schedule";
 import {
   computeAndPersistStreak,
@@ -74,7 +74,7 @@ import { checkPassword } from "../shared/password-rules";
 import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-import";
 // @ts-expect-error — no @types/multer installed; runtime-only import
 import multer from "multer";
-import { runDbprPipeline } from "./dbpr-pipeline";
+// v18.0 — DBPR pipeline import removed with recruiting system.
 import { EXPIRED_SCRIPT_V14_16 } from "./expired-script";
 import { getTerritoryForZip, TERRITORIES as TERRITORY_META } from "./territories";
 import { normalizeFirstName, normalizeFullName, normalizeAddressCasual } from "./normalize";
@@ -403,7 +403,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v17.7 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v18.0 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -462,7 +462,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v18.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -747,7 +747,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v18.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1125,7 +1125,6 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // inside the route body — the exempt list here just skips the session gate.
   const CRON_EXEMPT_PATHS = [
     "/api/admin/stale-lead-audit",
-    "/api/admin/dbpr-run",
     "/api/admin/missed-appointments",
     // v15.11.26 — Holdout admin endpoints. INGEST_SECRET-guarded inside route.
     // Exempted from session gate so QA + Alex's terminal curl can hit them
@@ -1817,9 +1816,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       counts.lead_activity = rawDb.prepare(`UPDATE lead_activity SET agent_id = ? WHERE agent_id = ?`).run(targetId, sourceId).changes;
       counts.round_robin_state = rawDb.prepare(`UPDATE round_robin_state SET last_assigned_agent_id = ? WHERE last_assigned_agent_id = ?`).run(targetId, sourceId).changes;
       counts.agent_points = rawDb.prepare(`UPDATE agent_points SET agent_id = ? WHERE agent_id = ?`).run(targetId, sourceId).changes;
-      counts.agent_leads_assigned_admin = rawDb.prepare(`UPDATE agent_leads SET assigned_admin_id = ? WHERE assigned_admin_id = ?`).run(targetId, sourceId).changes;
-      counts.agent_leads_uploaded_by = rawDb.prepare(`UPDATE agent_leads SET uploaded_by = ? WHERE uploaded_by = ?`).run(targetId, sourceId).changes;
-      counts.agent_lead_activity = rawDb.prepare(`UPDATE agent_lead_activity SET caller_id = ? WHERE caller_id = ?`).run(targetId, sourceId).changes;
+      // v18.0 — agent_leads / agent_lead_activity tables dropped with recruiting removal.
       counts.lead_locks = rawDb.prepare(`UPDATE lead_locks SET agent_id = ? WHERE agent_id = ?`).run(targetId, sourceId).changes;
       // v14.60 tombstone shape (Bucket 5 Phase B). Hide the source:
       // force-deactivate + null out lead-flow + rewrite email to sentinel
@@ -1986,7 +1983,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v17.7</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v18.0</p>
             </div>
           `,
         });
@@ -2146,7 +2143,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v17.7 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v18.0 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2454,7 +2451,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const orphanTx = rawDb.transaction(() => {
       rawDb.prepare(`UPDATE leads SET assigned_agent_id = NULL, status = 'unassigned', callback_date = NULL WHERE assigned_agent_id = ?`).run(id);
       rawDb.prepare(`UPDATE lead_activity SET agent_id = NULL WHERE agent_id = ?`).run(id);
-      rawDb.prepare(`UPDATE agent_lead_activity SET caller_id = NULL WHERE caller_id = ?`).run(id);
+      // v18.0 — agent_lead_activity table dropped with recruiting removal.
       rawDb.prepare(`UPDATE round_robin_state SET last_assigned_agent_id = NULL WHERE last_assigned_agent_id = ?`).run(id);
       rawDb.prepare(`DELETE FROM lead_locks WHERE agent_id = ?`).run(id);
       rawDb.prepare(`DELETE FROM agent_points WHERE agent_id = ?`).run(id);
@@ -6573,28 +6570,6 @@ Brothers Group Real Estate Team at Momentum Realty
     }
   });
 
-  app.post("/api/admin/recruiting-hard-reset", (req: any, res) => {
-    if (!requireAdmin(req, res)) return; // v15.9 SECURITY: was fully unguarded before v15.9
-    if (req.body?.confirm !== "RESET") {
-      return res.status(400).json({ error: 'Must send { "confirm": "RESET" } in body' });
-    }
-    try {
-      let leadCount = 0, activityCount = 0, pointCount = 0;
-      const txn = rawDb.transaction(() => {
-        activityCount = (rawDb.prepare(`DELETE FROM agent_lead_activity`).run().changes) || 0;
-        leadCount = (rawDb.prepare(`DELETE FROM agent_leads`).run().changes) || 0;
-        pointCount = (rawDb.prepare(`DELETE FROM agent_points WHERE scope = 'recruiting'`).run().changes) || 0;
-        rawDb.prepare(`INSERT INTO settings (key, value) VALUES ('leaderboard_reset_at_recruiting', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
-          .run(new Date().toISOString());
-      });
-      txn();
-      console.log(`[hard-reset] recruiting depot cleared: ${leadCount} leads, ${activityCount} activities, ${pointCount} points`);
-      res.json({ ok: true, side: "recruiting", cleared: { leads: leadCount, activities: activityCount, points: pointCount } });
-    } catch (err: any) {
-      console.error("[hard-reset] recruiting failed:", err);
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
 
   // ─── AGENT-FACING LEADERBOARD (no admin-only data) ────────────────────────
   app.get("/api/agent/leaderboard", (req, res) => {
@@ -7109,7 +7084,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v17.7 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v18.0 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -7700,19 +7675,8 @@ Brothers Group Real Estate Team at Momentum Realty
       LIMIT 10000
     `).all();
 
-    // Recruiting activity
-    const recruitActivity: any[] = rawDb.prepare(`
-      SELECT ala.id, 'recruiting' as type, ala.created_at, a.name as agent_name,
-             (al.first_name || ' ' || al.last_name) as client_name, al.phone,
-             al.matched_territory as territory, ala.outcome, ala.notes, ala.points_awarded
-      FROM agent_lead_activity ala
-      LEFT JOIN agents a ON a.id = ala.caller_id
-      LEFT JOIN agent_leads al ON al.id = ala.agent_lead_id
-      ORDER BY ala.created_at DESC
-      LIMIT 10000
-    `).all();
-
-    const allActivity = [...sellerActivity, ...recruitActivity]
+    // v18.0 — recruiting activity export removed with recruiting system.
+    const allActivity = [...sellerActivity]
       .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""));
 
     const headers = ["ID", "Type", "Date", "Agent", "Client", "Phone", "Address/Territory", "Outcome", "Notes", "Points"];
@@ -8104,7 +8068,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v17.7",
+      version: "v18.0",
       services: results,
     });
   });
@@ -8127,86 +8091,30 @@ Brothers Group Real Estate Team at Momentum Realty
 
 
 
-  // ─── PUBLIC: Agent recruiting form submission ────────────────────────────────
-  // Unauthenticated — served at /api/agent-leads/public from join.watsonbrothersgroup.com
-  // Honeypot field: if "website" field is populated, it's a bot — silently discard
-  app.post("/api/agent-leads/public", async (req: any, res: any) => {
-    // Honeypot check
-    if (req.body?.website) return res.json({ ok: true }); // silently accept bots
 
+  // ── Recruiting landing page — must be registered in registerRoutes so it fires
+  // before the static middleware SPA fallback in serveStatic()
+  // ─── PUBLIC: /join form submission (FUB-only, no DB write) ──────────────────
+  // v18.0 — recruiting system removed; agent_leads table dropped. The public
+  // /join marketing page still submits here; we push straight to FUB and
+  // return ok. No persistence layer, no internal recruiting queue.
+  app.post("/api/agent-leads/public", async (req: any, res: any) => {
+    if (req.body?.website) return res.json({ ok: true }); // honeypot
     const {
       firstName, lastName, email, phone,
-      licenseStatus, licenseNumber, licenseState, yearsExperience,
+      licenseStatus, licenseState, yearsExperience,
       currentBrokerage, reasonForLeaving,
       gciRange, transactionsLast12mo,
       territory, referralSource, referredByName,
       applicantNotes,
     } = req.body || {};
-
     if (!firstName || !lastName || !licenseStatus) {
       return res.status(400).json({ error: "First name, last name, and license status are required." });
     }
-
-    // Territory matching — map free text to one of the 7 official territories
-    const TERRITORY_MAP: Record<string, string> = {
-      "north jax": "North Jax & Nassau",
-      "nassau": "North Jax & Nassau",
-      "nassau county": "North Jax & Nassau",
-      "fernandina": "North Jax & Nassau",
-      "jacksonville west": "Jacksonville West",
-      "west jacksonville": "Jacksonville West",
-      "jacksonville east": "Jacksonville East",
-      "east jacksonville": "Jacksonville East",
-      "beaches": "Intracoastal/Beaches",
-      "intracoastal": "Intracoastal/Beaches",
-      "atlantic beach": "Intracoastal/Beaches",
-      "neptune beach": "Intracoastal/Beaches",
-      "jacksonville beach": "Intracoastal/Beaches",
-      "ponte vedra": "Ponte Vedra/Nocatee/St. Aug",
-      "nocatee": "Ponte Vedra/Nocatee/St. Aug",
-      "st augustine": "Ponte Vedra/Nocatee/St. Aug",
-      "st. augustine": "Ponte Vedra/Nocatee/St. Aug",
-      "st johns": "St. Johns County",
-      "st. johns": "St. Johns County",
-    };
-    let matchedTerritory: string | undefined;
-    if (territory) {
-      const lower = territory.toLowerCase();
-      for (const [key, val] of Object.entries(TERRITORY_MAP)) {
-        if (lower.includes(key)) { matchedTerritory = val; break; }
-      }
-    }
-
-    const now = new Date().toISOString();
-
-    // Insert into agent_leads
-    const stmt = rawDb.prepare(`
-      INSERT INTO agent_leads
-        (first_name, last_name, email, phone,
-         license_status, license_number, license_state, years_experience,
-         current_brokerage, reason_for_leaving,
-         gci_range, transactions_last_12mo,
-         territory, matched_territory,
-         referral_source, referred_by_name, applicant_notes,
-         status, source, submitted_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new','recruiting_page',?)
-    `);
-    const result = stmt.run(
-      (firstName || "").trim(), (lastName || "").trim(),
-      email || null, phone || null,
-      licenseStatus || "active", licenseNumber || null, licenseState || null, yearsExperience || null,
-      currentBrokerage || null, reasonForLeaving || null,
-      gciRange || null, transactionsLast12mo ? Number(transactionsLast12mo) : null,
-      territory || null, matchedTerritory || null,
-      referralSource || null, referredByName || null, applicantNotes || null,
-      now
-    );
-    const agentLeadId = result.lastInsertRowid;
-
-    // Push to FUB async (don't block the response)
+    // Fire-and-forget FUB push — don't block response.
     fubCreateAgentRecruit({
-      firstName: (firstName || "").trim(),
-      lastName: (lastName || "").trim(),
+      firstName: String(firstName).trim(),
+      lastName: String(lastName).trim(),
       email: email || undefined,
       phone: phone || undefined,
       licenseStatus,
@@ -8217,24 +8125,15 @@ Brothers Group Real Estate Team at Momentum Realty
       gciRange: gciRange || undefined,
       transactionsLast12mo: transactionsLast12mo ? Number(transactionsLast12mo) : undefined,
       territory: territory || undefined,
-      matchedTerritory: matchedTerritory || undefined,
       referralSource: referralSource || undefined,
       referredByName: referredByName || undefined,
       applicantNotes: applicantNotes || undefined,
       submittedAt: new Date().toLocaleString("en-US", { timeZone: "America/New_York" }),
-    }).then(personId => {
-      if (personId) {
-        rawDb.prepare("UPDATE agent_leads SET fub_person_id = ?, fub_synced_at = ? WHERE id = ?")
-          .run(personId, new Date().toISOString(), agentLeadId);
-      }
-    }).catch(err => console.error("[FUB] Agent recruit push error:", err));
-
-    console.log(`[Agent Leads] New submission: ${firstName} ${lastName} (${email}) — id ${agentLeadId}`);
-    res.json({ ok: true, id: agentLeadId });
+    }).catch(err => console.error("[FUB] /join push error:", err));
+    console.log(`[/join] New submission: ${firstName} ${lastName} (${email})`);
+    res.json({ ok: true });
   });
 
-  // ── Recruiting landing page — must be registered in registerRoutes so it fires
-  // before the static middleware SPA fallback in serveStatic()
   app.get("/join", (_req, res) => {
     const distPath = path.resolve(__dirname, "public");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -8262,203 +8161,9 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json({ ok: true, enabled: !!enabled });
   });
 
-  // ── Agent recruiting lead queue ───────────────────────────────────────────────────────
-  app.get("/api/agent-leads/my-next", (req: any, res) => {
-    // Round-robin pull: oldest-by-attempt-count first within each priority tier
-    // Excluded: joined, not_interested, do_not_contact, not_now, just_signed (frozen)
-    // Callbacks surface only when their date has arrived
-    const now = new Date().toISOString().slice(0, 10); // date only for callback comparison
-    // Thaw any not_now/just_signed whose reactivate_at has passed
-    rawDb.prepare(`
-      UPDATE agent_leads
-      SET status = 'new', reactivate_at = NULL, callback_date = NULL
-      WHERE status IN ('not_now', 'just_signed')
-        AND reactivate_at IS NOT NULL
-        AND date(reactivate_at) <= date('now')
-    `).run();
-    const lead = rawDb.prepare(`
-      SELECT * FROM agent_leads
-      WHERE status NOT IN ('joined', 'not_interested', 'do_not_contact', 'not_now', 'just_signed')
-        AND (
-          status IN ('new', 'contacted', 'hot_prospect', 'appointment')
-          OR (status = 'callback_requested' AND callback_date IS NOT NULL AND callback_date <= ?)
-        )
-      ORDER BY
-        CASE
-          WHEN status = 'appointment' THEN 0
-          WHEN status = 'hot_prospect' THEN 1
-          WHEN status = 'callback_requested' THEN 2
-          ELSE 3
-        END,
-        attempt_count ASC,
-        submitted_at ASC
-      LIMIT 1
-    `).get(now) as any;
-    if (!lead) return res.status(204).send();
-    res.json(lead);
-  });
 
-  app.get("/api/agent-leads/count", (req: any, res) => {
-    // Active queue: excludes frozen (not_now, just_signed), permanent exits, and do_not_contact
-    const row = rawDb.prepare(`SELECT COUNT(*) as count FROM agent_leads WHERE status NOT IN ('joined','not_interested','do_not_contact','not_now','just_signed')`).get() as any;
-    res.json({ count: row?.count ?? 0 });
-  });
 
-  app.post("/api/agent-leads/:id/outcome", async (req: any, res) => {
-    const { id } = req.params;
-    const { outcome, notes, callbackDate, callerId } = req.body;
 
-    // Full outcome whitelist including new statuses
-    const VALID_RECRUIT_OUTCOMES = [
-      'dial_no_answer',    // 1pt — no answer, stays in queue
-      'keep_in_touch',     // 3pt — connected, not ready, stays in rotation
-      'hot_prospect',      // 15pt — very interested, priority
-      'appointment',       // 15pt — meeting booked
-      'callback_requested',// 1pt — specific callback date
-      'not_now',           // 1pt — open but bad timing, frozen 90 days
-      'just_signed',       // 1pt — recently joined another brokerage, frozen 6 months
-      'joined_team',       // 50pt — they joined Watson Brothers
-      'not_interested',    // 1pt — not interested (stays in DB, removed from queue)
-      'do_not_contact',    // 0pt — DNC, permanent exit, blocks DBPR re-import
-    ];
-    if (!outcome || !VALID_RECRUIT_OUTCOMES.includes(outcome)) {
-      return res.status(400).json({ error: `Invalid outcome. Must be one of: ${VALID_RECRUIT_OUTCOMES.join(', ')}` });
-    }
-
-    const pts: Record<string, number> = {
-      keep_in_touch: 3, hot_prospect: 15, appointment: 15,
-      joined_team: 50, do_not_contact: 0,
-    };
-    const points = pts[outcome] ?? 1;
-
-    // Calculate reactivate_at for frozen statuses
-    const now = new Date();
-    let reactivateAt: string | null = null;
-    if (outcome === 'not_now') {
-      const d = new Date(now); d.setDate(d.getDate() + 90);
-      reactivateAt = d.toISOString().slice(0, 10);
-    } else if (outcome === 'just_signed') {
-      const d = new Date(now); d.setMonth(d.getMonth() + 6);
-      reactivateAt = d.toISOString().slice(0, 10);
-    }
-
-    const statusMap: Record<string, string> = {
-      dial_no_answer:     'contacted',
-      keep_in_touch:      'contacted',
-      hot_prospect:       'hot_prospect',
-      appointment:        'appointment',
-      callback_requested: 'callback_requested',
-      not_now:            'not_now',
-      just_signed:        'just_signed',
-      joined_team:        'joined',
-      not_interested:     'not_interested',
-      do_not_contact:     'do_not_contact',
-    };
-    const newStatus = statusMap[outcome] || 'contacted';
-    const newCallbackDate = outcome === 'callback_requested' ? (callbackDate || null) : null;
-
-    rawDb.prepare(`
-      UPDATE agent_leads
-      SET status = ?, attempt_count = attempt_count + 1,
-          callback_date = ?, reactivate_at = ?
-      WHERE id = ?
-    `).run(newStatus, newCallbackDate, reactivateAt, id);
-
-    rawDb.prepare(`INSERT INTO agent_lead_activity (agent_lead_id, caller_id, outcome, notes, points_awarded, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run(id, callerId || null, outcome, notes || null, points, new Date().toISOString());
-
-    if (callerId && points > 0) {
-      // v12.5 — recruiting-scoped so it lands on the recruiting leaderboard only.
-      rawDb.prepare(`INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, 'recruiting', ?)`)
-        .run(callerId, points, `recruit_${outcome}`, id, new Date().toISOString());
-    }
-
-    // ── Appointment Alert — fire instantly when a recruiting appointment is set
-    if (outcome === "appointment") {
-      const agentLead = rawDb.prepare(`SELECT * FROM agent_leads WHERE id = ?`).get(id) as any;
-      const callerAgent = callerId ? rawDb.prepare(`SELECT name FROM agents WHERE id = ?`).get(callerId) as any : null;
-      sendAppointmentAlert({
-        type:        "recruiting",
-        agentName:   callerAgent?.name || "Unknown Agent",
-        clientName:  agentLead ? `${agentLead.first_name} ${agentLead.last_name}` : "Unknown",
-        clientPhone: agentLead?.phone || undefined,
-        brokerage:   agentLead?.current_brokerage || undefined,
-        territory:   agentLead?.territory || agentLead?.matched_territory || undefined,
-        notes:       notes || undefined,
-      }).catch(err => console.error("Recruiting appointment alert failed:", err));
-    }
-
-    // ── joined_team: auto-create agent account if none exists for this email ──
-    if (outcome === "joined_team") {
-      const agentLead = rawDb.prepare(`SELECT * FROM agent_leads WHERE id = ?`).get(id) as any;
-      if (agentLead && agentLead.email) {
-        const existingAgent = rawDb.prepare(`SELECT id FROM agents WHERE email = ?`).get(agentLead.email.toLowerCase().trim());
-        if (!existingAgent) {
-          try {
-            const tempPass = require("crypto").randomBytes(12).toString("hex");
-            const setupToken = require("crypto").randomBytes(32).toString("hex");
-            const setupExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
-            const agentName = `${agentLead.first_name} ${agentLead.last_name}`.trim();
-            const cleanEmail = agentLead.email.toLowerCase().trim();
-            // Get next round-robin order
-            const maxOrder = (rawDb.prepare(`SELECT MAX(round_robin_order) as m FROM agents`).get() as any)?.m ?? 0;
-            const initialTerritory = agentLead.matched_territory || agentLead.territory || null;
-            // v12.5 — write to BOTH legacy territory + new territory1 for compat during rollback window.
-            rawDb.prepare(`
-              INSERT INTO agents (name, email, password, role, round_robin_order, is_active, receive_leads, lead_flow_on, receive_website_leads, can_recruit, min_dials_per_week, phone, territory, territory1, setup_token, setup_expires, onboarded)
-              VALUES (?, ?, ?, 'agent', ?, 1, 0, 0, 0, 0, 0, ?, ?, ?, ?, ?, 0)
-            `).run(agentName, cleanEmail, tempPass, maxOrder + 1, agentLead.phone || null, initialTerritory, initialTerritory, setupToken, setupExpires);
-
-            const newAgentRow = rawDb.prepare(`SELECT id FROM agents WHERE email = ?`).get(cleanEmail) as any;
-            const appBase = process.env.APP_URL ?? "https://depot.watsonbrothersgroup.com";
-            const setupLink = `${appBase}/#/setup/${setupToken}`;
-
-            // Send onboarding email
-            if (resend) {
-              resend.emails.send({
-                from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-                to: cleanEmail,
-                subject: "Welcome to the team — Set up your Lead Depot account",
-                html: `
-                  <div style="font-family:'Georgia',serif;background:#09090b;color:#e5e5e5;padding:40px 24px;max-width:600px;margin:0 auto;border-radius:12px;">
-                    <div style="text-align:center;margin-bottom:32px;">
-                      <svg width="44" height="44" viewBox="0 0 36 36" fill="none" style="margin-bottom:12px;">
-                        <rect x="2" y="18" width="32" height="15" rx="1" stroke="#c8aa5a" stroke-width="1.6"/>
-                        <path d="M2 18 L18 5 L34 18" stroke="#c8aa5a" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
-                        <rect x="13" y="24" width="10" height="9" rx="0.5" stroke="#c8aa5a" stroke-width="1.4"/>
-                      </svg>
-                      <p style="color:#c8aa5a;letter-spacing:0.18em;font-size:11px;text-transform:uppercase;margin:0;">Brothers Group · Momentum Realty</p>
-                    </div>
-                    <h1 style="color:#fff;font-weight:300;font-size:28px;margin:0 0 8px;">Welcome to the team, ${agentName}.</h1>
-                    <p style="color:rgba(255,255,255,0.6);font-size:15px;line-height:1.7;margin:0 0 32px;">Your Lead Depot account has been created. Complete your setup below — upload your headshot and set a secure password to activate your account and start receiving leads.</p>
-                    <div style="text-align:center;margin-bottom:32px;">
-                      <a href="${setupLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Complete My Account Setup</a>
-                    </div>
-                    <p style="color:rgba(255,255,255,0.35);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.15);padding-top:20px;">This link expires in 7 days. Lead Depot · Brothers Group at Momentum Realty · Fernandina Beach, FL</p>
-                  </div>
-                `,
-              }).catch((err: any) => console.error("joined_team onboarding email failed:", err));
-            }
-
-            console.log(`[joined_team] Auto-created agent account for ${agentName} (${cleanEmail}), id=${newAgentRow?.id}`);
-          } catch (err: any) {
-            console.error("[joined_team] Auto-create agent failed:", err.message);
-          }
-        }
-      }
-    }
-
-    res.json({ ok: true, points, status: newStatus, reactivateAt });
-  });
-
-  // ── Toggle canRecruit for an agent (admin only) ──────────────────────────────────
-  app.patch("/api/agents/:id/can-recruit", (req: any, res) => {
-    const agentId = parseInt(req.params.id);
-    const { canRecruit } = req.body;
-    if (typeof canRecruit !== 'boolean') return res.status(400).json({ error: 'canRecruit must be boolean' });
-    rawDb.prepare(`UPDATE agents SET can_recruit = ? WHERE id = ?`).run(canRecruit ? 1 : 0, agentId);
-    res.json({ ok: true });
-  });
 
   // ── Set minDialsPerWeek performance gate for an agent (admin only) ────────────────────────────
   app.patch("/api/agents/:id/min-dials", (req: any, res) => {
@@ -8470,13 +8175,6 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json({ ok: true });
   });
 
-  // ── Delete or DNC an agent lead (admin only) ─────────────────────────────────
-  app.delete("/api/agent-leads/:id", (req: any, res) => {
-    const { id } = req.params;
-    rawDb.prepare(`DELETE FROM agent_lead_activity WHERE agent_lead_id = ?`).run(id);
-    rawDb.prepare(`DELETE FROM agent_leads WHERE id = ?`).run(id);
-    res.json({ ok: true });
-  });
 
   // ─────────────────────────────────────────────────────────────────────────
   // FUB WEBHOOK RECEIVER — Stage sync back to Lead Depot
@@ -8574,35 +8272,8 @@ Brothers Group Real Estate Team at Momentum Realty
   // STALE LEAD AUDIT — identifies leads untouched for 7+ days
   // Called by weekly cron every Monday 9am EDT
   // ─────────────────────────────────────────────────────────────────────────
-  // GET /api/admin/missed-appointments — returns stale 'appointment' recruiting leads (> 48h no activity)
-  app.get("/api/admin/missed-appointments", (req: any, res) => {
-    const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-    const stale = rawDb.prepare(`
-      SELECT al.id, al.first_name, al.last_name, al.phone,
-             al.matched_territory, al.status,
-             MAX(ala.created_at) as last_activity_at,
-             a.name as last_caller
-      FROM agent_leads al
-      LEFT JOIN agent_lead_activity ala ON ala.agent_lead_id = al.id
-      LEFT JOIN agents a ON a.id = ala.caller_id
-      WHERE al.status = 'appointment'
-      GROUP BY al.id
-      HAVING last_activity_at < ? OR last_activity_at IS NULL
-      ORDER BY last_activity_at ASC
-      LIMIT 20
-    `).all(fortyEightHoursAgo);
-    res.json({ stale, count: stale.length });
-  });
 
   // POST /api/admin/missed-appointments — manually trigger the missed-appt email
-  app.post("/api/admin/missed-appointments", async (req: any, res) => {
-    try {
-      await checkMissedAppointments();
-      res.json({ ok: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
 
   app.post("/api/admin/stale-lead-audit", (req: any, res) => {
     try {
@@ -8740,261 +8411,8 @@ Brothers Group Real Estate Team at Momentum Realty
     }
   });
 
-    // ── AGENT LEADS: MANUAL QUICK-ADD (admin) ──────────────────────────
-  // ─── DBPR AGENT SCRAPER PIPELINE TRIGGER ────────────────────────────────────
-  // Pulls the DBPR weekly RE_rgn3.csv extract, filters to NE Florida individual
-  // licensees (SL/BK/BL, Current+Active), and ingests new recruits.
-  // Runs weekly Sunday 2am EDT via scheduled cron. Also triggerable manually by admins.
-  const dbprRunHandler: any[] = [
-    (req: any, res: any, next: any) => pipelineGuard("dbpr", req, res, next),
-    async (req: any, res: any) => {
-      try {
-        console.log("[DBPR] Manual/cron trigger received");
-        const result = await runDbprPipeline(rawDb);
+  // v18.0 — DBPR pipeline handlers removed with recruiting system.
 
-        // Sanity check: if DBPR returned 0 records with no errors, CSV format may have changed
-        const zeroScrape = result.scraped === 0 && result.errors.length === 0;
-
-        res.json({
-          ok: true,
-          ...result,
-          warning: zeroScrape
-            ? "DBPR returned 0 records — CSV format may have changed. Check dbpr_csv_snapshot.csv on Railway volume."
-            : undefined,
-          message: result.inserted === 0
-            ? `DBPR scrape complete. No new agents found (${result.updated} existing records refreshed, ${result.filtered} filtered).`
-            : `DBPR scrape complete. ${result.inserted} new agents added to recruiting queue across ${Object.keys(result.byTerritory).length} territories.`,
-        });
-      } catch (err: any) {
-        console.error("[DBPR] Pipeline error:", err);
-        res.status(500).json({ error: err.message });
-      }
-    },
-  ];
-  app.post("/api/admin/dbpr-run", ...dbprRunHandler);
-
-  // ─── RECRUITING PIPELINE (admin) ────────────────────────────────────────────
-  // Full pipeline view of all agent_leads with activity history per lead.
-  app.get("/api/admin/recruiting/pipeline", (req: any, res) => {
-    try {
-      const status = req.query.status as string | undefined;
-      const where = status && status !== "all"
-        ? `WHERE al.status = '${status.replace(/'/g, "''")}'  `
-        : `WHERE al.status NOT IN ('joined','not_interested','do_not_contact') `;
-      const rows: any[] = rawDb.prepare(`
-        SELECT al.*,
-          a.name as caller_name,
-          (SELECT COUNT(*) FROM agent_lead_activity ala WHERE ala.agent_lead_id = al.id) as attempt_count_actual,
-          (SELECT json_group_array(json_object(
-            'outcome', ala.outcome, 'notes', ala.notes,
-            'callerName', ca.name, 'createdAt', ala.created_at
-          )) FROM agent_lead_activity ala
-           LEFT JOIN agents ca ON ca.id = ala.caller_id
-           WHERE ala.agent_lead_id = al.id
-           ORDER BY ala.created_at DESC
-           LIMIT 5
-          ) as recent_activity
-        FROM agent_leads al
-        LEFT JOIN agents a ON a.id = al.assigned_admin_id
-        ${where}
-        ORDER BY
-          CASE al.status
-            WHEN 'appointment'        THEN 0
-            WHEN 'hot_prospect'       THEN 1
-            WHEN 'callback_requested' THEN 2
-            WHEN 'contacted'          THEN 3
-            WHEN 'new'                THEN 4
-            WHEN 'not_now'            THEN 5
-            WHEN 'just_signed'        THEN 6
-            ELSE 7
-          END,
-          al.attempt_count DESC,
-          al.submitted_at DESC
-        LIMIT 500
-      `).all();
-      const parsed = rows.map((r: any) => ({
-        ...r,
-        recent_activity: r.recent_activity ? (() => { try { return JSON.parse(r.recent_activity); } catch { return []; } })() : [],
-      }));
-      // All status counts including frozen
-      const counts: any[] = rawDb.prepare(`
-        SELECT status, COUNT(*) as count FROM agent_leads GROUP BY status ORDER BY count DESC
-      `).all();
-      res.json({ leads: parsed, counts });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ─── RECRUITING LEADERBOARD (admin) ──────────────────────────────────────────
-  app.get("/api/admin/recruiting/leaderboard", (req: any, res) => {
-    try {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayISO = todayStart.toISOString();
-      const weekStart = new Date(todayStart);
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-      const weekISO = weekStart.toISOString();
-
-      const agentRows: any[] = rawDb.prepare(`
-        SELECT
-          ala.caller_id,
-          a.name as agent_name,
-          a.headshot_url as headshot_url,
-          COUNT(*) as total_dials,
-          SUM(CASE WHEN ala.outcome = 'keep_in_touch'  THEN 1 ELSE 0 END) as kit,
-          SUM(CASE WHEN ala.outcome = 'hot_prospect'   THEN 1 ELSE 0 END) as hot_prospects,
-          SUM(CASE WHEN ala.outcome = 'joined_team'    THEN 1 ELSE 0 END) as joined,
-          SUM(CASE WHEN ala.outcome = 'not_interested' THEN 1 ELSE 0 END) as not_interested,
-          SUM(CASE WHEN ala.outcome = 'dial_no_answer' THEN 1 ELSE 0 END) as no_answer,
-          SUM(CASE WHEN ala.created_at >= ? THEN 1 ELSE 0 END) as today_dials,
-          SUM(CASE WHEN ala.outcome = 'keep_in_touch'  AND ala.created_at >= ? THEN 1 ELSE 0 END) as today_kit,
-          SUM(CASE WHEN ala.outcome = 'hot_prospect'   AND ala.created_at >= ? THEN 1 ELSE 0 END) as today_hot,
-          SUM(CASE WHEN ala.outcome = 'joined_team'    AND ala.created_at >= ? THEN 1 ELSE 0 END) as today_joined,
-          SUM(CASE WHEN ala.created_at >= ? THEN 1 ELSE 0 END) as week_dials,
-          SUM(CASE WHEN ala.outcome = 'keep_in_touch'  AND ala.created_at >= ? THEN 1 ELSE 0 END) as week_kit,
-          SUM(CASE WHEN ala.outcome = 'hot_prospect'   AND ala.created_at >= ? THEN 1 ELSE 0 END) as week_hot,
-          SUM(CASE WHEN ala.outcome = 'joined_team'    AND ala.created_at >= ? THEN 1 ELSE 0 END) as week_joined,
-          SUM(ala.points_awarded) as total_points,
-          MAX(ala.created_at) as last_activity_at
-        FROM agent_lead_activity ala
-        LEFT JOIN agents a ON a.id = ala.caller_id
-        WHERE ala.caller_id IS NOT NULL
-        GROUP BY ala.caller_id
-        ORDER BY joined DESC, hot_prospects DESC, total_dials DESC
-      `).all(
-        todayISO, todayISO, todayISO, todayISO,
-        weekISO,  weekISO,  weekISO,  weekISO
-      );
-      res.json(agentRows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // GET — DBPR pipeline stats (for AdminDashboard tile)
-  const dbprStatsHandler = (req: any, res: any) => {
-    try {
-      const total = (rawDb.prepare(`SELECT COUNT(*) as n FROM agent_leads WHERE source = 'dbpr_scrape'`).get() as any)?.n || 0;
-      const lastRun = (rawDb.prepare(`SELECT MAX(last_scraped_at) as ts FROM agent_leads WHERE source = 'dbpr_scrape'`).get() as any)?.ts || null;
-      const byTerritory = rawDb.prepare(`
-        SELECT matched_territory as territory, COUNT(*) as count
-        FROM agent_leads
-        WHERE source = 'dbpr_scrape'
-        GROUP BY matched_territory
-        ORDER BY count DESC
-      `).all() as any[];
-      const byStatus = rawDb.prepare(`
-        SELECT status, COUNT(*) as count
-        FROM agent_leads
-        WHERE source = 'dbpr_scrape'
-        GROUP BY status
-        ORDER BY count DESC
-      `).all() as any[];
-      res.json({ total, lastRun, byTerritory, byStatus });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  };
-  app.get("/api/admin/dbpr-stats", dbprStatsHandler);
-
-  // v14.46 — LandVoice OAuth routes removed. LandVoice data flows in via CSV upload
-  // (see /api/admin/import-batchleads-csv — the parser auto-detects LandVoice CSVs).
-
-
-  // ─── REACTIVATE RETIRED LEADS (admin) ───────────────────────────────────────
-  // v13.2 — Go-live helper: takes every lead currently in 'retired' status,
-  // flips them back to 'unassigned', clears callbackDate, and round-robins them
-  // across active seller-side agents so the team has a working queue tonight.
-  app.post("/api/admin/reactivate-retired-leads", (req: any, res) => {
-    try {
-      // 1) Grab all retired leads
-      const retired = rawDb.prepare(
-        `SELECT id, lead_type as leadType, territory FROM leads WHERE status = 'retired'`
-      ).all() as { id: number; leadType: string; territory: string | null }[];
-
-      if (retired.length === 0) {
-        return res.json({ ok: true, reactivated: 0, assigned: 0, message: "No retired leads to reactivate." });
-      }
-
-      // 2) Flip all to unassigned, clear callback
-      const now = new Date().toISOString();
-      const flipStmt = rawDb.prepare(
-        `UPDATE leads SET status = 'unassigned', assigned_agent_id = NULL, callback_date = NULL, uploaded_at = ? WHERE id = ?`
-      );
-      const flipMany = rawDb.transaction((rows: typeof retired) => {
-        for (const r of rows) flipStmt.run(now, r.id);
-      });
-      flipMany(retired);
-
-      // v14.7 — PULL MODE: reactivated leads stay in the shared pool.
-      const assigned = 0;
-
-      console.log(`[Reactivate Retired] Reactivated ${retired.length} leads, assigned ${assigned} to agents.`);
-      res.json({ ok: true, reactivated: retired.length, assigned });
-    } catch (err: any) {
-      console.error("[Reactivate Retired] Error:", err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.post("/api/agent-leads/manual-add", (req: any, res) => {
-    const { firstName, lastName, phone, email, currentBrokerage, licenseStatus, territory, notes } = req.body;
-    if (!firstName || !lastName || !phone) {
-      return res.status(400).json({ error: "firstName, lastName, and phone are required" });
-    }
-    const now = new Date().toISOString();
-    const result = rawDb.prepare(`
-      INSERT INTO agent_leads
-        (first_name, last_name, email, phone, current_brokerage, license_status,
-         territory, applicant_notes, status, attempt_count, source, submitted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', 0, 'manual_add', ?)
-    `).run(
-      firstName.trim(), lastName.trim(),
-      (email || "").trim(), phone.replace(/\D/g, ""),
-      (currentBrokerage || "").trim(), (licenseStatus || "").trim(),
-      (territory || "").trim(), (notes || "").trim(),
-      now
-    );
-    console.log(`[Agent Leads] Manual add: ${firstName} ${lastName} — id ${result.lastInsertRowid}`);
-    res.json({ ok: true, id: result.lastInsertRowid });
-  });
-
-  // ── AGENT LEADS: BULK CSV UPLOAD (admin) ────────────────────────
-  app.post("/api/agent-leads/bulk-upload", (req: any, res) => {
-    const { leads } = req.body;
-    if (!leads || !Array.isArray(leads)) {
-      return res.status(400).json({ error: "Invalid payload" });
-    }
-    const now = new Date().toISOString();
-    let created = 0;
-    let skipped = 0;
-    const insert = rawDb.prepare(`
-      INSERT INTO agent_leads
-        (first_name, last_name, email, phone, current_brokerage, license_status,
-         territory, applicant_notes, status, attempt_count, source, submitted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', 0, 'bulk_import', ?)
-    `);
-    const insertMany = rawDb.transaction((rows: any[]) => {
-      for (const row of rows) {
-        const firstName = (row["First Name"] || row.firstName || row.first_name || "").trim();
-        const lastName  = (row["Last Name"]  || row.lastName  || row.last_name  || "").trim();
-        const phone     = (row.Phone || row.phone || row["Phone Number"] || "").replace(/\D/g, "");
-        const email     = (row.Email || row.email || "").trim();
-        const brokerage = (row["Current Brokerage"] || row.currentBrokerage || row.brokerage || "").trim();
-        const license   = (row["License Status"] || row.licenseStatus || row.license || "").trim();
-        const territory = (row.Territory || row.territory || "").trim();
-        const notes     = (row.Notes || row.notes || "").trim();
-
-        if (!firstName || !lastName || phone.length < 7) { skipped++; continue; }
-        insert.run(firstName, lastName, email, phone, brokerage, license, territory, notes, now);
-        created++;
-      }
-    });
-    insertMany(leads);
-    console.log(`[Agent Leads] Bulk import: ${created} created, ${skipped} skipped`);
-    res.json({ created, skipped });
-  });
 
   // ─── GLOBAL ERROR HANDLER (v11.70) ──────────────────────────────────────
   // Catches any unhandled error thrown inside a route handler. Without this,
@@ -9011,590 +8429,7 @@ Brothers Group Real Estate Team at Momentum Realty
   });
 
 
-  // ─── v15.7 — ONBOARDING CANDIDATES ─────────────────────────────────────────
-  // Admin invites candidates who said "yes" in a real-world conversation.
-  // Flow: pick entry path (7) → pick delivery mode (4) → generate token + FUB push → deliver
-  // Token TTL 14d. FUB errors are non-blocking; invite always succeeds.
-  const CANDIDATE_TOKEN_TTL_DAYS = 14;
-  const APP_BASE_URL = process.env.APP_URL || "https://depot.watsonbrothersgroup.com";
-
-  function candidateAppUrl(token: string): string {
-    return `${APP_BASE_URL.replace(/\/$/, "")}/#/join/${token}`;
-  }
-
-  function candidateStatusFromTokenExpiry(row: any): string {
-    if (!row) return "unknown";
-    if (row.status && row.status !== "invited") return row.status;
-    if (row.token_expires_at) {
-      const exp = typeof row.token_expires_at === "string" ? new Date(row.token_expires_at).getTime() : Number(row.token_expires_at);
-      if (Number.isFinite(exp) && exp < Date.now()) return "expired";
-    }
-    return row.status || "invited";
-  }
-
-  function shapeCandidate(row: any): any {
-    if (!row) return null;
-    return {
-      id: row.id,
-      firstName: row.first_name,
-      lastName: row.last_name,
-      email: row.email,
-      phone: row.phone,
-      entryPath: row.entry_path,
-      temperature: row.temperature,
-      fubStage: row.fub_stage,
-      status: candidateStatusFromTokenExpiry(row),
-      token: row.token,
-      tokenExpiresAt: row.token_expires_at,
-      deliveryMode: row.delivery_mode,
-      invitedByAgentId: row.invited_by_agent_id,
-      referredByAgentId: row.referred_by_agent_id,
-      fubPersonId: row.fub_person_id,
-      fubSyncedAt: row.fub_synced_at,
-      questionnaireSubmittedAt: row.questionnaire_submitted_at,
-      approvedAt: row.approved_at,
-      approvedByAgentId: row.approved_by_agent_id,
-      resultingAgentId: row.resulting_agent_id,
-      declinedAt: row.declined_at,
-      declinedReason: row.declined_reason,
-      createdAt: row.created_at,
-      firstOpenedAt: row.first_opened_at,
-      lastActivityAt: row.last_activity_at,
-      nextNurtureAt: row.next_nurture_at,
-      applicationUrl: row.token ? candidateAppUrl(row.token) : null,
-      // v15.7 — Phase 2 fields
-      recommendation: row.recommendation || null,
-      recommendationScore: row.recommendation_score ?? null,
-      recommendationReason: row.recommendation_reason || null,
-      adminNotes: row.admin_notes || null,
-      questionnaireJson: row.questionnaire_json || null,
-      questionnaireDraftJson: row.questionnaire_draft_json || null,
-      questionnaireDraftUpdatedAt: row.questionnaire_draft_updated_at || null,
-    };
-  }
-
-  // POST /api/candidates/invite ─────────────────────────────────────────────
-  // Body: { firstName, lastName, email?, phone?, entryPath, deliveryMode, referredByAgentId? }
-  // At least one of email/phone required.
-  app.post("/api/candidates/invite", async (req: any, res) => {
-    if (!requireAdmin(req, res)) return;
-
-    try {
-      const {
-        firstName,
-        lastName,
-        email,
-        phone,
-        entryPath,
-        deliveryMode,
-        referredByAgentId,
-      } = req.body || {};
-
-      if (!firstName || !lastName) {
-        return res.status(400).json({ error: "firstName and lastName required" });
-      }
-      if (!email && !phone) {
-        return res.status(400).json({ error: "email or phone required" });
-      }
-      const cfg = ENTRY_PATH_CONFIG[entryPath as CandidateEntryPath];
-      if (!cfg) {
-        return res.status(400).json({ error: `unknown entryPath: ${entryPath}` });
-      }
-      const validModes = ["show_qr", "text", "email", "create_only"];
-      const dmode = validModes.includes(deliveryMode) ? deliveryMode : "create_only";
-
-      const normEmail = email ? String(email).trim().toLowerCase() : null;
-      const normPhone = phone ? String(phone).replace(/\D+/g, "") : null;
-
-      // Duplicate check (open candidates only)
-      const dupRow = rawDb.prepare(`
-        SELECT id, first_name, last_name, email, phone, status FROM candidates
-        WHERE (
-          (? IS NOT NULL AND lower(email) = ?)
-          OR (? IS NOT NULL AND replace(replace(replace(replace(phone,' ',''),'-',''),'(',''),')','') = ?)
-        )
-        AND status IN ('invited','started','submitted','approved')
-        ORDER BY created_at DESC
-        LIMIT 1
-      `).get(normEmail, normEmail, normPhone, normPhone) as any;
-
-      if (dupRow) {
-        return res.status(409).json({
-          error: "duplicate_candidate",
-          existing: {
-            id: dupRow.id,
-            firstName: dupRow.first_name,
-            lastName: dupRow.last_name,
-            email: dupRow.email,
-            phone: dupRow.phone,
-            status: dupRow.status,
-          },
-        });
-      }
-
-      const token = randomBytes(24).toString("hex");
-      const now = new Date().toISOString();
-      const tokenExpiresAt = new Date(Date.now() + CANDIDATE_TOKEN_TTL_DAYS * 86400_000).toISOString();
-
-      const insertResult = rawDb.prepare(`
-        INSERT INTO candidates (
-          first_name, last_name, email, phone,
-          entry_path, temperature, fub_stage,
-          status, token, token_expires_at,
-          delivery_mode, invited_by_agent_id, referred_by_agent_id,
-          created_at, last_activity_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'invited', ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        firstName,
-        lastName,
-        normEmail,
-        normPhone,
-        entryPath,
-        cfg.temperature,
-        cfg.fubStage,
-        token,
-        tokenExpiresAt,
-        dmode,
-        req.currentAgent?.id ?? null,
-        referredByAgentId ?? null,
-        now,
-        now,
-      );
-
-      const candidateId = Number(insertResult.lastInsertRowid);
-      const appUrl = candidateAppUrl(token);
-
-      // FUB push — non-blocking
-      let fubPersonId: number | null = null;
-      try {
-        fubPersonId = await fubCreateCandidate({
-          firstName,
-          lastName,
-          email: normEmail || undefined,
-          phone: normPhone || undefined,
-          entryPath: entryPath as CandidateEntryPath,
-          invitedByName: req.currentAgent?.name || "Lead Depot admin",
-          applicationUrl: appUrl,
-        });
-        if (fubPersonId) {
-          rawDb.prepare(`UPDATE candidates SET fub_person_id = ?, fub_synced_at = ? WHERE id = ?`).run(fubPersonId, new Date().toISOString(), candidateId);
-        }
-      } catch (fubErr) {
-        console.error("[candidate] FUB push failed (non-blocking):", fubErr);
-      }
-
-      // Delivery (v15.7: trajectory + founder-access voice)
-      const invitationBody = [
-        `Hi ${firstName},`,
-        ``,
-        `Good talking with you. Brothers Group is a team at Momentum Realty — an independent brokerage that just made the RealTrends 500 (#440 in the U.S.) after starting with four agents in a Jacksonville office in January 2020.`,
-        ``,
-        `The reason it works is simple: 100% commission, one flat $12K cap, no monthly fees, and two founder-owners (Jon and Brittany Brooks) who still answer their own phones.`,
-        ``,
-        `Here's the application — about 10 minutes, covers license, experience, and how you work. Once you send it back, Alex or Nate reviews personally and will be in touch within two business days.`,
-        ``,
-        `Start here: ${appUrl}`,
-        ``,
-        `This link expires in 14 days. No pressure, no pitch deck.`,
-        ``,
-        `— Alex`,
-      ].join("\n");
-
-      const smsBody = `Hi ${firstName}, good talking with you. Here's the BGRE / Momentum Realty application — 10 min, expires in 14 days: ${appUrl} — Alex`;
-
-      let deliveryPayload: any = { mode: dmode };
-
-      if (dmode === "email") {
-        if (!normEmail) {
-          return res.status(400).json({ error: "delivery_mode 'email' requires an email address" });
-        }
-        if (resend) {
-          try {
-            const html = renderBrandedEmail({
-              bodyText: invitationBody,
-              agentName: "Alex Watson",
-              agentTitle: "Team Lead · Brothers Group Real Estate Team at Momentum Realty",
-              agentPhone: "(904) 800-8846",
-              agentEmail: "alex@watsonbrothersgroup.com",
-              agentHeadshotUrl: "/headshots/alex-watson.jpg",
-              publicHost: APP_BASE_URL,
-            });
-            await resend.emails.send({
-              from: "Alex Watson <noreply@watsonbrothersgroup.com>",
-              to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v17.7`,
-              html,
-              text: invitationBody,
-              replyTo: "alex@watsonbrothersgroup.com",
-            });
-            deliveryPayload.emailSent = true;
-          } catch (mailErr) {
-            console.error("[candidate] email delivery failed:", mailErr);
-            deliveryPayload.emailSent = false;
-            deliveryPayload.emailError = String(mailErr);
-          }
-        } else {
-          deliveryPayload.emailSent = false;
-          deliveryPayload.emailError = "RESEND_API_KEY not set";
-        }
-      } else if (dmode === "text") {
-        if (!normPhone) {
-          return res.status(400).json({ error: "delivery_mode 'text' requires a phone number" });
-        }
-        // We don't have an outbound SMS provider yet. Return a deep link the admin taps
-        // on their phone to open Messages with the number + body prefilled.
-        deliveryPayload.smsLink = `sms:${normPhone}?&body=${encodeURIComponent(smsBody)}`;
-        deliveryPayload.smsBody = smsBody;
-      } else if (dmode === "show_qr") {
-        try {
-          const qrDataUrl = await QRCode.toDataURL(appUrl, { width: 512, margin: 2, errorCorrectionLevel: "M" });
-          deliveryPayload.qrDataUrl = qrDataUrl;
-          deliveryPayload.shortUrl = appUrl;
-        } catch (qrErr) {
-          console.error("[candidate] QR generation failed:", qrErr);
-          deliveryPayload.qrDataUrl = null;
-          deliveryPayload.shortUrl = appUrl;
-        }
-      }
-      // create_only → no delivery action
-
-      const row = rawDb.prepare(`SELECT * FROM candidates WHERE id = ?`).get(candidateId);
-      const shaped = shapeCandidate(row);
-
-      broadcast({ type: "candidate_invited", candidateId, entryPath, deliveryMode: dmode });
-
-      res.json({
-        ok: true,
-        candidate: shaped,
-        delivery: deliveryPayload,
-        fubPersonId,
-      });
-    } catch (err: any) {
-      console.error("[candidate] invite failed:", err);
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
-  // ENTRY PATH CATALOG (for the invite dialog) ───────────────────────────────
-  app.get("/api/candidates/entry-paths", (_req, res) => {
-    const paths = Object.entries(ENTRY_PATH_CONFIG).map(([key, cfg]) => ({
-      key,
-      label: cfg.humanLabel,
-      temperature: cfg.temperature,
-      fubStage: cfg.fubStage,
-      tags: cfg.extraTags,
-    }));
-    res.json({ ok: true, paths });
-  });
-
-  // GET /api/candidates/list  (admin) ────────────────────────────────────────
-  app.get("/api/candidates/list", (req: any, res) => {
-    if (!requireAdmin(req, res)) return;
-    const status = typeof req.query.status === "string" ? req.query.status : null;
-    let sql = `SELECT * FROM candidates`;
-    const args: any[] = [];
-    if (status && status !== "all") {
-      sql += ` WHERE status = ?`;
-      args.push(status);
-    }
-    sql += ` ORDER BY created_at DESC LIMIT 500`;
-    const rows = rawDb.prepare(sql).all(...args) as any[];
-    res.json({ ok: true, candidates: rows.map(shapeCandidate) });
-  });
-
-  // GET /api/candidates/:id  (admin) ─────────────────────────────────────────
-  app.get("/api/candidates/:id", (req: any, res) => {
-    if (!requireAdmin(req, res)) return;
-    const id = Number(req.params.id);
-    const row = rawDb.prepare(`SELECT * FROM candidates WHERE id = ?`).get(id) as any;
-    if (!row) return res.status(404).json({ error: "not_found" });
-    res.json({ ok: true, candidate: shapeCandidate(row) });
-  });
-
-  // GET /api/candidates/by-token/:token  (PUBLIC — for landing page) ────────
-  app.get("/api/candidates/by-token/:token", (req, res) => {
-    const token = String(req.params.token || "").trim();
-    if (!token) return res.status(400).json({ error: "token required" });
-    const row = rawDb.prepare(`SELECT * FROM candidates WHERE token = ? LIMIT 1`).get(token) as any;
-    if (!row) return res.status(404).json({ error: "not_found" });
-
-    const status = candidateStatusFromTokenExpiry(row);
-    if (status === "expired") {
-      return res.status(410).json({ error: "expired", candidate: { firstName: row.first_name, status: "expired" } });
-    }
-
-    // Track first-open
-    const nowIso = new Date().toISOString();
-    if (!row.first_opened_at) {
-      rawDb.prepare(`UPDATE candidates SET first_opened_at = ?, last_activity_at = ?, status = CASE WHEN status = 'invited' THEN 'started' ELSE status END WHERE id = ?`)
-        .run(nowIso, nowIso, row.id);
-    } else {
-      rawDb.prepare(`UPDATE candidates SET last_activity_at = ? WHERE id = ?`).run(nowIso, row.id);
-    }
-
-    // Return a safe subset (no admin-only fields)
-    let draftAnswers: any = null;
-    let draftCurrentSection: number | null = null;
-    if (row.questionnaire_draft_json) {
-      try {
-        const parsed = JSON.parse(row.questionnaire_draft_json);
-        draftAnswers = parsed && typeof parsed === "object" ? (parsed.answers || parsed) : null;
-        draftCurrentSection = typeof parsed?.currentSection === "number" ? parsed.currentSection : null;
-      } catch {}
-    }
-    res.json({
-      ok: true,
-      candidate: {
-        firstName: row.first_name,
-        lastName: row.last_name,
-        email: row.email,
-        phone: row.phone,
-        entryPath: row.entry_path,
-        temperature: row.temperature,
-        fubStage: row.fub_stage,
-        status,
-        tokenExpiresAt: row.token_expires_at,
-        draft: draftAnswers ? { answers: draftAnswers, currentSection: draftCurrentSection, updatedAt: row.questionnaire_draft_updated_at } : null,
-      },
-    });
-  });
-
-  // GET /api/candidates/:id/qr  (admin — regenerate QR) ─────────────────────
-  app.get("/api/candidates/:id/qr", async (req: any, res) => {
-    if (!requireAdmin(req, res)) return;
-    const id = Number(req.params.id);
-    const row = rawDb.prepare(`SELECT token FROM candidates WHERE id = ?`).get(id) as any;
-    if (!row || !row.token) return res.status(404).json({ error: "not_found" });
-    const url = candidateAppUrl(row.token);
-    try {
-      const qrDataUrl = await QRCode.toDataURL(url, { width: 512, margin: 2, errorCorrectionLevel: "M" });
-      res.json({ ok: true, qrDataUrl, url });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
-  // POST /api/candidates/by-token/:token/save-progress  (PUBLIC) ────────────
-  // Persists a partial questionnaire so the candidate can resume later.
-  // Not scored, not FUB-pushed. Only saves if candidate is still in an editable status.
-  app.post("/api/candidates/by-token/:token/save-progress", (req: any, res) => {
-    const token = String(req.params.token || "").trim();
-    if (!token) return res.status(400).json({ error: "token required" });
-    const row = rawDb.prepare(`SELECT * FROM candidates WHERE token = ? LIMIT 1`).get(token) as any;
-    if (!row) return res.status(404).json({ error: "not_found" });
-
-    const status = candidateStatusFromTokenExpiry(row);
-    if (status === "expired") return res.status(410).json({ error: "expired" });
-    if (status === "submitted" || status === "approved" || status === "declined") {
-      return res.status(409).json({ error: "already_submitted", status });
-    }
-
-    const draft = req.body && typeof req.body === "object" ? req.body : {};
-    if (!draft.answers || typeof draft.answers !== "object") {
-      return res.status(400).json({ error: "invalid_body", detail: "expected { answers, currentSection }" });
-    }
-    const nowIso = new Date().toISOString();
-    rawDb.prepare(
-      `UPDATE candidates
-         SET questionnaire_draft_json = ?, questionnaire_draft_updated_at = ?, last_activity_at = ?
-       WHERE id = ?`
-    ).run(JSON.stringify(draft), nowIso, nowIso, row.id);
-    res.json({ ok: true, savedAt: nowIso });
-  });
-
-  // POST /api/candidates/by-token/:token/submit  (PUBLIC) ───────────────────
-  // Candidate submits the completed 28-question form. We save, score, notify.
-  app.post("/api/candidates/by-token/:token/submit", async (req: any, res) => {
-    const token = String(req.params.token || "").trim();
-    if (!token) return res.status(400).json({ error: "token required" });
-    const row = rawDb.prepare(`SELECT * FROM candidates WHERE token = ? LIMIT 1`).get(token) as any;
-    if (!row) return res.status(404).json({ error: "not_found" });
-
-    const status = candidateStatusFromTokenExpiry(row);
-    if (status === "expired") return res.status(410).json({ error: "expired" });
-    if (status === "submitted" || status === "approved" || status === "declined") {
-      return res.status(409).json({ error: "already_submitted", status });
-    }
-
-    const body = req.body && typeof req.body === "object" ? req.body : {};
-    const answers = body.answers && typeof body.answers === "object" ? body.answers : null;
-    if (!answers) {
-      return res.status(400).json({ error: "invalid_body", detail: "expected { answers }" });
-    }
-
-    // Validate required fields (spec Section 1 + agreements)
-    const required = ["full_name", "city_county", "license_status", "agreement_team_ethic", "agreement_verify"];
-    const missing = required.filter(k => {
-      const v = (answers as any)[k];
-      if (k.startsWith("agreement_")) return v !== true && v !== "true" && v !== 1;
-      return v === undefined || v === null || String(v).trim() === "";
-    });
-    if (missing.length) {
-      return res.status(400).json({ error: "missing_fields", missing });
-    }
-
-    // Compute recommendation
-    const rec = computeRecommendation(answers);
-
-    // Persist
-    const nowIso = new Date().toISOString();
-    const candidateName = `${row.first_name} ${row.last_name}`.trim();
-    rawDb.prepare(
-      `UPDATE candidates
-         SET status = 'submitted',
-             questionnaire_json = ?,
-             questionnaire_submitted_at = ?,
-             questionnaire_draft_json = NULL,
-             recommendation = ?,
-             recommendation_score = ?,
-             recommendation_reason = ?,
-             last_activity_at = ?
-       WHERE id = ?`
-    ).run(
-      JSON.stringify(answers),
-      nowIso,
-      rec.category,
-      rec.score,
-      rec.reason,
-      nowIso,
-      row.id
-    );
-
-    // Non-blocking side effects
-    const humansBody = formatQuestionnaireForHumans(answers);
-
-    // 1. Push to FUB (note + tag)
-    if (row.fub_person_id) {
-      try {
-        await fubPostQuestionnaireNote({
-          fubPersonId: row.fub_person_id,
-          candidateName,
-          recommendation: rec.category,
-          score: rec.score,
-          reason: rec.reason,
-          questionnaireBody: humansBody,
-        });
-      } catch (err: any) {
-        console.warn("[candidates/submit] FUB push failed (non-blocking):", err?.message || err);
-      }
-    } else {
-      console.warn(`[candidates/submit] Candidate ${row.id} has no fub_person_id — skipping FUB push`);
-    }
-
-    // 2. Auto-reply to candidate
-    if (resend && row.email) {
-      try {
-        const firstName = row.first_name || "there";
-        const bodyText = [
-          `Hey ${firstName},`,
-          ``,
-          `We got your application — thanks for taking the time to walk us through it.`,
-          ``,
-          `Alex will personally review your answers and be back in touch within 2 business days. If anything comes up in the meantime, just reply to this email or text either of us directly.`,
-          ``,
-          `Talk soon,`,
-          `— Alex Watson`,
-        ].join("\n");
-        const html = renderBrandedEmail({
-          bodyText,
-          agentName: "Alex Watson",
-          agentTitle: "Broker · Brothers Group Real Estate Team · Momentum Realty",
-          agentEmail: "alex@watsonbrothersgroup.com",
-        });
-        await resend.emails.send({
-          from: "Brothers Group <noreply@watsonbrothersgroup.com>",
-          to: [row.email],
-          replyTo: "alex@watsonbrothersgroup.com",
-          subject: "We got your application — Brothers Group Real Estate",
-          html,
-          text: bodyText,
-        });
-        console.log(`[candidates/submit] Auto-reply sent to ${row.email}`);
-      } catch (err: any) {
-        console.warn("[candidates/submit] Auto-reply email failed (non-blocking):", err?.message || err);
-      }
-    }
-
-    // 3. Admin review email to alex@ + nate@
-    if (resend) {
-      try {
-        const cityLabel = String((answers as any).city_county || "").trim() || "unknown";
-        const badgeMap: Record<string, string> = {
-          STRONG_FIT: "[STRONG FIT]",
-          WORTH_A_CALL: "[WORTH A CALL]",
-          SOFT_PASS: "[SOFT PASS]",
-          HARD_PASS: "[HARD PASS]",
-        };
-        const subject = `${badgeMap[rec.category] || "[Candidate]"} ${candidateName} — ${cityLabel}`;
-        const reviewUrl = `${(process.env.APP_URL || "https://depot.watsonbrothersgroup.com").replace(/\/$/, "")}/#/admin`;
-        const bodyText = [
-          `New candidate submission — ${candidateName}.`,
-          ``,
-          `Recommendation: ${rec.category} (${rec.score}/100)`,
-          `Reason: ${rec.reason}`,
-          ``,
-          `Contact:`,
-          `• Phone: ${row.phone || "—"}`,
-          `• Email: ${row.email || "—"}`,
-          `• Entry path: ${row.entry_path} (${row.temperature})`,
-          ``,
-          `── Full questionnaire ──`,
-          humansBody,
-          ``,
-          `Review in Admin Dashboard → ${reviewUrl}`,
-          ``,
-          `— Lead Depot`,
-        ].join("\n");
-        const html = renderBrandedEmail({
-          bodyText,
-          agentName: "Lead Depot",
-          agentTitle: "Onboarding notifications",
-          agentEmail: "noreply@watsonbrothersgroup.com",
-        });
-        await resend.emails.send({
-          from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-          to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
-          replyTo: row.email || "alex@watsonbrothersgroup.com",
-          subject,
-          html,
-          text: bodyText,
-        });
-        console.log(`[candidates/submit] Admin review email sent for candidate ${row.id}`);
-      } catch (err: any) {
-        console.warn("[candidates/submit] Admin review email failed (non-blocking):", err?.message || err);
-      }
-    }
-
-    // 4. Broadcast so admin dashboard live-updates the Candidates tab
-    try {
-      broadcast({ type: "candidate_submitted", candidateId: row.id, recommendation: rec.category, score: rec.score });
-    } catch {}
-
-    res.json({
-      ok: true,
-      candidateId: row.id,
-      recommendation: rec.category,
-      score: rec.score,
-      reason: rec.reason,
-      submittedAt: nowIso,
-    });
-  });
-
-  // DELETE /api/candidates/:id  (admin — hard delete before questionnaire) ──
-  app.delete("/api/candidates/:id", (req: any, res) => {
-    if (!requireAdmin(req, res)) return;
-    const id = Number(req.params.id);
-    const row = rawDb.prepare(`SELECT id, status FROM candidates WHERE id = ?`).get(id) as any;
-    if (!row) return res.status(404).json({ error: "not_found" });
-    // Guard: don't delete candidates who already submitted the questionnaire — they should be declined instead
-    if (row.status === "submitted" || row.status === "approved") {
-      return res.status(409).json({ error: "cannot_delete", detail: "Use decline instead — candidate already submitted questionnaire" });
-    }
-    rawDb.prepare(`DELETE FROM candidates WHERE id = ?`).run(id);
-    res.json({ ok: true, deleted: id });
-  });
-
-
+  // v18.0 — Onboarding candidate helpers + endpoints removed with recruiting system.
   return httpServer;
 }
 
@@ -9861,7 +8696,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v17.7</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v18.0</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -10694,241 +9529,6 @@ function scheduleRedistribution() {
 // Agents pull from the shared pool via /api/leads/my-next. No round-robin push.
 // (Startup redistribution + daily 8 AM redistribution both removed.)
 console.log("[redistribution] Auto-redistribution DISABLED (v14.7 pull mode).");
-
-// ─── WEEKLY RECRUITING FUNNEL EMAIL ──────────────────────────────────────────
-// Sends every Sunday at 7am EDT (11:00 UTC)
-// Summarises: new DBPR leads added, contacted, hot prospects, appointments, joined
-async function sendWeeklyRecruitingFunnel() {
-  if (!resend) return;
-
-  const now = new Date();
-  // Week window: last 7 days
-  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-  const stats = rawDb.prepare(`
-    SELECT
-      COUNT(*) FILTER (WHERE source = 'dbpr_scrape' AND submitted_at >= ?) as new_dbpr,
-      COUNT(*) FILTER (WHERE status IN ('contacted','hot_prospect','appointment','callback_requested') AND submitted_at >= ?) as engaged,
-      COUNT(*) FILTER (WHERE status = 'hot_prospect') as hot,
-      COUNT(*) FILTER (WHERE status = 'appointment') as appt,
-      COUNT(*) FILTER (WHERE status = 'joined') as joined,
-      COUNT(*) FILTER (WHERE status NOT IN ('not_interested','do_not_contact','joined')) as pipeline,
-      COUNT(*) as total
-    FROM agent_leads
-  `).get(weekAgo, weekAgo) as any;
-
-  // Top callers this week
-  const topCallers = rawDb.prepare(`
-    SELECT a.name, COUNT(*) as calls
-    FROM agent_lead_activity ala
-    JOIN agents a ON a.id = ala.caller_id
-    WHERE ala.created_at >= ?
-    GROUP BY ala.caller_id
-    ORDER BY calls DESC
-    LIMIT 5
-  `).all(weekAgo) as any[];
-
-  // Recent joins
-  const recentJoins = rawDb.prepare(`
-    SELECT first_name, last_name, matched_territory
-    FROM agent_leads WHERE status = 'joined'
-    ORDER BY rowid DESC LIMIT 5
-  `).all() as any[];
-
-  const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/New_York" });
-
-  const topCallersHtml = topCallers.length > 0
-    ? topCallers.map((c: any) => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05)"><span style="color:#e5e5e5;font-size:13px">${c.name}</span><span style="color:#4fb8a3;font-size:13px;font-weight:700">${c.calls} calls</span></div>`).join("")
-    : `<div style="color:rgba(255,255,255,0.35);font-size:13px">No recruiting calls this week</div>`;
-
-  const recentJoinsHtml = recentJoins.length > 0
-    ? recentJoins.map((j: any) => `<div style="padding:4px 0;font-size:13px;color:#22c55e">✓ ${j.first_name} ${j.last_name}${j.matched_territory ? ` · ${j.matched_territory}` : ""}</div>`).join("")
-    : `<div style="color:rgba(255,255,255,0.35);font-size:13px">No joins yet — keep pushing</div>`;
-
-  await resend.emails.send({
-    from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-    to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
-    subject: `📊 Weekly Recruiting Funnel — ${dateLabel}`,
-    html: `
-      <div style="font-family:'Georgia',serif;background:#09090b;color:#e5e5e5;padding:0;max-width:600px;margin:0 auto;border-radius:12px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0f1f1d,#071210);padding:32px 28px;border-bottom:1px solid rgba(79,184,163,0.2)">
-          <p style="color:#4fb8a3;letter-spacing:.18em;font-size:11px;text-transform:uppercase;margin:0 0 8px">Brothers Group · Lead Depot</p>
-          <h1 style="color:#fff;font-weight:300;font-size:26px;margin:0">Weekly Recruiting Funnel</h1>
-          <p style="color:rgba(255,255,255,0.4);font-size:13px;margin:6px 0 0">${dateLabel}</p>
-        </div>
-
-        <div style="padding:24px 28px">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px">
-            ${[
-              { label: "New DBPR Leads", val: stats?.new_dbpr ?? 0, color: "#4fb8a3" },
-              { label: "Hot Prospects", val: stats?.hot ?? 0, color: "#f97316" },
-              { label: "Appointments", val: stats?.appt ?? 0, color: "#c8aa5a" },
-            ].map(s => `
-              <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:14px 12px;text-align:center">
-                <div style="font-size:28px;font-weight:700;color:${s.color};font-family:sans-serif">${s.val}</div>
-                <div style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">${s.label}</div>
-              </div>`).join("")}
-          </div>
-
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px">
-            <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:10px;padding:14px 12px;text-align:center">
-              <div style="font-size:28px;font-weight:700;color:#22c55e;font-family:sans-serif">${stats?.joined ?? 0}</div>
-              <div style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">Joined Team</div>
-            </div>
-            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:14px 12px;text-align:center">
-              <div style="font-size:28px;font-weight:700;color:#e5e5e5;font-family:sans-serif">${stats?.pipeline ?? 0}</div>
-              <div style="font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">Total Pipeline</div>
-            </div>
-          </div>
-
-          <div style="margin-bottom:20px">
-            <p style="font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#4fb8a3;font-weight:700;margin:0 0 10px">Top Callers This Week</p>
-            ${topCallersHtml}
-          </div>
-
-          <div style="margin-bottom:24px">
-            <p style="font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#22c55e;font-weight:700;margin:0 0 10px">Recent Joins</p>
-            ${recentJoinsHtml}
-          </div>
-
-          <div style="text-align:center">
-            <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#4fb8a3,#2d7f72);color:#fff;font-weight:700;font-size:13px;letter-spacing:.1em;text-transform:uppercase;border-radius:8px;text-decoration:none">Open Lead Depot</a>
-          </div>
-        </div>
-
-        <div style="padding:16px 28px;border-top:1px solid rgba(255,255,255,0.05);text-align:center">
-          <p style="color:rgba(255,255,255,0.25);font-size:11px;margin:0">Lead Depot · Brothers Group at Momentum Realty · Fernandina Beach, FL</p>
-        </div>
-      </div>
-    `,
-  });
-  console.log("[recruiting-funnel] Weekly email sent");
-}
-
-function scheduleWeeklyRecruitingFunnel() {
-  function msUntilSunday7amEDT(): number {
-    // Sunday 7am EDT = Sunday 11:00 UTC
-    const now = new Date();
-    const next = new Date(now);
-    // Find next Sunday
-    const daysUntilSunday = (7 - now.getUTCDay()) % 7 || 7;
-    next.setUTCDate(now.getUTCDate() + daysUntilSunday);
-    next.setUTCHours(11, 0, 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 7);
-    return next.getTime() - now.getTime();
-  }
-
-  function scheduleNext() {
-    const delay = msUntilSunday7amEDT();
-    console.log(`[recruiting-funnel] Next weekly email in ${Math.round(delay / 60000)} min (Sunday 7am EDT)`);
-    setTimeout(() => {
-      sendWeeklyRecruitingFunnel().catch(err => console.error("[recruiting-funnel] Error:", err));
-      scheduleNext();
-    }, delay);
-  }
-  scheduleNext();
-}
-// v15.11.10 — Weekly Recruiting Funnel email disabled.
-// scheduleWeeklyRecruitingFunnel();
-
-// ─── MISSED APPOINTMENT FOLLOW-UP CHECK ──────────────────────────────────────
-// Runs daily at 9am EDT (13:00 UTC). Finds recruiting leads in 'appointment' status
-// where the last activity is > 48h ago with no subsequent outcome logged.
-// Sends an alert email to Alex when gaps are found.
-async function checkMissedAppointments() {
-  if (!resend) return;
-
-  const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-
-  // Find appointment-status leads where latest activity was > 48h ago
-  const stale: any[] = rawDb.prepare(`
-    SELECT al.id, al.first_name, al.last_name, al.phone, al.email,
-           al.matched_territory, al.status,
-           MAX(ala.created_at) as last_activity_at,
-           a.name as last_caller
-    FROM agent_leads al
-    LEFT JOIN agent_lead_activity ala ON ala.agent_lead_id = al.id
-    LEFT JOIN agents a ON a.id = ala.caller_id
-    WHERE al.status = 'appointment'
-    GROUP BY al.id
-    HAVING last_activity_at < ? OR last_activity_at IS NULL
-    ORDER BY last_activity_at ASC
-    LIMIT 20
-  `).all(fortyEightHoursAgo) as any[];
-
-  if (stale.length === 0) {
-    console.log("[missed-appt] No stale appointment leads found.");
-    return;
-  }
-
-  const rows = stale.map((s: any) => {
-    const lastAgo = s.last_activity_at
-      ? `${Math.round((Date.now() - new Date(s.last_activity_at).getTime()) / (1000 * 60 * 60))}h ago`
-      : "Never";
-    return `
-      <tr style="border-bottom:1px solid rgba(255,255,255,0.05)">
-        <td style="padding:10px 14px;font-size:13px;color:#f0f0f0;font-weight:600">${s.first_name} ${s.last_name}</td>
-        <td style="padding:10px 14px;font-size:12px;color:rgba(255,255,255,0.5)">${s.phone || "—"}</td>
-        <td style="padding:10px 14px;font-size:12px;color:rgba(255,255,255,0.5)">${s.matched_territory || "—"}</td>
-        <td style="padding:10px 14px;font-size:12px;color:#ef4444">${lastAgo}</td>
-        <td style="padding:10px 14px;font-size:12px;color:rgba(255,255,255,0.4)">${s.last_caller || "—"}</td>
-      </tr>`;
-  }).join("");
-
-  await resend.emails.send({
-    from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-    to: "alex@watsonbrothersgroup.com",
-    subject: `⚠️ ${stale.length} Recruiting Appointment(s) Need Follow-Up`,
-    html: `
-      <div style="font-family:'Georgia',serif;background:#09090b;color:#e5e5e5;padding:32px 24px;max-width:600px;margin:0 auto;border-radius:12px;">
-        <h2 style="color:#ef4444;font-weight:400;font-size:22px;margin:0 0 6px">Missed Appointment Follow-Up</h2>
-        <p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0 0 24px">
-          ${stale.length} recruiting lead(s) are in <strong style="color:#c8aa5a">Appointment</strong> status
-          with no activity logged in the last 48 hours. These may be missed or need a post-appointment outcome logged.
-        </p>
-        <table style="width:100%;border-collapse:collapse;background:rgba(255,255,255,0.02);border-radius:8px;overflow:hidden;margin-bottom:24px">
-          <thead>
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
-              <th style="padding:8px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.1em">Agent</th>
-              <th style="padding:8px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.1em">Phone</th>
-              <th style="padding:8px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.1em">Territory</th>
-              <th style="padding:8px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.1em">Last Activity</th>
-              <th style="padding:8px 14px;text-align:left;font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.1em">Last Caller</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-        <div style="text-align:center">
-          <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:13px;letter-spacing:.1em;text-transform:uppercase;border-radius:8px;text-decoration:none">Open Lead Depot</a>
-        </div>
-      </div>
-    `,
-  });
-  console.log(`[missed-appt] Alert sent for ${stale.length} stale appointment lead(s)`);
-}
-
-function scheduleMissedAppointmentCheck() {
-  // Daily at 9am EDT = 13:00 UTC
-  function msUntil9amEDT(): number {
-    const now = new Date();
-    const next = new Date(now);
-    next.setUTCHours(13, 0, 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    return next.getTime() - now.getTime();
-  }
-
-  function scheduleNext() {
-    const delay = msUntil9amEDT();
-    console.log(`[missed-appt] Next check in ${Math.round(delay / 60000)} min (9am EDT)`);
-    setTimeout(() => {
-      checkMissedAppointments().catch(err => console.error("[missed-appt] Error:", err));
-      scheduleNext();
-    }, delay);
-  }
-  scheduleNext();
-}
-// v15.11.10 — Stale Recruiting Appointment (missed-appt) email disabled.
-// scheduleMissedAppointmentCheck();
 
 // ─── v13.8 — STALE LOCK RELEASER ─────────────────────────────────────────
 // Every 5 minutes, delete lead_locks rows whose expires_at is in the past.

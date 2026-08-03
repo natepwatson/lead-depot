@@ -404,7 +404,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v18.4 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v18.5 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -463,7 +463,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v18.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v18.5 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -748,7 +748,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v18.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v18.5 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1985,7 +1985,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v18.4</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v18.5</p>
             </div>
           `,
         });
@@ -2145,7 +2145,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v18.4 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v18.5 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -7132,7 +7132,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v18.4 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v18.5 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -7538,6 +7538,21 @@ Brothers Group Real Estate Team at Momentum Realty
        WHERE id = ?
     `).run(pointsAwarded, now, admin?.id || null, String(req.body?.notes || "").slice(0, 500), activityId, id);
 
+    // v18.4 — If this was a challenge_claim, flip the challenge_completions row
+    // from pending → approved so the agent's Challenges tab updates.
+    if (row.kind === "challenge_claim" && payload.challengeKey) {
+      try {
+        rawDb.prepare(`
+          UPDATE challenge_completions
+             SET status = 'approved', points_awarded = ?, approved_at = ?, approved_by = ?
+           WHERE agent_id = ? AND challenge_key = ? AND status = 'pending'
+        `).run(pointsAwarded, now, admin?.id || null, row.agent_id, payload.challengeKey);
+      } catch (e) {
+        // non-fatal — the approval row already won and points already credited.
+        console.warn("[v18.4] challenge_completions sync failed for claim id", id, e);
+      }
+    }
+
     broadcast({
       type: "approval_event",
       event: { type: "approval_decided", requestId: id, kind: row.kind, agentId: row.agent_id, agentName: row.agent_name, status: "approved", pointsAwarded, ts: now },
@@ -7555,11 +7570,30 @@ Brothers Group Real Estate Team at Momentum Realty
     if (!row) return res.status(404).json({ error: "Not found" });
     if (row.status !== "pending") return res.status(400).json({ error: `Already ${row.status}` });
     const now = new Date().toISOString();
+    const notes = String(req.body?.notes || "").slice(0, 500);
     rawDb.prepare(`
       UPDATE approval_requests
          SET status = 'rejected', decided_at = ?, decided_by = ?, decision_notes = ?
        WHERE id = ?
-    `).run(now, admin?.id || null, String(req.body?.notes || "").slice(0, 500), id);
+    `).run(now, admin?.id || null, notes, id);
+
+    // v18.4 — If this was a challenge_claim, flip the challenge_completions row
+    // to rejected so the agent's Challenges tab shows the rejection + reason.
+    if (row.kind === "challenge_claim") {
+      let payload: any = {};
+      try { payload = JSON.parse(row.payload_json || "{}"); } catch {}
+      if (payload.challengeKey) {
+        try {
+          rawDb.prepare(`
+            UPDATE challenge_completions
+               SET status = 'rejected', rejected_reason = ?, approved_by = ?
+             WHERE agent_id = ? AND challenge_key = ? AND status = 'pending'
+          `).run(notes || null, admin?.id || null, row.agent_id, payload.challengeKey);
+        } catch (e) {
+          console.warn("[v18.4] challenge_completions reject sync failed for claim id", id, e);
+        }
+      }
+    }
 
     broadcast({
       type: "approval_event",
@@ -8116,7 +8150,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v18.4",
+      version: "v18.5",
       services: results,
     });
   });
@@ -8744,7 +8778,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v18.4</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v18.5</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

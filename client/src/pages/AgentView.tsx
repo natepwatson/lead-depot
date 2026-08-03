@@ -25,7 +25,7 @@ import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
 import { computeCallHeat } from "@/lib/callHeat";
 import type { Lead as LeadRow } from "@shared/schema";
-import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v16.5
+import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v16.6
 
 // v14.81 — myAttemptsToday is a synthetic field the server attaches on top of
 // the real lead row (see server/routes.ts countMyAttemptsToday call sites) —
@@ -1446,7 +1446,7 @@ function LeadCard({ lead }: { lead: Lead }) {
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string; followUpTiming?: string }) => {
       // v14.20 — include alsoBuying + Buyer LPMAMA inside lpmamab payload so
       // server /outcome handler + pushOutcomeToFub both get the buyer context.
-      // v16.5 — Route through offline tap queue. Every tap gets a UUID + is
+      // v16.6 — Route through offline tap queue. Every tap gets a UUID + is
       // persisted before send. If offline or the server hiccups, it retries in
       // the background until the server returns a receipt. Server-side dedup by
       // clientTapId prevents double-counting on retry.
@@ -3211,7 +3211,7 @@ export function TeamPotCard() {
   // Ladder rungs. Tier 1 is the pre-committed $250 floor at 0 appts — the
   // pot opens the month already funded. Real unlocks are at 10/20/30 team
   // appts. Champion's Bonus arms at the $1000 tier.
-  // v16.5 — rescale: floor $250 (0 appts), 10 → $500, 20 → $750, 30 → $1000.
+  // v16.6 — rescale: floor $250 (0 appts), 10 → $500, 20 → $750, 30 → $1000.
   const rungs: Array<{ tier: number; appts: number; pot: number; label: string; mystery?: boolean }> = [
     { tier: 1, appts: 0,  pot: 250,  label: "$250" },
     { tier: 2, appts: 10, pot: 500,  label: "$500" },
@@ -3500,7 +3500,7 @@ export function TeamPotCard() {
           ))}
         </div>
 
-        {/* v16.5 — Champion's Bonus panel. Locked until team reaches 30 appts,
+        {/* v16.6 — Champion's Bonus panel. Locked until team reaches 30 appts,
             then flips to show the bonus the current champion would earn. */}
         {pot.championBonus && (() => {
           const cb = pot.championBonus;
@@ -3737,7 +3737,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
 
   const myStats = stats?.find(s => s.agent.id === user?.id);
 
-  // v16.5 — Leaderboard window tab. Server now returns per-agent .windows.today
+  // v16.6 — Leaderboard window tab. Server now returns per-agent .windows.today
   // / .weekly / .monthly / .allTime blocks; each block has {points, appts, dials,
   // kit, refs}. Falls back to legacy cycle stats if the server hasn't shipped
   // yet (older cached client).
@@ -3757,7 +3757,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
   // v15.11.24 — UNIFIED SORT: Points → Dials → Appts. Matches admin leaderboard exactly.
   // Points are what determine #1 (they already weight appts heaviest and layer in tier
   // multipliers); dials break ties on raw effort; appts as final tiebreaker.
-  // v16.5 — sort by the currently selected window.
+  // v16.6 — sort by the currently selected window.
   const ranked  = stats ? [...stats].sort((a, b) => {
     const wa = pickWin(a), wb = pickWin(b);
     return ((wb.points || 0) - (wa.points || 0)) ||
@@ -3884,7 +3884,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
           Team Leaderboard
         </p>
 
-        {/* v16.5 — window tabs (Today / Week / Month / All). Matches admin leaderboard tabs. */}
+        {/* v16.6 — window tabs (Today / Week / Month / All). Matches admin leaderboard tabs. */}
         <div style={{ display: "flex", gap: 0, marginBottom: 12, borderRadius: 8, overflow: "hidden", border: "1px solid rgba(200,170,90,0.2)", width: "fit-content" }}>
           {(["today", "weekly", "monthly", "allTime"] as const).map(t => (
             <button
@@ -4004,7 +4004,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                        represent what has been achieved. From left to right: points, appts, dials, email."
                        PTS is now the hero (largest, gold pill), then APPTS, DIALS, EMAILS. Same order
                        matches the admin leaderboard for consistency. */}
-                  {/* v16.5 — metrics come from the selected window (Today / Week /
+                  {/* v16.6 — metrics come from the selected window (Today / Week /
                       Month / All), plus a new Refs column for network referrals. */}
                   {(() => {
                     const w = pickWin(s);

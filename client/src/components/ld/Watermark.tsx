@@ -1,4 +1,4 @@
-// v16.6 — Identity watermark overlay.
+// v16.7 — Identity watermark overlay.
 //
 // Renders a faint diagonal tiled watermark across every authenticated screen
 // showing the logged-in agent's name + email + current ET timestamp. This does
@@ -70,14 +70,14 @@ export default function Watermark() {
     backgroundImage: `url("data:image/svg+xml;utf8,${svg}")`,
     backgroundRepeat: "repeat",
     backgroundSize: "600px 200px",
-    // v16.6 — media query at runtime: darker on dark backgrounds is impossible
+    // v16.7 — media query at runtime: darker on dark backgrounds is impossible
     // to detect from React without a theme context, so we use mix-blend-mode
     // which auto-inverts for us. difference works on both light and dark UIs.
     mixBlendMode: "difference",
     opacity: 0.9,  // combined with the low SVG fill alpha = ~5% effective opacity
   };
 
-  return <div aria-hidden="true" data-watermark="lead-depot-v16.6" style={style} />;
+  return <div aria-hidden="true" data-watermark="lead-depot-v16.7" style={style} />;
 }
 
 function escapeXml(s: string): string {

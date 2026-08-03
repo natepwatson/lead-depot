@@ -152,7 +152,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        {/* v16.6 — Identity watermark on every authenticated screen. */}
+        {/* v16.7 — Identity watermark on every authenticated screen. */}
         <Watermark />
         <Router hook={useHashLocation}>
           <Switch>

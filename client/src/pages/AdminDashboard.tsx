@@ -939,7 +939,7 @@ function HealthWidget() {
   );
 }
 
-// v16.6 — Admin-only Team Pot stretch-tier toggle. When flipped ON, the
+// v16.7 — Admin-only Team Pot stretch-tier toggle. When flipped ON, the
 // hidden $1000/80-appt rung appears on the TeamPotCard for the whole team.
 // When OFF (default), agents see $750 as the final rung. Auto-resets to OFF
 // on the 1st of every month via the monthly leaderboard reset scheduler.
@@ -1108,7 +1108,7 @@ export default function AdminDashboard({
     refetchInterval: 15000,
   });
 
-  // v16.6 — added "monthly" tab. Server now returns a .monthly block on each row.
+  // v16.7 — added "monthly" tab. Server now returns a .monthly block on each row.
   const [lbTab, setLbTab] = useState<"today" | "weekly" | "monthly">("today");
 
   // ── Confirmation dialog state ──────────────────────────────────────────────
@@ -1815,7 +1815,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v16.6
+              v16.7
             </p>
           </div>
         </div>
@@ -1907,6 +1907,7 @@ export default function AdminDashboard({
               { value: "leads",       icon: List,        label: "Lead Pool" },
               { value: "map",         icon: MapIcon,     label: "Map View" },
               { value: "reports",     icon: BarChart2,   label: "Reports" },
+              { value: "kpi",         icon: TrendingUp,  label: "KPI" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "recruiting",  icon: Users,       label: "Recruiting" },
               { value: "candidates",  icon: UserPlus,    label: "Candidates" },
@@ -2146,10 +2147,10 @@ export default function AdminDashboard({
 
           {/* ── LEADERBOARD ─────────────────────────────────────────────────── */}
           <TabsContent value="leaderboard" className="mt-5 space-y-5">
-            {/* v16.6 — admins compete for the monthly prize too. Same TeamPotCard
+            {/* v16.7 — admins compete for the monthly prize too. Same TeamPotCard
                 the agents see at the top of Dial, rendered here above the KPIs. */}
             <TeamPotCard />
-            {/* v16.6 — Admin-only stretch tier toggle. Default hidden. Flip once
+            {/* v16.7 — Admin-only stretch tier toggle. Default hidden. Flip once
                 you're comfortable showing the team that $1000 is on the table if
                 they cross 80 team appointments. */}
             <TeamPotStretchAdmin />
@@ -2178,7 +2179,7 @@ export default function AdminDashboard({
                 </Button>
               </div>
 
-              {/* Today / This Week / This Month switcher — v16.6 */}
+              {/* Today / This Week / This Month switcher — v16.7 */}
               <div style={{ display: "flex", gap: 0, marginBottom: 16, borderRadius: 10, overflow: "hidden", border: "1px solid rgba(200,170,90,0.2)", width: "fit-content" }}>
                 {(["today", "weekly", "monthly"] as const).map(t => (
                   <button
@@ -2271,7 +2272,7 @@ export default function AdminDashboard({
                 // v15.11.26 — UNIFIED SORT across Today + Weekly + Agent leaderboard:
                 // Points → Dials → Appts. Points are what determine #1 (they already
                 // weight appts heaviest); dials break ties on effort; appts as final tiebreaker.
-                // v16.6 — respects the new monthly tab. Falls back to weekly if
+                // v16.7 — respects the new monthly tab. Falls back to weekly if
                 // the server hasn't shipped .monthly yet (older cached response).
                 const pickStat = (r: any) => lbTab === "today"
                   ? r.today
@@ -2990,6 +2991,13 @@ export default function AdminDashboard({
           {/* ── UPLOAD ──────────────────────────────────────────────────────── */}
           <TabsContent value="reports" className="mt-5">
             <OutcomeReport />
+          </TabsContent>
+
+          {/* v16.7 — KPI panel: "What Turns the Gears" — dials-per-appt, KIT/appt,
+              referrals/appt, OH logs/appt, OH leads/appt, knocks/appt per agent
+              + team roll-up. Scope: cycle | month | all. */}
+          <TabsContent value="kpi" className="mt-5">
+            <KpiRatiosPanel />
           </TabsContent>
 
           <TabsContent value="upload" className="mt-5">
@@ -4398,6 +4406,139 @@ export default function AdminDashboard({
           50%     { box-shadow: 0 4px 20px rgba(200,170,90,0.55), 0 0 0 3px rgba(6,6,6,0.98), 0 0 0 6px rgba(200,170,90,0.55), 0 0 24px 10px rgba(200,170,90,0.22); }
         }
       `}</style>
+    </div>
+  );
+}
+
+// ─── v16.7 KPI Ratios panel — "What Turns the Gears" ─────────────────────────
+// Answers Alex's core question: for every appointment, how many dials / KITs /
+// referrals / open-house logs / open-house leads / door-knocks did it take?
+// Per agent + team roll-up. Toggle scope: current cycle (default), last 30
+// days, all-time.
+function KpiRatiosPanel() {
+  const [scope, setScope] = React.useState<"cycle" | "month" | "all">("cycle");
+  const { data, isLoading, refetch, isFetching } = useQuery<any>({
+    queryKey: ["/api/admin/kpi-ratios", scope],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/admin/kpi-ratios?scope=${scope}`);
+      return r.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  const rows = data?.agents || [];
+  const team = data?.team || null;
+
+  const scopeLabel = scope === "cycle" ? "This Cycle" : scope === "month" ? "Last 30 Days" : "All Time";
+
+  const fmtRatio = (r: number | null | undefined) => {
+    if (r === null || r === undefined || !isFinite(r)) return "—";
+    if (r === 0) return "0";
+    return r >= 100 ? Math.round(r).toString() : r.toFixed(1);
+  };
+
+  const cell: React.CSSProperties = { padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: 13, color: "#fff" };
+  const headerCell: React.CSSProperties = {
+    padding: "10px 12px", borderBottom: "1px solid rgba(200,170,90,0.2)",
+    fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase",
+    color: "rgba(200,170,90,0.75)", fontWeight: 700, textAlign: "center",
+  };
+
+  return (
+    <div>
+      {/* Header + scope toggle */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 22, color: "#fff", fontWeight: 700, fontFamily: "'Cormorant Garamond',serif" }}>What Turns the Gears</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
+            How much activity produces one appointment. Lower ratios = more efficient.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 4 }}>
+          {(["cycle", "month", "all"] as const).map(s => (
+            <button key={s} onClick={() => setScope(s)} style={{
+              padding: "6px 12px", background: scope === s ? "rgba(200,170,90,0.18)" : "transparent",
+              border: scope === s ? "1px solid rgba(200,170,90,0.4)" : "1px solid transparent",
+              borderRadius: 6, color: scope === s ? "#c8aa5a" : "rgba(255,255,255,0.6)",
+              fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase",
+              cursor: "pointer",
+            }}>{s === "cycle" ? "Cycle" : s === "month" ? "30d" : "All"}</button>
+          ))}
+          <button onClick={() => refetch()} disabled={isFetching} style={{
+            padding: "6px 10px", background: "transparent", border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 6, color: "rgba(255,255,255,0.5)", cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 4, fontSize: 11,
+          }}><RefreshCw size={12} className={isFetching ? "animate-spin" : ""} /></button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.4)" }}>Loading KPIs…</div>
+      ) : (
+        <>
+          {/* Team roll-up cards */}
+          {team && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10, marginBottom: 20 }}>
+              {[
+                { label: "Dials / Appt", val: team.dialsPerAppt, hint: `${team.dials} dials → ${team.appts} appts` },
+                { label: "KITs / Appt", val: team.kitPerAppt, hint: `${team.kits} KITs` },
+                { label: "Referrals / Appt", val: team.referralsPerAppt, hint: `${team.referrals} referrals` },
+                { label: "OH Logs / Appt", val: team.ohLogsPerAppt, hint: `${team.ohLogs} open houses` },
+                { label: "OH Leads / Appt", val: team.ohLeadsPerAppt, hint: `${team.ohLeads} OH leads` },
+                { label: "Knocks / Appt", val: team.knocksPerAppt, hint: `${team.knocks} knocks` },
+              ].map(kpi => (
+                <div key={kpi.label} style={{
+                  padding: "14px 16px",
+                  background: "linear-gradient(135deg, rgba(200,170,90,0.06) 0%, rgba(200,170,90,0.02) 100%)",
+                  border: "1px solid rgba(200,170,90,0.18)", borderRadius: 10,
+                }}>
+                  <p style={{ margin: 0, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.75)", fontWeight: 700 }}>{kpi.label}</p>
+                  <p style={{ margin: "6px 0 3px", fontSize: 24, color: "#fff", fontWeight: 700, fontFamily: "'Cormorant Garamond',serif" }}>{fmtRatio(kpi.val)}</p>
+                  <p style={{ margin: 0, fontSize: 10, color: "rgba(255,255,255,0.35)" }}>{kpi.hint}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Per-agent table */}
+          <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...headerCell, textAlign: "left" }}>Agent</th>
+                  <th style={headerCell}>Appts</th>
+                  <th style={headerCell}>Dials / Appt</th>
+                  <th style={headerCell}>KITs / Appt</th>
+                  <th style={headerCell}>Refs / Appt</th>
+                  <th style={headerCell}>OH Log / Appt</th>
+                  <th style={headerCell}>OH Lead / Appt</th>
+                  <th style={headerCell}>Knocks / Appt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr><td colSpan={8} style={{ ...cell, textAlign: "center", color: "rgba(255,255,255,0.35)", padding: 32 }}>No data for {scopeLabel.toLowerCase()}.</td></tr>
+                ) : rows.map((r: any) => (
+                  <tr key={r.agentId}>
+                    <td style={{ ...cell, fontWeight: 600 }}>{r.name}</td>
+                    <td style={{ ...cell, textAlign: "center", color: r.appts > 0 ? "#c8aa5a" : "rgba(255,255,255,0.4)", fontWeight: 700 }}>{r.appts}</td>
+                    <td style={{ ...cell, textAlign: "center" }}>{fmtRatio(r.dialsPerAppt)}</td>
+                    <td style={{ ...cell, textAlign: "center" }}>{fmtRatio(r.kitPerAppt)}</td>
+                    <td style={{ ...cell, textAlign: "center" }}>{fmtRatio(r.referralsPerAppt)}</td>
+                    <td style={{ ...cell, textAlign: "center" }}>{fmtRatio(r.ohLogsPerAppt)}</td>
+                    <td style={{ ...cell, textAlign: "center" }}>{fmtRatio(r.ohLeadsPerAppt)}</td>
+                    <td style={{ ...cell, textAlign: "center" }}>{fmtRatio(r.knocksPerAppt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p style={{ marginTop: 12, fontSize: 11, color: "rgba(255,255,255,0.35)", lineHeight: 1.55 }}>
+            Ratios show inputs required to produce one appointment. "—" means no appointments in this window.
+          </p>
+        </>
+      )}
     </div>
   );
 }

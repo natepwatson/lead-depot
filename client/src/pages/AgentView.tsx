@@ -15,6 +15,7 @@ import {
   Trophy, Users, Send, UserPlus, Heart,
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
   Home, Voicemail, Layers, Calendar, FileText,
+  Camera, DoorOpen, Zap, X, ArrowLeft,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
@@ -25,7 +26,7 @@ import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
 import { computeCallHeat } from "@/lib/callHeat";
 import type { Lead as LeadRow } from "@shared/schema";
-import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v16.6
+import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v16.7
 
 // v14.81 — myAttemptsToday is a synthetic field the server attaches on top of
 // the real lead row (see server/routes.ts countMyAttemptsToday call sites) —
@@ -1446,7 +1447,7 @@ function LeadCard({ lead }: { lead: Lead }) {
     mutationFn: (data: { outcome: string; notes?: string; callbackDate?: string; apptEmail?: string; confirmedAddress?: string; apptDate?: string; apptTime?: string; stage?: string; intention?: string; dialedPhone?: string; followUpTiming?: string }) => {
       // v14.20 — include alsoBuying + Buyer LPMAMA inside lpmamab payload so
       // server /outcome handler + pushOutcomeToFub both get the buyer context.
-      // v16.6 — Route through offline tap queue. Every tap gets a UUID + is
+      // v16.7 — Route through offline tap queue. Every tap gets a UUID + is
       // persisted before send. If offline or the server hiccups, it retries in
       // the background until the server returns a receipt. Server-side dedup by
       // clientTapId prevents double-counting on retry.
@@ -3211,7 +3212,7 @@ export function TeamPotCard() {
   // Ladder rungs. Tier 1 is the pre-committed $250 floor at 0 appts — the
   // pot opens the month already funded. Real unlocks are at 10/20/30 team
   // appts. Champion's Bonus arms at the $1000 tier.
-  // v16.6 — rescale: floor $250 (0 appts), 10 → $500, 20 → $750, 30 → $1000.
+  // v16.7 — rescale: floor $250 (0 appts), 10 → $500, 20 → $750, 30 → $1000.
   const rungs: Array<{ tier: number; appts: number; pot: number; label: string; mystery?: boolean }> = [
     { tier: 1, appts: 0,  pot: 250,  label: "$250" },
     { tier: 2, appts: 10, pot: 500,  label: "$500" },
@@ -3500,7 +3501,7 @@ export function TeamPotCard() {
           ))}
         </div>
 
-        {/* v16.6 — Champion's Bonus panel. Locked until team reaches 30 appts,
+        {/* v16.7 — Champion's Bonus panel. Locked until team reaches 30 appts,
             then flips to show the bonus the current champion would earn. */}
         {pot.championBonus && (() => {
           const cb = pot.championBonus;
@@ -3737,7 +3738,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
 
   const myStats = stats?.find(s => s.agent.id === user?.id);
 
-  // v16.6 — Leaderboard window tab. Server now returns per-agent .windows.today
+  // v16.7 — Leaderboard window tab. Server now returns per-agent .windows.today
   // / .weekly / .monthly / .allTime blocks; each block has {points, appts, dials,
   // kit, refs}. Falls back to legacy cycle stats if the server hasn't shipped
   // yet (older cached client).
@@ -3757,7 +3758,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
   // v15.11.24 — UNIFIED SORT: Points → Dials → Appts. Matches admin leaderboard exactly.
   // Points are what determine #1 (they already weight appts heaviest and layer in tier
   // multipliers); dials break ties on raw effort; appts as final tiebreaker.
-  // v16.6 — sort by the currently selected window.
+  // v16.7 — sort by the currently selected window.
   const ranked  = stats ? [...stats].sort((a, b) => {
     const wa = pickWin(a), wb = pickWin(b);
     return ((wb.points || 0) - (wa.points || 0)) ||
@@ -3884,7 +3885,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
           Team Leaderboard
         </p>
 
-        {/* v16.6 — window tabs (Today / Week / Month / All). Matches admin leaderboard tabs. */}
+        {/* v16.7 — window tabs (Today / Week / Month / All). Matches admin leaderboard tabs. */}
         <div style={{ display: "flex", gap: 0, marginBottom: 12, borderRadius: 8, overflow: "hidden", border: "1px solid rgba(200,170,90,0.2)", width: "fit-content" }}>
           {(["today", "weekly", "monthly", "allTime"] as const).map(t => (
             <button
@@ -4004,7 +4005,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" | "recruiting" } 
                        represent what has been achieved. From left to right: points, appts, dials, email."
                        PTS is now the hero (largest, gold pill), then APPTS, DIALS, EMAILS. Same order
                        matches the admin leaderboard for consistency. */}
-                  {/* v16.6 — metrics come from the selected window (Today / Week /
+                  {/* v16.7 — metrics come from the selected window (Today / Week /
                       Month / All), plus a new Refs column for network referrals. */}
                   {(() => {
                     const w = pickWin(s);
@@ -4625,7 +4626,7 @@ type Tab = "leads" | "leaderboard" | "pipeline" | "refer" | "profile";
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "leaderboard", label: "Dashboard", icon: Trophy },
   { id: "pipeline",    label: "Pipeline", icon: Layers },
-  { id: "leads",       label: "Dial",      icon: Phone },
+  { id: "leads",       label: "Lead Gen",  icon: Phone },
   { id: "refer",       label: "Referrals", icon: UserPlus },
   { id: "profile",     label: "Profile",   icon: UserCircle2 },
 ];
@@ -4634,6 +4635,13 @@ const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
 export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }: { onBackToAdmin?: () => void; initialTab?: Tab; mode?: "seller" | "recruiting" } = {}) {
   const { user, logout } = useAuth();
   const [tab, setTab] = useState<Tab>(initialTab ?? "leaderboard");
+  // v16.7 — Lead Gen chooser state. Middle nav button opens the chooser sheet
+  // instead of navigating straight to Dial. Chooser has 4 tiles; Dial tile sets
+  // tab="leads" and closes chooser. Other tiles open sub-sheets or forms.
+  const [leadGenOpen, setLeadGenOpen] = useState(false);
+  const [leadGenView, setLeadGenView] = useState<
+    "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral"
+  >("root");
   const { connected: wsConnected } = useRealtimeUpdates();
   const qc = useQueryClient();
   const { toast } = useToast(); // v15.11.17 — used by CLOSED_STATUSES redirect notice
@@ -5398,7 +5406,12 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
           // v14.68 — Dial gets prominent, elevated treatment (raised, gold gradient).
           const isDial = n.id === "leads";
           return (
-            <button key={n.id} onClick={() => setTab(n.id)} style={{
+            <button key={n.id} onClick={() => {
+              // v16.7 — Middle button opens the Lead Gen chooser instead of
+              // going straight to Dial. Dial is one of the tiles inside.
+              if (isDial) { setLeadGenView("root"); setLeadGenOpen(true); return; }
+              setTab(n.id);
+            }} style={{
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
               gap: isDial ? 3 : 5,
               padding: isDial ? "6px 8px 14px" : "12px 8px 14px",
@@ -5416,8 +5429,10 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
               {isDial ? (
                 <div className={!active ? `fab-breathe${fabNudge ? " fab-nudge" : ""}` : undefined} style={{
                   position: "relative",
-                  width: active ? 38 : 52, height: active ? 38 : 52,
-                  marginTop: active ? -4 : -18,
+                  // v16.7 — Enlarged from 52→60 (44 active) per Alex's request —
+                  // now labeled "Lead Gen", opens chooser sheet.
+                  width: active ? 44 : 60, height: active ? 44 : 60,
+                  marginTop: active ? -6 : -22,
                   borderRadius: "50%",
                   // v14.80 — Tier 4: non-active FAB gets a slow gold gradient breathe
                   // (fab-breathe class in style block below); active/pulsing state is
@@ -5432,7 +5447,7 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
                   transition: "all 0.28s cubic-bezier(0.4, 0, 0.2, 1)",
                   animation: active ? "goModePulse 2.4s ease-in-out infinite" : undefined,
                 }}>
-                  <Icon size={active ? 18 : 26} style={{ color: active ? "#c8aa5a" : "#0a0700", transition: "all 0.28s" }} />
+                  <Icon size={active ? 22 : 30} style={{ color: active ? "#c8aa5a" : "#0a0700", transition: "all 0.28s" }} />
                   {showBadge && (
                     /* v14.68 — Red dot only (no count). Signals "there is activity" without dread. */
                     <span style={{
@@ -5460,6 +5475,20 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
           );
         })}
       </nav>
+
+      {/* v16.7 — Lead Gen chooser sheet. Bottom sheet with 4 tiles. Middle nav
+          button opens it. Sub-views for Open House (photo log or full lead
+          capture) and Network Referral (existing form). Door Knock stubbed. */}
+      {leadGenOpen && (
+        <LeadGenSheet
+          view={leadGenView}
+          setView={setLeadGenView}
+          close={() => { setLeadGenOpen(false); setLeadGenView("root"); }}
+          goToDial={() => { setLeadGenOpen(false); setLeadGenView("root"); setTab("leads"); }}
+          user={user}
+          toast={toast}
+        />
+      )}
 
       <style>{`
         /* v15.8 — hide the bottom nav while any full-screen modal is open. iOS
@@ -5514,6 +5543,419 @@ export default function AgentView({ onBackToAdmin, initialTab, mode = "seller" }
       `}</style>
 
       {/* Tutorial modal */}
+    </div>
+  );
+}
+
+// ─── v16.7 Lead Gen Sheet ────────────────────────────────────────────────────
+// Bottom-sheet chooser opened by the enlarged middle nav button. Holds 4 tiles
+// (Dial | Open House | Door Knocking | Network Referral). Open House opens a
+// sub-chooser with 2 options: Log OH (photo + address, 20 pts, no lead) and
+// Log OH Lead (full lead form, 20 pts, creates Depot lead assigned to
+// submitter; FUB push waits for KIT/Appt outcome per standing rule).
+function LeadGenSheet(props: {
+  view: "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral";
+  setView: (v: any) => void;
+  close: () => void;
+  goToDial: () => void;
+  user: any;
+  toast: any;
+}) {
+  const { view, setView, close, goToDial, user, toast } = props;
+
+  // Lock body scroll while sheet is open
+  useEffect(() => {
+    document.body.classList.add("ld-modal-open");
+    return () => { document.body.classList.remove("ld-modal-open"); };
+  }, []);
+
+  const backdrop: React.CSSProperties = {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)",
+    backdropFilter: "blur(8px)", zIndex: 60,
+    display: "flex", alignItems: "flex-end", justifyContent: "center",
+    animation: "leadgenFade 0.18s ease-out",
+  };
+  const sheet: React.CSSProperties = {
+    width: "100%", maxWidth: 560, maxHeight: "92vh", overflow: "auto",
+    background: "linear-gradient(180deg,#0d0c0a 0%,#080706 100%)",
+    borderTop: "1px solid rgba(200,170,90,0.28)",
+    borderRadius: "18px 18px 0 0",
+    padding: "18px 20px calc(28px + env(safe-area-inset-bottom, 0px))",
+    animation: "leadgenSlide 0.22s cubic-bezier(0.16,1,0.3,1)",
+  };
+  const header = (title: string, back?: () => void) => (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {back && (
+          <button onClick={back} style={{
+            background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.2)",
+            borderRadius: 8, padding: "6px 10px", cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 4,
+            color: "#c8aa5a", fontSize: 12, fontWeight: 600,
+          }}><ArrowLeft size={12} /> Back</button>
+        )}
+        <div>
+          <p style={{ margin: 0, fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700 }}>Lead Gen</p>
+          <h2 style={{ margin: "2px 0 0", fontSize: 20, color: "#fff", fontWeight: 700, fontFamily: "'Cormorant Garamond',serif", letterSpacing: "0.01em" }}>{title}</h2>
+        </div>
+      </div>
+      <button onClick={close} style={{
+        background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "50%", width: 32, height: 32, cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center", color: "#fff",
+      }}><X size={16} /></button>
+    </div>
+  );
+
+  const tile = (opts: {
+    icon: React.ReactNode; title: string; sub: string;
+    onClick: () => void; hero?: boolean; comingSoon?: boolean;
+  }) => (
+    <button onClick={opts.onClick} disabled={opts.comingSoon} style={{
+      width: "100%", display: "flex", alignItems: "center", gap: 14,
+      padding: "16px 16px",
+      background: opts.hero
+        ? "linear-gradient(135deg, rgba(200,170,90,0.14) 0%, rgba(200,170,90,0.05) 100%)"
+        : "rgba(255,255,255,0.02)",
+      border: opts.hero
+        ? "1px solid rgba(200,170,90,0.4)"
+        : "1px solid rgba(255,255,255,0.08)",
+      borderRadius: 14,
+      cursor: opts.comingSoon ? "not-allowed" : "pointer",
+      opacity: opts.comingSoon ? 0.55 : 1,
+      textAlign: "left", transition: "all 0.15s ease",
+    }}>
+      <div style={{
+        width: 44, height: 44, borderRadius: 12,
+        background: opts.hero
+          ? "linear-gradient(135deg,#c8aa5a 0%,#8a6f2a 100%)"
+          : "rgba(200,170,90,0.12)",
+        border: opts.hero ? "none" : "1px solid rgba(200,170,90,0.25)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        color: opts.hero ? "#0a0700" : "#c8aa5a", flexShrink: 0,
+      }}>{opts.icon}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 15, color: "#fff", fontWeight: 700 }}>{opts.title}</p>
+        <p style={{ margin: "3px 0 0", fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.4 }}>{opts.sub}</p>
+      </div>
+      {opts.comingSoon && (
+        <span style={{
+          fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase",
+          color: "rgba(200,170,90,0.7)", fontWeight: 700,
+          padding: "4px 8px", border: "1px solid rgba(200,170,90,0.3)", borderRadius: 6,
+        }}>Soon</span>
+      )}
+    </button>
+  );
+
+  return (
+    <div style={backdrop} onClick={close}>
+      <div style={sheet} onClick={e => e.stopPropagation()}>
+        <style>{`
+          @keyframes leadgenFade { from { opacity: 0 } to { opacity: 1 } }
+          @keyframes leadgenSlide { from { transform: translateY(24px); opacity: 0.6 } to { transform: translateY(0); opacity: 1 } }
+        `}</style>
+
+        {view === "root" && (
+          <>
+            {header("What are you doing?")}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {tile({
+                icon: <Phone size={22} />, title: "Dial", sub: "Work the phones — expired, absentee, referred.",
+                hero: true,
+                onClick: goToDial,
+              })}
+              {tile({
+                icon: <Home size={22} />, title: "Open House", sub: "Log an open house or capture a lead there.",
+                onClick: () => setView("open-house"),
+              })}
+              {tile({
+                icon: <DoorOpen size={22} />, title: "Door Knocking", sub: "Field prospecting — coming in v16.8.",
+                comingSoon: true,
+                onClick: () => toast({ title: "Coming soon", description: "Door Knocking ships in the next update." }),
+              })}
+              {tile({
+                icon: <Users size={22} />, title: "Network Referral", sub: "Submit a client you know — auto-assigned to you.",
+                onClick: () => setView("network-referral"),
+              })}
+            </div>
+          </>
+        )}
+
+        {view === "open-house" && (
+          <>
+            {header("Open House", () => setView("root"))}
+            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 14, lineHeight: 1.55 }}>
+              Two options. Both count for 20 points. Log the open house even if nobody signs in — showing up matters.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {tile({
+                icon: <Camera size={22} />, title: "Log Open House", sub: "Selfie + address. Proof you showed up. 20 pts.",
+                onClick: () => setView("oh-log"),
+              })}
+              {tile({
+                icon: <UserPlus size={22} />, title: "Log Open House Lead", sub: "Captured a lead? Full lead form → auto-assigned. 20 pts.",
+                hero: true,
+                onClick: () => setView("oh-lead"),
+              })}
+            </div>
+          </>
+        )}
+
+        {view === "oh-log" && (
+          <>
+            {header("Log Open House", () => setView("open-house"))}
+            <OpenHouseLogForm user={user} toast={toast} onDone={close} />
+          </>
+        )}
+
+        {view === "oh-lead" && (
+          <>
+            {header("Open House Lead", () => setView("open-house"))}
+            <OpenHouseLeadForm user={user} toast={toast} onDone={close} />
+          </>
+        )}
+
+        {view === "network-referral" && (
+          <>
+            {header("Network Referral", () => setView("root"))}
+            <ClientReferralForm />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── v16.7 Open House LOG form (photo + address) ────────────────────────────
+function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) {
+  const { user, toast, onDone } = props;
+  const [address, setAddress] = useState("");
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsErr, setGpsErr] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Grab GPS immediately when the form mounts. Silent — no permission spam if
+  // the browser denies; we just record null and move on.
+  useEffect(() => {
+    if (!("geolocation" in navigator)) { setGpsErr("GPS not supported"); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      err => setGpsErr(err.message || "Location unavailable"),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+    );
+  }, []);
+
+  const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 6 * 1024 * 1024) {
+      toast({ title: "Photo too large", description: "Try a smaller image (< 6MB).", variant: "destructive" });
+      return;
+    }
+    // Downscale to ~1024px longest edge to keep payload small
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        const MAX = 1024;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) {
+          const scale = MAX / Math.max(width, height);
+          width = Math.round(width * scale); height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) { ctx.drawImage(img, 0, 0, width, height); }
+        setPhotoDataUrl(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(f);
+  };
+
+  const submit = async () => {
+    if (!address.trim()) { toast({ title: "Address required", variant: "destructive" }); return; }
+    if (!photoDataUrl) { toast({ title: "Selfie required", description: "Snap a photo to prove you're there.", variant: "destructive" }); return; }
+    setSubmitting(true);
+    try {
+      const r = await apiRequest("POST", "/api/lead-gen/open-house-log", {
+        agentId: user?.id,
+        address: address.trim(),
+        photoDataUrl,
+        gpsLat: gps?.lat ?? null,
+        gpsLng: gps?.lng ?? null,
+        timestamp: new Date().toISOString(),
+      });
+      const data = await r.json();
+      if (r.ok && data.logged) {
+        toast({ title: "Open House logged", description: "+20 points. Nice." });
+        onDone();
+      } else {
+        toast({ title: "Failed to log", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Failed to log", description: err?.message || String(err), variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div>
+        <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Selfie at the open house *</label>
+        <input ref={fileRef} type="file" accept="image/*" capture="user" onChange={onPickPhoto} style={{ display: "none" }} />
+        {photoDataUrl ? (
+          <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(200,170,90,0.28)" }}>
+            <img src={photoDataUrl} alt="OH selfie" style={{ width: "100%", display: "block", maxHeight: 320, objectFit: "cover" }} />
+            <button onClick={() => { setPhotoDataUrl(null); if (fileRef.current) fileRef.current.value = ""; }} style={{
+              position: "absolute", top: 8, right: 8,
+              background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: 8, padding: "6px 10px", cursor: "pointer",
+              color: "#fff", fontSize: 11, fontWeight: 600,
+              display: "flex", alignItems: "center", gap: 4,
+            }}><X size={12} /> Retake</button>
+          </div>
+        ) : (
+          <button onClick={() => fileRef.current?.click()} style={{
+            width: "100%", padding: "24px 14px",
+            background: "rgba(200,170,90,0.05)", border: "1px dashed rgba(200,170,90,0.4)",
+            borderRadius: 12, cursor: "pointer",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+            color: "#c8aa5a",
+          }}>
+            <Camera size={28} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Tap to take selfie</span>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Front camera opens automatically</span>
+          </button>
+        )}
+      </div>
+
+      <div>
+        <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Property address *</label>
+        <input value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Oak St, Fernandina Beach, FL" style={{
+          width: "100%", padding: "12px 14px", borderRadius: 8,
+          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.28)",
+          color: "#fff", fontSize: 14, boxSizing: "border-box", fontFamily: "'Switzer','Inter',sans-serif",
+        }} />
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+        <MapPin size={12} />
+        {gps ? (
+          <span>GPS locked · {gps.lat.toFixed(4)}, {gps.lng.toFixed(4)}</span>
+        ) : gpsErr ? (
+          <span>Location unavailable ({gpsErr})</span>
+        ) : (
+          <span>Locking GPS…</span>
+        )}
+      </div>
+
+      <button onClick={submit} disabled={submitting || !photoDataUrl || !address.trim()} style={{
+        marginTop: 4, padding: "14px 20px",
+        background: (submitting || !photoDataUrl || !address.trim())
+          ? "rgba(200,170,90,0.25)"
+          : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+        border: "none", borderRadius: 10, cursor: submitting ? "wait" : "pointer",
+        fontSize: 13, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
+        color: "#080808",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      }}>
+        <Zap size={14} /> {submitting ? "Logging…" : "Log & +20 pts"}
+      </button>
+    </div>
+  );
+}
+
+// ─── v16.7 Open House LEAD form (full lead → Depot + FUB-later) ─────────────
+function OpenHouseLeadForm(props: { user: any; toast: any; onDone: () => void }) {
+  const { user, toast, onDone } = props;
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [addr, setAddr] = useState("");
+  const [notes, setNotes] = useState("");
+  const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!("geolocation" in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      pos => setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {},
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+    );
+  }, []);
+
+  const submit = async () => {
+    if (!name.trim() || !phone.trim()) { toast({ title: "Name and phone required", variant: "destructive" }); return; }
+    setSubmitting(true);
+    try {
+      const r = await apiRequest("POST", "/api/lead-gen/open-house-lead", {
+        ownerName: name.trim(), phone: phone.trim(),
+        email: email.trim(), address: addr.trim(),
+        notes: notes.trim(),
+        submittedBy: user?.id, submittedByName: user?.name,
+        gpsLat: gps?.lat ?? null, gpsLng: gps?.lng ?? null,
+      });
+      const data = await r.json();
+      if (r.ok && data.leadId) {
+        toast({ title: "Open House lead captured", description: "+20 pts. Opening Work-the-Lead card…" });
+        try { sessionStorage.setItem("pending_lead_jump", String(data.leadId)); } catch {}
+        window.dispatchEvent(new Event("pending_lead_jump_changed"));
+        qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+        onDone();
+      } else {
+        toast({ title: "Failed to submit", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Failed to submit", description: err?.message || String(err), variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const inp: React.CSSProperties = {
+    width: "100%", padding: "12px 14px", borderRadius: 8,
+    background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.28)",
+    color: "#fff", fontSize: 14, boxSizing: "border-box", fontFamily: "'Switzer','Inter',sans-serif",
+  };
+  const lbl: React.CSSProperties = { display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: 0, lineHeight: 1.5 }}>
+        Captured a real lead at the open house? Drop their info — auto-assigned to you and lands in your queue. FUB push fires on the first KIT or Appt.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div><label style={lbl}>Name *</label><input value={name} onChange={e => setName(e.target.value)} placeholder="John Smith" style={inp} /></div>
+        <div><label style={lbl}>Phone *</label><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(904) 555-0100" type="tel" style={inp} /></div>
+      </div>
+      <div><label style={lbl}>Email</label><input value={email} onChange={e => setEmail(e.target.value)} placeholder="john@email.com" type="email" style={inp} /></div>
+      <div><label style={lbl}>Property Address</label><input value={addr} onChange={e => setAddr(e.target.value)} placeholder="123 Oak St, Fernandina Beach, FL" style={inp} /></div>
+      <div><label style={lbl}>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="What did they say? Timeline? Motivation?" rows={2} style={{ ...inp, resize: "none", lineHeight: 1.5 }} /></div>
+      {gps && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+          <MapPin size={12} /> GPS · {gps.lat.toFixed(4)}, {gps.lng.toFixed(4)}
+        </div>
+      )}
+      <button onClick={submit} disabled={submitting || !name.trim() || !phone.trim()} style={{
+        marginTop: 4, padding: "14px 20px",
+        background: (submitting || !name.trim() || !phone.trim())
+          ? "rgba(200,170,90,0.25)"
+          : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+        border: "none", borderRadius: 10, cursor: submitting ? "wait" : "pointer",
+        fontSize: 13, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
+        color: "#080808",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      }}>
+        <Send size={14} /> {submitting ? "Submitting…" : "Submit & +20 pts"}
+      </button>
     </div>
   );
 }

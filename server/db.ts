@@ -462,7 +462,7 @@ rawDb.prepare(`
   )
 `).run();
 
-// v16.6 — Daily metrics snapshots: forever-log of every agent's full metrics
+// v16.7 — Daily metrics snapshots: forever-log of every agent's full metrics
 // captured at 00:05 ET every day. One row per (et_date, agent_id, scope).
 // Never deleted. Used for: (a) audit trail so any bug can be diagnosed
 // against a known-good baseline, (b) daily comparison views ("who did what
@@ -505,9 +505,9 @@ rawDb.prepare(`
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_daily_snapshots_date ON daily_metrics_snapshots(et_date)`).run();
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_daily_snapshots_agent ON daily_metrics_snapshots(agent_id, et_date)`).run();
 
-// v16.6 — LEAD_ACTIVITY DIAL-COUNT PRESERVATION.
+// v16.7 — LEAD_ACTIVITY DIAL-COUNT PRESERVATION.
 //
-// Before v16.6, when a lead's last phone was Disconnected or Wrong#'d, the
+// Before v16.7, when a lead's last phone was Disconnected or Wrong#'d, the
 // exhaustion path deleted the lead AND all its lead_activity rows (needed
 // because lead_activity.lead_id is NOT NULL REFERENCES leads(id)). This
 // wiped today's dial counts even though the points survived in agent_points
@@ -515,27 +515,27 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_daily_snapshots_agent ON daily_met
 //
 // Fix: (1) add nullable snapshot columns so history survives lead deletion,
 // (2) migrate lead_id to be nullable so we can NULL it out instead of DELETE.
-// Snapshot columns are populated in routes.ts at insert time (v16.6+ writes).
+// Snapshot columns are populated in routes.ts at insert time (v16.7+ writes).
 try {
   const laCols = rawDb.prepare(`PRAGMA table_info(lead_activity)`).all() as any[];
   const laColNames = new Set(laCols.map(c => c.name));
   if (!laColNames.has('lead_address_snapshot')) {
     rawDb.exec(`ALTER TABLE lead_activity ADD COLUMN lead_address_snapshot TEXT`);
-    console.log('[v16.6] Added lead_activity.lead_address_snapshot');
+    console.log('[v16.7] Added lead_activity.lead_address_snapshot');
   }
   if (!laColNames.has('lead_phone_snapshot')) {
     rawDb.exec(`ALTER TABLE lead_activity ADD COLUMN lead_phone_snapshot TEXT`);
-    console.log('[v16.6] Added lead_activity.lead_phone_snapshot');
+    console.log('[v16.7] Added lead_activity.lead_phone_snapshot');
   }
   if (!laColNames.has('lead_owner_snapshot')) {
     rawDb.exec(`ALTER TABLE lead_activity ADD COLUMN lead_owner_snapshot TEXT`);
-    console.log('[v16.6] Added lead_activity.lead_owner_snapshot');
+    console.log('[v16.7] Added lead_activity.lead_owner_snapshot');
   }
   // Make lead_id nullable so exhaustion path can NULL it instead of DELETE.
   // SQLite doesn't support ALTER COLUMN drop-NOT-NULL, so rebuild the table.
   const leadIdCol = laCols.find((c: any) => c.name === 'lead_id');
   if (leadIdCol && leadIdCol.notnull === 1) {
-    console.log('[v16.6] Rebuilding lead_activity to make lead_id nullable…');
+    console.log('[v16.7] Rebuilding lead_activity to make lead_id nullable…');
     rawDb.exec(`
       BEGIN;
       CREATE TABLE lead_activity_new (
@@ -556,10 +556,10 @@ try {
       ALTER TABLE lead_activity_new RENAME TO lead_activity;
       COMMIT;
     `);
-    console.log('[v16.6] lead_activity rebuilt: lead_id now nullable, ON DELETE SET NULL');
+    console.log('[v16.7] lead_activity rebuilt: lead_id now nullable, ON DELETE SET NULL');
   }
 } catch (err) {
-  console.error('[v16.6] lead_activity migration failed:', err);
+  console.error('[v16.7] lead_activity migration failed:', err);
 }
 
 // ─── DBPR Scraper columns (v11.71, renamed from FREC in v13.4) ──────────────

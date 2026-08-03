@@ -27,7 +27,8 @@ import {
   PhoneMissed, Calendar, XCircle, CheckCircle2,
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, Heart, Map as MapIcon,
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
-  UserPlus, UserCircle2, KeyRound, RotateCcw
+  UserPlus, UserCircle2, KeyRound, RotateCcw,
+  Sparkles, Database, Wrench, FileText, PlayCircle
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -1816,7 +1817,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v17.6
+              v17.7
             </p>
           </div>
         </div>
@@ -1910,6 +1911,8 @@ export default function AdminDashboard({
               { value: "reports",     icon: BarChart2,   label: "Reports" },
               { value: "kpi",         icon: TrendingUp,  label: "KPI" },
               { value: "approvals",   icon: CheckCircle2, label: "Approvals" },
+              { value: "diversity",   icon: Sparkles,    label: "Diversity" },
+              { value: "dbhealth",    icon: Database,    label: "DB Health" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "recruiting",  icon: Users,       label: "Recruiting" },
               { value: "candidates",  icon: UserPlus,    label: "Candidates" },
@@ -3009,6 +3012,16 @@ export default function AdminDashboard({
               Reject = no points, no activity, decision_notes saved for audit. */}
           <TabsContent value="approvals" className="mt-5">
             <ApprovalsPanel />
+          </TabsContent>
+
+          {/* v17.7 — Lead Diversity Challenge panel: weekly history + preview + re-award */}
+          <TabsContent value="diversity" className="mt-5">
+            <DiversityPanel />
+          </TabsContent>
+
+          {/* v17.7 — DB Health: read-only audit report + dry-run repair actions with journal */}
+          <TabsContent value="dbhealth" className="mt-5">
+            <DbHealthPanel />
           </TabsContent>
 
           <TabsContent value="upload" className="mt-5">
@@ -4787,6 +4800,414 @@ function ApprovalsPanel() {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── v17.7 Lead Diversity Challenge panel ─────────────────────────────────────
+// Weekly bonus for hitting 3/4/5 different lead-gen categories.
+// Shows: current-week preview (who would win right now), history table, re-award button.
+function DiversityPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const history = useQuery({
+    queryKey: ["/api/admin/diversity/history"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/diversity/history");
+      return r.json();
+    },
+    refetchInterval: 30000,
+  });
+
+  const preview = useQuery({
+    queryKey: ["/api/admin/diversity/preview"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/diversity/preview");
+      return r.json();
+    },
+    refetchInterval: 30000,
+  });
+
+  const reaward = useMutation({
+    mutationFn: async (date: string) => {
+      const r = await apiRequest("POST", "/api/admin/diversity/reaward", { date });
+      return r.json();
+    },
+    onSuccess: (d: any) => {
+      toast({ title: "Diversity re-awarded", description: `${d.awardsCount ?? 0} agents processed` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/diversity/history"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/diversity/preview"] });
+    },
+    onError: (err: any) => toast({ title: "Re-award failed", description: err?.message || String(err), variant: "destructive" }),
+  });
+
+  const rows: any[] = Array.isArray(history.data?.rows) ? history.data.rows : [];
+  const pv: any[] = Array.isArray(preview.data?.rows) ? preview.data.rows : [];
+  const pvWeek: string = preview.data?.weekStart ?? "";
+
+  const catColors: Record<string, string> = {
+    phone: "#60a5fa",
+    open_house: "#c8aa5a",
+    door_knock: "#4ade80",
+    direct_mail: "#f472b6",
+    social: "#a78bfa",
+  };
+
+  const catChip = (c: string) => (
+    <span key={c} style={{
+      display: "inline-block", padding: "3px 8px", borderRadius: 6, marginRight: 4,
+      fontSize: 10, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em",
+      background: `${catColors[c] || "#888"}22`,
+      color: catColors[c] || "#ccc",
+      border: `1px solid ${catColors[c] || "#888"}44`,
+    }}>{c.replace("_", " ")}</span>
+  );
+
+  return (
+    <div className="max-w-5xl space-y-6">
+      <div>
+        <h2 style={{
+          fontFamily: "'Cormorant Garamond','Georgia',serif",
+          fontSize: "1.4rem", fontWeight: 300, color: "#fff", marginBottom: 4,
+        }}>Lead Diversity Challenge</h2>
+        <p className="text-sm text-muted-foreground">
+          Weekly bonus (Mon–Sun ET) for hitting multiple lead-gen categories. 3 cats = +150, 4 = +200, 5 = +250.
+          Auto-awards Sunday 23:59 ET.
+        </p>
+      </div>
+
+      {/* CURRENT WEEK PREVIEW */}
+      <div style={{
+        background: "rgba(200,170,90,0.05)",
+        border: "1px solid rgba(200,170,90,0.18)",
+        borderRadius: 10, padding: 18,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: "#fde047", marginBottom: 2, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              Current Week Preview
+            </h3>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", margin: 0 }}>
+              Week of {pvWeek || "—"} · what would award if today were Sunday
+            </p>
+          </div>
+          <Button
+            size="sm" variant="outline"
+            onClick={() => { preview.refetch(); history.refetch(); }}
+            disabled={preview.isFetching}
+          >
+            <RefreshCw size={12} className={preview.isFetching ? "animate-spin" : ""} />
+            <span style={{ marginLeft: 6 }}>Refresh</span>
+          </Button>
+        </div>
+
+        {pv.length === 0 ? (
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", padding: "20px 0", textAlign: "center" }}>
+            No agents qualify yet this week.
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {pv.map((row: any) => (
+              <div key={row.agentId} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 12px", borderRadius: 8,
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{row.agentName}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+                    {Array.isArray(row.categories) && row.categories.map((c: string) => catChip(c))}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#fde047", lineHeight: 1 }}>+{row.potentialBonus}</div>
+                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>{row.count} cats</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* HISTORY */}
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <h3 style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.75)", letterSpacing: "0.08em", textTransform: "uppercase", margin: 0 }}>
+            Award History
+          </h3>
+          {rows.length > 0 && rows[0].week_start && (
+            <Button
+              size="sm" variant="outline"
+              onClick={() => {
+                if (confirm(`Re-award week ${rows[0].week_start}? Idempotent — safe to run twice.`)) {
+                  reaward.mutate(rows[0].week_start);
+                }
+              }}
+              disabled={reaward.isPending}
+            >
+              <RotateCcw size={12} />
+              <span style={{ marginLeft: 6 }}>Re-award last week</span>
+            </Button>
+          )}
+        </div>
+
+        {history.isLoading ? (
+          <Skeleton className="h-40" />
+        ) : rows.length === 0 ? (
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", padding: 20, textAlign: "center",
+            background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
+            No bonuses awarded yet. First auto-fire happens Sunday 23:59 ET.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid rgba(255,255,255,0.08)" }}>
+            <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "rgba(255,255,255,0.04)" }}>
+                  <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Week</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Agent</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Categories</th>
+                  <th style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Points</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Awarded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r: any, i: number) => {
+                  let cats: string[] = [];
+                  try { cats = JSON.parse(r.categories_list || "[]"); } catch {}
+                  return (
+                    <tr key={r.id} style={{ borderTop: i === 0 ? "none" : "1px solid rgba(255,255,255,0.06)" }}>
+                      <td style={{ padding: "10px 12px", color: "rgba(255,255,255,0.6)", fontFamily: "monospace" }}>{r.week_start}</td>
+                      <td style={{ padding: "10px 12px", color: "#fff", fontWeight: 500 }}>{r.agent_name || `#${r.agent_id}`}</td>
+                      <td style={{ padding: "10px 12px" }}>{cats.map(c => catChip(c))}</td>
+                      <td style={{ padding: "10px 12px", textAlign: "right", color: "#fde047", fontWeight: 700 }}>+{r.points_awarded}</td>
+                      <td style={{ padding: "10px 12px", color: "rgba(255,255,255,0.4)", fontSize: 11 }}>
+                        {r.awarded_at ? new Date(r.awarded_at).toLocaleDateString() : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── v17.7 DB Health panel ────────────────────────────────────────────────────
+// Read-only audit + dry-run-default repair actions. Every repair journaled.
+function DbHealthPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const audit = useQuery({
+    queryKey: ["/api/admin/db-audit"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/db-audit");
+      return r.json();
+    },
+  });
+
+  const log = useQuery({
+    queryKey: ["/api/admin/db-repair/log"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/db-repair/log");
+      return r.json();
+    },
+  });
+
+  const runRepair = async (endpoint: string, label: string, dryRun: boolean) => {
+    try {
+      const r = await apiRequest("POST", endpoint, { dryRun });
+      const data = await r.json();
+      if (r.ok) {
+        // Server response shape varies by endpoint: recompute returns { drift }, prune/reassign return { rowsAffected } or { pruned }, so summarize whatever is present.
+        const affected = data.drift ?? data.rowsAffected ?? data.pruned ?? data.reassigned ?? data.checked ?? 0;
+        toast({
+          title: dryRun ? `Preview: ${label}` : `Applied: ${label}`,
+          description: `${affected} rows ${dryRun ? "would be" : "were"} affected`,
+        });
+        qc.invalidateQueries({ queryKey: ["/api/admin/db-audit"] });
+        qc.invalidateQueries({ queryKey: ["/api/admin/db-repair/log"] });
+      } else {
+        toast({ title: "Repair failed", description: data.error || "Unknown", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Repair failed", description: err?.message || String(err), variant: "destructive" });
+    }
+  };
+
+  const findings: any[] = Array.isArray(audit.data?.findings) ? audit.data.findings : [];
+  const totals = audit.data?.totals || { critical: 0, warning: 0, info: 0 };
+  const logRows: any[] = Array.isArray(log.data?.rows) ? log.data.rows : [];
+
+  const sevColor = (s: string) => s === "critical" ? "#ef4444" : s === "warning" ? "#eab308" : "#60a5fa";
+  const sevBg = (s: string) => s === "critical" ? "rgba(239,68,68,0.08)" : s === "warning" ? "rgba(234,179,8,0.08)" : "rgba(96,165,250,0.06)";
+
+  const RepairCard = ({ label, description, endpoint, danger }: { label: string; description: string; endpoint: string; danger?: boolean }) => (
+    <div style={{
+      padding: 14, borderRadius: 10,
+      background: "rgba(255,255,255,0.03)",
+      border: `1px solid ${danger ? "rgba(239,68,68,0.24)" : "rgba(200,170,90,0.18)"}`,
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 10, lineHeight: 1.5 }}>{description}</div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <Button size="sm" variant="outline" onClick={() => runRepair(endpoint, label, true)}>
+          <PlayCircle size={12} /> <span style={{ marginLeft: 6 }}>Dry-run</span>
+        </Button>
+        <Button size="sm" variant={danger ? "destructive" : "default"}
+          onClick={() => { if (confirm(`Apply "${label}"? This will write to the database.`)) runRepair(endpoint, label, false); }}>
+          <Wrench size={12} /> <span style={{ marginLeft: 6 }}>Apply</span>
+        </Button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="max-w-5xl space-y-6">
+      <div>
+        <h2 style={{
+          fontFamily: "'Cormorant Garamond','Georgia',serif",
+          fontSize: "1.4rem", fontWeight: 300, color: "#fff", marginBottom: 4,
+        }}>DB Health · Audit + Repair</h2>
+        <p className="text-sm text-muted-foreground">
+          Read-only sweep for orphans, ledger drift, and bloat. Repairs default to dry-run and are journaled.
+        </p>
+      </div>
+
+      {/* AUDIT SUMMARY */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+        <div style={{ padding: 14, borderRadius: 10, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.28)" }}>
+          <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(239,68,68,0.85)", marginBottom: 4 }}>Critical</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: "#fca5a5" }}>{totals.critical}</div>
+        </div>
+        <div style={{ padding: 14, borderRadius: 10, background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.28)" }}>
+          <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(234,179,8,0.85)", marginBottom: 4 }}>Warning</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: "#fde047" }}>{totals.warning}</div>
+        </div>
+        <div style={{ padding: 14, borderRadius: 10, background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.24)" }}>
+          <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(96,165,250,0.85)", marginBottom: 4 }}>Info</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: "#93c5fd" }}>{totals.info}</div>
+        </div>
+      </div>
+
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <h3 style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.75)", letterSpacing: "0.08em", textTransform: "uppercase", margin: 0 }}>
+            Findings
+          </h3>
+          <Button size="sm" variant="outline" onClick={() => audit.refetch()} disabled={audit.isFetching}>
+            <RefreshCw size={12} className={audit.isFetching ? "animate-spin" : ""} />
+            <span style={{ marginLeft: 6 }}>Re-scan</span>
+          </Button>
+        </div>
+
+        {audit.isLoading ? (
+          <Skeleton className="h-40" />
+        ) : findings.length === 0 ? (
+          <p style={{ fontSize: 12, color: "#4ade80", padding: 20, textAlign: "center",
+            background: "rgba(74,222,128,0.05)", borderRadius: 8, border: "1px solid rgba(74,222,128,0.2)" }}>
+            ✓ Clean board. No issues found.
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {findings.map((f: any, i: number) => (
+              <div key={i} style={{ padding: 12, borderRadius: 8, background: sevBg(f.severity), border: `1px solid ${sevColor(f.severity)}33` }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{
+                      fontSize: 9, padding: "2px 6px", borderRadius: 4,
+                      background: sevColor(f.severity), color: "#080808", fontWeight: 700, letterSpacing: "0.06em",
+                    }}>{String(f.severity || "info").toUpperCase()}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#fff" }}>{f.check}</span>
+                  </div>
+                  {typeof f.count === "number" && (
+                    <span style={{ fontSize: 12, color: sevColor(f.severity), fontWeight: 700 }}>{f.count}</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", lineHeight: 1.5 }}>{f.detail}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* REPAIR ACTIONS */}
+      <div>
+        <h3 style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.75)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+          Repair Actions
+        </h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 10 }}>
+          <RepairCard
+            label="Recompute points (all agents)"
+            description="Rebuild ledger totals from lead_activity + approvals + diversity_bonuses. Inserts a single repair:recompute delta row per agent — never rewrites history."
+            endpoint="/api/admin/db-repair/recompute-points"
+          />
+          <RepairCard
+            label="Prune stale evidence photos"
+            description="Strip photoDataUrl from decided approvals older than 180 days. Row + metadata preserved; only image data removed."
+            endpoint="/api/admin/db-repair/prune-evidence"
+          />
+          <RepairCard
+            label="Reassign orphan leads"
+            description="Null out assigned_agent_id for leads owned by deactivated agents. Sends them back to the shared pool."
+            endpoint="/api/admin/db-repair/reassign-orphan-leads"
+            danger
+          />
+        </div>
+      </div>
+
+      {/* REPAIR LOG */}
+      <div>
+        <h3 style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.75)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+          Repair Journal
+        </h3>
+        {log.isLoading ? (
+          <Skeleton className="h-32" />
+        ) : logRows.length === 0 ? (
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", padding: 20, textAlign: "center",
+            background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
+            No repairs run yet.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid rgba(255,255,255,0.08)" }}>
+            <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "rgba(255,255,255,0.04)" }}>
+                  <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>When</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Operation</th>
+                  <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Actor</th>
+                  <th style={{ padding: "8px 12px", textAlign: "center", fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Mode</th>
+                  <th style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>Rows</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logRows.map((r: any, i: number) => (
+                  <tr key={r.id} style={{ borderTop: i === 0 ? "none" : "1px solid rgba(255,255,255,0.06)" }}>
+                    <td style={{ padding: "8px 12px", color: "rgba(255,255,255,0.5)", fontFamily: "monospace", fontSize: 10 }}>
+                      {r.ran_at ? new Date(r.ran_at).toLocaleString() : "—"}
+                    </td>
+                    <td style={{ padding: "8px 12px", color: "#fff", fontWeight: 500 }}>{r.operation}</td>
+                    <td style={{ padding: "8px 12px", color: "rgba(255,255,255,0.6)" }}>{r.actor_name || "system"}</td>
+                    <td style={{ padding: "8px 12px", textAlign: "center" }}>
+                      <span style={{
+                        fontSize: 9, padding: "2px 6px", borderRadius: 4, fontWeight: 700, letterSpacing: "0.06em",
+                        background: r.dry_run ? "rgba(96,165,250,0.15)" : "rgba(74,222,128,0.15)",
+                        color: r.dry_run ? "#93c5fd" : "#4ade80",
+                      }}>{r.dry_run ? "DRY-RUN" : "APPLIED"}</span>
+                    </td>
+                    <td style={{ padding: "8px 12px", textAlign: "right", color: "#fde047", fontWeight: 600 }}>{r.rows_affected}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

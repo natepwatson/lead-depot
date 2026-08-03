@@ -122,6 +122,20 @@ export async function runTier4() {
     return [orphans === 0, `sampled=${sample.length} orphanRows=${orphans}`];
   });
 
+  // Invariant: DB audit sweep clean (v17.7)
+  // Fires nightly. Critical findings fail the run; warnings are noted but pass.
+  await inv('inv · db audit — no critical findings', { critical: true }, async () => {
+    const r = await httpJson('GET', '/api/admin/db-audit', { jar });
+    if (!r.ok) return [false, `db-audit endpoint ${r.status}`];
+    const totals = r.json?.totals || { critical: 0, warning: 0, info: 0 };
+    const findings = r.json?.findings || [];
+    const critNames = findings.filter(f => f.severity === 'critical').map(f => f.check).slice(0, 3).join(',');
+    return [
+      totals.critical === 0,
+      `crit=${totals.critical}${critNames ? '(' + critNames + ')' : ''} warn=${totals.warning} info=${totals.info}`,
+    ];
+  });
+
   return rec.all();
 }
 

@@ -786,12 +786,7 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_points_scope_agent
 // are collapsed to "agent" (seller-side). Admins still have full recruiting access.
 rawDb.prepare("UPDATE agents SET role = 'agent' WHERE role = 'recruiter'").run();
 
-// Unique index on dedup_hash — prevents within-run and cross-run duplicates
-rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_leads_dedup_hash ON agent_leads(dedup_hash) WHERE dedup_hash IS NOT NULL`).run();
-// Index for freshness queries (last_scraped_at)
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_last_scraped ON agent_leads(last_scraped_at)`).run();
-// Index for DBPR license ID lookups
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_leads_dbpr_license ON agent_leads(dbpr_license_id) WHERE dbpr_license_id IS NOT NULL`).run();
+// v18.0 — agent_leads indexes removed with recruiting system.
 
 // ─── SAFEGUARDS (v11.70) ──────────────────────────────────────────────────────
 
@@ -856,14 +851,7 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agents_email
 // geo_cache: address_key — geocode cache hits (already a PK but explicit helps explain)
 // (skipped — already a PRIMARY KEY, which is automatically indexed)
 
-// ─── v12.1 — performance indexes on high-frequency recruiting/leaderboard tables ──
-// agent_lead_activity: agent_lead_id — FK join in recruiting activity queries
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_lead_activity_lead_id
-  ON agent_lead_activity(agent_lead_id)`).run();
-
-// agent_lead_activity: caller_id + created_at — leaderboard aggregation, weekly dial gate
-rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_lead_activity_caller_created
-  ON agent_lead_activity(caller_id, created_at)`).run();
+// v18.0 — agent_lead_activity indexes removed with recruiting system.
 
 // agent_points: agent_id + created_at — weekly points queries, performance gate
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_points_agent_created

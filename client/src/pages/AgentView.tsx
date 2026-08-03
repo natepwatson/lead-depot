@@ -21,6 +21,7 @@ import ProfilePage from "./ProfilePage";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
 import GrandCelebration from "../components/ld/GrandCelebration";
 import { RankTrophy } from "../components/ld/RankTrophy";
+import { StreakBadge, ChampionFrame } from "../components/ld/StreakBadge";
 import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
@@ -3186,6 +3187,7 @@ export function BonusCard() {
           borderRadius: 12,
         }}>
           <div style={{ position: "relative" }}>
+            <ChampionFrame agentId={leader?.id ?? null} size={36}>
             {leader?.headshotUrl ? (
               <img src={leader.headshotUrl} alt={leader.name}
                 style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(200,170,90,0.5)" }} />
@@ -3197,6 +3199,7 @@ export function BonusCard() {
                 color: "#080808", fontWeight: 800, fontSize: 13,
               }}>{leaderInitials}</div>
             )}
+            </ChampionFrame>
             <div style={{
               position: "absolute", top: -6, right: -6,
               width: 18, height: 18, borderRadius: "50%",
@@ -3210,8 +3213,9 @@ export function BonusCard() {
             <div style={{ fontSize: 9, letterSpacing: "0.20em", color: "rgba(200,170,90,0.8)", textTransform: "uppercase", fontWeight: 700 }}>
               Who's #1 Right Now
             </div>
-            <div style={{ fontSize: 14, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {leader?.name || "No leader yet — be the first"}
+            <div style={{ fontSize: 14, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{leader?.name || "No leader yet — be the first"}</span>
+              {leader?.id ? <StreakBadge agentId={leader.id} size="sm" /> : null}
             </div>
           </div>
           <div style={{ marginLeft: "auto", fontFamily: "ui-monospace, 'JetBrains Mono', monospace", fontSize: 13, color: "#4ade80", fontWeight: 700, letterSpacing: "0.02em", whiteSpace: "nowrap" }}>
@@ -3558,6 +3562,7 @@ export function TeamPotCard() {
               minWidth: 0,
             }}>
               <div style={{ position: "relative", flexShrink: 0 }}>
+                <ChampionFrame agentId={row.data?.agentId ?? null} size={32}>
                 {row.data?.headshotUrl ? (
                   <img src={row.data.headshotUrl} alt={row.data.name}
                     style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(200,170,90,0.5)" }} />
@@ -3569,6 +3574,7 @@ export function TeamPotCard() {
                     color: "#080808", fontWeight: 800, fontSize: 12,
                   }}>{row.initials}</div>
                 )}
+                </ChampionFrame>
                 <div style={{
                   position: "absolute", top: -6, right: -6,
                   width: 16, height: 16, borderRadius: "50%",
@@ -3582,8 +3588,9 @@ export function TeamPotCard() {
                 <div style={{ fontSize: 8.5, letterSpacing: "0.16em", color: "rgba(200,170,90,0.8)", textTransform: "uppercase", fontWeight: 700 }}>
                   {row.rank === 1 ? "1st · 70%" : "2nd · 30%"}
                 </div>
-                <div style={{ fontSize: 12, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {row.data?.name || (row.rank === 1 ? "Up for grabs" : "—")}
+                <div style={{ fontSize: 12, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row.data?.name || (row.rank === 1 ? "Up for grabs" : "—")}</span>
+                  {row.data?.agentId ? <StreakBadge agentId={row.data.agentId} size="sm" /> : null}
                 </div>
                 <div style={{
                   fontSize: 10, color: row.chipText, fontWeight: 700,

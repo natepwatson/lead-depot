@@ -3,6 +3,7 @@ import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import ActivityFeed from "../components/ld/ActivityFeed";
 import { RankTrophy } from "../components/ld/RankTrophy";
+import { StreakBadge, ChampionFrame } from "../components/ld/StreakBadge";
 import CandidatesTab from "../components/ld/CandidatesTab";
 import ProfilePage from "./ProfilePage";
 import ScriptEditor from "../components/ScriptEditor";
@@ -939,7 +940,7 @@ function HealthWidget() {
   );
 }
 
-// v17.2 — TeamPotStretchAdmin REMOVED per Alex. The $1000/80-appt tier is now
+// v17.3 — TeamPotStretchAdmin REMOVED per Alex. The $1000/80-appt tier is now
 // permanently visible to the team; no toggle. Below shell retained as a no-op
 // stub to keep any lingering render sites compiling.
 function _RemovedInV17_2_TeamPotStretchAdmin() { return null as unknown as JSX.Element; }
@@ -1815,7 +1816,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v17.2
+              v17.3
             </p>
           </div>
         </div>
@@ -2151,7 +2152,7 @@ export default function AdminDashboard({
             {/* v16.7 — admins compete for the monthly prize too. Same TeamPotCard
                 the agents see at the top of Dial, rendered here above the KPIs. */}
             <TeamPotCard />
-            {/* v17.2 — Stretch reveal toggle removed. $1000 tier now permanently visible on TeamPotCard. */}
+            {/* v17.3 — Stretch reveal toggle removed. $1000 tier now permanently visible on TeamPotCard. */}
             {/* v15.11.39 — Live On Air widget: who is dialing RIGHT NOW, by name. */}
             <LiveOnAirWidget />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -2313,6 +2314,7 @@ export default function AdminDashboard({
                         >
                           {/* Rank badge — headshot or initials (v11.70) */}
                           <div style={{ position: "relative", flexShrink: 0 }}>
+                            <ChampionFrame agentId={stat.agent.id} size={36}>
 {(() => {
                               const initials = stat.agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
                               const avatarStyle = {
@@ -2346,6 +2348,7 @@ export default function AdminDashboard({
                                 />
                               );
                             })()}
+                            </ChampionFrame>
                             {/* v15.11.26 — Rank indicator.
                                  Top 3: SVG trophy graphic overlayed on the corner of the
                                    avatar. Small (18px) so it peeks over without covering
@@ -2386,9 +2389,11 @@ export default function AdminDashboard({
                                 background: dot.color, flexShrink: 0, display: "inline-block",
                                 boxShadow: `0 0 5px ${dot.color}88`,
                               }} />
-                              <span style={{ fontSize: 13, fontWeight: 500, color: "#fff", fontFamily: "'Switzer','Inter',sans-serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>
+                              <span style={{ fontSize: 13, fontWeight: 500, color: "#fff", fontFamily: "'Switzer','Inter',sans-serif", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
                                 {stat.agent.name}
                               </span>
+                              <StreakBadge agentId={stat.agent.id} size="sm" />
+                              <span style={{ flex: 1 }} />
                               <ChevronRight size={11} className="text-muted-foreground group-hover:text-gold transition-colors" />
                             </div>
                           </div>

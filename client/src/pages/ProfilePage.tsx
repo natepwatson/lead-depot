@@ -12,6 +12,7 @@ import {
   User, Mail, Phone, Lock, Home, Building2, Trash2, MapPin,
   Camera, ChevronLeft, Check, AlertTriangle, Eye, EyeOff, Volume2, PlayCircle, Sparkles,
 } from "lucide-react";
+import { StreakCard, ChampionFrame } from "@/components/ld/StreakBadge";
 
 // v14.9 — Static changelog. Curated by hand each release. Keeps the last 5
 // entries visible to agents so they see the app improving under them. Newest
@@ -365,6 +366,8 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
 
         {/* ── Avatar / headshot ── */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
+          {/* v17.3 — wrap the profile avatar in the Champion Wreath frame if the current agent is this month's winner. */}
+          <ChampionFrame agentId={user?.id ?? null} size={90}>
           <div
             style={{
               width: 90, height: 90, borderRadius: "50%",
@@ -396,6 +399,7 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
               <Camera size={20} style={{ color: "#c8aa5a" }} />
             </div>
           </div>
+          </ChampionFrame>
           <input ref={fileRef} type="file" accept="image/*,.heic,.heif" style={{ display: "none" }}
             onChange={e => { const f = e.target.files?.[0]; if (f) handleHeadshot(f); e.target.value = ""; }}
           />
@@ -411,6 +415,12 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
           <p style={{ marginTop: 6, fontSize: 11, color: "rgba(255,255,255,0.3)" }}>
             {profile.role === "admin" ? "Admin" : profile.role === "recruiter" ? "Recruiter" : "Agent"} · {profile.email}
           </p>
+          {/* v17.3 — Streak card sits directly under the avatar. */}
+          {user?.id ? (
+            <div style={{ marginTop: 14, width: "100%", maxWidth: 320 }}>
+              <StreakCard agentId={user.id} />
+            </div>
+          ) : null}
         </div>
 
         {/* ── Profile info ── */}

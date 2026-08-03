@@ -126,7 +126,7 @@ export async function runTier4() {
   // Fires nightly. Critical findings fail the run; warnings are noted but pass.
   await inv('inv · db audit — no critical findings', { critical: true }, async () => {
     const r = await httpJson('GET', '/api/admin/db-audit', { jar });
-    if (!r.ok) return [false, `db-audit endpoint ${r.status}`];
+    if (r.status !== 200) return [false, `db-audit endpoint ${r.status}`];
     const totals = r.json?.totals || { critical: 0, warning: 0, info: 0 };
     const findings = r.json?.findings || [];
     const critNames = findings.filter(f => f.severity === 'critical').map(f => f.check).slice(0, 3).join(',');

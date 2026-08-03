@@ -5670,9 +5670,14 @@ function LeadGenSheet(props: {
                 onClick: () => setView("open-house"),
               })}
               {tile({
-                icon: <DoorOpen size={22} />, title: "Door Knocking", sub: "Field prospecting — coming in v16.8.",
+                icon: <DoorOpen size={22} />, title: "Door Knocking", sub: "Field prospecting — coming soon.",
                 comingSoon: true,
-                onClick: () => toast({ title: "Coming soon", description: "Door Knocking ships in the next update." }),
+                onClick: () => toast({ title: "Coming soon", description: "Door knocking evidence flow is still being designed." }),
+              })}
+              {tile({
+                icon: <Mail size={22} />, title: "Direct Mail", sub: "Bring materials to Nate — coming soon.",
+                comingSoon: true,
+                onClick: () => toast({ title: "Coming soon", description: "Bring your materials to Nate. He'll approve materials + plan + mailers sent, and you'll earn +1 per address." }),
               })}
               {tile({
                 icon: <Users size={22} />, title: "Network Referral", sub: "Submit a client you know — auto-assigned to you.",
@@ -5735,6 +5740,11 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // v17.0 — Results form (fires the Open House Results email to Denise on submit)
+  const [attendees, setAttendees] = useState<string>("");
+  const [ohNotes, setOhNotes] = useState("");
+  const [issues, setIssues] = useState("");
+  const [recommendations, setRecommendations] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Grab GPS immediately when the form mounts. Silent — no permission spam if
@@ -5779,7 +5789,7 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
 
   const submit = async () => {
     if (!address.trim()) { toast({ title: "Address required", variant: "destructive" }); return; }
-    if (!photoDataUrl) { toast({ title: "Selfie required", description: "Snap a photo to prove you're there.", variant: "destructive" }); return; }
+    if (!photoDataUrl) { toast({ title: "Selfie required", description: "Snap a selfie with the OH sign in the background.", variant: "destructive" }); return; }
     setSubmitting(true);
     try {
       const r = await apiRequest("POST", "/api/lead-gen/open-house-log", {
@@ -5789,16 +5799,23 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
         gpsLat: gps?.lat ?? null,
         gpsLng: gps?.lng ?? null,
         timestamp: new Date().toISOString(),
+        attendees: attendees.trim() ? parseInt(attendees.trim()) : null,
+        notes: ohNotes.trim(),
+        issues: issues.trim(),
+        recommendations: recommendations.trim(),
       });
       const data = await r.json();
-      if (r.ok && data.logged) {
-        toast({ title: "Open House logged", description: "+20 points. Nice." });
+      if (r.ok && data.submitted) {
+        toast({
+          title: "Submitted for approval",
+          description: "Denise gets your results now. Nate will approve your +20 pts.",
+        });
         onDone();
       } else {
-        toast({ title: "Failed to log", description: data.error || "Unknown error", variant: "destructive" });
+        toast({ title: "Failed to submit", description: data.error || "Unknown error", variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "Failed to log", description: err?.message || String(err), variant: "destructive" });
+      toast({ title: "Failed to submit", description: err?.message || String(err), variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -5806,8 +5823,20 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* v17.0 — Explanatory intro. Sign-in-background is a soft rule; social
+          nudge is meant to feel like a normal social habit, not a corporate ask. */}
+      <div style={{
+        padding: "12px 14px", background: "rgba(200,170,90,0.06)",
+        border: "1px solid rgba(200,170,90,0.18)", borderRadius: 10,
+      }}>
+        <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.75)", lineHeight: 1.55 }}>
+          Take a selfie <strong>with the Open House sign in the background</strong>. While you're at it —
+          post it on Instagram or your story. That's what top agents do anyway.
+        </p>
+      </div>
+
       <div>
-        <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Selfie at the open house *</label>
+        <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Selfie with the OH sign *</label>
         <input ref={fileRef} type="file" accept="image/*" capture="user" onChange={onPickPhoto} style={{ display: "none" }} />
         {photoDataUrl ? (
           <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(200,170,90,0.28)" }}>
@@ -5830,7 +5859,7 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
           }}>
             <Camera size={28} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Tap to take selfie</span>
-            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Front camera opens automatically</span>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Front camera opens · sign in background</span>
           </button>
         )}
       </div>
@@ -5842,6 +5871,51 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
           background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.28)",
           color: "#fff", fontSize: 14, boxSizing: "border-box", fontFamily: "'Switzer','Inter',sans-serif",
         }} />
+      </div>
+
+      {/* v17.0 — Open House Results section. Sent to Denise + Alex + Nate on submit. */}
+      <div style={{
+        marginTop: 4, padding: "14px 14px 4px",
+        background: "rgba(255,255,255,0.02)",
+        border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10,
+      }}>
+        <p style={{ margin: "0 0 12px", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700 }}>Open House Results</p>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Number of attendees</label>
+          <input value={attendees} onChange={e => setAttendees(e.target.value.replace(/[^0-9]/g, ""))} placeholder="e.g. 12" inputMode="numeric" style={{
+            width: "100%", padding: "12px 14px", borderRadius: 8,
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.28)",
+            color: "#fff", fontSize: 14, boxSizing: "border-box", fontFamily: "'Switzer','Inter',sans-serif",
+          }} />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Notes</label>
+          <textarea value={ohNotes} onChange={e => setOhNotes(e.target.value)} placeholder="How did it go? Vibe of the crowd?" rows={2} style={{
+            width: "100%", padding: "12px 14px", borderRadius: 8,
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.28)",
+            color: "#fff", fontSize: 14, boxSizing: "border-box", resize: "none", lineHeight: 1.5, fontFamily: "'Switzer','Inter',sans-serif",
+          }} />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Issues we should know about</label>
+          <textarea value={issues} onChange={e => setIssues(e.target.value)} placeholder="Anything the seller needs to fix, signage problems, complaints, etc." rows={2} style={{
+            width: "100%", padding: "12px 14px", borderRadius: 8,
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.28)",
+            color: "#fff", fontSize: 14, boxSizing: "border-box", resize: "none", lineHeight: 1.5, fontFamily: "'Switzer','Inter',sans-serif",
+          }} />
+        </div>
+
+        <div style={{ marginBottom: 6 }}>
+          <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Recommendations</label>
+          <textarea value={recommendations} onChange={e => setRecommendations(e.target.value)} placeholder="Price adjustments, staging, next-step advice for Denise…" rows={2} style={{
+            width: "100%", padding: "12px 14px", borderRadius: 8,
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.28)",
+            color: "#fff", fontSize: 14, boxSizing: "border-box", resize: "none", lineHeight: 1.5, fontFamily: "'Switzer','Inter',sans-serif",
+          }} />
+        </div>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
@@ -5865,8 +5939,12 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
         color: "#080808",
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
       }}>
-        <Zap size={14} /> {submitting ? "Logging…" : "Log & +20 pts"}
+        <Send size={14} /> {submitting ? "Sending…" : "Submit → Denise + Approval"}
       </button>
+
+      <p style={{ margin: "6px 0 0", fontSize: 11, color: "rgba(255,255,255,0.35)", lineHeight: 1.5, textAlign: "center" }}>
+        Denise gets your results now. Nate approves your +20 pts.
+      </p>
     </div>
   );
 }

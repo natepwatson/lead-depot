@@ -1815,7 +1815,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v16.7
+              v17.0
             </p>
           </div>
         </div>
@@ -1908,6 +1908,7 @@ export default function AdminDashboard({
               { value: "map",         icon: MapIcon,     label: "Map View" },
               { value: "reports",     icon: BarChart2,   label: "Reports" },
               { value: "kpi",         icon: TrendingUp,  label: "KPI" },
+              { value: "approvals",   icon: CheckCircle2, label: "Approvals" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "recruiting",  icon: Users,       label: "Recruiting" },
               { value: "candidates",  icon: UserPlus,    label: "Candidates" },
@@ -2998,6 +2999,14 @@ export default function AdminDashboard({
               + team roll-up. Scope: cycle | month | all. */}
           <TabsContent value="kpi" className="mt-5">
             <KpiRatiosPanel />
+          </TabsContent>
+
+          {/* v17.0 — Unified approvals queue. Currently only Open House Log
+              submissions; Direct Mail + Door Knocking pipe into the same queue
+              once their flows ship. Approve = award points + insert lead_activity.
+              Reject = no points, no activity, decision_notes saved for audit. */}
+          <TabsContent value="approvals" className="mt-5">
+            <ApprovalsPanel />
           </TabsContent>
 
           <TabsContent value="upload" className="mt-5">
@@ -4538,6 +4547,242 @@ function KpiRatiosPanel() {
             Ratios show inputs required to produce one appointment. "—" means no appointments in this window.
           </p>
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── v17.0 — Admin Approvals queue ──────────────────────────────────────────
+// Unified queue for evidence-required lead-gen activities. First shipping user
+// is Open House Log; Direct Mail + Door Knocking flow through the same panel
+// once they ship. Each row shows the selfie/evidence, form fields, and Approve
+// / Reject buttons. Approve awards points + writes lead_activity; Reject does
+// neither and stores the decision note for audit.
+function ApprovalsPanel() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected" | "all">("pending");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [rejectNotes, setRejectNotes] = useState("");
+
+  const { data, isLoading, refetch } = useQuery<{
+    items: Array<{
+      id: number; kind: string; agentId: number; agentName: string;
+      status: "pending" | "approved" | "rejected";
+      pointsAwarded: number | null; pointsPotential: number;
+      submittedAt: string; decidedAt: string | null; decidedBy: number | null;
+      decisionNotes: string | null; activityId: number | null;
+      payload: any;
+    }>;
+    counts: { pending: number; approved: number; rejected: number };
+  }>({
+    queryKey: ["/api/admin/approvals", statusFilter],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/admin/approvals?status=${statusFilter}`);
+      return r.json();
+    },
+    refetchInterval: 30_000,
+  });
+
+  const approveMut = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/admin/approvals/${id}/approve`, {});
+      return r.json();
+    },
+    onSuccess: (result) => {
+      toast({ title: "Approved", description: `+${result.pointsAwarded || 0} pts awarded.` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
+      qc.invalidateQueries({ queryKey: ["/api/leaderboard"] });
+      setSelectedId(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Approve failed", description: err?.message || "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: async ({ id, notes }: { id: number; notes: string }) => {
+      const r = await apiRequest("POST", `/api/admin/approvals/${id}/reject`, { notes });
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Rejected", description: "No points awarded.", variant: "destructive" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
+      setSelectedId(null);
+      setRejectNotes("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Reject failed", description: err?.message || "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const items = data?.items || [];
+  const counts = data?.counts || { pending: 0, approved: 0, rejected: 0 };
+
+  const kindLabel = (k: string) => k === "open_house_log" ? "Open House"
+    : k === "direct_mail" ? "Direct Mail"
+    : k === "door_knock" ? "Door Knocking"
+    : k;
+
+  const fmtDate = (iso: string | null) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  };
+
+  return (
+    <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{
+          fontFamily: "'Cormorant Garamond','Georgia',serif",
+          fontSize: "1.5rem", fontWeight: 300, color: "#fff", marginBottom: 4,
+        }}>Approvals</h2>
+        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
+          Evidence-required submissions. Approve to award points and log the activity. Reject to close it out with no points.
+        </p>
+      </div>
+
+      {/* Filter chips */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {(["pending", "approved", "rejected", "all"] as const).map(s => {
+          const n = s === "all" ? counts.pending + counts.approved + counts.rejected : counts[s as keyof typeof counts] ?? 0;
+          const active = statusFilter === s;
+          return (
+            <button key={s} onClick={() => setStatusFilter(s)} style={{
+              padding: "6px 14px", borderRadius: 999,
+              background: active ? "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)" : "rgba(255,255,255,0.03)",
+              border: active ? "none" : "1px solid rgba(200,170,90,0.28)",
+              color: active ? "#080808" : "rgba(255,255,255,0.75)",
+              fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase",
+              cursor: "pointer",
+            }}>
+              {s} {typeof n === "number" && s !== "all" ? `· ${n}` : ""}
+            </button>
+          );
+        })}
+      </div>
+
+      {isLoading ? (
+        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Loading…</p>
+      ) : items.length === 0 ? (
+        <div style={{
+          padding: "40px 20px", textAlign: "center", borderRadius: 10,
+          background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.08)",
+          color: "rgba(255,255,255,0.4)", fontSize: 13,
+        }}>
+          {statusFilter === "pending" ? "No pending approvals. All caught up." : `No ${statusFilter} requests.`}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {items.map(item => {
+            const isSelected = selectedId === item.id;
+            const p = item.payload || {};
+            const r = p.results || {};
+            return (
+              <div key={item.id} style={{
+                padding: 16, borderRadius: 12,
+                background: "rgba(255,255,255,0.02)",
+                border: item.status === "pending"
+                  ? "1px solid rgba(200,170,90,0.28)"
+                  : "1px solid rgba(255,255,255,0.06)",
+              }}>
+                <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+                  {/* Selfie thumbnail */}
+                  {p.photoDataUrl && (
+                    <img src={p.photoDataUrl} alt="Evidence" style={{
+                      width: 96, height: 96, objectFit: "cover", borderRadius: 8,
+                      border: "1px solid rgba(200,170,90,0.28)", flexShrink: 0,
+                    }} />
+                  )}
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+                      <span style={{
+                        padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+                        letterSpacing: "0.1em", textTransform: "uppercase",
+                        background: "rgba(200,170,90,0.15)", color: "#c8aa5a",
+                      }}>{kindLabel(item.kind)}</span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{item.agentName}</span>
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>· {fmtDate(item.submittedAt)}</span>
+                      {item.status !== "pending" && (
+                        <span style={{
+                          padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+                          letterSpacing: "0.1em", textTransform: "uppercase",
+                          background: item.status === "approved" ? "rgba(76,175,80,0.15)" : "rgba(244,67,54,0.15)",
+                          color: item.status === "approved" ? "#4caf50" : "#f44336",
+                        }}>{item.status}</span>
+                      )}
+                    </div>
+                    <p style={{ margin: "0 0 8px", fontSize: 13, color: "rgba(255,255,255,0.85)" }}>{p.address || "—"}</p>
+                    {(r.attendees != null || r.notes || r.issues || r.recommendations) && (
+                      <div style={{
+                        marginTop: 8, padding: "10px 12px", borderRadius: 8,
+                        background: "rgba(0,0,0,0.2)", fontSize: 12, lineHeight: 1.55,
+                        color: "rgba(255,255,255,0.75)",
+                      }}>
+                        {r.attendees != null && <div><strong style={{ color: "#c8aa5a" }}>Attendees:</strong> {r.attendees}</div>}
+                        {r.notes && <div style={{ marginTop: 4 }}><strong style={{ color: "#c8aa5a" }}>Notes:</strong> {r.notes}</div>}
+                        {r.issues && <div style={{ marginTop: 4 }}><strong style={{ color: "#c8aa5a" }}>Issues:</strong> {r.issues}</div>}
+                        {r.recommendations && <div style={{ marginTop: 4 }}><strong style={{ color: "#c8aa5a" }}>Recommendations:</strong> {r.recommendations}</div>}
+                      </div>
+                    )}
+                    {item.decisionNotes && (
+                      <p style={{ marginTop: 6, fontSize: 11, color: "rgba(255,255,255,0.4)", fontStyle: "italic" }}>
+                        Decision note: {item.decisionNotes}
+                      </p>
+                    )}
+                  </div>
+                  {item.status === "pending" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+                      <button onClick={() => approveMut.mutate(item.id)} disabled={approveMut.isPending} style={{
+                        padding: "8px 18px", borderRadius: 8,
+                        background: "linear-gradient(135deg,#4caf50 0%,#2e7d32 100%)",
+                        border: "none", color: "#fff", fontWeight: 700, fontSize: 12,
+                        letterSpacing: "0.1em", textTransform: "uppercase",
+                        cursor: approveMut.isPending ? "wait" : "pointer",
+                        display: "flex", alignItems: "center", gap: 6,
+                      }}><CheckCircle2 size={13} /> Approve +{item.pointsPotential}</button>
+                      <button onClick={() => { setSelectedId(item.id === selectedId ? null : item.id); setRejectNotes(""); }} style={{
+                        padding: "8px 18px", borderRadius: 8,
+                        background: "rgba(244,67,54,0.12)",
+                        border: "1px solid rgba(244,67,54,0.4)",
+                        color: "#f44336", fontWeight: 700, fontSize: 12,
+                        letterSpacing: "0.1em", textTransform: "uppercase",
+                        cursor: "pointer",
+                        display: "flex", alignItems: "center", gap: 6,
+                      }}><XCircle size={13} /> Reject</button>
+                    </div>
+                  )}
+                </div>
+
+                {isSelected && item.status === "pending" && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(244,67,54,0.2)" }}>
+                    <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(244,67,54,0.85)", fontWeight: 600, marginBottom: 6 }}>Reason for rejection (optional)</label>
+                    <textarea value={rejectNotes} onChange={e => setRejectNotes(e.target.value)} rows={2} placeholder="e.g. Sign not visible in selfie, no attendees recorded…" style={{
+                      width: "100%", padding: "10px 12px", borderRadius: 8,
+                      background: "rgba(255,255,255,0.03)", border: "1px solid rgba(244,67,54,0.28)",
+                      color: "#fff", fontSize: 13, boxSizing: "border-box", resize: "none",
+                    }} />
+                    <div style={{ marginTop: 8, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <button onClick={() => { setSelectedId(null); setRejectNotes(""); }} style={{
+                        padding: "6px 14px", borderRadius: 6,
+                        background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                        color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: 600,
+                        cursor: "pointer",
+                      }}>Cancel</button>
+                      <button onClick={() => rejectMut.mutate({ id: item.id, notes: rejectNotes })} disabled={rejectMut.isPending} style={{
+                        padding: "6px 14px", borderRadius: 6,
+                        background: "linear-gradient(135deg,#f44336 0%,#c62828 100%)",
+                        border: "none", color: "#fff", fontSize: 11, fontWeight: 700,
+                        letterSpacing: "0.1em", textTransform: "uppercase",
+                        cursor: rejectMut.isPending ? "wait" : "pointer",
+                      }}>Confirm Reject</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

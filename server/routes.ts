@@ -348,7 +348,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v16.7 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v17.0 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -407,7 +407,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v16.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -692,7 +692,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v16.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v17.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1933,7 +1933,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v16.7</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v17.0</p>
             </div>
           `,
         });
@@ -2093,7 +2093,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v16.7 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v17.0 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -6713,7 +6713,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v16.7 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v17.0 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -6722,12 +6722,19 @@ Brothers Group Real Estate Team at Momentum Realty
     res.json({ created: true, leadId: created.id });
   });
 
-  // ─── v16.7 OPEN HOUSE LOG (photo + address, no lead created) ────────────
-  // Physical-presence log. Awards 20 pts. Selfie stored as base64 data URL on
-  // lead_activity.notes (JSON payload). NO FUB push, NO lead created — this is
-  // just an activity record for the KPI page.
-  app.post("/api/lead-gen/open-house-log", (req, res) => {
-    const { agentId, address, photoDataUrl, gpsLat, gpsLng, timestamp } = req.body;
+  // ─── v17.0 OPEN HOUSE LOG → APPROVAL QUEUE ─────────────────────────────
+  // v17.0 changes v16.7's instant-award to a submit-→-approval flow.
+  // Agent submits selfie (with sign visible) + address + OH results form
+  // (attendees, notes, issues, recommendations). A row goes into
+  // approval_requests with status='pending'. Points award ONLY when Nate
+  // approves. Denise gets an "Open House Results" email immediately on
+  // submit (she needs same-day feedback for follow-ups) with Alex + Nate
+  // CC'd. This is the pattern for every future evidence-required activity.
+  app.post("/api/lead-gen/open-house-log", async (req, res) => {
+    const {
+      agentId, address, photoDataUrl, gpsLat, gpsLng, timestamp,
+      attendees, notes, issues, recommendations,
+    } = req.body;
     const submitterId = agentId ? parseInt(String(agentId)) : null;
     if (!submitterId) return res.status(400).json({ error: "agentId required" });
     if (!address || !String(address).trim()) return res.status(400).json({ error: "Address required" });
@@ -6735,37 +6742,89 @@ Brothers Group Real Estate Team at Momentum Realty
 
     const now = new Date().toISOString();
     const submitter = storage.getAgentById(submitterId);
-    const payload = JSON.stringify({
-      address: String(address).trim(),
+    const cleanAddr = String(address).trim();
+    const results = {
+      attendees: attendees != null ? Math.max(0, parseInt(String(attendees)) || 0) : null,
+      notes: notes ? String(notes).trim().slice(0, 4000) : "",
+      issues: issues ? String(issues).trim().slice(0, 4000) : "",
+      recommendations: recommendations ? String(recommendations).trim().slice(0, 4000) : "",
+    };
+    const payloadObj = {
+      address: cleanAddr,
       gpsLat: gpsLat != null ? Number(gpsLat) : null,
       gpsLng: gpsLng != null ? Number(gpsLng) : null,
       capturedAt: timestamp || now,
-      photoDataUrl: String(photoDataUrl).slice(0, 4_000_000), // cap ~4MB base64 to keep row sane
-    });
+      photoDataUrl: String(photoDataUrl).slice(0, 4_000_000),
+      results,
+    };
 
-    // v16.7 — lead_id is NULL (no lead attached); snapshot columns preserve
-    // audit trail for the OH log. Activity remains queryable by outcome.
-    rawDb.prepare(`
-      INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at,
-                                  lead_address_snapshot, lead_phone_snapshot, lead_owner_snapshot)
-      VALUES (NULL, ?, 'open_house_log', ?, NULL, ?, ?, NULL, NULL)
-    `).run(submitterId, payload, now, String(address).trim());
+    // Create the approval request — status='pending'. No points awarded yet,
+    // no lead_activity row yet. Both come on admin approval.
+    const info = rawDb.prepare(`
+      INSERT INTO approval_requests
+        (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
+      VALUES ('open_house_log', ?, ?, 'pending', 20, ?, ?)
+    `).run(submitterId, submitter?.name || "Agent", JSON.stringify(payloadObj), now);
+    const requestId = Number(info.lastInsertRowid);
 
-    awardPoints(submitterId, "open_house_log");
+    // Fire OH RESULTS email to Denise immediately (Alex + Nate CC'd). She uses
+    // this same-day for feedback follow-ups — waiting for admin approval
+    // would slow her down.
+    if (resend) {
+      try {
+        const attendeesLine = results.attendees != null ? `<strong>${results.attendees}</strong> visitors` : "Not recorded";
+        const html = `
+          <div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:640px;margin:0 auto;background:#fff;padding:32px 28px;color:#1a1a1a">
+            <div style="border-bottom:2px solid #c8aa5a;padding-bottom:14px;margin-bottom:20px">
+              <p style="margin:0;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:#8a6f2a;font-weight:700">Open House Results</p>
+              <h1 style="margin:6px 0 0;font-size:22px;color:#1a1a1a;font-weight:700">${cleanAddr}</h1>
+            </div>
+            <table style="width:100%;font-size:14px;line-height:1.55">
+              <tr><td style="padding:6px 0;color:#666;width:130px">Agent</td><td style="padding:6px 0;font-weight:600">${submitter?.name || "Agent"}</td></tr>
+              <tr><td style="padding:6px 0;color:#666">Attendees</td><td style="padding:6px 0">${attendeesLine}</td></tr>
+              <tr><td style="padding:6px 0;color:#666;vertical-align:top">Notes</td><td style="padding:6px 0">${(results.notes || "—").replace(/\n/g,"<br>")}</td></tr>
+              <tr><td style="padding:6px 0;color:#666;vertical-align:top">Issues</td><td style="padding:6px 0">${(results.issues || "None reported").replace(/\n/g,"<br>")}</td></tr>
+              <tr><td style="padding:6px 0;color:#666;vertical-align:top">Recommendations</td><td style="padding:6px 0">${(results.recommendations || "—").replace(/\n/g,"<br>")}</td></tr>
+            </table>
+            <div style="margin-top:22px;padding-top:14px;border-top:1px solid #eee">
+              <img src="cid:oh-selfie" alt="OH Selfie" style="max-width:100%;border-radius:8px" />
+            </div>
+            <p style="margin-top:22px;font-size:11px;color:#999;line-height:1.5">Sent by Lead Depot on Open House submission. Points pending Nate's approval.</p>
+          </div>
+        `;
+        // Extract base64 payload from the data URL for attachment
+        const m = String(photoDataUrl).match(/^data:(image\/[^;]+);base64,(.+)$/);
+        const attachments = m ? [{ filename: "open-house-selfie.jpg", content: Buffer.from(m[2], "base64") }] : undefined;
+        await resend.emails.send({
+          from: "noreply@watsonbrothersgroup.com",
+          to: ["denise@watsonbrothersgroup.com"],
+          cc: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+          subject: `Open House Results — ${cleanAddr} — ${submitter?.name || "Agent"}`,
+          html,
+          attachments,
+        });
+      } catch (err) {
+        console.error("[OH Results Email] failed:", err);
+        // Non-fatal — approval row still exists
+      }
+    }
 
+    // WS broadcast so an open admin dashboard reflects new pending in real time
     broadcast({
-      type: "activity_event",
+      type: "approval_event",
       event: {
-        type: "open_house_log",
+        type: "approval_submitted",
+        kind: "open_house_log",
+        requestId,
         agentId: submitterId,
         agentName: submitter?.name || "Agent",
         agentHeadshot: (submitter as any)?.headshotUrl || null,
-        address: String(address).trim(),
+        address: cleanAddr,
         ts: now,
       },
     });
 
-    res.json({ logged: true, points: 20 });
+    res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: 20 });
   });
 
   // ─── v16.7 OPEN HOUSE LEAD (full lead capture at OH → Depot + FUB-later) ───
@@ -6855,13 +6914,120 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">Lead is live in Lead Depot assigned to ${agentName}. FUB push will fire on KIT or Appt.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v16.7 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v17.0 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[open_house lead] Notify failed:", err));
     }
 
     res.json({ created: true, leadId: created.id, points: 20 });
+  });
+
+  // ─── v17.0 ADMIN APPROVAL QUEUE ────────────────────────────────────────
+  // GET  /api/admin/approvals?status=pending|approved|rejected|all
+  // POST /api/admin/approvals/:id/approve  { notes? }
+  // POST /api/admin/approvals/:id/reject   { notes? }
+  //
+  // On approve: parse payload_json, insert lead_activity row with the correct
+  // outcome + evidence in notes, award points, flip status, stamp decided_by
+  // and activity_id. On reject: no lead_activity, no points, status='rejected'.
+  app.get("/api/admin/approvals", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const status = String(req.query.status || "pending");
+    const kind = req.query.kind ? String(req.query.kind) : null;
+    const params: any[] = [];
+    let where = "1=1";
+    if (status !== "all") { where += " AND status = ?"; params.push(status); }
+    if (kind)            { where += " AND kind = ?";   params.push(kind); }
+    const rows = rawDb.prepare(`
+      SELECT id, kind, agent_id, agent_name, status, points_awarded, points_potential,
+             payload_json, submitted_at, decided_at, decided_by, decision_notes, activity_id
+      FROM approval_requests
+      WHERE ${where}
+      ORDER BY submitted_at DESC
+      LIMIT 200
+    `).all(...params) as any[];
+    const items = rows.map((r: any) => {
+      let payload: any = {};
+      try { payload = JSON.parse(r.payload_json || "{}"); } catch {}
+      return {
+        id: r.id, kind: r.kind,
+        agentId: r.agent_id, agentName: r.agent_name,
+        status: r.status,
+        pointsAwarded: r.points_awarded, pointsPotential: r.points_potential,
+        submittedAt: r.submitted_at, decidedAt: r.decided_at, decidedBy: r.decided_by,
+        decisionNotes: r.decision_notes, activityId: r.activity_id,
+        payload,
+      };
+    });
+    const counts = rawDb.prepare(`
+      SELECT status, COUNT(*) AS n FROM approval_requests GROUP BY status
+    `).all() as any[];
+    const countByStatus: Record<string, number> = { pending: 0, approved: 0, rejected: 0 };
+    for (const c of counts) countByStatus[c.status] = c.n;
+    res.json({ items, counts: countByStatus });
+  });
+
+  app.post("/api/admin/approvals/:id/approve", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(String(req.params.id));
+    if (!id) return res.status(400).json({ error: "Invalid id" });
+    const admin = (req.session as any)?.agent;
+    const row = rawDb.prepare(`SELECT * FROM approval_requests WHERE id = ?`).get(id) as any;
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.status !== "pending") return res.status(400).json({ error: `Already ${row.status}` });
+
+    const now = new Date().toISOString();
+    const outcome = row.kind;
+    let payload: any = {};
+    try { payload = JSON.parse(row.payload_json || "{}"); } catch {}
+    const addrSnap = payload.address || null;
+    const activityInfo = rawDb.prepare(`
+      INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at,
+                                  lead_address_snapshot, lead_phone_snapshot, lead_owner_snapshot)
+      VALUES (NULL, ?, ?, ?, NULL, ?, ?, NULL, NULL)
+    `).run(row.agent_id, outcome, row.payload_json, now, addrSnap);
+    const activityId = Number(activityInfo.lastInsertRowid);
+
+    try { awardPoints(row.agent_id, outcome); } catch (err) { console.error("[approve] awardPoints failed:", err); }
+    const pointsAwarded = row.points_potential || 0;
+
+    rawDb.prepare(`
+      UPDATE approval_requests
+         SET status = 'approved', points_awarded = ?, decided_at = ?, decided_by = ?,
+             decision_notes = ?, activity_id = ?
+       WHERE id = ?
+    `).run(pointsAwarded, now, admin?.id || null, String(req.body?.notes || "").slice(0, 500), activityId, id);
+
+    broadcast({
+      type: "approval_event",
+      event: { type: "approval_decided", requestId: id, kind: row.kind, agentId: row.agent_id, agentName: row.agent_name, status: "approved", pointsAwarded, ts: now },
+    });
+
+    res.json({ approved: true, requestId: id, activityId, pointsAwarded });
+  });
+
+  app.post("/api/admin/approvals/:id/reject", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(String(req.params.id));
+    if (!id) return res.status(400).json({ error: "Invalid id" });
+    const admin = (req.session as any)?.agent;
+    const row = rawDb.prepare(`SELECT * FROM approval_requests WHERE id = ?`).get(id) as any;
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.status !== "pending") return res.status(400).json({ error: `Already ${row.status}` });
+    const now = new Date().toISOString();
+    rawDb.prepare(`
+      UPDATE approval_requests
+         SET status = 'rejected', decided_at = ?, decided_by = ?, decision_notes = ?
+       WHERE id = ?
+    `).run(now, admin?.id || null, String(req.body?.notes || "").slice(0, 500), id);
+
+    broadcast({
+      type: "approval_event",
+      event: { type: "approval_decided", requestId: id, kind: row.kind, agentId: row.agent_id, agentName: row.agent_name, status: "rejected", ts: now },
+    });
+
+    res.json({ rejected: true, requestId: id });
   });
 
   // ─── v16.7 ADMIN KPI RATIOS — "What Turns the Gears" ─────────────────
@@ -7422,7 +7588,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v16.7",
+      version: "v17.0",
       services: results,
     });
   });
@@ -8540,7 +8706,7 @@ Brothers Group Real Estate Team at Momentum Realty
             await resend.emails.send({
               from: "Alex Watson <noreply@watsonbrothersgroup.com>",
               to: normEmail,
-              subject: `${firstName}, your BGRE application — Lead Depot v16.7`,
+              subject: `${firstName}, your BGRE application — Lead Depot v17.0`,
               html,
               text: invitationBody,
               reply_to: "alex@watsonbrothersgroup.com",
@@ -9179,7 +9345,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v16.7</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v17.0</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

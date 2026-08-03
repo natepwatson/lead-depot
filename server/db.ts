@@ -1172,6 +1172,33 @@ if (!agentColsV158.includes("published_phone")) rawDb.prepare("ALTER TABLE agent
 const agentColsV15110 = rawDb.prepare("PRAGMA table_info(agents)").all().map((c: any) => c.name);
 if (!agentColsV15110.includes("push_notif_on_air")) rawDb.prepare("ALTER TABLE agents ADD COLUMN push_notif_on_air INTEGER NOT NULL DEFAULT 0").run();
 
+// v16.8 — Unified approval queue. Any actionable lead-gen activity that
+// requires admin verification (OH log, future DM checkpoints, future door
+// knock summaries) creates one row here. Points are ONLY awarded when
+// status flips to 'approved'. Evidence (photo dataURLs, form fields, GPS,
+// route metadata) lives in `payload_json` so we don't have to migrate the
+// table every time a new activity type ships.
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS approval_requests (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind              TEXT NOT NULL,              -- 'open_house_log' | 'direct_mail' | 'door_knock' | ...
+    agent_id          INTEGER NOT NULL,
+    agent_name        TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'pending',   -- 'pending' | 'approved' | 'rejected' | 'partial'
+    points_awarded    INTEGER NOT NULL DEFAULT 0,        -- final points once approved (0 while pending)
+    points_potential  INTEGER NOT NULL DEFAULT 0,        -- what will award on approval (e.g. 20 for OH, N for DM/knocks)
+    payload_json      TEXT NOT NULL,                     -- {selfiePhoto, address, gps, results, checkpoints, ...}
+    submitted_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_at        TEXT,
+    decided_by        INTEGER,                           -- admin agent_id
+    decision_notes    TEXT,
+    activity_id       INTEGER                            -- FK to lead_activity row created on approval
+  )
+`);
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_status ON approval_requests(status, submitted_at DESC)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_agent ON approval_requests(agent_id, submitted_at DESC)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_kind ON approval_requests(kind, status)`).run();
+
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");
 console.log("[db] v15.5 onboarding candidate schema ready (candidates + onboarding_checklist + 9 agents cols)");

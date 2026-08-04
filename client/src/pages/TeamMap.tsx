@@ -151,11 +151,34 @@ const fmtTime = (t: string) => {
   } catch { return t; }
 };
 
+// v20.6.8 — Status-aware chip. Each listing gets a colored pill that matches
+// its FUB stage (source of truth). LIVE=teal, COMING SOON=amber, POCKET=gold,
+// UNDER CONTRACT=orange, SOLD=green. Legacy "active" and "pending" map to
+// LIVE and UNDER CONTRACT respectively so nothing regresses.
+function listingStatusChip(status?: string): { label: string; bg: string; border: string; fg: string } {
+  const s = String(status || "active").toLowerCase();
+  if (s === "pocket") {
+    return { label: "POCKET", bg: "rgba(200,170,90,0.18)", border: "rgba(200,170,90,0.55)", fg: "#f0d38a" };
+  }
+  if (s === "coming_soon") {
+    return { label: "COMING SOON", bg: "rgba(245,165,36,0.18)", border: "rgba(245,165,36,0.55)", fg: "#fbbf24" };
+  }
+  if (s === "pending" || s === "under_contract") {
+    return { label: "UNDER CONTRACT", bg: "rgba(251,146,60,0.18)", border: "rgba(251,146,60,0.55)", fg: "#fb923c" };
+  }
+  if (s === "sold") {
+    return { label: "SOLD", bg: "rgba(126,212,154,0.15)", border: "rgba(126,212,154,0.45)", fg: "#7ed49a" };
+  }
+  // Default "active" / "live"
+  return { label: "LIVE", bg: "rgba(20,184,166,0.18)", border: "rgba(20,184,166,0.55)", fg: "#5eead4" };
+}
+
 function listingPopupHTML(l: ListingPin): string {
   const cityLine = `${l.city || ""}${l.city && l.zip ? ", " : ""}${l.state || ""} ${l.zip || ""}`.trim();
+  const chip = listingStatusChip(l.status);
   return `
     <div style="min-width:200px;padding:2px">
-      <div style="font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:#c8aa5a;font-weight:700;margin-bottom:6px">Our Listing</div>
+      <div style="display:inline-block;padding:3px 9px;border-radius:4px;background:${chip.bg};border:1px solid ${chip.border};font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:${chip.fg};font-weight:700;margin-bottom:8px">${chip.label}</div>
       <div style="font-size:13px;color:#fff;line-height:1.3">${l.address}</div>
       <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:2px">${cityLine}</div>
       ${l.listing_agent ? `<div style="font-size:11px;color:rgba(200,170,90,0.75);margin-top:6px">Listed by ${l.listing_agent}</div>` : ""}

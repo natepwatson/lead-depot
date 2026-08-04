@@ -5,7 +5,7 @@ import ActivityFeed from "../components/ld/ActivityFeed";
 import { RankTrophy } from "../components/ld/RankTrophy";
 import { StreakBadge, ChampionFrame } from "../components/ld/StreakBadge";
 import { ListingsPanel } from "../components/ld/ListingsPanel";
-// v20.6.7 — WeeklyWorkbookPanel removed; FUB is source of truth. Keeping import commented for git history.
+// v20.6.8 — WeeklyWorkbookPanel removed; FUB is source of truth. Keeping import commented for git history.
 // import { WeeklyWorkbookPanel } from "../components/ld/WeeklyWorkbookPanel";
 import { FubTagConfigPanel } from "../components/ld/FubTagConfigPanel";
 import { OpenHouseSchedulePanel } from "../components/ld/OpenHouseSchedulePanel";
@@ -1838,7 +1838,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.6.7
+              v20.6.8
             </p>
           </div>
         </div>
@@ -2672,7 +2672,7 @@ export default function AdminDashboard({
               {/* v20.4.9 — Listings section: Denise's Monday upload. */}
               <ListingsPanel />
 
-              {/* v20.6.7 — Weekly workbook upload REMOVED. FUB is now source of truth.
+              {/* v20.6.8 — Weekly workbook upload REMOVED. FUB is now source of truth.
                   Denise updates FUB directly; the Monday 6am sweep pulls state into LD.
                   Backup exports flow FROM LD via the button below. */}
               <div style={{ marginTop: 24, padding: 20, borderRadius: 12, background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.3)" }}>

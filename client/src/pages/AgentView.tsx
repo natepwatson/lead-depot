@@ -5498,14 +5498,14 @@ export const WARM_LEAD_INTENTS: {
 // leaderboard content (that's the dashboard). "leaderboard" id kept in the union
 // to gracefully fall through for anyone with a stale initialTab or bookmark.
 type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home" | "inventory";
-// v20.4.9 — Inventory added as 6th slot. Bottom nav is scrollable-safe at 6 items on modern phones (min-width≮360px still fits 60px per).
+// v20.6.8 — Profile removed from bottom nav (moved to header profile circle).
+// 5 symmetric slots around the FAB: Home / Pipeline / [Lead Gen] / Inventory / Challenges.
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "home",       label: "Home",       icon: Home },
   { id: "pipeline",   label: "Pipeline",   icon: Layers },
   { id: "leads",      label: "Lead Gen",   icon: Phone },
   { id: "inventory",  label: "Inventory",  icon: Package },
   { id: "challenges", label: "Challenges", icon: Target },
-  { id: "profile",    label: "Profile",    icon: UserCircle2 },
 ];
 
 // ─── Main AgentView ───────────────────────────────────────────────────────────
@@ -5771,11 +5771,21 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
         boxShadow: "0 2px 20px rgba(0,0,0,0.5)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {/* v18.4 — UNIFIED SHELL top-bar. Every user sees: DEPOT + name + version.
-              Admins see one extra thing to the LEFT: an "Admin" pill that opens
-              the full-screen tools takeover. onBackToAdmin (legacy, in case admins
-              jump into an agent tab from elsewhere) still honored. onOpenAdmin
-              is the primary entry point post-v18.4. */}
+          {/* v20.6.8 — Company name (LEAD DEPOT + user name + version) sticks to
+              the FAR LEFT for everyone. Admin pill sits IMMEDIATELY to the right of
+              the LEAD DEPOT block (was on the left in prior versions). Non-admins
+              simply don't see the admin pill — nothing else moves. */}
+          <div>
+            <p style={{
+              fontFamily: "'Cormorant Garamond','Georgia',serif",
+              fontSize: 15, fontWeight: 500, letterSpacing: "0.2em",
+              color: "#fff", textTransform: "uppercase", lineHeight: 1,
+            }}>Lead Depot</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+              <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.6.8</span>
+            </div>
+          </div>
           {onBackToAdmin && (
             <button onClick={onBackToAdmin} style={{
               display: "flex", alignItems: "center", gap: 5,
@@ -5803,17 +5813,6 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
               <Shield size={12} /> Admin
             </button>
           )}
-          <div>
-            <p style={{
-              fontFamily: "'Cormorant Garamond','Georgia',serif",
-              fontSize: 15, fontWeight: 500, letterSpacing: "0.2em",
-              color: "#fff", textTransform: "uppercase", lineHeight: 1,
-            }}>Lead Depot</p>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-              <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.9</span>
-            </div>
-          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* v15.3 — REAL dialing-now pill. Green + pulse when ≥ 1 agent has
@@ -5879,6 +5878,36 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           {/* v14.54 — removed the tutorial "?" help pill. It sat between Who called? and Sign out
               and was pushing the header past the right edge. Tutorial is still reachable from
               the profile screen if needed. */}
+          {/* v20.6.8 — Circular profile button sits immediately LEFT of Sign out.
+              Replaces the Profile bottom-nav tab (removed this deploy). Tap opens
+              the same Profile page. Renders the user's headshot when available,
+              falls back to initials on a gold gradient. */}
+          <button
+            onClick={() => setTab("profile")}
+            title="Profile"
+            aria-label="Open profile"
+            style={{
+              width: 32, height: 32, borderRadius: "50%",
+              padding: 0, cursor: "pointer", flexShrink: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              overflow: "hidden",
+              background: "linear-gradient(135deg, rgba(200,170,90,0.35), rgba(140,110,50,0.25))",
+              border: "1px solid rgba(200,170,90,0.55)",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.4), 0 0 0 0.5px rgba(255,220,140,0.25) inset",
+              color: "#fff5e0", fontSize: 11, fontWeight: 700, letterSpacing: "0.05em",
+            }}
+          >
+            {(user as any)?.headshotUrl ? (
+              <img
+                src={(user as any).headshotUrl}
+                alt={user?.name ?? "Profile"}
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+              />
+            ) : (
+              <span>{(user?.name ?? "?").trim().split(/\s+/).map(w => w[0] ?? "").join("").slice(0,2).toUpperCase() || "?"}</span>
+            )}
+          </button>
           <button onClick={logout} style={{
             display: "flex", alignItems: "center", gap: 5,
             fontSize: 11, color: "rgba(255,255,255,0.4)",
@@ -6627,17 +6656,16 @@ function LeadGenSheet(props: {
     const vw = typeof window !== "undefined" ? window.innerWidth : 393;
     const BUBBLE_SIZE = vw < 360 ? 56 : vw < 400 ? 60 : 64;
     const HERO_SIZE = BUBBLE_SIZE + 22;
-    // v20.6.7 — Labels were overlapping neighbor bubbles on 393px iPhones because
-    // the previous LABEL_HALF (40) was too tight for "Agent Referral" (~112px wide
-    // at 12px semibold). Widen the label budget to guarantee each label has clear
-    // air on both sides of its own bubble.
-    const LABEL_HALF = 62; // half-width budget for widest label ("Agent Referral" ≈ 112px)
-    const EDGE_MARGIN = 12;
+    // v20.6.8 — Shortened labels (Mail/Network/OH/Dial/Social/Refer/Knock) all fit in ~48px,
+    // so we drop LABEL_HALF from 62 → 34 and let the radius grow. That gives us a much
+    // more circular sweep instead of a shallow arc. Also raised MAX_RADIUS ceiling 210 → 260.
+    const LABEL_HALF = 34; // widest is "Network" at ~48px @ 11px semibold
+    const EDGE_MARGIN = 10;
     const MAX_RADIUS = (vw / 2) - (BUBBLE_SIZE / 2) - LABEL_HALF - EDGE_MARGIN;
     // We also need to keep bubbles above the fold: cap by vertical space too.
     const vh = typeof window !== "undefined" ? window.innerHeight : 780;
-    const VERTICAL_CAP = vh - 240; // reserve room for nav + safe area + label + label breathing
-    const ARC_RADIUS = Math.max(140, Math.min(210, MAX_RADIUS, VERTICAL_CAP));
+    const VERTICAL_CAP = vh - 220; // trimmed 20px (labels are shorter, need less breathing room)
+    const ARC_RADIUS = Math.max(160, Math.min(260, MAX_RADIUS, VERTICAL_CAP));
     const HERO_LIFT = 20;
     // Narrower 160° sweep: 100° (leftmost) → 80° (rightmost) covers 20° span per bubble step * 6 gaps.
     // Actually keep 30° stepping but rotate the whole sweep inward by 10° on each side: 170° → 10°.
@@ -6645,13 +6673,14 @@ function LeadGenSheet(props: {
       key: string; label: string; icon: React.ReactNode;
       angleDeg: number; hero?: boolean; onClick: () => void;
     }> = [
-      { key: "mail",    label: "Direct Mail",    icon: <Mail size={20} />,     angleDeg: 170, onClick: () => setView("direct-mail" as any) },
-      { key: "network", label: "Network",        icon: <Users size={20} />,    angleDeg: 143, onClick: () => setView("network-referral") },
-      { key: "oh",      label: "Open House",     icon: <Home size={20} />,     angleDeg: 116, onClick: () => setView("open-house") },
-      { key: "dial",    label: "Dial",           icon: <Phone size={28} />,    angleDeg: 90,  hero: true, onClick: goToDial },
-      { key: "social",  label: "Social",         icon: <Share2 size={20} />,   angleDeg: 64,  onClick: () => setView("social" as any) },
-      { key: "refer",   label: "Agent Referral", icon: <Send size={20} />,     angleDeg: 37,  onClick: () => setView("refer-agent" as any) },
-      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={20} />, angleDeg: 10,  onClick: () => setView("door-knock" as any) },
+      // v20.6.8 — Short labels so each fits within ~60px LABEL_HALF budget. Widest is now "Network" (~48px @ 11px semibold).
+      { key: "mail",    label: "Mail",    icon: <Mail size={20} />,     angleDeg: 170, onClick: () => setView("direct-mail" as any) },
+      { key: "network", label: "Network", icon: <Users size={20} />,    angleDeg: 143, onClick: () => setView("network-referral") },
+      { key: "oh",      label: "OH",      icon: <Home size={20} />,     angleDeg: 116, onClick: () => setView("open-house") },
+      { key: "dial",    label: "Dial",    icon: <Phone size={28} />,    angleDeg: 90,  hero: true, onClick: goToDial },
+      { key: "social",  label: "Social",  icon: <Share2 size={20} />,   angleDeg: 64,  onClick: () => setView("social" as any) },
+      { key: "refer",   label: "Refer",   icon: <Send size={20} />,     angleDeg: 37,  onClick: () => setView("refer-agent" as any) },
+      { key: "knock",   label: "Knock",   icon: <DoorOpen size={20} />, angleDeg: 10,  onClick: () => setView("door-knock" as any) },
     ];
     // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
     // Anchor the arc's origin over the FAB center.
@@ -6814,16 +6843,15 @@ function LeadGenSheet(props: {
                 {/* v20.4.6 — label legibility pass: bigger, mixed case, less letter-spacing,
                     fuller opacity. Nowrap kept but multi-word labels have breathing room. */}
                 <span className="arc-label" style={{
-                  marginTop: 10,
-                  fontSize: b.hero ? 13 : 12,
-                  letterSpacing: "0.02em",
+                  marginTop: 8,
+                  fontSize: b.hero ? 12 : 11,
+                  letterSpacing: "0.03em",
                   fontWeight: b.hero ? 700 : 600,
                   color: b.hero ? "#fde68a" : "#fff5e0",
-                  /* v20.6.7 — label backing pill: solid-ish dark chip behind each
-                     label so if two labels ever crowd on a tiny viewport they
-                     don't visually merge into the neighbor bubble. */
-                  background: "linear-gradient(180deg, rgba(6,6,6,0.68) 0%, rgba(6,6,6,0.82) 100%)",
-                  padding: "3px 8px",
+                  /* v20.6.8 — shortened labels (Mail/Network/OH/Dial/Social/Refer/Knock)
+                     fit inside a tighter pill. Smaller font, tighter padding. */
+                  background: "linear-gradient(180deg, rgba(6,6,6,0.72) 0%, rgba(6,6,6,0.86) 100%)",
+                  padding: "2px 7px",
                   borderRadius: 999,
                   textShadow: "0 1px 2px rgba(0,0,0,0.9)",
                   whiteSpace: "nowrap",

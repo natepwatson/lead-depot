@@ -1280,9 +1280,9 @@ rawDb.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `);
-console.log("[db] v20.6.7 newsletter_inputs table ready");
+console.log("[db] v20.6.8 newsletter_inputs table ready");
 
-// ─── v20.6.7 one-shot buyer master-list cleanup ────────────────────────────
+// ─── v20.6.8 one-shot buyer master-list cleanup ────────────────────────────
 // Aug 4 workbook upload created 5 bad rows in `buyers`:
 //   1. One row with name literally '[object Object]' (parser stringified an object)
 //   2. Three rows with price_min > price_max (parser confused min vs max
@@ -1292,23 +1292,23 @@ console.log("[db] v20.6.7 newsletter_inputs table ready");
 // All WHERE clauses are idempotent — running twice is a no-op.
 try {
   const delObj = rawDb.prepare(`DELETE FROM buyers WHERE name = '[object Object]'`).run();
-  if (delObj.changes > 0) console.log(`[db] v20.6.7 cleanup: deleted ${delObj.changes} '[object Object]' buyer row(s)`);
+  if (delObj.changes > 0) console.log(`[db] v20.6.8 cleanup: deleted ${delObj.changes} '[object Object]' buyer row(s)`);
   const swapPrices = rawDb.prepare(`
     UPDATE buyers
        SET price_min = price_max,
            price_max = price_min,
            updated_at = datetime('now'),
-           last_updated_by = 'v20.6.7-cleanup'
+           last_updated_by = 'v20.6.8-cleanup'
      WHERE price_min IS NOT NULL AND price_max IS NOT NULL AND price_min > price_max
   `).run();
-  if (swapPrices.changes > 0) console.log(`[db] v20.6.7 cleanup: swapped inverted price ranges on ${swapPrices.changes} buyer row(s)`);
+  if (swapPrices.changes > 0) console.log(`[db] v20.6.8 cleanup: swapped inverted price ranges on ${swapPrices.changes} buyer row(s)`);
   // Only touch rows where investor is stored as a truthy text value (Jared Price = 'Yes').
   // Do NOT touch NULL rows — those are the non-investor default.
   const fixInvestor = rawDb.prepare(`
     UPDATE buyers
        SET is_investor = 1,
            updated_at = datetime('now'),
-           last_updated_by = 'v20.6.7-cleanup'
+           last_updated_by = 'v20.6.8-cleanup'
      WHERE typeof(is_investor) = 'text'
        AND lower(cast(is_investor as text)) IN ('yes','y','true','1')
   `).run();
@@ -1316,14 +1316,14 @@ try {
     UPDATE buyers
        SET is_investor = 0,
            updated_at = datetime('now'),
-           last_updated_by = 'v20.6.7-cleanup'
+           last_updated_by = 'v20.6.8-cleanup'
      WHERE typeof(is_investor) = 'text'
        AND lower(cast(is_investor as text)) IN ('no','n','false','0','')
   `).run();
-  if (zeroInvestor.changes > 0) console.log(`[db] v20.6.7 cleanup: normalized text "No" is_investor → 0 on ${zeroInvestor.changes} row(s)`);
-  if (fixInvestor.changes > 0) console.log(`[db] v20.6.7 cleanup: normalized is_investor on ${fixInvestor.changes} buyer row(s)`);
+  if (zeroInvestor.changes > 0) console.log(`[db] v20.6.8 cleanup: normalized text "No" is_investor → 0 on ${zeroInvestor.changes} row(s)`);
+  if (fixInvestor.changes > 0) console.log(`[db] v20.6.8 cleanup: normalized is_investor on ${fixInvestor.changes} buyer row(s)`);
 } catch (e) {
-  console.error("[db] v20.6.7 cleanup failed (non-fatal):", (e as any)?.message || e);
+  console.error("[db] v20.6.8 cleanup failed (non-fatal):", (e as any)?.message || e);
 }
 
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");

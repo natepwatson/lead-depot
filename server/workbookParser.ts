@@ -1,16 +1,26 @@
-// v20.4.9 — Weekly BGRE Workbook parser.
-// Denise uploads a single .xlsx with 3 tabs:
+// v20.6.3 — Weekly BGRE Commission Tracker workbook parser.
+// Denise uploads a single .xlsx with these tabs (4 real + reference):
 //   Tab 1: Closed        (historical, ignored)
-//   Tab 2: Sellers       (color-coded)
+//   Tab 2: Sellers       (color-coded, 5-col shape: Name, Address, Price, Gross Commission, Hired)
 //     🔴 Red    = Expired         → skip
 //     🟢 Green  = Closed this yr  → status='sold'
 //     ⚪ White  = Active          → status='active'
 //     🟡 Yellow = Signed/coming   → status='coming_soon'
 //     🔵 Blue   = Pocket listing  → status='pocket'
-//   Tab 3: Buyers        (color-coded)
+//   Tab 3: Buyers        (color-coded, 5-col shape: Purchaser, Address, Price, Gross Commission, Hired)
 //     🟢 Green  = Closed this yr  → status='closed'
 //     ⚪ White  = On the hunt     → status='active'
+//     Note: Buyers.Address is often an intent blurb, not a real address (e.g.
+//     "Downsize Jax 2BR under 300k", "300–600k Yulee SFH"). We route it
+//     through the intent parser AND keep raw text in notes.
+//   Tab 4: Appointments  (aka "Hot Prospects", 5-col shape: Prospect Name, Address, Price, Gross Commission, Hired)
+//     All rows → listings with status='coming_soon'
+//     v20.6.3 update: Hot prospects are ingested for reporting/search but the
+//     map excludes them (WHERE source_ref NOT LIKE 'workbook:appointments:%').
+//     The map stays a listings-only surface — no buyers, no hot prospects.
 //
+// New 5-col shape (v20.6.3): the workbook no longer carries MLS#, Listing Agent,
+// or Notes columns. Parser accepts them if present, but does not require them.
 // Uses ExcelJS because SheetJS community does not expose fill colors reliably.
 
 import ExcelJS from "exceljs";
@@ -48,6 +58,8 @@ function normHeader(s: any): string {
 
 // Map many possible spellings → canonical field name
 const SELLER_HEADER_MAP: Record<string, string> = {
+  // v20.6.3: Commission Tracker uses "Name" for the seller's name — capture for logs
+  name: "seller_name", seller: "seller_name", seller_name: "seller_name", owner: "seller_name",
   address: "address", property_address: "address", street: "address", street_address: "address",
   city: "city", state: "state", zip: "zip", zip_code: "zip", zipcode: "zip",
   list_price: "list_price", price: "list_price", asking: "list_price", asking_price: "list_price",
@@ -61,10 +73,15 @@ const SELLER_HEADER_MAP: Record<string, string> = {
   sold_date: "sold_date", closed_date: "sold_date", close_date: "sold_date",
   sold_price: "sold_price", close_price: "sold_price", closed_price: "sold_price",
   pending_date: "pending_date",
+  // v20.6.3: Commission Tracker cols — captured but not persisted to listings
+  gross_commission: "gross_commission", commission: "gross_commission",
+  hired: "hired",
 };
 
 const BUYER_HEADER_MAP: Record<string, string> = {
+  // v20.6.3: Commission Tracker uses "Purchaser" — added alongside legacy names
   name: "name", buyer: "name", buyer_name: "name", client: "name", client_name: "name",
+  purchaser: "name", purchaser_name: "name",
   phone: "phone", cell: "phone", mobile: "phone", phone_number: "phone",
   email: "email", email_address: "email",
   agent: "buyers_agent", buyers_agent: "buyers_agent", buyer_agent: "buyers_agent", assigned_agent: "buyers_agent",
@@ -82,8 +99,26 @@ const BUYER_HEADER_MAP: Record<string, string> = {
   timeline: "timeline", when: "timeline",
   notes: "notes", note: "notes", comments: "notes",
   closed_date: "closed_date", close_date: "closed_date",
-  closed_address: "closed_address", address: "closed_address", closed_property: "closed_address",
+  // v20.6.3: On the new 5-col Buyers shape, "Address" is an intent blurb
+  // (e.g. "300–600k Yulee SFH"), not a closed property address. We map it
+  // to intent_blurb so the parser can route it through parseIntent(). If the
+  // row is a 🟢 CLOSED buyer, the same string is copied to closed_address.
+  address: "intent_blurb", search: "intent_blurb", search_desc: "intent_blurb",
+  closed_address: "closed_address", closed_property: "closed_address",
   closed_price: "closed_price",
+  // v20.6.3: Commission Tracker cols — captured, not persisted
+  gross_commission: "gross_commission", commission: "gross_commission",
+  hired: "hired",
+};
+
+// v20.6.3: Appointments / Hot Prospects tab — same 5-col shape
+const APPOINTMENT_HEADER_MAP: Record<string, string> = {
+  prospect_name: "prospect_name", name: "prospect_name", prospect: "prospect_name",
+  address: "address", property_address: "address", street: "address",
+  price: "list_price", list_price: "list_price", asking: "list_price",
+  gross_commission: "gross_commission", commission: "gross_commission",
+  hired: "hired",
+  notes: "notes", note: "notes", comments: "notes",
 };
 
 // Parse a dollar string like "$1,234,500" or "1.25M" → integer cents-less USD.
@@ -134,8 +169,9 @@ function toIsoDate(v: any): string | null {
 }
 
 export type WorkbookParseResult = {
-  sellers: { inserted: number; updated: number; skipped_red: number; skipped_other: number; buckets: Record<string, number> };
-  buyers:  { inserted: number; updated: number; skipped: number; buckets: Record<string, number> };
+  sellers:      { inserted: number; updated: number; skipped_red: number; skipped_other: number; buckets: Record<string, number> };
+  buyers:       { inserted: number; updated: number; skipped: number; buckets: Record<string, number> };
+  appointments: { inserted: number; skipped: number };
   warnings: string[];
 };
 
@@ -223,21 +259,32 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
   await wb.xlsx.load(buf as any);
 
   const result: WorkbookParseResult = {
-    sellers: { inserted: 0, updated: 0, skipped_red: 0, skipped_other: 0, buckets: {} },
-    buyers:  { inserted: 0, updated: 0, skipped: 0, buckets: {} },
+    sellers:      { inserted: 0, updated: 0, skipped_red: 0, skipped_other: 0, buckets: {} },
+    buyers:       { inserted: 0, updated: 0, skipped: 0, buckets: {} },
+    appointments: { inserted: 0, skipped: 0 },
     warnings: [],
   };
 
-  // Identify tabs. Prefer by name, fall back to positional (tab 2 = sellers, tab 3 = buyers).
+  // Identify tabs. Prefer by name, fall back to positional (tab 2 = sellers, tab 3 = buyers, tab 4 = appointments).
   let sellersSheet: ExcelJS.Worksheet | null = null;
   let buyersSheet: ExcelJS.Worksheet | null = null;
+  let appointmentsSheet: ExcelJS.Worksheet | null = null;
   wb.eachSheet((sheet) => {
     const n = sheet.name.toLowerCase();
     if (n.includes("seller") && !sellersSheet) sellersSheet = sheet;
     else if (n.includes("buyer") && !buyersSheet) buyersSheet = sheet;
+    else if ((n.includes("appointment") || n.includes("prospect") || n.includes("hot")) && !appointmentsSheet) appointmentsSheet = sheet;
   });
   if (!sellersSheet && wb.worksheets.length >= 2) sellersSheet = wb.worksheets[1];
   if (!buyersSheet  && wb.worksheets.length >= 3) buyersSheet  = wb.worksheets[2];
+  if (!appointmentsSheet && wb.worksheets.length >= 4) {
+    // Only treat as appointments if tab 4 name isn't a P&L/reference sheet
+    const t4 = wb.worksheets[3];
+    const nm = t4.name.toLowerCase();
+    if (!nm.includes("p&l") && !nm.includes("pnl") && !nm.includes("income") && !nm.includes("template")) {
+      appointmentsSheet = t4;
+    }
+  }
 
   // ─── SELLERS ─────────────────────────────────────────────
   if (sellersSheet) {
@@ -416,9 +463,14 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
       const name = String(row.name || "").trim();
       if (!name) { result.buyers.skipped++; continue; }
 
-      // v20.5.0: run intent parser on Denise's jumbled notes column
-      const rawNotes = row.notes ? String(row.notes).trim() : "";
-      const intent = parseIntent(rawNotes);
+      // v20.6.3: New 5-col shape puts the intent blurb in the "Address" column
+      // (e.g. "Downsize Jax 2BR under 300k"). Legacy uploads may still use Notes.
+      // Concatenate both so parseIntent gets everything, and store the raw for
+      // the notes column so admins can eyeball it. Buyers never get geocoded/pinned.
+      const intentBlurb = row.intent_blurb ? String(row.intent_blurb).trim() : "";
+      const rawNotes    = row.notes ? String(row.notes).trim() : "";
+      const intentInput = [intentBlurb, rawNotes].filter(Boolean).join(" \u2014 ");
+      const intent      = parseIntent(intentInput);
 
       // Assign multi-search ordinal (1 first, 2 second, etc. per name in this upload)
       const ordinal = nextOrdinal(name);
@@ -467,10 +519,15 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
           lender:           row.lender ? String(row.lender).trim() : null,
           timeline:         row.timeline ? String(row.timeline).trim() : null,
           closed_date:      status === "closed" ? (toIsoDate(row.closed_date) || new Date().toISOString().slice(0,10)) : null,
-          closed_address:   status === "closed" ? (row.closed_address ? String(row.closed_address).trim() : null) : null,
+          // v20.6.3: For CLOSED buyers, prefer the explicit closed_address column,
+          // then fall back to the intent_blurb (which on the new 5-col shape holds
+          // the actual closed property address on green rows).
+          closed_address:   status === "closed"
+                              ? (row.closed_address ? String(row.closed_address).trim() : (intentBlurb || null))
+                              : null,
           closed_price:     status === "closed" ? parsePrice(row.closed_price) : null,
-          notes:            rawNotes || null,
-          intent_phrases:        rawNotes ? JSON.stringify([rawNotes]) : null,
+          notes:            intentInput || null,
+          intent_phrases:        intentInput ? JSON.stringify([intentInput]) : null,
           intent_property_types: intent.property_types.length ? intent.property_types.join(",") : null,
           intent_conditions:     intent.conditions.length ? intent.conditions.join(",") : null,
           intent_verbs:          intent.verbs.length ? intent.verbs.join(",") : null,
@@ -491,6 +548,52 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
     }
   } else {
     result.warnings.push("Buyers tab not found");
+  }
+
+  // ─── APPOINTMENTS / HOT PROSPECTS (v20.6.3) ───────────────────────
+  // All rows on this tab → listings with status='coming_soon' for reporting/search.
+  // The map excludes them via source_ref LIKE 'workbook:appointments:%' so hot
+  // prospects don't clutter the pin map. No color coding on this tab.
+  if (appointmentsSheet) {
+    const rows = readSheetRows(appointmentsSheet, APPOINTMENT_HEADER_MAP);
+    const upsert = rawDb.prepare(`
+      INSERT INTO listings (
+        address, list_price, status, listing_agent, notes,
+        uploaded_by, source, source_ref, created_at, updated_at
+      ) VALUES (
+        @address, @list_price, 'coming_soon', @listing_agent, @notes,
+        @uploaded_by, 'excel', @source_ref, datetime('now'), datetime('now')
+      )
+      ON CONFLICT(lower(address), coalesce(zip,'')) DO UPDATE SET
+        list_price    = COALESCE(excluded.list_price, listings.list_price),
+        status        = 'coming_soon',
+        notes         = excluded.notes,
+        source        = 'excel',
+        source_ref    = excluded.source_ref,
+        updated_at    = datetime('now')
+    `);
+
+    for (let i = 0; i < rows.length; i++) {
+      const { row } = rows[i];
+      const address = String(row.address || "").trim();
+      const prospect = String(row.prospect_name || "").trim();
+      // Skip totals rows (numeric first col, blank address) and header-only rows
+      if (!address || /^\d+$/.test(prospect)) { result.appointments.skipped++; continue; }
+
+      try {
+        upsert.run({
+          address,
+          list_price:    parsePrice(row.list_price),
+          listing_agent: prospect || null,   // reuse listing_agent to store the prospect name for now
+          notes:         row.notes ? String(row.notes).trim() : `Hot prospect: ${prospect}`,
+          uploaded_by:   uploadedBy,
+          source_ref:    `workbook:appointments:r${i + 2}`,
+        });
+        result.appointments.inserted++;
+      } catch (e) {
+        result.warnings.push(`Appointments row ${i + 2} (${address}): ${(e as Error).message}`);
+      }
+    }
   }
 
   return result;

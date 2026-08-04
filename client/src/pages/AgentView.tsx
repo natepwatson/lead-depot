@@ -2203,7 +2203,7 @@ function LeadCard({ lead }: { lead: Lead }) {
           );
         })()}
 
-        {/* v19.4 — Zillow Intel (public scrape, 24h cache). Renders inline if scrape succeeds.
+        {/* v19.5 — Zillow Intel (public scrape, 24h cache). Renders inline if scrape succeeds.
             Silently omitted when Zillow blocks or the address doesn't resolve. */}
         {lead.address && <ZillowIntelPanel address={lead.address} city={lead.city} state={lead.state} zip={lead.zip} />}
       </div>
@@ -3257,7 +3257,7 @@ export function TeamPotCard() {
   const { data: pot } = useQuery<any>({
     queryKey: ["/api/team-pot"],
     queryFn: () => apiRequest("GET", "/api/team-pot").then(r => r.json()),
-    refetchInterval: 45000, // v19.4 — money pool changes slowly (WS covers real wins)
+    refetchInterval: 45000, // v19.5 — money pool changes slowly (WS covers real wins)
     staleTime: 5000,
   });
 
@@ -3779,7 +3779,7 @@ function CallHeatMeter() {
   );
 }
 
-// v19.4 — HomeShell wraps LeaderboardTab with a small "Board ↔ Team Map"
+// v19.5 — HomeShell wraps LeaderboardTab with a small "Board ↔ Team Map"
 // segmented toggle at the very top. Team Map is a zero-PII recruiting surface
 // (see /api/team-map/pins). Toggle state is local to the tab so it resets on
 // leave/return, which is fine — board is the default landing.
@@ -4227,7 +4227,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
 // Nav shrank from 5 tabs to 4 (Dashboard / Dial / Refer / Profile).
 // v14.68 — RESTORED (no 60-day filter). See MyLeadsTab component just below.
 
-// v19.4 — ZillowIntelPanel: lazy-loads /api/zillow/intel when a lead detail
+// v19.5 — ZillowIntelPanel: lazy-loads /api/zillow/intel when a lead detail
 // opens. Renders nothing until we have data. If Zillow blocks or the address
 // doesn't resolve, silently omit. 24h server-side cache keeps this cheap.
 function ZillowIntelPanel({ address, city, state, zip }: { address: string; city?: string | null; state?: string | null; zip?: string | null }) {
@@ -4421,7 +4421,7 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
   // v14.80 — Agent Pipeline redesign: tiles now filter the list below instead of
   // just displaying counts. "all" (default) shows every owned pipeline lead.
   const [pipelineFilter, setPipelineFilter] = useState<"all" | "appts" | "kit" | "network">("all");
-  // v19.4 — Pipeline view toggle: List (default, phone-friendly) or Kanban (6 stages).
+  // v19.5 — Pipeline view toggle: List (default, phone-friendly) or Kanban (6 stages).
   const [pipelineView, setPipelineView] = useState<"list" | "kanban">(() => {
     try { return (window.localStorage.getItem("ld_pipeline_view_v1") as any) || "list"; } catch { return "list"; }
   });
@@ -4462,7 +4462,7 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
         </p>
       </div>
 
-      {/* v19.4 — List / Kanban toggle */}
+      {/* v19.5 — List / Kanban toggle */}
       <div style={{ display: "flex", gap: 6, marginBottom: 16, padding: 3, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.15)", borderRadius: 8, width: "fit-content" }}>
         {([{ k: "list", label: "LIST" }, { k: "kanban", label: "KANBAN" }] as const).map(o => (
           <button key={o.k} data-testid={`pipeline-view-${o.k}`} onClick={() => setPipelineView(o.k as any)}
@@ -4558,7 +4558,7 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
   );
 }
 
-// v19.4 — KanbanBoard: 6-column horizontally-scrollable board.
+// v19.5 — KanbanBoard: 6-column horizontally-scrollable board.
 // Columns: Lead / Contacted / Nurture / Hot / Appt Set / Client Active.
 interface KanbanBoardProps {
   isLoading: boolean;
@@ -5313,7 +5313,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   const qc = useQueryClient();
   const { toast } = useToast(); // v15.11.17 — used by CLOSED_STATUSES redirect notice
 
-  // v19.4 — Prime Time notifier boot. Idempotent; only fires when permission is granted.
+  // v19.5 — Prime Time notifier boot. Idempotent; only fires when permission is granted.
   useEffect(() => { startPrimeNotifier(); }, []);
   const [primePerm, setPrimePerm] = useState<NotificationPermission>(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "denied"
@@ -5326,7 +5326,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   const { data: liveCountData } = useQuery<{ dialingNow: number; windowMinutes: number; lastActivityAt: string | null }>({
     queryKey: ["/api/agents/live-count"],
     queryFn: () => apiRequest("GET", "/api/agents/live-count").then(r => r.json()),
-    refetchInterval: 60000, // v19.4 — presence badge, 60s lag imperceptible
+    refetchInterval: 60000, // v19.5 — presence badge, 60s lag imperceptible
     staleTime: 15000,
   });
   const dialingNowCount = liveCountData?.dialingNow ?? 0;
@@ -5361,7 +5361,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
     queryKey: ["/api/agent-leads/count"],
     queryFn: () => apiRequest("GET", "/api/agent-leads/count").then(r => r.json()),
     enabled: prospectingMode,
-    refetchInterval: 30000, // v19.4 — prospecting counter
+    refetchInterval: 30000, // v19.5 — prospecting counter
   });
 
   const [recruitCallNotes, setRecruitCallNotes] = React.useState("");
@@ -5585,7 +5585,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v19.4</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v19.5</span>
             </div>
           </div>
         </div>

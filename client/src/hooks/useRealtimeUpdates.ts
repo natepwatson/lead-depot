@@ -32,15 +32,51 @@ export function useRealtimeUpdates() {
             case "leads_updated":  // bulk broadcast (redistribute, morning run, etc.)
             case "lead_updated":
             case "lead_created":
+            case "lead_deleted":
               // Invalidate all lead-related queries so every view refreshes
               qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
               qc.invalidateQueries({ queryKey: ["/api/leads"] });
               qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
               qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
+              qc.invalidateQueries({ queryKey: ["/api/admin/pipeline"] });
+              qc.invalidateQueries({ queryKey: ["/api/leads/my-pipeline"] });
+              qc.invalidateQueries({ queryKey: ["/api/leads/stats"] });
               // Invalidate queue counts for all agents
               qc.invalidateQueries({ predicate: (q) =>
                 String(q.queryKey[0]).startsWith("/api/leads/my-count")
               });
+              break;
+
+            // v19.5 — Instant dial + points refresh. Any outcome-logged activity
+            // (dial, KIT, appt, wrong number, disconnected, voicemail) fires this
+            // event server-side. Leaderboard, team pot, agent stats, live-count,
+            // and reports/outcomes must all refresh without waiting for the poll.
+            case "points_awarded":
+            case "activity_event":
+              qc.invalidateQueries({ queryKey: ["/api/leaderboard"] });
+              qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
+              qc.invalidateQueries({ queryKey: ["/api/admin/leaderboard"] });
+              qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
+              qc.invalidateQueries({ queryKey: ["/api/team-pot"] });
+              qc.invalidateQueries({ queryKey: ["/api/agents/live-agents"] });
+              qc.invalidateQueries({ queryKey: ["/api/agents/live-count"] });
+              qc.invalidateQueries({ queryKey: ["/api/reports/outcomes"] });
+              qc.invalidateQueries({ queryKey: ["/api/leads/stats"] });
+              qc.invalidateQueries({ queryKey: ["/api/challenges"] });
+              break;
+
+            // v19.5 — Approval decisions (approve/reject) instantly refresh:
+            //   • the pending-approvals queue in the admin dashboard
+            //   • the agent's leaderboard + team pot totals if points were awarded
+            //   • the challenge-completions tab if this was a challenge_claim
+            case "approval_event":
+              qc.invalidateQueries({ queryKey: ["/api/admin/approvals"] });
+              qc.invalidateQueries({ queryKey: ["/api/challenges"] });
+              qc.invalidateQueries({ queryKey: ["/api/leaderboard"] });
+              qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
+              qc.invalidateQueries({ queryKey: ["/api/admin/leaderboard"] });
+              qc.invalidateQueries({ queryKey: ["/api/admin/agent-stats"] });
+              qc.invalidateQueries({ queryKey: ["/api/team-pot"] });
               break;
           }
         } catch {}

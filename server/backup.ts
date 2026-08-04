@@ -200,7 +200,7 @@ RESTORE (only if the Railway volume is lost):
   6. Start the Railway service
 
 Do NOT reply to this email. This is an automated system message.
-\u2014 Lead Depot v19.4`;
+\u2014 Lead Depot v19.5`;
 
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",

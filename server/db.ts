@@ -233,7 +233,9 @@ rawDb.exec(`
 // Idempotent: no-op if tables were never created.
 try { rawDb.exec(`DROP TABLE IF EXISTS agent_leads`); } catch (e) { console.error('[v18.0] drop agent_leads:', e); }
 try { rawDb.exec(`DROP TABLE IF EXISTS agent_lead_activity`); } catch (e) { console.error('[v18.0] drop agent_lead_activity:', e); }
-try { rawDb.exec(`DROP TABLE IF EXISTS candidates`); } catch (e) { console.error('[v18.0] drop candidates:', e); }
+// v19.6 — candidates table RESTORED below; DO NOT drop.
+// try { rawDb.exec(`DROP TABLE IF EXISTS candidates`); } catch (e) { console.error('[v18.0] drop candidates:', e); }
+// onboarding_checklist stays dropped in v19.6 (deferred to next release).
 try { rawDb.exec(`DROP TABLE IF EXISTS onboarding_checklist`); } catch (e) { console.error('[v18.0] drop onboarding_checklist:', e); }
 
 const existingTables = (rawDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as any[]).map((r:any) => r.name);
@@ -987,6 +989,33 @@ try {
 
 // v18.0 — Onboarding candidate ingress (candidates + onboarding_checklist tables) REMOVED.
 // Tables are DROPped at boot in the v18.0 block near line 231.
+
+// v19.6 — Onboarding RESTORED with slimmed schema. Questionnaire stored as JSON
+// blob rather than 28 typed columns (spec preserved; schema not).
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS candidates (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                   TEXT NOT NULL,
+    phone                  TEXT NOT NULL,
+    email                  TEXT,
+    status                 TEXT NOT NULL DEFAULT 'invited',   -- 'invited'|'submitted'|'approved'|'declined'
+    invite_token           TEXT NOT NULL UNIQUE,
+    invited_by_agent_id    INTEGER,                            -- who invited (agent id) — attribution
+    invited_by_name        TEXT,                               -- captured at invite time for legibility
+    questionnaire_json     TEXT,                               -- filled on submit
+    recommendation         TEXT,                               -- 'STRONG_FIT'|'WORTH_CALL'|'SOFT_PASS'|'HARD_PASS'
+    recommendation_score   INTEGER,                            -- 0-100 heuristic
+    decided_by_agent_id    INTEGER,                            -- who approved/declined
+    decision_notes         TEXT,
+    created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    submitted_at           TEXT,
+    decided_at             TEXT
+  )
+`);
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status, created_at DESC)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_token  ON candidates(invite_token)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_candidates_agent  ON candidates(invited_by_agent_id, status)`).run();
+console.log("[db] v19.6 candidates table ready (slim JSON questionnaire schema)");
 
 
 // agents: 9 new columns to hold the onboarding-derived fields.

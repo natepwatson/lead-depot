@@ -4884,41 +4884,11 @@ function ChallengesTab() {
   );
 }
 
-// ─── Referrals Hub (v14.50) ─────────────────────────────────────────────────
+// v19.6 — Referrals Hub wrapper deleted (was orphaned when nav bar dropped `refer`).
+// ReferralTab (agent recruiting /join link) now opens directly from Lead Gen sheet.
+// ─── Referrals Hub (DELETED v19.6) ─────────────────────────────────────────
 // Consolidates Client Referral (network lead → auto-assigned to referring agent,
 // jumps to Work-the-Lead card immediately) and Agent Referral (recruiting).
-function ReferralsHub() {
-  const [sub, setSub] = useState<"client" | "agent">("client");
-  return (
-    <div style={{ width: "100%", padding: "0 0 20px" }}>
-      <div style={{
-        display: "flex", gap: 6, padding: 4, marginBottom: 16,
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(200,170,90,0.15)",
-        borderRadius: 12,
-      }}>
-        {([
-          { id: "client", label: "Client Referral" },
-          { id: "agent",  label: "Agent Referral" },
-        ] as const).map(t => (
-          <button
-            key={t.id}
-            onClick={() => setSub(t.id)}
-            style={{
-              flex: 1, padding: "11px 8px", borderRadius: 8, border: "none",
-              cursor: "pointer",
-              background: sub === t.id ? "linear-gradient(135deg,#c8aa5a,#a8893a)" : "transparent",
-              color: sub === t.id ? "#0a0700" : "rgba(255,255,255,0.55)",
-              fontSize: 12, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
-            }}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-      {sub === "client" ? <ClientReferralForm /> : <ReferralTab />}
-    </div>
-  );
-}
 
 // ─── Client Referral Form (v14.50) ────────────────────────────────────────
 function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: string; onSubmitted?: (leadId: number) => void } = {}) {
@@ -5286,7 +5256,7 @@ export const WARM_LEAD_INTENTS: {
 // v18.4 — Leaderboard slot swapped for Challenges. Home tab still renders the
 // leaderboard content (that's the dashboard). "leaderboard" id kept in the union
 // to gracefully fall through for anyone with a stale initialTab or bookmark.
-type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "refer" | "profile" | "home";
+type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home";
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "home",       label: "Home",       icon: Home },
   { id: "pipeline",   label: "Pipeline",   icon: Layers },
@@ -5307,7 +5277,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   const [leadGenView, setLeadGenView] = useState<
     "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral"
     | "door-knock" | "door-knock-lead" | "direct-mail" | "direct-mail-lead"
-    | "oh-knock-route" | "social"
+    | "oh-knock-route" | "social" | "refer-agent"
   >("root");
   const { connected: wsConnected } = useRealtimeUpdates();
   const qc = useQueryClient();
@@ -5585,7 +5555,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v19.5</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v19.6</span>
             </div>
           </div>
         </div>
@@ -6029,7 +5999,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           />
         )}
 
-        {tab === "refer" && <ReferralsHub />}
+        {/* v19.6 — refer tab route removed. ReferralTab reachable from Lead Gen sheet. */}
 
         {/* v14.50 — Global Who called me? modal (rendered from AgentView, works on every tab) */}
         {globalLookupOpen && (
@@ -6221,7 +6191,8 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
 function LeadGenSheet(props: {
   view: "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral"
     | "oh-knock-route" | "social"
-    | "door-knock" | "door-knock-lead" | "direct-mail" | "direct-mail-lead";
+    | "door-knock" | "door-knock-lead" | "direct-mail" | "direct-mail-lead"
+    | "refer-agent";
   setView: (v: any) => void;
   close: () => void;
   goToDial: () => void;
@@ -6352,7 +6323,18 @@ function LeadGenSheet(props: {
                 icon: <Share2 size={22} />, title: "Social Post", sub: "Log a brand-tagged post — 15 pts, one per day.",
                 onClick: () => setView("social" as any),
               })}
+              {tile({
+                icon: <Send size={22} />, title: "Refer an Agent", sub: "Know a licensed agent? Send them the /join link — 100 pts if hired.",
+                onClick: () => setView("refer-agent" as any),
+              })}
             </div>
+          </>
+        )}
+
+        {view === "refer-agent" && (
+          <>
+            {header("Refer an Agent", () => setView("root"))}
+            <ReferAnAgentForm user={props.user} toast={props.toast} onDone={close} />
           </>
         )}
 
@@ -7080,6 +7062,104 @@ function OpenHouseKnockRouteForm(props: { user: any; toast: any; onDone: () => v
 }
 
 // ─── v17.6 Social Post form ─────────────────────────────────────────────────
+// v19.6 Refer an Agent form
+// Agent submits name/phone/email of someone they'd refer; server creates the
+// candidate + returns the /join/<token> link. Agent picks SMS, Email, or
+// Copy Link to hand it off. 100 pts awarded when Alex approves the candidate.
+function ReferAnAgentForm(props: { user: any; toast: any; onDone: () => void }) {
+  const { toast } = props;
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!name.trim() || !phone.trim()) {
+      toast?.({ title: "Name + phone required", variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/candidates/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name: name.trim(), phone: phone.trim(), email: email.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "invite failed");
+      setInviteUrl(data.inviteUrl);
+      toast?.({ title: "Invite ready — share the link" });
+    } catch (err: any) {
+      toast?.({ title: err.message || "Something went wrong", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const firstName = name.split(/\s+/)[0] || "there";
+  const shareMsg = `Hey ${firstName} — I think you'd be a great fit for our team at Brothers Group Real Estate (Momentum Realty). Take 3 minutes to fill out this quick form and we'll talk: ${inviteUrl || ""}`;
+  const isApple  = typeof navigator !== "undefined" && /iPhone|iPad|Mac/.test(navigator.userAgent);
+  const smsHref  = `sms:${(phone || "").replace(/[^\d+]/g, "")}${isApple ? "&" : "?"}body=${encodeURIComponent(shareMsg)}`;
+  const mailHref = email ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent("Come check out our real estate team")}&body=${encodeURIComponent(shareMsg)}` : "";
+
+  const copyLink = async () => {
+    if (!inviteUrl) return;
+    try { await navigator.clipboard.writeText(inviteUrl); toast?.({ title: "Link copied" }); }
+    catch { toast?.({ title: "Copy failed — select the link manually", variant: "destructive" }); }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "12px 14px", borderRadius: 10,
+    background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)",
+    color: "#fff", fontSize: 15, marginBottom: 12,
+  };
+
+  if (inviteUrl) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ padding: 14, borderRadius: 12, background: "rgba(56,189,248,0.08)", border: "1px solid rgba(56,189,248,0.28)" }}>
+          <p style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "#38bdf8", fontWeight: 700, margin: 0, marginBottom: 6 }}>Invite ready for {name}</p>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", margin: 0, wordBreak: "break-all" }}>{inviteUrl}</p>
+        </div>
+        <a href={smsHref} style={{ display: "block", textAlign: "center", padding: "14px 16px", borderRadius: 10, background: "rgba(74,222,128,0.14)", border: "1px solid rgba(74,222,128,0.4)", color: "#4ade80", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase", textDecoration: "none" }}>Text {firstName} the link
+        </a>
+        {email && (
+          <a href={mailHref} style={{ display: "block", textAlign: "center", padding: "14px 16px", borderRadius: 10, background: "rgba(56,189,248,0.14)", border: "1px solid rgba(56,189,248,0.4)", color: "#38bdf8", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase", textDecoration: "none" }}>Email {firstName} the link
+          </a>
+        )}
+        <button type="button" onClick={copyLink} style={{ padding: "14px 16px", borderRadius: 10, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.18)", color: "#fff", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer" }}>Copy link
+        </button>
+        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", textAlign: "center", margin: "4px 0 0" }}>
+          Alex reviews once {firstName} submits their application. 100 pts to you if they're hired.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      <p style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 14, lineHeight: 1.55 }}>
+        Know a licensed agent (or licensable person) who'd thrive on our team? Drop their info and we'll generate a private application link you can text or email to them. 100 pts to you if Alex approves.
+      </p>
+      <label style={{ fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 6, fontWeight: 700 }}>Full name</label>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Jane Smith" style={inputStyle} />
+      <label style={{ fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 6, fontWeight: 700 }}>Mobile phone</label>
+      <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(555) 123-4567" type="tel" style={inputStyle} />
+      <label style={{ fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 6, fontWeight: 700 }}>Email (optional)</label>
+      <input value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" type="email" style={inputStyle} />
+      <button type="button" onClick={submit} disabled={submitting || !name.trim() || !phone.trim()} style={{
+        marginTop: 8, padding: "14px 16px", borderRadius: 10,
+        background: submitting ? "rgba(167,139,250,0.14)" : "rgba(167,139,250,0.24)",
+        border: "1px solid rgba(167,139,250,0.5)",
+        color: "#a78bfa", fontWeight: 700, fontSize: 13, letterSpacing: "0.12em",
+        textTransform: "uppercase", cursor: submitting ? "wait" : "pointer",
+      }}>{submitting ? "Creating invite…" : "Create invite link"}</button>
+    </div>
+  );
+}
+
 // 15 pts flat, 1/day ET cap. Kind = "social_post". Screenshot + platform + link.
 function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const { user, toast, onDone } = props;

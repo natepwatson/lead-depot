@@ -135,9 +135,8 @@ function awardPoints(
     no_answer:                  2,   // Real dial, most common outcome.
     wrong_number:               1,   // Data cleanup.
     disconnected:               1,   // Data cleanup.
-    email_sent:                 0,   // v15.11.26 — REMOVED. Email no longer awards points.
-    email_sent_value:           0,   // v15.11.26 — REMOVED. Email no longer awards points.
     left_voicemail:             6,   // v15.11.41 — Owner - No Answer: confirmed owner + recycle + boost. 6 pts.
+    agent_referral_approved:  100,   // v19.6 — Referred agent got hired. Big deal.
     // Any other outcome falls back to base dial (1).
   };
   const basePoints = pts[outcome] ?? 1;
@@ -146,7 +145,7 @@ function awardPoints(
   // work happens whenever the agent shows up and admin approval can be delayed
   // hours or days, so multiplying by tier-at-approval is arbitrary and gameable.
   // Award the flat rate and short-circuit.
-  const FLAT_OUTCOMES = new Set(["open_house_log", "open_house_lead", "oh_knock_route", "direct_mail", "door_knock", "social_post", "network_referral"]);
+  const FLAT_OUTCOMES = new Set(["open_house_log", "open_house_lead", "oh_knock_route", "direct_mail", "door_knock", "social_post", "network_referral", "agent_referral_approved"]);
   if (FLAT_OUTCOMES.has(outcome)) {
     if (basePoints === 0) return;
     rawDb.prepare(
@@ -187,6 +186,43 @@ function awardPoints(
   try { broadcast({ type: "points_awarded", agentId, delta: points, outcome, tier, scope, ts: new Date().toISOString() }); } catch {}
 }
 
+
+// v19.6 — Warm-lead / lead-gen activity admin notification helper.
+// Fires an admin-facing summary email to alex@ + nate@ (+ denise@ where relevant)
+// on ANY warm submission the team wants immediate visibility on. Non-fatal on failure.
+async function notifyLeadGenActivity(opts: {
+  kind: string;              // "door_knock_log" | "direct_mail_log" | "social_post"
+  agentName: string;
+  headline: string;          // one-line summary
+  detailsHtml: string;       // preformatted rows (<tr><td>...</td></tr>)
+  cc?: string[];             // extra cc recipients
+}) {
+  if (!resend) return;
+  try {
+    const to  = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"];
+    const cc  = opts.cc && opts.cc.length ? opts.cc : undefined;
+    const subject = `${opts.headline}`;
+    const tdL = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px;vertical-align:top";
+    const html = `
+<!DOCTYPE html><html><body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+<div style="max-width:580px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid #2a2520">
+  <div style="background:linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%);padding:22px 28px">
+    <p style="margin:0 0 4px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#5a3e00;font-weight:700">Lead Gen Activity — ${opts.kind.replace(/_/g,' ')}</p>
+    <h1 style="margin:0;font-size:20px;color:#080808;font-weight:700">${opts.agentName}</h1>
+  </div>
+  <div style="padding:24px 28px">
+    <table style="width:100%;border-collapse:collapse">
+      ${opts.detailsHtml}
+    </table>
+    <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
+  </div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.6 — Brothers Group · Momentum Realty</div>
+</div></body></html>`;
+    await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
+  } catch (err) {
+    console.error(`[notifyLeadGenActivity ${opts.kind}] failed:`, err);
+  }
+}
 
 // v14.29.4 — Shared branded email shell for Flows 2, 3, 4.
 // Wraps plain-text template body in a client-facing HTML shell with the agent's
@@ -409,7 +445,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v19.5 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v19.6 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -468,7 +504,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.5 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -480,244 +516,7 @@ async function sendAppointmentAlert(opts: {
   });
 }
 
-// ─── EXPIRED CREDIBILITY EMAIL (v14.18) ───────────────────────────────────────────
-// Fires immediately on Expired KIT save. Sends a warm intro email to the seller
-// from the agent (Reply-To = agent.email). Rate-limited to once per lead per
-// 60 days via lead_activity ('email_sent' with notes containing 'expired-credibility').
-const FOLLOW_UP_TIMING_PHRASE: Record<string, string> = {
-  a_few_days:  "in a few days",
-  few_weeks:   "in 2–3 weeks",
-  few_months:  "in 2–3 months",
-  six_months:  "in about six months — no rush",
-};
-async function sendExpiredCredibilityEmail(opts: {
-  leadId: number;
-  agentId?: number | null;   // v14.29 — needed to award points
-  ownerEmail: string;
-  ownerFirstName: string;
-  ownerPhone?: string;       // v14.27 — needed to push FUB note
-  address: string;
-  followUpTiming: string;
-  agent: { name?: string; email?: string; phone?: string };
-}) {
-  if (!resend) { console.log("[CredibilityEmail] skipped — no RESEND_API_KEY"); return; }
-  if (!opts.ownerEmail || !opts.ownerEmail.includes("@")) {
-    console.log(`[CredibilityEmail] skipped lead ${opts.leadId} — no owner email`);
-    return;
-  }
-
-  // 60-day rate limit — do NOT re-send if we've already sent one for this lead
-  const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
-  const recent = rawDb.prepare(`
-    SELECT id FROM lead_activity
-     WHERE lead_id = ?
-       AND outcome = 'email_sent'
-       AND notes LIKE '%expired-credibility%'
-       AND created_at > ?
-     LIMIT 1
-  `).get(opts.leadId, cutoff);
-  if (recent) {
-    console.log(`[CredibilityEmail] skipped lead ${opts.leadId} — sent within last 60 days`);
-    return;
-  }
-
-  // v14.18 — normalize owner + agent names, and use casual address in email body
-  // so it reads like a human wrote it (no ALL CAPS names, no "SE / Apt 3B" suffixes).
-  const firstName    = normalizeFirstName(opts.ownerFirstName) || "there";
-  const agentFull    = normalizeFullName(opts.agent.name) || "Your Brothers Group Real Estate Team agent";
-  const agentFirst   = normalizeFirstName(agentFull.split(/\s+/)[0]) || agentFull.split(/\s+/)[0];
-  const casualAddress = normalizeAddressCasual(opts.address) || opts.address;
-  const agentEmail   = opts.agent.email || "noreply@watsonbrothersgroup.com";
-  const agentPhone   = opts.agent.phone || "";
-  const timingPhrase = FOLLOW_UP_TIMING_PHRASE[opts.followUpTiming] || "soon";
-
-  // v14.26 — Prefer editable DB template for Flow 2. Falls back to hardcoded copy if missing.
-  const _loadTpl = (globalThis as any).__leadDepotLoadEmailTemplate as ((k: string) => { subject: string; body: string } | null) | undefined;
-  const _render  = (globalThis as any).__leadDepotRenderTemplate as ((t: string, v: Record<string,string|undefined>) => string) | undefined;
-  const _tpl = _loadTpl ? _loadTpl("email_flow2") : null;
-  const _vars = {
-    ownerFirst: firstName,
-    ownerName:  firstName,
-    address:    casualAddress,
-    agentFirst,
-    agentFull,
-    agentPhone: agentPhone || "",
-    agentEmail: agentEmail || "",
-    timing:     `in ${timingPhrase}`,
-  };
-  const subject = _tpl && _render
-    ? _render(_tpl.subject, _vars)
-    : `Hey ${firstName} \u2014 nice talking earlier`;
-  const plainText = _tpl && _render
-    ? _render(_tpl.body, _vars)
-    : [
-        `Hey ${firstName} \u2014`,
-        "",
-        `Really glad we got to chat about the house at ${casualAddress}. Sounded like the timing's not quite right yet, and honestly, that's the best kind of answer \u2014 you know where you stand.`,
-        "",
-        `Wanted to properly introduce myself since I skipped the formalities on the phone. I'm ${agentFirst} with the Brothers Group Real Estate Team at Momentum Realty. We work with a lot of folks in your spot \u2014 the first listing didn't land, life kept moving, and the house is just sitting there in the background. Nothing wrong with letting it sit. But when you're ready to actually think about it, we're the ones you want in the room.`,
-        "",
-        "No agenda on this email. Just wanted you to have a name and a face for the number that called.",
-        "",
-        `If you ever want a quick five-minute walk-through \u2014 no clipboard, no pitch, just an honest read on what your home would take to move \u2014 say the word. Otherwise I'll check back in ${timingPhrase} and see where you're at.`,
-        "",
-        ...(agentPhone ? [`Real quick \u2014 my direct line is ${agentPhone} if anything comes up before then.`, ""] : []),
-        "Talk soon,",
-        agentFull,
-        "Brothers Group Real Estate Team at Momentum Realty",
-        [agentPhone, agentEmail].filter(Boolean).join(" \u00b7 "),
-      ].join("\n");
-
-  // v14.29.4 — Branded HTML shell with agent headshot signature card.
-  const _agent = opts.agentId ? (storage.getAgentById(opts.agentId) as any) : null;
-  const html = renderBrandedEmail({
-    bodyText: plainText,
-    agentName: agentFull,
-    agentPhone,
-    agentEmail,
-    agentHeadshotUrl: _agent?.headshotUrl || null,
-  });
-
-  try {
-    await resend.emails.send({
-      from:      `${agentFull} <${agentEmail || "noreply@watsonbrothersgroup.com"}>`,
-      to:        [opts.ownerEmail],
-      cc:        ["alex@watsonbrothersgroup.com"],
-      bcc:       agentEmail ? [agentEmail] : undefined,
-      reply_to:  agentEmail,
-      subject,
-      html,
-      text:      plainText,
-    } as any);
-    // Log to activity so rate limit works next time + audit trail
-    // v14.29 — log agent_id so points/attribution work
-    const nowIso = new Date().toISOString();
-    rawDb.prepare(`
-      INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
-      VALUES (?, ?, 'email_sent', ?, NULL, ?)
-    `).run(opts.leadId, opts.agentId || null, `expired-credibility sent to ${opts.ownerEmail} (follow-up: ${opts.followUpTiming})`, nowIso);
-    // v14.29 — Fix 2: award points for Flow 2 credibility email
-    if (opts.agentId) awardPoints(opts.agentId, "email_sent", opts.leadId);
-    // v14.27 — push FUB note recording the send (subject + timestamp + preview)
-    pushEmailNoteToFub({
-      ownerPhone: opts.ownerPhone,
-      ownerName:  `${opts.ownerFirstName}`,
-      subject,
-      sentAt:     nowIso,
-      preview:    plainText.slice(0, 260),
-      kind:       "Flow 2 \u2014 Expired Credibility (auto on KIT)",
-    }).catch(err => console.error("[FUB] Flow 2 note push failed:", err));
-    console.log(`[CredibilityEmail] sent for lead ${opts.leadId} to ${opts.ownerEmail} (agent ${opts.agentId || "unknown"})`);
-  } catch (e: any) {
-    console.error(`[CredibilityEmail] send failed for lead ${opts.leadId}:`, e.message);
-  }
-}
-
-// ─── QUEUE DEPTH ALERT ───────────────────────────────────────────────────────────────
-// Fires when active seller lead queue drops to or below LOW_QUEUE_THRESHOLD per active agent
-
-// v14.27 — Flow 4: Appointment Warm Email.
-// Fires on contacted_appointment. Uses editable email_flow4 template. Respects 24h/lead cap.
-async function sendAppointmentWarmEmail(opts: {
-  leadId: number;
-  agentId?: number | null;
-  ownerEmail: string;
-  ownerFirstName: string;
-  ownerPhone?: string;
-  address: string;
-  apptDate?: string;
-  apptTime?: string;
-  agent: { name?: string; email?: string; phone?: string };
-}) {
-  if (!resend) { console.log("[ApptWarmEmail] skipped \u2014 no RESEND_API_KEY"); return; }
-  if (!opts.ownerEmail || !opts.ownerEmail.includes("@")) {
-    console.log(`[ApptWarmEmail] skipped lead ${opts.leadId} \u2014 no owner email`);
-    return;
-  }
-  // 24h/lead cap across all flows
-  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const recent = rawDb.prepare(`
-    SELECT id FROM lead_activity
-     WHERE lead_id = ?
-       AND outcome = 'email_sent'
-       AND created_at > ?
-     LIMIT 1
-  `).get(opts.leadId, dayAgo);
-  if (recent) {
-    console.log(`[ApptWarmEmail] skipped lead ${opts.leadId} \u2014 within 24h cap`);
-    return;
-  }
-
-  const firstName    = normalizeFirstName(opts.ownerFirstName) || "there";
-  const agentFull    = normalizeFullName(opts.agent.name) || "Your Brothers Group Real Estate Team agent";
-  const agentFirst   = normalizeFirstName(agentFull.split(/\s+/)[0]) || agentFull.split(/\s+/)[0];
-  const casualAddress = normalizeAddressCasual(opts.address) || opts.address;
-  const agentEmail   = opts.agent.email || "noreply@watsonbrothersgroup.com";
-  const agentPhone   = opts.agent.phone || "";
-
-  const _loadTpl = (globalThis as any).__leadDepotLoadEmailTemplate as ((k: string) => { subject: string; body: string } | null) | undefined;
-  const _render  = (globalThis as any).__leadDepotRenderTemplate as ((t: string, v: Record<string,string|undefined>) => string) | undefined;
-  const _tpl = _loadTpl ? _loadTpl("email_flow4") : null;
-  const _vars = {
-    ownerFirst: firstName,
-    ownerName:  firstName,
-    address:    casualAddress,
-    agentFirst,
-    agentFull,
-    agentPhone,
-    agentEmail,
-    apptDate:   opts.apptDate || "our confirmed date",
-    apptTime:   opts.apptTime || "our confirmed time",
-  };
-  const subject = _tpl && _render
-    ? _render(_tpl.subject, _vars)
-    : `Looking forward to meeting you, ${firstName}`;
-  const plainText = _tpl && _render
-    ? _render(_tpl.body, _vars)
-    : `Hey ${firstName} \u2014\n\nJust wanted to say thanks for setting up a time to meet about ${casualAddress}. Really looking forward to it.\n\nIf anything comes up before then, my direct line is ${agentPhone}.\n\nExcited to meet,\n${agentFull}`;
-
-  // v14.29.4 — Branded HTML shell with agent headshot signature card.
-  const _agent4 = opts.agentId ? (storage.getAgentById(opts.agentId) as any) : null;
-  const html = renderBrandedEmail({
-    bodyText: plainText,
-    agentName: agentFull,
-    agentPhone,
-    agentEmail,
-    agentHeadshotUrl: _agent4?.headshotUrl || null,
-  });
-
-  try {
-    await resend.emails.send({
-      from:      `${agentFull} <${agentEmail || "noreply@watsonbrothersgroup.com"}>`,
-      to:        [opts.ownerEmail],
-      cc:        ["alex@watsonbrothersgroup.com"],
-      bcc:       agentEmail ? [agentEmail] : undefined,
-      reply_to:  agentEmail,
-      subject,
-      html,
-      text:      plainText,
-    } as any);
-    const nowIso = new Date().toISOString();
-    rawDb.prepare(`
-      INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
-      VALUES (?, ?, 'email_sent', ?, NULL, ?)
-    `).run(opts.leadId, opts.agentId || null, `appointment-warm sent to ${opts.ownerEmail}`, nowIso);
-    // No separate awardPoints \u2014 the contacted_appointment outcome awards 20 pts already.
-    pushEmailNoteToFub({
-      ownerPhone: opts.ownerPhone,
-      ownerName:  firstName,
-      subject,
-      sentAt:     nowIso,
-      preview:    plainText.slice(0, 260),
-      kind:       "Flow 4 \u2014 Appointment Warm (auto on appt set)",
-    }).catch(err => console.error("[FUB] Flow 4 note push failed:", err));
-    console.log(`[ApptWarmEmail] sent for lead ${opts.leadId} to ${opts.ownerEmail}`);
-  } catch (e: any) {
-    console.error(`[ApptWarmEmail] send failed for lead ${opts.leadId}:`, e.message);
-  }
-}
-
-const LOW_QUEUE_THRESHOLD = 5; // leads per active agent
+const LOW_QUEUE_THRESHOLD = 5; // leads per active agent — restored v19.6
 async function checkQueueDepthAlert(rawDb: any) {
   if (!resend) return;
   try {
@@ -753,7 +552,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.5 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1991,7 +1790,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v19.5</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v19.6</p>
             </div>
           `,
         });
@@ -2151,7 +1950,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v19.5 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v19.6 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3751,8 +3550,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // handles its own exhaustion — no code path can leave a lead in a stuck state.
     const VALID_OUTCOMES = [
       "no_answer", "contacted_appointment", "keep_in_touch", "callback_requested",
-      "contacted_not_interested", "wrong_number", "email_sent", "network_referral",
-      "recycled", "listed", "disconnected", "left_voicemail", "email_sent_value",
+      "contacted_not_interested", "wrong_number", "network_referral",
+      "recycled", "listed", "disconnected", "left_voicemail",
       // v16.7 — Lead Gen hub outcomes
       "open_house_log", "open_house_lead",
       // v15.11.11 — Nice Confirmed Owner Not Interested. Verified real owner who
@@ -4577,8 +4376,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     // v14.38 — Tag the cold-intro tap by lead type so the 24h gate can find it.
     // Absentee \u2192 flow5-mailto, Expired (and everything else) \u2192 flow1-mailto.
-    const isAbsentee = (lead.leadType || "").toLowerCase() === "absentee";
-    const tapNote = isAbsentee ? "flow5-mailto" : "flow1-mailto";
+    const tapNote = "flow1-mailto";
     const nowIso = new Date().toISOString();
 
     storage.createLeadActivity({
@@ -5166,168 +4964,6 @@ Note: Replace {ownerName} and {address} with lead details before sending.
 This template is for informational/outreach purposes only.`;
   initScript("email_outreach", emailOutreachTemplate);
 
-  // v14.26 — Editable email templates for the four email flows.
-  // Format: first non-blank line = Subject: <line>. Everything after = body.
-  // Placeholders: {ownerFirst}, {ownerName}, {address}, {agentFirst}, {agentFull}, {agentPhone}, {agentEmail}, {timing}, {apptDate}, {apptTime}
-  // v14.29 — All 4 email templates rewritten in Alex's voice.
-  // v14.38 — Flow 5 + Flow 6 added for absentee cold outreach.
-  // NOTE ON KEY MAPPING:
-  //   email_flow1 = Cold Intro (mailto, expired)           — Flow 1 in user journey (expired path)
-  //   email_flow3 = Value Stack (2nd attempt, expired)     — Flow 2 in user journey (expired path)
-  //   email_flow2 = Thank You for Choosing Us (KIT auto)   — Flow 3 in user journey (both paths)
-  //   email_flow4 = Appointment Confirmed (auto)           — Flow 4 in user journey (both paths)
-  //   email_flow5 = Absentee Cold Intro (mailto, absentee) — Flow 5 in user journey (absentee path)
-  //   email_flow6 = Absentee Value Stack (2nd attempt)     — Flow 6 in user journey (absentee path)
-  //
-  // Flow 1/2 fire for expired leads; Flow 5/6 fire for absentee leads. Same triggers (email
-  // button / 2nd-attempt button) branch on lead.leadType. Flow 3/4 serve both without branching.
-
-  // Flow 1 — Cold Intro (mailto, first touch before contact)
-  const emailFlow1Template = `Subject: About the house at {address}
-
-Hi {ownerFirst},
-
-{agentFirst} here \u2014 I called earlier about {address}. Figured I'd drop a note in case email's easier.
-
-If you're still thinking about selling, I'd like to show you what the house would actually move for right now, and what we'd do differently than the last listing. Five minutes, no obligation.
-
-{agentPhone} if easier.
-
-\u2014 {agentFull}
-Brothers Group Real Estate Team at Momentum Realty`;
-  initScript("email_flow1", emailFlow1Template);
-
-  // Flow 2 (in user journey) — stored under key email_flow2 = WELCOME TO THE FAMILY, fires on KIT outcome (auto)
-  const emailFlow2Template = `Subject: Thank you for choosing us, {ownerFirst}
-
-Hey {ownerFirst},
-
-Thank you for choosing Brothers Group. Great talking earlier \u2014 looking forward to working together whenever the time comes. We're here when you need us.
-
-A little about the team you're now working with:
-
-  \u2022 26+ years of combined real estate experience
-  \u2022 Top 1% of teams in all of NE Florida
-  \u2022 RealProducers Top 500
-  \u2022 Jacksonville Business Journal ranked team
-  \u2022 Hundreds of five-star reviews across the platforms
-
-Get to know us a little better:
-
-  Website \u2192 brothersgroup.realestate
-  Meet the team \u2192 brothersgroup.realestate/our-agents
-  Reviews \u2192 brothersgroup.realestate/reviews
-
-You'll hear from us whenever something interesting comes up in your market \u2014 we don't spam.
-
-Let us know any questions we can help with, whether it's for you or a friend or family member who needs a hand.
-
-\u2014 {agentFull}
-Brothers Group Real Estate Team at Momentum Realty
-{agentPhone} \u00b7 {agentEmail}`;
-  initScript("email_flow2", emailFlow2Template);
-
-  // Flow 3 (in user journey) — stored under key email_flow3 = VALUE STACK, fires on manual 2nd-attempt button
-  const emailFlow3Template = `Subject: A thought on {address}
-
-Hi {ownerFirst},
-
-{agentFirst} \u2014 following up on {address}.
-
-Quick note on how we work. When we take on a listing, we build the price around real market demand and market the house the way it should be marketed. Stack the cards right and the market comes to you \u2014 you stay in control of the sale.
-
-We also bring construction and roofing expertise from years in the industry, so we can walk a house and tell you what actually needs to be addressed before it lists, what doesn't, and what buyers and inspectors will flag. Usually saves money on repairs and protects the sale price when negotiations start.
-
-Local, born and raised, hundreds of five-star reviews \u2192 brothersgroup.realestate/reviews
-
-If you want to see what that looks like for {address} \u2014 no obligation, five-minute walk-through \u2014 {agentPhone} or reply here.
-
-\u2014 {agentFull}
-Brothers Group Real Estate Team at Momentum Realty
-{agentPhone} \u00b7 {agentEmail}`;
-  initScript("email_flow3", emailFlow3Template);
-
-  // Flow 4 (in user journey) — Appointment Confirmed, fires on contacted_appointment outcome (auto)
-  const emailFlow4Template = `Subject: {apptDate} at {apptTime} \u2014 {address}
-
-Hey {ownerFirst},
-
-Thank you for choosing Brothers Group. Great connecting today \u2014 we're looking forward to meeting you and taking a look at {address}.
-
-Confirmed for {apptDate} at {apptTime}.
-
-Here's what we'll bring to the walk-through:
-
-  \u2022 A real read on your home \u2014 recent comps, what buyers in your area are actually paying, and how we'd price and market it to sell for the strongest possible number.
-  \u2022 Our construction and roofing expertise from years in the industry \u2014 we'll walk the house with you and flag what actually matters before it lists, what doesn't, and what buyers and inspectors will notice. Usually saves money on repairs and protects the sale price in negotiation.
-
-A little about the team you're now working with:
-
-  \u2022 26+ years of combined real estate experience
-  \u2022 Top 1% of teams in all of NE Florida
-  \u2022 RealProducers Top 500
-  \u2022 Jacksonville Business Journal ranked team
-  \u2022 Hundreds of five-star reviews across the platforms
-
-Get to know us a little more before we meet:
-
-  Website \u2192 brothersgroup.realestate
-  Meet the team \u2192 brothersgroup.realestate/our-agents
-  Reviews \u2192 brothersgroup.realestate/reviews
-
-Any questions before then, we're a call or text away at {agentPhone}. And if you know a friend or family member who could use a hand with real estate, we're here for them too.
-
-See you {apptDate}.
-
-\u2014 {agentFull}
-Brothers Group Real Estate Team at Momentum Realty
-{agentPhone} \u00b7 {agentEmail}`;
-  initScript("email_flow4", emailFlow4Template);
-
-  // v14.38 — Flow 5 (Absentee Cold Intro, mailto). Fires from the Email button when lead.leadType='absentee'.
-  // Honest cold-outreach opener — no "following up" (there's nothing to follow up on). Peer-to-peer, hyper-local,
-  // acknowledges the owner is likely out-of-area, keeps the ask small (real numbers, no obligation).
-  const emailFlow5Template = `Subject: About your property at {address}
-
-Hi {ownerFirst},
-
-{agentFirst} here with Brothers Group Real Estate at Momentum Realty \u2014 we work this exact market every day.
-
-I'm reaching out because I noticed you own {address} but aren't in the area. Most out-of-area owners we work with just want a local set of eyes they can trust for whenever the time comes \u2014 whether that's selling, holding, adding to the portfolio, or exploring a 1031.
-
-If you'd like, I'm happy to send preliminary information on {address} \u2014 real comps, real rental data, real numbers on what it would actually sell or rent for today. No obligation, no clock running.
-
-{agentPhone} if easier, or reply here.
-
-\u2014 {agentFull}
-Brothers Group Real Estate Team at Momentum Realty`;
-  initScript("email_flow5", emailFlow5Template);
-
-  // v14.38 — Flow 6 (Absentee Value Stack, server-sent 2nd attempt). Fires from the Send 2nd Attempt button
-  // when lead.leadType='absentee'. Mirrors Flow 2's role but hits absentee's real decision matrix (buy / hold /
-  // 1031 / sell) instead of just the listing-sale thesis.
-  const emailFlow6Template = `Subject: A few real numbers on {address}
-
-Hi {ownerFirst},
-
-{agentFirst} again \u2014 following up on my note about {address}.
-
-A quick word on how we work with owners like you. We don't push, we don't spam, and we don't chase. What we do is give real numbers \u2014 what {address} would sell for today, what it would rent for, what a 1031 into something easier to manage looks like on paper, or what to target if you're adding to the portfolio.
-
-We also bring construction and roofing expertise from years in the industry, so if selling comes into play we can walk the property (in person or virtually) and tell you what actually matters before it hits the market and what doesn't. Usually saves money on repairs and protects the sale price when negotiations start.
-
-Local, born and raised, hundreds of five-star reviews \u2192 brothersgroup.realestate/reviews
-
-Happy to put together a snapshot for {address} whenever you want it \u2014 no obligation, and we do virtual walk-throughs if you're not local. {agentPhone} or reply here.
-
-\u2014 {agentFull}
-Brothers Group Real Estate Team at Momentum Realty
-{agentPhone} \u00b7 {agentEmail}`;
-  initScript("email_flow6", emailFlow6Template);
-
-  // v15.11.47 — CRITICAL FAILSAFE. The v14.29 boot-time force-update block used
-  // to overwrite the expired script from an inline `expiredScript` variable on
-  // EVERY deploy. That silently reverted Alex's human-authored script twice in
   // one week and only came to light when Alex spot-checked it. NEVER overwrite
   // the expired script from code again. If a future maintainer needs to change
   // the file default, they edit server/expired-script.ts — and even that only
@@ -5335,22 +4971,8 @@ Brothers Group Real Estate Team at Momentum Realty
   // production, PATCH /api/scripts/expired with x-ingest-secret and it gets
   // logged to the audit table. That is the ONE and ONLY write path.
   //
-  // Email flow templates remain force-updated on boot — those are agent-invisible
-  // transactional emails, not the human-authored dial script.
-  try {
-    const forceUpdate = rawDb.prepare("UPDATE scripts SET content = ?, updated_at = ? WHERE lead_type = ?");
-    const nowIso = new Date().toISOString();
-    // Expired is intentionally NOT in this list. See comment above.
-    forceUpdate.run(emailFlow1Template, nowIso, "email_flow1");
-    forceUpdate.run(emailFlow2Template, nowIso, "email_flow2");
-    forceUpdate.run(emailFlow3Template, nowIso, "email_flow3");
-    forceUpdate.run(emailFlow4Template, nowIso, "email_flow4");
-    forceUpdate.run(emailFlow5Template, nowIso, "email_flow5");
-    forceUpdate.run(emailFlow6Template, nowIso, "email_flow6");
-    console.log("[v15.11.47] Force-updated 6 email templates (expired script is NEVER force-updated — preserved from DB)");
-  } catch (e: any) {
-    console.error("[v15.11.47] Failed to force-update email templates:", e.message);
-  }
+  // v19.6 — All Flow 1–6 client-facing outreach emails deleted (dead code path,
+  // no UI callers since v15.11.5). Force-update block removed.
 
   // v14.29 — Delete test lead id=4859 (AUDIT Network Test placeholder)
   try {
@@ -5384,247 +5006,6 @@ Brothers Group Real Estate Team at Momentum Realty
   function renderTemplate(tpl: string, vars: Record<string, string | undefined>): string {
     return tpl.replace(/\{(\w+)\}/g, (_m, k) => (vars[k] ?? ""));
   }
-
-  // Expose to module scope for use inside email senders
-  (globalThis as any).__leadDepotLoadEmailTemplate = loadEmailTemplate;
-  (globalThis as any).__leadDepotRenderTemplate = renderTemplate;
-
-  // v14.29 — Email status for a lead. Used to gate the manual Flow 3/6 button on the client.
-  //   flow1Sent            = any Flow 1/5 cold-intro tap exists for this lead
-  //   contactedYet         = a contacted_* outcome exists — disqualifies Flow 3/6
-  //   emailedToday         = any email_sent activity in last 24h — daily cap active
-  //   flow3Eligible        = flow1Sent && !contactedYet && gateOpen (v14.38: 24h since cold-intro tap)
-  //   secondAttemptBadge   = flow1Sent && !contactedYet (show badge even when gate closed)
-  //   v14.38 additions:
-  //     tappedAt           = ISO timestamp of the earliest cold-intro tap (Flow 1 or 5)
-  //     unlockAt           = tappedAt + 24h (ISO)
-  //     secondsUntilUnlock = clamp(unlockAt - now, 0..)
-  //     gateOpen           = secondsUntilUnlock === 0
-  //     evidenceConfirmed  = FUB webhook confirmed the outbound email landed in FUB timeline
-  app.get("/api/leads/:id/email-status", (req, res) => {
-    const leadId = parseInt(req.params.id);
-    const now = Date.now();
-    const dayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
-
-    // v14.38 \u2014 Look for the earliest cold-intro tap (Flow 1 or Flow 5).
-    // Older rows may have notes='flow1-manual-mailto' (pre-v14.38). Match those too.
-    const tapRow = rawDb.prepare(`
-      SELECT id, created_at, notes FROM lead_activity
-       WHERE lead_id = ? AND outcome = 'email_sent'
-         AND (notes LIKE 'flow1%' OR notes LIKE 'flow5%')
-       ORDER BY created_at ASC
-       LIMIT 1
-    `).get(leadId) as any;
-    const contactedRow = rawDb.prepare(`
-      SELECT id FROM lead_activity
-       WHERE lead_id = ? AND outcome IN ('contacted_appointment','keep_in_touch','contacted_not_interested')
-       LIMIT 1
-    `).get(leadId);
-    const capRow = rawDb.prepare(`
-      SELECT id FROM lead_activity
-       WHERE lead_id = ? AND outcome = 'email_sent' AND created_at > ?
-       LIMIT 1
-    `).get(leadId, dayAgo);
-    // v14.38 \u2014 FUB evidence row logged by the background poller when the mailto
-    // actually left the agent's Gmail (visible in the FUB timeline). Best-effort, non-blocking.
-    const evidenceRow = rawDb.prepare(`
-      SELECT id, created_at, notes FROM lead_activity
-       WHERE lead_id = ? AND outcome = 'email_confirmed'
-       LIMIT 1
-    `).get(leadId) as any;
-
-    const flow1Sent    = !!tapRow;
-    const contactedYet = !!contactedRow;
-    const emailedToday = !!capRow;
-
-    let tappedAt: string | null = null;
-    let unlockAt: string | null = null;
-    let secondsUntilUnlock = 0;
-    let gateOpen = false;
-    if (tapRow) {
-      tappedAt = String(tapRow.created_at);
-      const tappedMs = new Date(tappedAt).getTime();
-      const unlockMs = tappedMs + 24 * 60 * 60 * 1000;
-      unlockAt = new Date(unlockMs).toISOString();
-      secondsUntilUnlock = Math.max(0, Math.round((unlockMs - now) / 1000));
-      gateOpen = secondsUntilUnlock === 0;
-    }
-
-    // Flow 3/6 is eligible only when: flow1 tapped, not contacted, gate open, AND not blocked by daily cap.
-    // (emailedToday is preserved for the display-only "Email sent today" placeholder before the gate flip.)
-    const flow3Eligible = flow1Sent && !contactedYet && gateOpen && !emailedToday;
-
-    res.json({
-      flow1Sent,
-      contactedYet,
-      emailedToday,
-      flow3Eligible,
-      secondAttemptBadge: flow1Sent && !contactedYet,
-      // v14.38 additions
-      tappedAt,
-      unlockAt,
-      secondsUntilUnlock,
-      gateOpen,
-      evidenceConfirmed: !!evidenceRow,
-      evidenceAt: evidenceRow ? String(evidenceRow.created_at) : null,
-    });
-  });
-
-  // v14.29 — Flow 3: 2nd attempt email. Sends via Resend using email_flow3 template.
-  // Requires prior Flow 1 send AND no contact outcome AND daily cap not hit. Awards +5.
-  app.post("/api/leads/:id/email-flow3", async (req, res) => {
-    const leadId = parseInt(req.params.id);
-    const { agentId } = req.body;
-    const lead = storage.getLeadById(leadId) as any;
-    if (!lead) return res.status(404).json({ error: "Lead not found" });
-    if (!lead.email || !String(lead.email).includes("@")) {
-      return res.status(400).json({ error: "Lead has no email address" });
-    }
-
-    // Eligibility recheck server-side
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const flow1Row = rawDb.prepare(`
-      SELECT id FROM lead_activity WHERE lead_id = ? AND outcome = 'email_sent' LIMIT 1
-    `).get(leadId);
-    if (!flow1Row) return res.status(400).json({ error: "Cannot send 2nd attempt \u2014 no prior email on this lead" });
-    const contactedRow = rawDb.prepare(`
-      SELECT id FROM lead_activity WHERE lead_id = ? AND outcome IN ('contacted_appointment','keep_in_touch','contacted_not_interested') LIMIT 1
-    `).get(leadId);
-    if (contactedRow) return res.status(400).json({ error: "Cannot send 2nd attempt \u2014 lead already contacted" });
-    const capRow = rawDb.prepare(`
-      SELECT id FROM lead_activity WHERE lead_id = ? AND outcome = 'email_sent' AND created_at > ? LIMIT 1
-    `).get(leadId, dayAgo);
-    if (capRow) return res.status(429).json({ error: "Already emailed within last 24h", capped: true });
-
-    // v14.38 — 24h gate. Look up the earliest cold-intro tap (Flow 1 or 5) and
-    // block Flow 3/6 with HTTP 425 until 24h have elapsed. Server-side hard gate
-    // matching the client-side lock in AgentView.
-    const tapRow = rawDb.prepare(`
-      SELECT created_at FROM lead_activity
-       WHERE lead_id = ? AND outcome = 'email_sent'
-         AND (notes LIKE 'flow1%' OR notes LIKE 'flow5%')
-       ORDER BY created_at ASC
-       LIMIT 1
-    `).get(leadId) as any;
-    if (tapRow) {
-      const tapMs = new Date(String(tapRow.created_at)).getTime();
-      const unlockMs = tapMs + 24 * 60 * 60 * 1000;
-      const secondsUntilUnlock = Math.max(0, Math.round((unlockMs - Date.now()) / 1000));
-      if (secondsUntilUnlock > 0) {
-        return res.status(425).json({
-          error: "2nd attempt locked \u2014 wait 24h from first email",
-          gateLocked: true,
-          secondsUntilUnlock,
-          unlockAt: new Date(unlockMs).toISOString(),
-        });
-      }
-    }
-
-    if (!resend) return res.status(503).json({ error: "Email service not configured" });
-
-    const agent = agentId ? storage.getAgentById(parseInt(String(agentId))) as any : null;
-    const ownerFirst = ((lead.ownerName || "").trim().split(/\s+/)[0] || "there");
-    const agentFull = agent?.name || "";
-    const agentFirst = (agentFull.trim().split(/\s+/)[0] || "");
-    const agentEmail = agent?.email || "noreply@watsonbrothersgroup.com";
-    const agentPhone = agent?.phone || "";
-    // v14.38 — branch on lead.leadType so absentee leads use Flow 6 instead of Flow 3.
-    const isAbsentee = (lead.leadType || "").toLowerCase() === "absentee";
-    const templateKey = isAbsentee ? "email_flow6" : "email_flow3";
-    const flowLabel = isAbsentee ? "Flow 6 \u2014 Absentee 2nd Attempt (manual)" : "Flow 3 \u2014 2nd Attempt (manual)";
-    const tpl = loadEmailTemplate(templateKey);
-    if (!tpl) return res.status(500).json({ error: `${templateKey} template missing` });
-    const vars = {
-      ownerFirst,
-      ownerName: lead.ownerName || "",
-      address:   lead.address || "",
-      agentFirst,
-      agentFull,
-      agentPhone,
-      agentEmail,
-    };
-    const subject = renderTemplate(tpl.subject, vars);
-    const plainText = renderTemplate(tpl.body, vars);
-    // v14.29.4 — Branded HTML shell with agent headshot signature card.
-    const html = renderBrandedEmail({
-      bodyText: plainText,
-      agentName: agentFull || "Brothers Group",
-      agentPhone,
-      agentEmail,
-      agentHeadshotUrl: agent?.headshotUrl || null,
-    });
-
-    try {
-      await resend.emails.send({
-        from:      `${agentFull || "Brothers Group"} <${agentEmail || "noreply@watsonbrothersgroup.com"}>`,
-        to:        [lead.email],
-        cc:        ["alex@watsonbrothersgroup.com"],
-        bcc:       agentEmail ? [agentEmail] : undefined,
-        reply_to:  agentEmail,
-        subject,
-        html,
-        text:      plainText,
-      } as any);
-      const nowIso = new Date().toISOString();
-      rawDb.prepare(`
-        INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at)
-        VALUES (?, ?, 'email_sent', ?, NULL, ?)
-      `).run(leadId, agentId || null, `flow3-second-attempt sent to ${lead.email}`, nowIso);
-      if (agentId) awardPoints(parseInt(String(agentId)), "email_sent_value", leadId);
-      pushEmailNoteToFub({
-        ownerPhone: lead.phone || undefined,
-        ownerName:  ownerFirst,
-        subject,
-        sentAt:     nowIso,
-        preview:    plainText.slice(0, 260),
-        kind:       flowLabel,
-      }).catch(err => console.error(`[FUB] ${flowLabel} note push failed:`, err));
-      console.log(`[${flowLabel}] sent for lead ${leadId} to ${lead.email} (agent ${agentId || "unknown"})`);
-      res.json({ sent: true, points: 5 });
-    } catch (e: any) {
-      console.error(`[Flow3] send failed for lead ${leadId}:`, e.message);
-      res.status(500).json({ error: "Send failed", detail: e.message });
-    }
-  });
-
-  // v14.26 — Public endpoint for the client to fetch a rendered mailto for Flow 1 or Flow 3.
-  // GET /api/leads/:id/email-template?flow=1&agentId=3
-  app.get("/api/leads/:id/email-template", (req, res) => {
-    const leadId = parseInt(req.params.id);
-    const flow = String(req.query.flow || "1");
-    const agentId = req.query.agentId ? parseInt(String(req.query.agentId)) : null;
-    const lead = storage.getLeadById(leadId);
-    if (!lead) return res.status(404).json({ error: "Lead not found" });
-    const agent = agentId ? storage.getAgentById(agentId) : null;
-    // v14.38 — branch on lead.leadType so absentee leads render Flow 5 (mailto) / Flow 6 (2nd attempt).
-    const isAbsentee = ((lead as any).leadType || "").toLowerCase() === "absentee";
-    let key: string;
-    if (flow === "3") key = isAbsentee ? "email_flow6" : "email_flow3";
-    else               key = isAbsentee ? "email_flow5" : "email_flow1";
-    const tpl = loadEmailTemplate(key);
-    if (!tpl) return res.status(404).json({ error: "Template not found" });
-    const ownerName = (lead as any).ownerName || "";
-    // v15.8 — Normalize ALL CAPS owner names ("JOHN SMITH" → "John") so cold
-    // Flow 1 emails don't shout. Landvoice and BatchLeads both ship all-caps names.
-    const rawFirst = ownerName.trim().split(/\s+/)[0] || "there";
-    const ownerFirst = normalizeFirstName(rawFirst);
-    const agentFull = agent?.name || "";
-    const agentFirst = (agentFull.trim().split(/\s+/)[0] || "");
-    const vars = {
-      ownerFirst,
-      ownerName,
-      address: (lead as any).address || "",
-      agentFirst,
-      agentFull,
-      // v15.8 — Use published_phone when set (cold outreach), fall back to personal phone.
-      agentPhone: (agent as any)?.publishedPhone || (agent as any)?.phone || "",
-      agentEmail: (agent as any)?.email || "",
-    };
-    res.json({
-      subject: renderTemplate(tpl.subject, vars),
-      body:    renderTemplate(tpl.body, vars),
-    });
-  });
 
   app.get("/api/scripts/:type", (req, res) => {
     const leadType = req.params.type;
@@ -7227,7 +6608,7 @@ Brothers Group Real Estate Team at Momentum Realty
         from: "Lead Depot <noreply@watsonbrothersgroup.com>",
         to:   ["denise@watsonbrothersgroup.com"],
         cc:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
-        subject: `\uD83E\uDD1D Network Lead Submitted \u2014 ${ownerName} | ${address || "No address"}`,
+        subject: `\uD83E\uDD1D ${source === "network" ? "Network Lead" : source === "open_house" ? "Open House Lead" : source === "door_knock" ? "Door Knock Lead" : source === "direct_mail" ? "Direct Mail Lead" : "Warm Lead"} Submitted \u2014 ${ownerName} | ${address || "No address"}`,
         html: `
 <!DOCTYPE html><html><body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
 <div style="max-width:580px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid #2a2520">
@@ -7248,7 +6629,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v19.5 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v19.6 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -7410,6 +6791,21 @@ Brothers Group Real Estate Team at Momentum Realty
       },
     });
 
+    // v19.6 — admin email on every door-knock log
+    const _tdL = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px;vertical-align:top";
+    const _tdR = "padding:8px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
+    notifyLeadGenActivity({
+      kind: "door_knock_log",
+      agentName: submitter?.name || "Agent",
+      headline: `🚪 Door Knock Log — ${cappedDoors} doors — ${submitter?.name || "Agent"}`,
+      detailsHtml: `
+        <tr><td style="${_tdL}">Address / Block</td><td style="${_tdR}">${cleanAddr}</td></tr>
+        <tr><td style="${_tdL}">Doors</td><td style="${_tdR}"><strong>${cappedDoors}</strong></td></tr>
+        <tr><td style="${_tdL}">Points at stake</td><td style="${_tdR}">${points}</td></tr>
+        <tr><td style="${_tdL}">Notes</td><td style="${_tdR}">${(payloadObj.notes || "—").replace(/\n/g,"<br>")}</td></tr>
+      `,
+    });
+
     res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: points, doorsCount: cappedDoors });
   });
 
@@ -7458,6 +6854,20 @@ Brothers Group Real Estate Team at Momentum Realty
         mailedCount: capped,
         ts: now,
       },
+    });
+
+    // v19.6 — admin email on every direct-mail log
+    const _tdL2 = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px;vertical-align:top";
+    const _tdR2 = "padding:8px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
+    notifyLeadGenActivity({
+      kind: "direct_mail_log",
+      agentName: submitter?.name || "Agent",
+      headline: `✉️ Direct Mail Log — ${capped} mailers — ${submitter?.name || "Agent"}`,
+      detailsHtml: `
+        <tr><td style="${_tdL2}">Audience</td><td style="${_tdR2}">${cleanAudience}</td></tr>
+        <tr><td style="${_tdL2}">Count</td><td style="${_tdR2}"><strong>${capped}</strong></td></tr>
+        <tr><td style="${_tdL2}">Notes</td><td style="${_tdR2}">${(payloadObj.notes || "—").replace(/\n/g,"<br>")}</td></tr>
+      `,
     });
 
     res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: capped });
@@ -8268,7 +7678,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v19.5",
+      version: "v19.6",
       services: results,
     });
   });
@@ -8338,6 +7748,201 @@ Brothers Group Real Estate Team at Momentum Realty
     const distPath = path.resolve(__dirname, "public");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.resolve(distPath, "join.html"));
+  });
+
+  // ─── v19.6 ONBOARDING ENDPOINTS (candidates lifecycle) ──────────────
+  // Slim implementation: admin/agent invites (both allowed per Alex 19.6) →
+  // public /api/join/apply submit → admin approve/decline. Welcome email is
+  // DRAFTED to Alex's Superhuman (not auto-sent) per Alex's approval choice.
+
+  // ── Admin OR agent invites a candidate. Any authed user with an agent row
+  //    may invite (Alex's v19.6 choice: All agents can invite, tracked by
+  //    invited_by_agent_id for later referral-credit attribution).
+  app.post("/api/candidates/invite", (req: any, res) => {
+    const authed = req.currentAgent;
+    if (!authed) return res.status(401).json({ error: "Authentication required" });
+    const { name, phone, email } = req.body || {};
+    if (!name || !phone) return res.status(400).json({ error: "name and phone required" });
+    const token = require("crypto").randomBytes(16).toString("hex");
+    const now = new Date().toISOString();
+    try {
+      const info = rawDb.prepare(`
+        INSERT INTO candidates (name, phone, email, status, invite_token, invited_by_agent_id, invited_by_name, created_at)
+        VALUES (?, ?, ?, 'invited', ?, ?, ?, ?)
+      `).run(String(name).trim(), String(phone).trim(), email ? String(email).trim() : null, token, authed.id, authed.name || null, now);
+      const inviteUrl = `${req.protocol}://${req.get('host')}/join/${token}`;
+      // Notify admins so they see the invite lifecycle
+      if (resend) {
+        resend.emails.send({
+          from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+          to:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+          subject: `🎯 Candidate invited by ${authed.name || "Agent"} — ${name}`,
+          html: `<p>${authed.name || "An agent"} just invited <strong>${name}</strong> (${phone}${email ? " · " + email : ""}) to apply.</p><p>Their apply link: <a href="${inviteUrl}">${inviteUrl}</a></p><p>They'll appear in Admin → Candidates tab once they submit the questionnaire.</p>`,
+        }).catch(err => console.error("[candidate invite notify]", err));
+      }
+      broadcast({ type: "activity_event", event: { type: "candidate_invited", candidateId: Number(info.lastInsertRowid), name, agentId: authed.id, agentName: authed.name, ts: now } });
+      res.json({ ok: true, candidateId: Number(info.lastInsertRowid), inviteUrl });
+    } catch (err: any) {
+      console.error("[candidate invite]", err);
+      res.status(500).json({ error: err.message || "invite failed" });
+    }
+  });
+
+  // ── Public: fetch prefill info for /join/:token page (name only)
+  app.get("/api/candidates/token/:token", (req, res) => {
+    const row = rawDb.prepare(`SELECT id, name, status FROM candidates WHERE invite_token = ?`).get(req.params.token) as any;
+    if (!row) return res.status(404).json({ error: "invalid token" });
+    if (row.status !== "invited") return res.status(409).json({ error: "already submitted", status: row.status });
+    res.json({ id: row.id, name: row.name });
+  });
+
+  // ── Public: candidate submits questionnaire. Body: { token, answers: {...} }
+  //    Score is a simple heuristic — tuned later by Alex.
+  app.post("/api/candidates/apply", (req, res) => {
+    const { token, answers } = req.body || {};
+    if (!token || !answers || typeof answers !== "object") return res.status(400).json({ error: "token and answers required" });
+    const row = rawDb.prepare(`SELECT id, name, phone, email, status FROM candidates WHERE invite_token = ?`).get(token) as any;
+    if (!row) return res.status(404).json({ error: "invalid token" });
+    if (row.status !== "invited") return res.status(409).json({ error: "already submitted", status: row.status });
+    // Simple heuristic scoring
+    let score = 40;
+    const licensed = String(answers.licenseStatus || "").toLowerCase();
+    if (licensed.includes("active")) score += 25;
+    else if (licensed.includes("pending") || licensed.includes("pre")) score += 10;
+    const years = parseInt(String(answers.yearsExperience || "0")) || 0;
+    if (years >= 3) score += 20; else if (years >= 1) score += 10;
+    const fullTime = String(answers.fullTime || "").toLowerCase().startsWith("y");
+    if (fullTime) score += 15;
+    score = Math.max(0, Math.min(100, score));
+    const rec = score >= 75 ? "STRONG_FIT" : score >= 55 ? "WORTH_CALL" : score >= 35 ? "SOFT_PASS" : "HARD_PASS";
+    const now = new Date().toISOString();
+    rawDb.prepare(`UPDATE candidates SET status='submitted', questionnaire_json=?, recommendation=?, recommendation_score=?, submitted_at=? WHERE id=?`)
+      .run(JSON.stringify(answers), rec, score, now, row.id);
+    // Admin notification
+    if (resend) {
+      const answersHtml = Object.entries(answers).map(([k,v]) => `<tr><td style="padding:6px 12px 6px 0;color:#666;text-transform:capitalize">${k.replace(/_/g,' ')}</td><td style="padding:6px 0">${String(v ?? '—').replace(/</g,'&lt;')}</td></tr>`).join("");
+      resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+        subject: `📝 Candidate application — ${row.name} — ${rec} (${score})`,
+        html: `<p><strong>${row.name}</strong> just submitted their questionnaire.</p><p><strong>Recommendation:</strong> ${rec} · score ${score}/100</p><table style="border-collapse:collapse;font-family:sans-serif;font-size:14px">${answersHtml}</table><p style="margin-top:16px">Review in Admin → Candidates tab.</p>`,
+      }).catch(err => console.error("[candidate apply notify]", err));
+      // Auto-reply to candidate
+      if (row.email) {
+        resend.emails.send({
+          from: "Brothers Group Real Estate <noreply@watsonbrothersgroup.com>",
+          to:   [row.email],
+          subject: `We received your application, ${String(row.name).split(/\s+/)[0]}`,
+          html: `<p>Hi ${String(row.name).split(/\s+/)[0]},</p><p>Thank you for applying to Brothers Group Real Estate at Momentum Realty. We received your application and we'll be back to you within two business days.</p><p>— Alex Watson & Nate Watson<br>Brothers Group Real Estate at Momentum Realty</p>`,
+        }).catch(err => console.error("[candidate autoreply]", err));
+      }
+    }
+    broadcast({ type: "activity_event", event: { type: "candidate_submitted", candidateId: row.id, name: row.name, recommendation: rec, score, ts: now } });
+    res.json({ ok: true, recommendation: rec, score });
+  });
+
+  // ── Admin: list candidates (default: all statuses; ?status= filter)
+  app.get("/api/admin/candidates", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const status = req.query.status ? String(req.query.status) : null;
+    const rows = status
+      ? rawDb.prepare(`SELECT * FROM candidates WHERE status = ? ORDER BY created_at DESC`).all(status)
+      : rawDb.prepare(`SELECT * FROM candidates ORDER BY created_at DESC LIMIT 200`).all();
+    res.json({ candidates: (rows as any[]).map(r => ({
+      ...r,
+      questionnaire: r.questionnaire_json ? (() => { try { return JSON.parse(r.questionnaire_json); } catch { return null; } })() : null,
+    })) });
+  });
+
+  // ── Admin approve: creates agent row + drafts welcome email in Superhuman
+  //    (per Alex v19.6: personal touch, draft-to-Superhuman rather than auto-send)
+  app.post("/api/admin/candidates/:id/approve", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    // Alex ONLY per spec Decision #4 — Nate can invite/decline but only Alex approves.
+    const adminEmail = String(req.currentAgent?.email || "").toLowerCase();
+    if (adminEmail !== "alex@watsonbrothersgroup.com") {
+      return res.status(403).json({ error: "Only Alex can approve candidates (per spec)." });
+    }
+    const cid = parseInt(req.params.id);
+    const cand = rawDb.prepare(`SELECT * FROM candidates WHERE id = ?`).get(cid) as any;
+    if (!cand) return res.status(404).json({ error: "candidate not found" });
+    if (cand.status === "approved") return res.status(409).json({ error: "already approved" });
+    const answers = cand.questionnaire_json ? (() => { try { return JSON.parse(cand.questionnaire_json); } catch { return {}; } })() : {};
+    // Create the agent row (minimal — login-ready).
+    const setupToken = require("crypto").randomBytes(24).toString("base64url");
+    const now = new Date().toISOString();
+    const info = rawDb.prepare(`
+      INSERT INTO agents (name, email, phone, is_active, is_admin, lead_flow_on, created_at, license_status, license_number, license_state, years_experience, bio, onboarding_started_at)
+      VALUES (?, ?, ?, 1, 0, 1, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      cand.name,
+      cand.email || `${cand.phone}@pending.watsonbrothersgroup.com`,
+      cand.phone,
+      now,
+      answers.licenseStatus || null,
+      answers.licenseNumber || null,
+      answers.licenseState || "FL",
+      answers.yearsExperience || null,
+      answers.bio || null,
+      now,
+    );
+    const agentId = Number(info.lastInsertRowid);
+    rawDb.prepare(`UPDATE candidates SET status='approved', decided_by_agent_id=?, decided_at=? WHERE id=?`)
+      .run(req.currentAgent.id, now, cid);
+    // Attribute referral credit if invited_by_agent_id set
+    if (cand.invited_by_agent_id) {
+      try { awardPoints(cand.invited_by_agent_id, "agent_referral_approved", undefined, "recruiting"); } catch {}
+    }
+    broadcast({ type: "activity_event", event: { type: "candidate_approved", candidateId: cid, agentId, name: cand.name, ts: now } });
+
+    // Draft welcome email to Alex's Superhuman drafts folder — do NOT auto-send.
+    // We'll fire an email TO alex@ with the draft body so he can copy-paste or
+    // reply-forward from Superhuman. When Alex adds a real Superhuman-drafts API
+    // this will switch to that connector.
+    if (resend) {
+      const welcomeSubject = `Welcome to Brothers Group, ${String(cand.name).split(/\s+/)[0]}`;
+      const welcomeBody = `Hi ${String(cand.name).split(/\s+/)[0]},\n\nWelcome to Brothers Group Real Estate at Momentum Realty. We're glad to have you.\n\nA few things before your first day on the phones:\n\n• Your Lead Depot login: depot.watsonbrothersgroup.com (setup link coming in a separate email)\n• Nate will reach out this week about your onboarding checklist — licensing, headshot, county, personal address\n• Weekly team huddle: Mondays at 9am ET\n• Direct me anytime — my cell is on your contact card\n\nExcited to build with you.\n\n— Alex\nAlex Watson | Brothers Group Real Estate at Momentum Realty`;
+      resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to:   ["alex@watsonbrothersgroup.com"],
+        subject: `✍️ DRAFT for Superhuman — ${welcomeSubject}`,
+        html: `<p style="font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.12em">Copy/paste this into Superhuman when ready to send. Candidate agent row already created — they will get a setup-link email separately once you hit send.</p><p><strong>To:</strong> ${cand.email || "(missing — add)"}<br><strong>Subject:</strong> ${welcomeSubject}</p><pre style="font-family:'Helvetica Neue',sans-serif;background:#f7f5ef;padding:16px;border-radius:8px;white-space:pre-wrap">${welcomeBody}</pre>`,
+      }).catch(err => console.error("[welcome draft]", err));
+      // Nate onboarding brief
+      const briefRows = Object.entries(answers).map(([k,v]) => `• ${k.replace(/_/g,' ')}: ${String(v ?? '—')}`).join("\n");
+      resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to:   ["nate@watsonbrothersgroup.com"],
+        cc:   ["alex@watsonbrothersgroup.com"],
+        subject: `📋 Onboarding brief — ${cand.name}`,
+        html: `<p>Nate,</p><p>Alex just approved <strong>${cand.name}</strong> (${cand.phone}${cand.email ? " · " + cand.email : ""}). Here's what they told us on the questionnaire so you know where to pick up the reins:</p><pre style="background:#f7f5ef;padding:16px;border-radius:8px;white-space:pre-wrap;font-family:'Helvetica Neue',sans-serif;font-size:13px">${briefRows}</pre><p>— Lead Depot</p>`,
+      }).catch(err => console.error("[nate brief]", err));
+    }
+
+    res.json({ ok: true, agentId, setupToken });
+  });
+
+  // ── Admin decline: soft-delete candidate + polite pass email
+  app.post("/api/admin/candidates/:id/decline", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const cid = parseInt(req.params.id);
+    const cand = rawDb.prepare(`SELECT * FROM candidates WHERE id = ?`).get(cid) as any;
+    if (!cand) return res.status(404).json({ error: "candidate not found" });
+    if (cand.status === "declined") return res.status(409).json({ error: "already declined" });
+    const notes = req.body?.notes ? String(req.body.notes).slice(0, 1000) : null;
+    const now = new Date().toISOString();
+    rawDb.prepare(`UPDATE candidates SET status='declined', decided_by_agent_id=?, decision_notes=?, decided_at=? WHERE id=?`)
+      .run(req.currentAgent.id, notes, now, cid);
+    broadcast({ type: "activity_event", event: { type: "candidate_declined", candidateId: cid, name: cand.name, ts: now } });
+    if (resend && cand.email) {
+      resend.emails.send({
+        from: "Brothers Group Real Estate <noreply@watsonbrothersgroup.com>",
+        to:   [cand.email],
+        subject: `Thanks for applying to Brothers Group`,
+        html: `<p>Hi ${String(cand.name).split(/\s+/)[0]},</p><p>Thank you for taking the time to apply to Brothers Group Real Estate at Momentum Realty. After reviewing your application, we don't have the right seat open for you right now.</p><p>We appreciate your interest and wish you the best in your real estate career.</p><p>— The Brothers Group Team</p>`,
+      }).catch(err => console.error("[candidate decline email]", err));
+    }
+    res.json({ ok: true });
   });
 
   // ── Fast Track playbook — subpage of /join, hand-crafted HTML
@@ -8896,7 +8501,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v19.5</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v19.6</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

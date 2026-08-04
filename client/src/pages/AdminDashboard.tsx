@@ -1733,7 +1733,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v19.5
+              v19.6
             </p>
           </div>
         </div>
@@ -1825,6 +1825,7 @@ export default function AdminDashboard({
               { value: "reports",     icon: BarChart2,   label: "Reports" },
               { value: "kpi",         icon: TrendingUp,  label: "KPI" },
               { value: "approvals",   icon: CheckCircle2, label: "Approvals" },
+              { value: "candidates",  icon: UserPlus,    label: "Candidates" },
               { value: "diversity",   icon: Sparkles,    label: "Diversity" },
               { value: "dbhealth",    icon: Database,    label: "DB Health" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
@@ -2455,6 +2456,11 @@ export default function AdminDashboard({
               Reject = no points, no activity, decision_notes saved for audit. */}
           <TabsContent value="approvals" className="mt-5">
             <ApprovalsPanel />
+          </TabsContent>
+
+          {/* v19.6 — Candidate onboarding panel: pending applications, approve/decline */}
+          <TabsContent value="candidates" className="mt-5">
+            <CandidatesPanel />
           </TabsContent>
 
           {/* v18.0 — Lead Diversity Challenge panel: weekly history + preview + re-award */}
@@ -3696,6 +3702,134 @@ function ApprovalsPanel() {
 }
 
 // ─── v18.0 Lead Diversity Challenge panel ─────────────────────────────────────
+// v19.6 Candidates panel — pending applications, approve/decline
+function CandidatesPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [declining, setDeclining] = useState<number | null>(null);
+  const [declineNotes, setDeclineNotes] = useState("");
+
+  const list = useQuery({
+    queryKey: ["/api/admin/candidates"],
+    queryFn: async () => (await fetch("/api/admin/candidates", { credentials: "include" })).json(),
+    refetchInterval: 30_000,
+  });
+
+  const approveMut = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/admin/candidates/${id}/approve`, { method: "POST", credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "approve failed");
+      return data;
+    },
+    onSuccess: () => { toast({ title: "Approved — agent row + drafts created" }); qc.invalidateQueries({ queryKey: ["/api/admin/candidates"] }); qc.invalidateQueries({ queryKey: ["/api/agents"] }); },
+    onError: (e: any) => toast({ title: e.message || "Approve failed", variant: "destructive" }),
+  });
+
+  const declineMut = useMutation({
+    mutationFn: async ({ id, notes }: { id: number; notes: string }) => {
+      const res = await fetch(`/api/admin/candidates/${id}/decline`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "decline failed");
+      return data;
+    },
+    onSuccess: () => { toast({ title: "Declined — polite pass email sent" }); qc.invalidateQueries({ queryKey: ["/api/admin/candidates"] }); setDeclining(null); setDeclineNotes(""); },
+    onError: (e: any) => toast({ title: e.message || "Decline failed", variant: "destructive" }),
+  });
+
+  const candidates: any[] = list.data?.candidates || [];
+  const buckets = {
+    submitted: candidates.filter(c => c.status === "submitted"),
+    invited:   candidates.filter(c => c.status === "invited"),
+    approved:  candidates.filter(c => c.status === "approved"),
+    declined:  candidates.filter(c => c.status === "declined"),
+  };
+
+  const toggleExpand = (id: number) => setExpanded(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  const recBadge = (rec: string | null, score: number | null) => {
+    if (!rec) return null;
+    const map: Record<string, { c: string; b: string }> = {
+      STRONG_FIT: { c: "#4ade80", b: "rgba(74,222,128,0.14)" },
+      WORTH_CALL: { c: "#38bdf8", b: "rgba(56,189,248,0.14)" },
+      SOFT_PASS:  { c: "#fb923c", b: "rgba(251,146,60,0.14)" },
+      HARD_PASS:  { c: "#f87171", b: "rgba(248,113,113,0.14)" },
+    };
+    const s = map[rec] || { c: "#999", b: "rgba(255,255,255,0.05)" };
+    return <span style={{ background: s.b, color: s.c, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, letterSpacing: ".08em" }}>{rec.replace("_", " ")}{score != null ? ` · ${score}` : ""}</span>;
+  };
+
+  const row = (c: any) => (
+    <div key={c.id} style={{ padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+            <strong style={{ color: "#fff", fontSize: 15 }}>{c.name}</strong>
+            {recBadge(c.recommendation, c.recommendation_score)}
+          </div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginBottom: 2 }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>
+            Invited by {c.invited_by_name || "admin"} · {new Date(c.created_at).toLocaleDateString()}
+          </div>
+        </div>
+        {c.status === "submitted" && (
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <button onClick={() => approveMut.mutate(c.id)} disabled={approveMut.isPending} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(74,222,128,0.16)", border: "1px solid rgba(74,222,128,0.4)", color: "#4ade80", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Approve</button>
+            <button onClick={() => setDeclining(c.id)} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(248,113,113,0.16)", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Decline</button>
+          </div>
+        )}
+      </div>
+      {c.status === "submitted" && c.questionnaire && (
+        <div style={{ marginTop: 10 }}>
+          <button onClick={() => toggleExpand(c.id)} style={{ background: "transparent", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", padding: 0, fontSize: 11, letterSpacing: ".1em", textTransform: "uppercase", fontWeight: 700 }}>{expanded.has(c.id) ? "Hide answers ▲" : "View answers ▼"}</button>
+          {expanded.has(c.id) && (
+            <div style={{ marginTop: 10, padding: 12, background: "rgba(0,0,0,0.2)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.7)" }}>
+              {Object.entries(c.questionnaire).map(([k, v]) => (
+                <div key={k} style={{ marginBottom: 4 }}><span style={{ color: "rgba(255,255,255,0.4)", textTransform: "capitalize" }}>{k.replace(/_/g, " ")}:</span> {String(v ?? "—")}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {declining === c.id && (
+        <div style={{ marginTop: 10, padding: 12, background: "rgba(248,113,113,0.06)", borderRadius: 8, border: "1px solid rgba(248,113,113,0.2)" }}>
+          <textarea value={declineNotes} onChange={e => setDeclineNotes(e.target.value)} placeholder="Internal decline note (optional — not sent to candidate)" rows={2} style={{ width: "100%", padding: 8, borderRadius: 6, background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.14)", color: "#fff", fontSize: 12, marginBottom: 8, resize: "vertical" }} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => declineMut.mutate({ id: c.id, notes: declineNotes })} disabled={declineMut.isPending} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(248,113,113,0.24)", border: "1px solid rgba(248,113,113,0.5)", color: "#f87171", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Confirm decline</button>
+            <button onClick={() => { setDeclining(null); setDeclineNotes(""); }} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", border: "1px solid rgba(255,255,255,0.14)", color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const section = (title: string, items: any[], empty: string) => (
+    <div style={{ marginBottom: 20 }}>
+      <h4 style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 8, fontWeight: 700 }}>{title} ({items.length})</h4>
+      {items.length === 0 ? <p style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", fontStyle: "italic" }}>{empty}</p> : items.map(row)}
+    </div>
+  );
+
+  if (list.isLoading) return <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Loading candidates…</p>;
+
+  return (
+    <div>
+      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 16, lineHeight: 1.55 }}>
+        Only Alex can approve. Approve creates the agent row + drafts a personal welcome email to Alex's inbox (to hand-send from Superhuman) and emails Nate an onboarding brief. Decline sends a polite pass email.
+      </p>
+      {section("Ready to review", buckets.submitted, "No candidates awaiting decision.")}
+      {section("Invited (not yet submitted)", buckets.invited, "No pending invites.")}
+      {section("Approved", buckets.approved, "None yet.")}
+      {section("Declined", buckets.declined, "None yet.")}
+    </div>
+  );
+}
+
 // Weekly bonus for hitting 3/4/5 different lead-gen categories.
 // Shows: current-week preview (who would win right now), history table, re-award button.
 function DiversityPanel() {

@@ -125,7 +125,7 @@ function LiveOnAirWidget() {
   const { data } = useQuery<{ agents: Array<{ id: number; name: string; headshotUrl: string | null; dials: number; lastActivityAt: string }>; count: number; windowMinutes: number }>({
     queryKey: ["/api/agents/live-agents"],
     queryFn: () => apiRequest("GET", "/api/agents/live-agents").then(r => r.json()),
-    refetchInterval: 30000, // v19.3 — halved poll rate (WS covers activity events)
+    refetchInterval: 30000, // v19.4 — halved poll rate (WS covers activity events)
     refetchOnWindowFocus: true,
     staleTime: 5000,
   });
@@ -480,7 +480,7 @@ function ActivityHistory({ leadId }: { leadId: number }) {
       if (!res.ok) throw new Error("Failed to load activity");
       return res.json();
     },
-    refetchInterval: 30000, // v19.3 — modal-scoped, WS covers new activity
+    refetchInterval: 30000, // v19.4 — modal-scoped, WS covers new activity
   });
 
   const outcomeLabel: Record<string, string> = {
@@ -949,7 +949,7 @@ function _WasTeamPotStretchAdmin_v17_2_removed() {
   const { data: pot } = useQuery<any>({
     queryKey: ["/api/team-pot"],
     queryFn: () => apiRequest("GET", "/api/team-pot").then(r => r.json()),
-    refetchInterval: 60000, // v19.3 — money pool changes slowly
+    refetchInterval: 60000, // v19.4 — money pool changes slowly
   });
   const [busy, setBusy] = React.useState(false);
   const revealed = !!pot?.stretchRevealed;
@@ -1074,13 +1074,13 @@ export default function AdminDashboard({
   const { data: stats } = useQuery({
     queryKey: ["/api/leads/stats"],
     queryFn: () => apiRequest("GET", "/api/leads/stats").then(r => r.json()),
-    refetchInterval: 45000, // v19.3 — big aggregate, WS invalidates on real change
+    refetchInterval: 45000, // v19.4 — big aggregate, WS invalidates on real change
   });
 
   const { data: agentStats = [], isLoading: agentStatsLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/agent-stats"],
     queryFn: () => apiRequest("GET", "/api/admin/agent-stats").then(r => r.json()),
-    refetchInterval: 30000, // v19.3 — WS invalidates on outcome log
+    refetchInterval: 30000, // v19.4 — WS invalidates on outcome log
   });
 
   // v16.7 — added "monthly" tab. Server now returns a .monthly block on each row.
@@ -1112,7 +1112,7 @@ export default function AdminDashboard({
   const { data: pipeline, isLoading: pipelineLoading } = useQuery<any>({
     queryKey: ["/api/admin/pipeline"],
     queryFn: () => apiRequest("GET", "/api/admin/pipeline").then(r => r.json()),
-    refetchInterval: 30000, // v19.3 — WS invalidates on outcome log
+    refetchInterval: 30000, // v19.4 — WS invalidates on outcome log
   });
 
   // Paginated lead list query (v11.70) — replaces full pipeline load for Lead Pool tab
@@ -1450,7 +1450,7 @@ export default function AdminDashboard({
   const { data: prospectingData, refetch: refetchProspecting } = useQuery<{ enabled: boolean }>({
     queryKey: ["/api/settings/agent-prospecting-mode"],
     queryFn: () => apiRequest("GET", "/api/settings/agent-prospecting-mode").then(r => r.json()),
-    refetchInterval: 60000, // v19.3 — settings flag rarely changes
+    refetchInterval: 60000, // v19.4 — settings flag rarely changes
   });
   const prospectingMode = prospectingData?.enabled ?? false;
 
@@ -1733,7 +1733,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v19.3
+              v19.4
             </p>
           </div>
         </div>
@@ -3708,7 +3708,7 @@ function DiversityPanel() {
       const r = await apiRequest("GET", "/api/admin/diversity/history");
       return r.json();
     },
-    refetchInterval: 90000, // v19.3 — daily-cadence data
+    refetchInterval: 90000, // v19.4 — daily-cadence data
   });
 
   const preview = useQuery({
@@ -3717,7 +3717,7 @@ function DiversityPanel() {
       const r = await apiRequest("GET", "/api/admin/diversity/preview");
       return r.json();
     },
-    refetchInterval: 90000, // v19.3 — daily-cadence data
+    refetchInterval: 90000, // v19.4 — daily-cadence data
   });
 
   const reaward = useMutation({

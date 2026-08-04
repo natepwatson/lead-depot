@@ -141,6 +141,36 @@ async function scrapeZillow(street: string, city: string, state: string, zip: st
 
 const CACHE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// v19.4 — Per-IP rate limiter for the Zillow scrape endpoint.
+// Bucket: max 15 misses per IP per 60s. Cache hits are FREE (they don't call
+// Zillow), so we only count actual outbound scrapes toward the limit. Prevents
+// a bored admin (or a runaway UI bug) from hammering Zillow and getting the
+// server IP captcha-blocked. In-memory Map is fine — Railway single instance
+// and bucket keys naturally expire.
+interface RateBucket { count: number; windowStart: number; }
+const zillowScrapeBuckets = new Map<string, RateBucket>();
+const ZILLOW_WINDOW_MS = 60 * 1000;
+const ZILLOW_MAX_SCRAPES_PER_WINDOW = 15;
+
+function bumpAndCheckZillowRate(ip: string): boolean {
+  const now = Date.now();
+  let b = zillowScrapeBuckets.get(ip);
+  if (!b || (now - b.windowStart) > ZILLOW_WINDOW_MS) {
+    b = { count: 0, windowStart: now };
+    zillowScrapeBuckets.set(ip, b);
+  }
+  b.count += 1;
+  return b.count <= ZILLOW_MAX_SCRAPES_PER_WINDOW;
+}
+
+// Periodic janitor — wipe stale IP buckets so the Map doesn't grow unbounded.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, b] of zillowScrapeBuckets) {
+    if ((now - b.windowStart) > ZILLOW_WINDOW_MS * 2) zillowScrapeBuckets.delete(ip);
+  }
+}, 5 * 60 * 1000);
+
 export function registerZillowRoutes(app: Express) {
   ensureZillowSchema();
 
@@ -159,6 +189,12 @@ export function registerZillowRoutes(app: Express) {
         zpid: cached.zpid, price: cached.price, beds: cached.beds, baths: cached.baths,
         sqft: cached.sqft, photoUrl: cached.photo_url, zillowUrl: cached.zillow_url,
       });
+    }
+
+    // v19.4 — Rate-limit only the outbound scrape path. Cache hits above are free.
+    const clientIp = String(req.headers["x-forwarded-for"] || req.ip || "unknown").split(",")[0].trim();
+    if (!bumpAndCheckZillowRate(clientIp)) {
+      return res.status(429).json({ hit: false, error: "rate_limited", retryAfter: 60 });
     }
 
     const intel = await scrapeZillow(street, city, state, zip);

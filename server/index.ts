@@ -65,7 +65,10 @@ app.use((req: any, res: any, next: any) => {
 app.use(securityHeaders);
 
 // Compression first — before ALL routes including API, at level 1 (fast)
-app.use(compression({ level: 1, threshold: 1024 }));
+// v19.4 — Raised compression level 1→6. Static JS bundle is served once and cached
+// on the client, so paying ~5ms compress time for a ~15% smaller wire is a clear win
+// for cold-start bandwidth. threshold: 1024 keeps small JSON responses uncompressed.
+app.use(compression({ level: 6, threshold: 1024 }));
 
 app.use(
   express.json({

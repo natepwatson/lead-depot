@@ -405,7 +405,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v19.3 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v19.4 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -464,7 +464,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -749,7 +749,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1987,7 +1987,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v19.3</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v19.4</p>
             </div>
           `,
         });
@@ -2147,7 +2147,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v19.3 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v19.4 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3083,7 +3083,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ leads, totalCount, geocodedCount, pending, bgRunning: bgGeocodeRunning });
   });
 
-  // v19.3 — Public Team Map endpoint. Any authenticated agent can call this;
+  // v19.4 — Public Team Map endpoint. Any authenticated agent can call this;
   // returns only anonymized coordinates + coarse bucket. NO owner name, NO
   // address, NO id, NO phone, NO zip. Coordinates are jittered ±0.004° (~350m)
   // to hide exact property location. This is the "bragging" surface used to
@@ -3604,7 +3604,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const kit     = owned.filter(l => l.status === 'keep_in_touch');
     const network = owned.filter(l => l.lead_type === 'network' && l.status !== 'keep_in_touch' && l.status !== 'contacted_appointment');
 
-    // v19.3 — Kanban 6-stage bucketing. Alex spec: no Under Contract, no Closed.
+    // v19.4 — Kanban 6-stage bucketing. Alex spec: no Under Contract, no Closed.
     //   Lead          — assigned to agent, no activity yet
     //   Contacted     — has activity but neutral outcome (no_answer, recycled)
     //   Nurture       — KIT with stage='Nurture'
@@ -7244,7 +7244,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v19.3 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v19.4 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8262,7 +8262,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v19.3",
+      version: "v19.4",
       services: results,
     });
   });
@@ -8890,7 +8890,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v19.3</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v19.4</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -9753,3 +9753,83 @@ scheduleStaleLockReleaser();
 // signal. Downtime dial-lock also remains.
 
 // v14.46 — BatchLeads auto-pipeline scheduler removed. CSV upload is the sole seller intake path.
+
+// ─── v19.4 — DATABASE MAINTENANCE SWEEP ─────────────────────────────────────
+// Runs every Sunday at 3:15 AM ET. Three-step maintenance:
+//   1) Retention sweep: delete daily_metrics_snapshots and agent_daily_snapshots
+//      rows older than 90 days (~180 rows/agent/quarter kept). Historical rows
+//      beyond 90 days are unused by every current UI surface.
+//   2) SQLite VACUUM: reclaims free pages back to the OS. Only meaningful
+//      after deletes; skipping when nothing was pruned saves a full-DB rewrite.
+//   3) ANALYZE: refreshes SQLite query planner stats for the indexes we hit
+//      hardest (leads.assigned_agent_id, lead_activities.created_at, etc.).
+// All three run sequentially inside a single scheduled invocation. Failures are
+// logged but never throw — this cron must never take down the app.
+function scheduleWeeklyMaintenance() {
+  // Compute ms until next Sunday 03:15 America/New_York.
+  function msUntilNextSundayAt315ET(): number {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", weekday: "short", hour: "numeric",
+      minute: "numeric", hour12: false,
+    }).formatToParts(now);
+    const wd = parts.find(p => p.type === "weekday")?.value || "Mon";
+    const h = Number(parts.find(p => p.type === "hour")?.value || 0);
+    const m = Number(parts.find(p => p.type === "minute")?.value || 0);
+    const wdIdx = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(wd);
+    // Days until next Sunday (0 if today is Sun and time < 03:15)
+    let daysUntilSun = wdIdx === 0 ? (h < 3 || (h === 3 && m < 15) ? 0 : 7) : (7 - wdIdx);
+    const currentMinutes = h * 60 + m;
+    const targetMinutes = 3 * 60 + 15;
+    const minutesDelta = daysUntilSun * 24 * 60 + (targetMinutes - currentMinutes);
+    return Math.max(60_000, minutesDelta * 60_000); // never fire in <60s
+  }
+
+  function runMaintenance() {
+    const startedAt = new Date().toISOString();
+    try {
+      // Step 1: retention prune (90 days)
+      const cutoffMs = Date.now() - 90 * 24 * 60 * 60 * 1000;
+      const cutoffDate = new Date(cutoffMs).toISOString().slice(0, 10);
+      let pruned = 0;
+      try {
+        const r1 = rawDb.prepare(`DELETE FROM daily_metrics_snapshots WHERE et_date < ?`).run(cutoffDate);
+        pruned += Number(r1.changes || 0);
+      } catch (e) { console.warn("[maintenance] daily_metrics_snapshots prune skip:", (e as Error).message); }
+      try {
+        const r2 = rawDb.prepare(`DELETE FROM agent_daily_snapshots WHERE snapshot_date < ?`).run(cutoffDate);
+        pruned += Number(r2.changes || 0);
+      } catch (e) { console.warn("[maintenance] agent_daily_snapshots prune skip:", (e as Error).message); }
+
+      // Step 2: VACUUM (only if we pruned anything — VACUUM rewrites the whole DB)
+      if (pruned > 0) {
+        try { rawDb.exec("VACUUM"); } catch (e) { console.warn("[maintenance] VACUUM failed:", (e as Error).message); }
+      }
+
+      // Step 3: ANALYZE (cheap; refreshes planner stats)
+      try { rawDb.exec("ANALYZE"); } catch (e) { console.warn("[maintenance] ANALYZE failed:", (e as Error).message); }
+
+      console.log(`[maintenance] Weekly sweep complete. Started=${startedAt} pruned=${pruned} vacuumed=${pruned > 0}`);
+    } catch (err) {
+      console.error("[maintenance] Unexpected failure — sweep aborted:", err);
+    } finally {
+      scheduleNext();
+    }
+  }
+
+  function scheduleNext() {
+    const delay = msUntilNextSundayAt315ET();
+    setTimeout(runMaintenance, delay);
+    console.log(`[maintenance] Next weekly sweep in ${Math.round(delay/60000)} min`);
+  }
+
+  scheduleNext();
+}
+scheduleWeeklyMaintenance();
+
+// v19.4 — Boot-time ANALYZE (cheap, no locks). Refreshes planner stats after
+// each deploy so the first minute of queries doesn't hit stale statistics.
+setTimeout(() => {
+  try { rawDb.exec("ANALYZE"); console.log("[maintenance] boot ANALYZE complete"); }
+  catch (e) { console.warn("[maintenance] boot ANALYZE failed:", (e as Error).message); }
+}, 10_000);

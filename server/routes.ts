@@ -216,7 +216,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -445,7 +445,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v19.8 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.0 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -504,7 +504,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -552,7 +552,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1790,7 +1790,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v19.8</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.0</p>
             </div>
           `,
         });
@@ -1950,7 +1950,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v19.8 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.0 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -6629,7 +6629,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v19.8 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.0 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -7678,7 +7678,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v19.8",
+      version: "v20.0",
       services: results,
     });
   });
@@ -7866,7 +7866,7 @@ This template is for informational/outreach purposes only.`;
 
   // ── Admin approve: creates agent row + drafts welcome email in Superhuman
   //    (per Alex v19.6: personal touch, draft-to-Superhuman rather than auto-send)
-  app.post("/api/admin/candidates/:id/approve", (req: any, res) => {
+  app.post("/api/admin/candidates/:id/approve", async (req: any, res) => {
     if (!requireAdmin(req, res)) return;
     // Alex ONLY per spec Decision #4 — Nate can invite/decline but only Alex approves.
     const adminEmail = String(req.currentAgent?.email || "").toLowerCase();
@@ -7878,23 +7878,33 @@ This template is for informational/outreach purposes only.`;
     if (!cand) return res.status(404).json({ error: "candidate not found" });
     if (cand.status === "approved") return res.status(409).json({ error: "already approved" });
     const answers = cand.questionnaire_json ? (() => { try { return JSON.parse(cand.questionnaire_json); } catch { return {}; } })() : {};
-    // Create the agent row (minimal — login-ready).
+    // Create the agent row (login-ready via setup-link email).
+    // v20.0 — setup_token/setup_expires make /setup/:token work end-to-end.
+    // Placeholder password hash is bcrypt of a random 32-byte secret — unreachable
+    // by anyone, so no one can log in until they pick a real password via the setup link.
     const setupToken = require("crypto").randomBytes(24).toString("base64url");
+    const setupExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7d
+    const placeholderSecret = require("crypto").randomBytes(32).toString("base64url");
+    const placeholderHash = await hashPassword(placeholderSecret);
     const now = new Date().toISOString();
+    // v20.0 — agents table uses role='agent'|'admin', not is_admin. Ensure password
+    // is set (NOT NULL) with an unreachable placeholder until the setup link is used.
     const info = rawDb.prepare(`
-      INSERT INTO agents (name, email, phone, is_active, is_admin, lead_flow_on, created_at, license_status, license_number, license_state, years_experience, bio, onboarding_started_at)
-      VALUES (?, ?, ?, 1, 0, 1, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO agents (name, email, phone, password, is_active, role, lead_flow_on, license_status, license_number, license_state, years_experience, bio, onboarding_started_at, setup_token, setup_expires)
+      VALUES (?, ?, ?, ?, 1, 'agent', 1, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       cand.name,
       cand.email || `${cand.phone}@pending.watsonbrothersgroup.com`,
       cand.phone,
-      now,
+      placeholderHash,
       answers.licenseStatus || null,
       answers.licenseNumber || null,
       answers.licenseState || "FL",
       answers.yearsExperience || null,
       answers.bio || null,
       now,
+      setupToken,
+      setupExpires,
     );
     const agentId = Number(info.lastInsertRowid);
     rawDb.prepare(`UPDATE candidates SET status='approved', decided_by_agent_id=?, decided_at=? WHERE id=?`)
@@ -7905,28 +7915,82 @@ This template is for informational/outreach purposes only.`;
     }
     broadcast({ type: "activity_event", event: { type: "candidate_approved", candidateId: cid, agentId, name: cand.name, ts: now } });
 
-    // Draft welcome email to Alex's Superhuman drafts folder — do NOT auto-send.
-    // We'll fire an email TO alex@ with the draft body so he can copy-paste or
-    // reply-forward from Superhuman. When Alex adds a real Superhuman-drafts API
-    // this will switch to that connector.
+    // v20.0 — Welcome email now sends FOR REAL from noreply@watsonbrothersgroup.com
+    // directly to the candidate. Reply-to is alex@ so replies land in Alex's Superhuman.
+    // No more "draft to Alex" step — the moment Alex hits Approve, the candidate gets
+    // a warm personal note from Alex.
     if (resend) {
-      const welcomeSubject = `Welcome to Brothers Group, ${String(cand.name).split(/\s+/)[0]}`;
-      const welcomeBody = `Hi ${String(cand.name).split(/\s+/)[0]},\n\nWelcome to Brothers Group Real Estate at Momentum Realty. We're glad to have you.\n\nA few things before your first day on the phones:\n\n• Your Lead Depot login: depot.watsonbrothersgroup.com (setup link coming in a separate email)\n• Nate will reach out this week about your onboarding checklist — licensing, headshot, county, personal address\n• Weekly team huddle: Mondays at 9am ET\n• Direct me anytime — my cell is on your contact card\n\nExcited to build with you.\n\n— Alex\nAlex Watson | Brothers Group Real Estate at Momentum Realty`;
-      resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-        to:   ["alex@watsonbrothersgroup.com"],
-        subject: `✍️ DRAFT for Superhuman — ${welcomeSubject}`,
-        html: `<p style="font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.12em">Copy/paste this into Superhuman when ready to send. Candidate agent row already created — they will get a setup-link email separately once you hit send.</p><p><strong>To:</strong> ${cand.email || "(missing — add)"}<br><strong>Subject:</strong> ${welcomeSubject}</p><pre style="font-family:'Helvetica Neue',sans-serif;background:#f7f5ef;padding:16px;border-radius:8px;white-space:pre-wrap">${welcomeBody}</pre>`,
-      }).catch(err => console.error("[welcome draft]", err));
-      // Nate onboarding brief
+      const firstName = String(cand.name).split(/\s+/)[0];
+      const welcomeSubject = `Welcome to Brothers Group, ${firstName}`;
+      const welcomeHtml = `<div style="font-family:'Helvetica Neue','Segoe UI',sans-serif;font-size:15px;line-height:1.65;color:#1a1a1a;max-width:600px;margin:0 auto;padding:32px 24px;background:#fff">
+<p style="margin:0 0 16px">Hi ${firstName},</p>
+<p style="margin:0 0 16px">Welcome to Brothers Group Real Estate at Momentum Realty — truly excited to have you with us. There's so much for us to build together and I can't wait to get into it.</p>
+<p style="margin:0 0 16px">A few quick things before your first day on the phones:</p>
+<ul style="margin:0 0 16px;padding-left:22px">
+  <li style="margin-bottom:6px">Your Lead Depot login is coming in a separate email with your setup link.</li>
+  <li style="margin-bottom:6px">Nate will reach out this week about your team onboarding — licensing, headshot, county, personal address.</li>
+  <li style="margin-bottom:6px">Brittany Brooks and Michelle Weaver at Momentum will be looping in on the brokerage-side onboarding.</li>
+  <li style="margin-bottom:6px">Weekly team huddle: Mondays at 9am ET.</li>
+</ul>
+<p style="margin:0 0 16px">Any chance you're free to grab coffee this week? Would love to hear more about you and share where we're taking this thing.</p>
+<p style="margin:0 0 16px">Reply anytime — this hits my inbox directly.</p>
+<p style="margin:0 0 4px">— Alex</p>
+<p style="margin:0;color:#666;font-size:13px">Alex Watson &middot; Brothers Group Real Estate at Momentum Realty</p>
+</div>`;
+      if (cand.email) {
+        resend.emails.send({
+          from:    "Alex Watson <noreply@watsonbrothersgroup.com>",
+          to:      [cand.email],
+          cc:      ["nate@watsonbrothersgroup.com"],
+          replyTo: "alex@watsonbrothersgroup.com",
+          subject: welcomeSubject,
+          html:    welcomeHtml,
+        }).catch(err => console.error("[welcome email]", err));
+
+        // v20.0 — Lead Depot setup link email (separate from welcome so it stays scannable).
+        const appBase = process.env.RAILWAY_PUBLIC_DOMAIN
+          ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+          : process.env.APP_URL ?? "https://depot.watsonbrothersgroup.com";
+        const setupLink = `${appBase}/#/setup/${setupToken}`;
+        resend.emails.send({
+          from:    "Lead Depot <noreply@watsonbrothersgroup.com>",
+          to:      [cand.email],
+          replyTo: "alex@watsonbrothersgroup.com",
+          subject: `Set up your Lead Depot access, ${firstName}`,
+          html: `<div style="font-family:'Helvetica Neue','Segoe UI',sans-serif;font-size:15px;line-height:1.65;color:#1a1a1a;max-width:600px;margin:0 auto;padding:32px 24px;background:#fff">
+<p style="margin:0 0 16px">Hi ${firstName},</p>
+<p style="margin:0 0 16px">Your Lead Depot account is ready. Click below to pick your password and log in for the first time. This link is good for 7 days.</p>
+<div style="text-align:center;margin:24px 0"><a href="${setupLink}" style="display:inline-block;padding:14px 32px;background:#c8aa5a;color:#0a0a0a;font-weight:700;font-size:14px;letter-spacing:.1em;text-transform:uppercase;text-decoration:none;border-radius:8px">Set up my account</a></div>
+<p style="margin:0 0 6px;color:#666;font-size:13px">Or paste this into your browser:</p>
+<p style="margin:0 0 16px;font-family:monospace;font-size:12px;word-break:break-all;color:#333">${setupLink}</p>
+<p style="margin:24px 0 4px">— Alex</p>
+<p style="margin:0;color:#666;font-size:13px">Alex Watson &middot; Brothers Group Real Estate at Momentum Realty</p>
+</div>`,
+        }).catch(err => console.error("[setup link email]", err));
+      } else {
+        console.warn(`[welcome/setup email] candidate ${cid} has no email on file — skipping sends`);
+      }
+      // Nate onboarding brief — CC Alex + Denise (v19.9: Denise added so team-ops has the same picture at the moment of approval).
       const briefRows = Object.entries(answers).map(([k,v]) => `• ${k.replace(/_/g,' ')}: ${String(v ?? '—')}`).join("\n");
       resend.emails.send({
         from: "Lead Depot <noreply@watsonbrothersgroup.com>",
         to:   ["nate@watsonbrothersgroup.com"],
-        cc:   ["alex@watsonbrothersgroup.com"],
+        cc:   ["alex@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"],
         subject: `📋 Onboarding brief — ${cand.name}`,
-        html: `<p>Nate,</p><p>Alex just approved <strong>${cand.name}</strong> (${cand.phone}${cand.email ? " · " + cand.email : ""}). Here's what they told us on the questionnaire so you know where to pick up the reins:</p><pre style="background:#f7f5ef;padding:16px;border-radius:8px;white-space:pre-wrap;font-family:'Helvetica Neue',sans-serif;font-size:13px">${briefRows}</pre><p>— Lead Depot</p>`,
+        html: `<p>Nate,</p><p>Alex just approved <strong>${cand.name}</strong> (${cand.phone}${cand.email ? " · " + cand.email : ""}). Please kick off their team onboarding to Momentum. Here's what they told us on the questionnaire so you know where to pick up the reins:</p><pre style="background:#f7f5ef;padding:16px;border-radius:8px;white-space:pre-wrap;font-family:'Helvetica Neue',sans-serif;font-size:13px">${briefRows}</pre><p>— Lead Depot</p>`,
       }).catch(err => console.error("[nate brief]", err));
+
+      // v19.9 — Momentum Realty onboarding request to Brittany Brooks + Michelle Weaver.
+      // Fires the moment Alex approves the candidate so their brokerage-side onboarding
+      // (paperwork, MLS/board, systems access) starts in parallel with Nate's Depot onboarding.
+      resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to:      ["momentumbkr@gmail.com", "michelle@movewithmomentum.com"],
+        cc:      ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+        replyTo: "alex@watsonbrothersgroup.com",
+        subject: `New Brothers Group agent — please onboard ${cand.name} to Momentum`,
+        html: `<p>Hi Brittany and Michelle,</p><p>We just brought on a new agent to the Brothers Group team — <strong>${cand.name}</strong>${cand.email ? ` (${cand.email})` : ""}${cand.phone ? ` · ${cand.phone}` : ""}. Could you please kick off their Momentum Realty onboarding whenever you have a moment?</p><p>A few quick details from their application to make it easier on your end:</p><pre style="background:#f7f5ef;padding:16px;border-radius:8px;white-space:pre-wrap;font-family:'Helvetica Neue',sans-serif;font-size:13px">${briefRows}</pre><p>Nate is running the team-side onboarding in parallel — feel free to loop him in on anything you need from us. Really appreciate you both.</p><p>— Alex<br/>Alex Watson · Brothers Group Real Estate at Momentum Realty</p>`,
+      }).catch(err => console.error("[momentum onboarding]", err));
     }
 
     res.json({ ok: true, agentId, setupToken });
@@ -8511,7 +8575,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v19.8</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.0</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

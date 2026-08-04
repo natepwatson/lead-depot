@@ -1733,7 +1733,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v19.8
+              v20.0
             </p>
           </div>
         </div>
@@ -3820,7 +3820,7 @@ function CandidatesPanel() {
   return (
     <div>
       <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 16, lineHeight: 1.55 }}>
-        Only Alex can approve. Approve creates the agent row + drafts a personal welcome email to Alex's inbox (to hand-send from Superhuman) and emails Nate an onboarding brief. Decline sends a polite pass email.
+Only Alex can approve. Approve creates the agent row, drafts a personal welcome email to Alex's inbox (to hand-send from Superhuman), emails Nate an onboarding brief (CC Alex + Denise), AND emails Brittany Brooks + Michelle Weaver to kick off Momentum Realty onboarding (CC Alex + Nate). Decline sends a polite pass email.
       </p>
       {section("Ready to review", buckets.submitted, "No candidates awaiting decision.")}
       {section("Invited (not yet submitted)", buckets.invited, "No pending invites.")}

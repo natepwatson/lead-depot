@@ -1068,7 +1068,7 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_status ON approval_reque
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_agent ON approval_requests(agent_id, submitted_at DESC)`).run();
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_kind ON approval_requests(kind, status)`).run();
 
-// v20.4.8 — Listings table. Denise uploads Monday via Admin/Upload CSV — Listings.
+// v20.4.9 — Listings table. Denise uploads Monday via Admin/Upload CSV — Listings.
 // These are the team's Active / Pending / Sold listings. Each active listing
 // becomes a candidate row on Tuesday's Open House Schedule form.
 rawDb.exec(`
@@ -1096,9 +1096,9 @@ rawDb.exec(`
 `);
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status, list_date DESC)`).run();
 rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_addr ON listings(lower(address), coalesce(zip,''))`).run();
-console.log("[db] v20.4.8 listings table ready");
+console.log("[db] v20.4.9 listings table ready");
 
-// v20.4.8 — Open Houses table. Rebuilt around the new Monday/Tuesday flow:
+// v20.4.9 — Open Houses table. Rebuilt around the new Monday/Tuesday flow:
 //   Monday: Denise uploads listings via Upload CSV.
 //   Tuesday: Denise fills the Open House Schedule form (per active listing:
 //     Yes/No, date, start time, length, optional host preference name,
@@ -1136,7 +1136,7 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_oh_status ON open_houses(status, d
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_oh_agent ON open_houses(claimed_by_agent_id, date)`).run();
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_oh_listing ON open_houses(listing_id)`).run();
 
-// v20.4.8 — migrate any existing open_houses rows to add new columns.
+// v20.4.9 — migrate any existing open_houses rows to add new columns.
 try {
   const cols = rawDb.prepare(`PRAGMA table_info(open_houses)`).all() as { name: string }[];
   const names = new Set(cols.map(c => c.name));
@@ -1147,7 +1147,7 @@ try {
   if (!names.has("declined_reason"))  rawDb.exec(`ALTER TABLE open_houses ADD COLUMN declined_reason TEXT`);
 } catch (e) { console.warn("[db] open_houses migration warn:", (e as Error).message); }
 
-// v20.4.8 — extend listings for coming_soon + pocket status + source tracking.
+// v20.4.9 — extend listings for coming_soon + pocket status + source tracking.
 try {
   const cols = rawDb.prepare(`PRAGMA table_info(listings)`).all() as { name: string }[];
   const names = new Set(cols.map(c => c.name));
@@ -1159,7 +1159,7 @@ try {
   if (!names.has("sqft"))         rawDb.exec(`ALTER TABLE listings ADD COLUMN sqft INTEGER`);
 } catch (e) { console.warn("[db] listings migration warn:", (e as Error).message); }
 
-// v20.4.8 — Buyers table. Denise uploads via Weekly Workbook tab 3, plus FUB nightly sweep.
+// v20.4.9 — Buyers table. Denise uploads via Weekly Workbook tab 3, plus FUB nightly sweep.
 // Green rows in the Excel = closed, White rows = active ("on the hunt").
 // FUB people tagged "Active Buyer" etc. (configurable) are auto-ingested nightly.
 rawDb.exec(`
@@ -1196,9 +1196,9 @@ rawDb.exec(`
 `);
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_buyers_status ON buyers(status, price_max DESC)`).run();
 rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_buyers_dedupe ON buyers(coalesce(lower(phone),lower(email),lower(name)))`).run();
-console.log("[db] v20.4.8 buyers table ready");
+console.log("[db] v20.4.9 buyers table ready");
 
-// v20.4.8 — FUB tag configuration. Admin picks which FUB tags feed which bucket.
+// v20.4.9 — FUB tag configuration. Admin picks which FUB tags feed which bucket.
 rawDb.exec(`
   CREATE TABLE IF NOT EXISTS fub_tag_config (
     tag_name              TEXT PRIMARY KEY,
@@ -1210,10 +1210,10 @@ rawDb.exec(`
     updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `);
-console.log("[db] v20.4.8 fub_tag_config table ready");
+console.log("[db] v20.4.9 fub_tag_config table ready");
 
 
-console.log("[db] v20.4.8 open_houses + listings tables ready");
+console.log("[db] v20.4.9 open_houses + listings tables ready");
 
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");

@@ -815,7 +815,7 @@ const SERVICE_LABELS: Record<string, string> = {
   websocket:      "WebSocket",
 };
 
-// v20.4.8 — HealthWidget rebuilt: green-light service checks + live terminal feed.
+// v20.4.9 — HealthWidget rebuilt: green-light service checks + live terminal feed.
 // The terminal subscribes to the existing /ws hub and prints events like a
 // small tail -f. No new API surface — pure client wiring on top of the same
 // broadcasts the app already emits (outcomes, pulls, uploads, seats).
@@ -1098,7 +1098,7 @@ export default function AdminDashboard({
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  // v20.4.8 — Listen for FUB seat overage broadcasts and toast the admin.
+  // v20.4.9 — Listen for FUB seat overage broadcasts and toast the admin.
   // Event is dispatched by useRealtimeUpdates when the server broadcasts
   // fub_seat_overage after an approve that pushed us past 10 included seats.
   useEffect(() => {
@@ -1836,7 +1836,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.4.8
+              v20.4.9
             </p>
           </div>
         </div>
@@ -2560,7 +2560,7 @@ export default function AdminDashboard({
               once their flows ship. Approve = award points + insert lead_activity.
               Reject = no points, no activity, decision_notes saved for audit. */}
           <TabsContent value="approvals" className="mt-5">
-            {/* v20.4.8 — Pending open houses submitted by Denise appear at the top. */}
+            {/* v20.4.9 — Pending open houses submitted by Denise appear at the top. */}
             <PendingOpenHousesPanel />
             <ApprovalsPanel />
           </TabsContent>
@@ -2665,16 +2665,16 @@ export default function AdminDashboard({
 
               </div>
 
-              {/* v20.4.8 — Listings section: Denise's Monday upload. */}
+              {/* v20.4.9 — Listings section: Denise's Monday upload. */}
               <ListingsPanel />
 
-              {/* v20.4.8 — Weekly workbook upload + FUB tag config */}
+              {/* v20.4.9 — Weekly workbook upload + FUB tag config */}
               <WeeklyWorkbookPanel />
               <FubTagConfigPanel />
             </div>
           </TabsContent>
 
-          {/* v20.4.8 — Open Houses admin tab: Denise's Tuesday schedule form. */}
+          {/* v20.4.9 — Open Houses admin tab: Denise's Tuesday schedule form. */}
           <TabsContent value="openhouses" className="mt-5">
             <OpenHouseSchedulePanel />
           </TabsContent>
@@ -3764,7 +3764,7 @@ function CandidatesPanel() {
     refetchInterval: 30_000,
   });
 
-  // v20.4.8 — FUB Pro plan seat headroom. First 10 seats included in $499/mo
+  // v20.4.9 — FUB Pro plan seat headroom. First 10 seats included in $499/mo
   // base; seat 11+ is $49/mo. Show a pill above the list so Alex sees the state
   // before hitting Approve. Refetches on candidate-list refetch cadence.
   const seats = useQuery({
@@ -3874,7 +3874,7 @@ function CandidatesPanel() {
 
   if (list.isLoading) return <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Loading candidates…</p>;
 
-  // v20.4.8 — seat pill rendering
+  // v20.4.9 — seat pill rendering
   const seatData = seats.data;
   const seatPill = (() => {
     if (!seatData) return null;

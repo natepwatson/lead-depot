@@ -3155,7 +3155,7 @@ export function BonusCard() {
           >{pct}%</span>
         </div>
 
-        {/* Challenge name + detail — v20.4.8 readability pass: larger title,
+        {/* Challenge name + detail — v20.4.9 readability pass: larger title,
             higher-contrast detail, tighter line-height. Old 12px @ 0.65 opacity
             was unreadable in bright light against the gold gradient card bg. */}
         <div style={{ position: "relative", zIndex: 1, textAlign: "center", fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 600, fontSize: 24, letterSpacing: "0.01em", margin: "4px 0 6px", color: "#fff" }}>
@@ -4141,7 +4141,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                       {s.agent.name}{isMe ? " (you)" : ""}
                     </p>
                   </div>
-                  {/* v20.4.8 — STICKY (PTS · APPT only) + SWIPE RAIL (KIT · REFS · DIALS · OH · DM · DK · FB/IG).
+                  {/* v20.4.9 — STICKY (PTS · APPT only) + SWIPE RAIL (KIT · REFS · DIALS · OH · DM · DK · FB/IG).
                        Per Alex: only PTS and APPT stay pinned; everything else slides.
                        Swipe rail flexes to fill remaining space so it can scroll all the way to the last column
                        without snap-back or cutoff. */}
@@ -4170,7 +4170,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                           {stickyCell(w.appts ?? 0, "APPT", false, "#c8aa5a")}
                         </div>
                         {/* SWIPE RAIL: KIT · REFS · DIALS · OH · DM · DK · FB/IG (horizontal scroll on phone).
-                            v20.4.8 — flex:1 min-width:0 lets the rail take remaining width so scroll can
+                            v20.4.9 — flex:1 min-width:0 lets the rail take remaining width so scroll can
                             reach the last column. All rails sync-scroll together via registerRail. */}
                         <div
                           className="lb-swipe-rail"
@@ -4703,7 +4703,7 @@ const TIER_STYLES: Record<1|2|3, { bg: string; border: string; ring: string; chi
   3: { bg: "rgba(220,120,90,0.13)",  border: "rgba(220,120,90,0.55)",  ring: "rgba(255,160,120,0.95)", chipText: "#ffb090", label: "GOLD"   },
 };
 
-// ─── v20.4.8 INVENTORY TAB ────────────────────────────────────────────────────
+// ─── v20.4.9 INVENTORY TAB ────────────────────────────────────────────────────
 // Sellers + Buyers subtabs. Fed by GET /api/inventory/sellers and /api/inventory/buyers.
 // Any agent can view. Match hints ("X buyers match this listing") badge on cards.
 
@@ -4856,12 +4856,12 @@ function InventoryTab() {
       ) : (
         <>
           <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-            <button onClick={() => setBuyerFilter("active")} style={chipStyle(buyerFilter==="active")}>Active ({buyersQ.data?.active?.length ?? 0})</button>
+            <button onClick={() => setBuyerFilter("active")} style={chipStyle(buyerFilter==="active")}>On the Hunt ({buyersQ.data?.active?.length ?? 0})</button>
             <button onClick={() => setBuyerFilter("closed")} style={chipStyle(buyerFilter==="closed")}>Closed this year ({buyersQ.data?.closed?.length ?? 0})</button>
           </div>
           {buyersQ.isLoading ? <Skeleton className="h-40 w-full" /> :
            buyerRows && buyerRows.length ? buyerRows.map(r => <BuyerCard key={r.id} row={r} />) :
-           <div style={{ padding:24, textAlign:"center", color:"#6b7280", fontSize:13 }}>No buyers in this bucket yet.</div>}
+           <div style={{ padding:24, textAlign:"center", color:"#6b7280", fontSize:13 }}>No buyers on the hunt yet.</div>}
         </>
       )}
     </div>
@@ -5498,7 +5498,7 @@ export const WARM_LEAD_INTENTS: {
 // leaderboard content (that's the dashboard). "leaderboard" id kept in the union
 // to gracefully fall through for anyone with a stale initialTab or bookmark.
 type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home" | "inventory";
-// v20.4.8 — Inventory added as 6th slot. Bottom nav is scrollable-safe at 6 items on modern phones (min-width≮360px still fits 60px per).
+// v20.4.9 — Inventory added as 6th slot. Bottom nav is scrollable-safe at 6 items on modern phones (min-width≮360px still fits 60px per).
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "home",       label: "Home",       icon: Home },
   { id: "pipeline",   label: "Pipeline",   icon: Layers },
@@ -5529,7 +5529,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   // v19.5 — Prime Time notifier boot. Idempotent; only fires when permission is granted.
   useEffect(() => { startPrimeNotifier(); }, []);
 
-  // v20.4.8 — Two-stage PermissionGate. Fires on first login and every 90 days.
+  // v20.4.9 — Two-stage PermissionGate. Fires on first login and every 90 days.
   // Modal is non-blocking; agent can skip. Uses localStorage timestamp.
   const [permGateOpen, setPermGateOpen] = useState(false);
   useEffect(() => {
@@ -5752,7 +5752,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
 
   return (
     <div className="ld-bg-wrap" style={{ minHeight: "100dvh", background: "#080808", display: "flex", flexDirection: "column" }}>
-      {/* v20.4.8 — Two-stage PermissionGate modal (first login + 90-day recheck) */}
+      {/* v20.4.9 — Two-stage PermissionGate modal (first login + 90-day recheck) */}
       {permGateOpen && <PermissionGate onDone={() => setPermGateOpen(false)} />}
       {/* v14.52 — Pull-to-refresh visible indicator (gold chip floats above header) */}
       {ptrIndicator}
@@ -5811,7 +5811,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.8</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.9</span>
             </div>
           </div>
         </div>
@@ -6582,7 +6582,7 @@ function LeadGenSheet(props: {
   //   sweeps up and around, and Door Knock lands last (bottom-right) — a natural
   //   rolling reveal from one corner to the other.
   if (view === "root") {
-    // v20.4.8 — viewport-adaptive arc. The old fixed radius (202) + 68px bubbles pushed
+    // v20.4.9 — viewport-adaptive arc. The old fixed radius (202) + 68px bubbles pushed
     // the outermost bubbles ~40px offscreen on 393px iPhones, and labels ran further.
     // Compute a safe radius: center - bubble/2 - label_half - edge_margin.
     // Also narrow the sweep from 180° to 160° (100°–80°) so end bubbles arc IN slightly

@@ -297,7 +297,7 @@ export function recomputeAllStreaks(): { count: number; ms: number } {
 export interface ChampionInfo {
   agentId: number | null;
   agentName: string | null;
-  headshotUrl: string | null; // v20.4.8 — for laurel wreath card in leaderboard
+  headshotUrl: string | null; // v20.4.9 — for laurel wreath card in leaderboard
   monthKey: string;            // "YYYY-MM" the wreath is FOR (i.e. this month)
   awardedForMonth: string;     // "YYYY-MM" the wreath was WON in (last month)
   awardedAt: string | null;    // ISO timestamp

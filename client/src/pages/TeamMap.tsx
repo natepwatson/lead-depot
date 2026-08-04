@@ -25,7 +25,7 @@ interface Pin {
 }
 interface Totals { total: number; appt: number; contact: number; pool: number; }
 
-// v20.4.8 — Active listings shown as muted-gold home pins; approved open houses
+// v20.4.9 — Active listings shown as muted-gold home pins; approved open houses
 // show as bright pulsing gold flags with Book buttons.
 interface ListingPin {
   id: number; address: string; city: string | null; state: string | null; zip: string | null;
@@ -73,7 +73,7 @@ function makePin(fill: string, size: number, L: any) {
   return L.divIcon({ html: svg, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
 }
 
-// v20.4.8 — Status-aware listing pin.
+// v20.4.9 — Status-aware listing pin.
 // LIVE (active) → champagne gold home
 // COMING SOON  → amber home with gold ring, slow pulse
 // POCKET       → electric teal diamond flag, fast pulse
@@ -123,7 +123,7 @@ function makeListingPin(L: any, status?: string) {
   return L.divIcon({ html, className: "", iconSize: [22, 22], iconAnchor: [11, 11] });
 }
 
-// v20.4.8 — Open House pin.
+// v20.4.9 — Open House pin.
 // OPEN (available)  → cherry red flag, pulsing (grabs attention immediately)
 // BOOKED (claimed)  → emerald green flag, no pulse
 function makeOHPin(L: any, booked: boolean) {
@@ -250,7 +250,7 @@ export default function TeamMap() {
         setLoading(false);
       })
       .catch(() => { if (!cancelled) { setErr("Failed to load pins."); setLoading(false); } });
-    // v20.4.8 — Also fetch listings + open houses (best-effort, silent fail).
+    // v20.4.9 — Also fetch listings + open houses (best-effort, silent fail).
     fetch("/api/listings/active-map", { credentials: "include" })
       .then(r => r.ok ? r.json() : { listings: [] })
       .then((d: any) => { if (!cancelled) setListings(d.listings || []); })
@@ -301,14 +301,14 @@ export default function TeamMap() {
       // No hover binding on mobile — click/tap opens popup naturally.
       marker;
     }
-    // v20.4.8 — Listings layer (muted gold home icons).
+    // v20.4.9 — Listings layer (muted gold home icons).
     for (const l of listings) {
       if (l.lat == null || l.lng == null) continue;
       L.marker([l.lat, l.lng], { icon: makeListingPin(L, l.status), zIndexOffset: 200 })
         .bindPopup(listingPopupHTML(l), { className: "team-map-popup", maxWidth: 260, autoPan: true })
         .addTo(layerRef.current);
     }
-    // v20.4.8 — Open House layer (bright pulsing gold flags).
+    // v20.4.9 — Open House layer (bright pulsing gold flags).
     for (const oh of openHouses) {
       if (oh.lat == null || oh.lng == null) continue;
       const marker = L.marker([oh.lat, oh.lng], { icon: makeOHPin(L, oh.status === "booked"), zIndexOffset: 400 })
@@ -422,7 +422,7 @@ export default function TeamMap() {
       <div style={{ height: "calc(100vh - 340px)", minHeight: 440, position: "relative", borderRadius: 10, overflow: "hidden", border: "1px solid rgba(200,170,90,0.15)" }}>
         <div ref={mapDiv} style={{ width: "100%", height: "100%", background: "#080808" }} />
 
-        {/* v20.4.8 — Inventory / OH pin legend, top-left of map */}
+        {/* v20.4.9 — Inventory / OH pin legend, top-left of map */}
         <div style={{ position:"absolute", top:10, left:10, zIndex:1000, background:"rgba(8,8,8,0.85)", border:"1px solid rgba(200,170,90,0.20)", borderRadius:8, padding:"6px 8px", display:"flex", flexDirection:"column", gap:4, fontSize:10, color:"#c7d1dd", pointerEvents:"none" }}>
           <div style={{ display:"flex", alignItems:"center", gap:6 }}><span style={{ width:9, height:9, background:"#c8aa5a", borderRadius:2, border:"1px solid rgba(200,170,90,0.6)" }}/> Live listing</div>
           <div style={{ display:"flex", alignItems:"center", gap:6 }}><span style={{ width:9, height:9, background:"#f5a524", borderRadius:2 }}/> Coming soon</div>

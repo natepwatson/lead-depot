@@ -1,4 +1,5 @@
 [
+  "DELETE /api/admin/buyers/:id",
   "DELETE /api/admin/listings/:id",
   "DELETE /api/admin/open-houses/:id",
   "DELETE /api/agents/:id",
@@ -120,6 +121,7 @@
   "POST /api/admin/fub/tag-config",
   "POST /api/admin/holdouts/clear",
   "POST /api/admin/import-batchleads-csv",
+  "POST /api/admin/inventory/clean-test-data",
   "POST /api/admin/inventory/workbook",
   "POST /api/admin/leaderboard-reset",
   "POST /api/admin/leads/:id/clear-cooldown",

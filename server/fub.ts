@@ -1189,7 +1189,7 @@ export interface AgentApprovalFubResult {
   vendorNoteId: number | null;
   skipped: string[];
   errors: string[];
-  // v20.4.8 — Pro plan seat accounting. Set when this approve creates a seat.
+  // v20.4.9 — Pro plan seat accounting. Set when this approve creates a seat.
   //  seatUsageBefore/After: total billable seats visible in FUB before/after.
   //  includedSeats: 10 on Pro (contract cap).
   //  overageTriggered: true when the newly-created seat pushed the total > includedSeats.
@@ -1199,7 +1199,7 @@ export interface AgentApprovalFubResult {
   overageTriggered?: boolean;
 }
 
-// v20.4.8 — FUB Pro plan seat cap. First 10 users included in the $499/mo base;
+// v20.4.9 — FUB Pro plan seat cap. First 10 users included in the $499/mo base;
 // each additional seat is $49/mo. Use fubGetSeatUsage() to check headroom before
 // approve or from the admin dashboard.
 export const FUB_PRO_INCLUDED_SEATS = 10;
@@ -1277,7 +1277,7 @@ export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload):
     return result;
   }
 
-  // v20.4.8 — Pro plan seat accounting. Snapshot pre-approve usage so we can
+  // v20.4.9 — Pro plan seat accounting. Snapshot pre-approve usage so we can
   // detect whether this approve pushed us into $49/mo overage territory.
   const seatsBefore = await fubGetSeatUsage();
   result.seatUsageBefore = seatsBefore.used;
@@ -1437,7 +1437,7 @@ export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload):
     }
   }
 
-  // v20.4.8 — Post-approve seat accounting. Fetch again so the caller (and the
+  // v20.4.9 — Post-approve seat accounting. Fetch again so the caller (and the
   // Nate brief / admin dashboard) know whether this approve triggered overage.
   try {
     const seatsAfter = await fubGetSeatUsage();
@@ -1456,20 +1456,21 @@ export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload):
   return result;
 }
 
-// ─── v20.4.8 — TAG SCAN + OPPORTUNITY / BUYER SWEEP ────────────────────────────
+// ─── v20.4.9 — TAG SCAN + OPPORTUNITY / BUYER SWEEP ────────────────────────────
 
 export type FubTag = { name: string; peopleCount?: number };
 
 /**
- * v20.4.8 — List all FUB tags in the account. Used by Admin → Inventory Sources
+ * v20.4.9 — List all FUB tags in the account. Used by Admin → Inventory Sources
  * to configure which tags feed the Pocket Listing bucket and which feed the
  * Active Buyer bucket.
  */
 export async function fubListTags(): Promise<FubTag[]> {
   if (!FUB_API_KEY) return [];
   try {
-    // FUB endpoint: GET /v1/people/tags — returns { tags: [...] } or an array of strings.
-    // Try /v1/people/tags first (canonical), fall back to /v1/tags.
+    // v20.4.9b — FUB has no documented /v1/tags account-wide list endpoint.
+    // Try the undocumented endpoints first (in case FUB adds them), then fall
+    // back to aggregating from /v1/people?fields=tags across pages.
     const endpoints = [
       "https://api.followupboss.com/v1/people/tags?limit=250",
       "https://api.followupboss.com/v1/tags?limit=250",
@@ -1487,13 +1488,48 @@ export async function fubListTags(): Promise<FubTag[]> {
         if (!r.ok) continue;
         const data: any = await r.json();
         const raw: any[] = data.tags || data.data || (Array.isArray(data) ? data : []);
-        return raw
+        const tags = raw
           .map(t => (typeof t === "string" ? { name: t } : { name: String(t.name || t.tag || ""), peopleCount: t.peopleCount || t.count }))
-          .filter(t => t.name)
-          .sort((a, b) => a.name.localeCompare(b.name));
+          .filter(t => t.name);
+        if (tags.length > 0) return tags.sort((a, b) => a.name.localeCompare(b.name));
       } catch { /* try next */ }
     }
-    return [];
+
+    // Fallback: aggregate tags from /v1/people pages (up to 5k people scanned).
+    const counts = new Map<string, number>();
+    const pageSize = 100;
+    let offset = 0;
+    let scanned = 0;
+    const maxScan = 5000;
+    while (scanned < maxScan) {
+      const url = `https://api.followupboss.com/v1/people?limit=${pageSize}&offset=${offset}&fields=tags`;
+      const r = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: fubAuth(),
+          "X-System": "LeadDepot",
+          "X-System-Key": FUB_API_KEY,
+        },
+      });
+      if (!r.ok) break;
+      const data: any = await r.json();
+      const people: any[] = data.people || data.data || [];
+      if (people.length === 0) break;
+      for (const p of people) {
+        const tags: any[] = Array.isArray(p.tags) ? p.tags : [];
+        for (const t of tags) {
+          const name = typeof t === "string" ? t : String(t?.name || "");
+          if (!name) continue;
+          counts.set(name, (counts.get(name) || 0) + 1);
+        }
+      }
+      scanned += people.length;
+      offset += pageSize;
+      if (people.length < pageSize) break;
+    }
+    const out: FubTag[] = [];
+    for (const [name, peopleCount] of counts.entries()) out.push({ name, peopleCount });
+    return out.sort((a, b) => a.name.localeCompare(b.name));
   } catch (err: any) {
     console.warn("[FUB] fubListTags failed:", err?.message);
     return [];
@@ -1501,7 +1537,7 @@ export async function fubListTags(): Promise<FubTag[]> {
 }
 
 /**
- * v20.4.8 — Return the list of people (with property + preference data) tagged
+ * v20.4.9 — Return the list of people (with property + preference data) tagged
  * with a specific FUB tag. Paginated automatically.
  */
 export async function fubListPeopleByTag(tag: string, limitPerPage = 100): Promise<any[]> {
@@ -1535,7 +1571,7 @@ export async function fubListPeopleByTag(tag: string, limitPerPage = 100): Promi
 }
 
 /**
- * v20.4.8 — Extract the best available property address string from a FUB person.
+ * v20.4.9 — Extract the best available property address string from a FUB person.
  * FUB stores addresses in multiple shapes across versions; try each.
  */
 export function fubPersonAddress(p: any): { address: string | null; city: string | null; state: string | null; zip: string | null } {
@@ -1565,7 +1601,7 @@ export function fubPersonAddress(p: any): { address: string | null; city: string
 }
 
 /**
- * v20.4.8 — Buyer preferences from a FUB person's custom fields.
+ * v20.4.9 — Buyer preferences from a FUB person's custom fields.
  * FUB has no fixed schema for buyer prefs; scan customFields for known keywords.
  */
 export function fubPersonBuyerPrefs(p: any): {
@@ -1609,4 +1645,127 @@ export function fubPersonBuyerPrefs(p: any): {
     else if (/lender|bank|mortgage/.test(lk) && !out.lender) out.lender = String(v).trim();
   }
   return out;
+}
+
+// ─── v20.4.9 — STAGE-BASED SWEEP ────────────────────────────────────────────
+// Alex confirmed: only the "Active Client" stage is treated as an active-buyer
+// signal for Lead Depot. All other FUB stages (Lead, Nurture, Hot Prospect,
+// Past Client, Trash) are ignored by the stage sweep.
+
+/**
+ * List people currently in a specific FUB stage. Uses /v1/people?stage=<id-or-name>.
+ * FUB accepts either the stage ID or the stage name in the `stage` filter.
+ */
+export async function fubListPeopleByStage(stageName: string, limitPerPage = 100): Promise<any[]> {
+  if (!FUB_API_KEY || !stageName) return [];
+  const all: any[] = [];
+  let offset = 0;
+  const maxScan = 5000;
+  while (all.length < maxScan) {
+    const url = `https://api.followupboss.com/v1/people?stage=${encodeURIComponent(stageName)}&limit=${limitPerPage}&offset=${offset}&fields=allFields`;
+    try {
+      const r = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: fubAuth(),
+          "X-System": "LeadDepot",
+          "X-System-Key": FUB_API_KEY,
+        },
+      });
+      if (!r.ok) break;
+      const data: any = await r.json();
+      const people: any[] = data.people || data.data || [];
+      if (people.length === 0) break;
+      all.push(...people);
+      if (people.length < limitPerPage) break;
+      offset += limitPerPage;
+    } catch (err: any) {
+      console.warn(`[FUB] fubListPeopleByStage(${stageName}) failed:`, err?.message);
+      break;
+    }
+  }
+  return all;
+}
+
+// ─── v20.4.9 — DEAL / OPPORTUNITY SWEEP ─────────────────────────────────────
+// FUB Deals are transactions in progress. Buyer-side deals with property
+// addresses give us pending listings. Listing-side deals give us active
+// listings we might not have in the workbook yet.
+
+export type FubDeal = {
+  id: number;
+  name?: string;
+  stage?: string;
+  status?: string;
+  type?: string;                // 'buyer' | 'listing' | 'referral' etc
+  price?: number;
+  commissionValue?: number;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  peopleIds?: number[];
+  assignedUserName?: string;
+  closeDate?: string;
+  created?: string;
+  updated?: string;
+  raw?: any;
+};
+
+/**
+ * List all open FUB deals. FUB paginates; we cap at 2500 deals to keep the
+ * nightly sweep bounded. Endpoint: /v1/deals
+ * See https://docs.followupboss.com/reference/deals-get
+ */
+export async function fubListDeals(limitPerPage = 100): Promise<FubDeal[]> {
+  if (!FUB_API_KEY) return [];
+  const all: FubDeal[] = [];
+  let offset = 0;
+  const maxScan = 2500;
+  while (all.length < maxScan) {
+    const url = `https://api.followupboss.com/v1/deals?limit=${limitPerPage}&offset=${offset}`;
+    try {
+      const r = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: fubAuth(),
+          "X-System": "LeadDepot",
+          "X-System-Key": FUB_API_KEY,
+        },
+      });
+      if (!r.ok) break;
+      const data: any = await r.json();
+      const rows: any[] = data.deals || data.data || [];
+      if (rows.length === 0) break;
+      for (const d of rows) {
+        const addr = d.address || d.propertyAddress || d.property?.address || {};
+        const address = typeof addr === "string" ? addr : (addr.street || addr.line1 || null);
+        all.push({
+          id: d.id,
+          name: d.name,
+          stage: d.stage || d.stageName,
+          status: d.status,
+          type: d.type || d.dealType,
+          price: d.price ?? d.value ?? null,
+          commissionValue: d.commissionValue ?? null,
+          address,
+          city:  typeof addr === "object" ? addr.city  : undefined,
+          state: typeof addr === "object" ? addr.state : undefined,
+          zip:   typeof addr === "object" ? addr.zipCode || addr.zip : undefined,
+          peopleIds: d.peopleIds || d.personIds || (d.people || []).map((p: any) => p.id),
+          assignedUserName: d.assignedUserName || d.assignedTo,
+          closeDate: d.closeDate || d.projectedCloseDate,
+          created: d.created,
+          updated: d.updated,
+          raw: d,
+        });
+      }
+      if (rows.length < limitPerPage) break;
+      offset += limitPerPage;
+    } catch (err: any) {
+      console.warn("[FUB] fubListDeals failed:", err?.message);
+      break;
+    }
+  }
+  return all;
 }

@@ -218,7 +218,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.9 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -447,7 +447,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.4.8 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.4.9 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -506,7 +506,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.9 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -554,7 +554,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.9 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1792,7 +1792,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.4.8</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.4.9</p>
             </div>
           `,
         });
@@ -1952,7 +1952,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.4.8 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.4.9 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2837,7 +2837,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Kick off background geocode 5s after routes are wired so we don't compete with startup traffic.
   setTimeout(() => { void runBackgroundGeocode("boot"); }, 5000);
 
-  // v20.4.8 — geocode any listings missing lat/lng. Reuses censusGeocodeAddresses.
+  // v20.4.9 — geocode any listings missing lat/lng. Reuses censusGeocodeAddresses.
   let listingGeocodeRunning = false;
   async function runListingGeocodePass(): Promise<{ geocoded: number; missing: number }> {
     if (listingGeocodeRunning) return { geocoded: 0, missing: 0 };
@@ -2874,7 +2874,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Kick a listings geocode pass at boot too (5s delay).
   setTimeout(() => { void runListingGeocodePass(); }, 6000);
 
-  // v20.4.8 — Open House acceptance email. Fires when an agent books an OH
+  // v20.4.9 — Open House acceptance email. Fires when an agent books an OH
   // (or when Denise's pre-typed host_preference auto-books on approval).
   // Includes: address, date/time, listing agent, list price, access info,
   // notes, prep instructions, and a link back to Lead Depot.
@@ -4955,7 +4955,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     catch (err: any) { res.status(500).json({ error: err?.message || "champion_history_error" }); }
   });
 
-  // v20.4.8 — FUB Pro plan seat headroom. Returns live FUB user-seat usage so
+  // v20.4.9 — FUB Pro plan seat headroom. Returns live FUB user-seat usage so
   // the admin Candidates tab can show "5/10 seats used, 5 remaining" and warn
   // before an approve would trigger $49/mo overage. Non-cached: hits FUB every
   // call so the number is always current at the moment Alex looks.
@@ -4981,7 +4981,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
-  // ─── v20.4.8 LISTINGS ────────────────────────────────────────
+  // ─── v20.4.9 LISTINGS ────────────────────────────────────────
   // Every Monday Denise uploads active/pending/sold listings via Upload CSV.
   // Each active listing becomes a candidate row on Tuesday's OH Schedule form.
   // Active listings also appear on the team map as muted-gold home pins.
@@ -5131,7 +5131,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ok: true, ...result });
   });
 
-  // ─── v20.4.8 INVENTORY (buyers + sellers) + FUB TAG CONFIG ───
+  // ─── v20.4.9 INVENTORY (buyers + sellers) + FUB TAG CONFIG ───
   //
   // GET  /api/inventory/sellers  → { active[], coming_soon[], pocket[], sold[] } for the Inventory page
   // GET  /api/inventory/buyers   → { active[], closed[] }
@@ -5236,7 +5236,30 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
-  // ─── v20.4.8 OPEN HOUSES ─────────────────────────────────────
+  // v20.4.9 — Buyer delete + bulk clean-test-data (source_ref LIKE 'workbook:%')
+  app.delete("/api/admin/buyers/:id", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(req.params.id);
+    rawDb.prepare(`DELETE FROM buyers WHERE id = ?`).run(id);
+    res.json({ ok: true });
+  });
+
+  // Bulk cleanup: wipes every row inserted by a specific workbook upload run,
+  // OR every row with a source_ref matching the given prefix. Guarded to only
+  // accept 'workbook:' or 'fub:' prefixes so admins can't nuke Excel rows by
+  // accident.
+  app.post("/api/admin/inventory/clean-test-data", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const prefix = String(req.body?.prefix || "").trim();
+    if (!prefix || !/^(workbook|fub):/.test(prefix)) {
+      return res.status(400).json({ error: "prefix must start with 'workbook:' or 'fub:'" });
+    }
+    const s = rawDb.prepare(`DELETE FROM listings WHERE source_ref LIKE ? || '%'`).run(prefix);
+    const b = rawDb.prepare(`DELETE FROM buyers   WHERE source_ref LIKE ? || '%'`).run(prefix);
+    res.json({ ok: true, sellers_deleted: s.changes, buyers_deleted: b.changes });
+  });
+
+  // ─── v20.4.9 OPEN HOUSES ─────────────────────────────────────
   // Weekly flow:
   //   Monday  → Denise uploads active/pending/sold listings (see Listings above).
   //   Tuesday → Denise fills the OH Schedule (per-listing radio + date + start + length + access_info + notes)
@@ -7417,7 +7440,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.4.8 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.4.9 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8466,7 +8489,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.4.8",
+      version: "v20.4.9",
       services: results,
     });
   });
@@ -8794,7 +8817,7 @@ This template is for informational/outreach purposes only.`;
       }).catch(err => console.error("[momentum onboarding]", err));
     }
 
-    // v20.4.8 — FUB approve integration (Pro plan: first 10 seats included in
+    // v20.4.9 — FUB approve integration (Pro plan: first 10 seats included in
     // $499/mo base; seats 11+ = $49/mo each). Non-blocking: emails already sent
     // above; FUB failures don't fail the approve.
     // Test-mode: fubApproveAgentAsVendor is a no-op when isTestApproval=true so
@@ -8824,7 +8847,7 @@ This template is for informational/outreach purposes only.`;
           : '';
         console.log(`[approve→FUB] candidate ${cid} → personId=${result.personId} userId=${result.userId} noteId=${result.vendorNoteId}${seatMsg} skipped=${result.skipped.join(',') || 'none'} errors=${result.errors.join(',') || 'none'}`);
 
-        // v20.4.8 — If this approve triggered a $49/mo seat overage, in-app
+        // v20.4.9 — If this approve triggered a $49/mo seat overage, in-app
         // notify Alex so he knows the next FUB invoice will be higher. Non-
         // fatal, purely informational — the seat was created and the agent can
         // work immediately.
@@ -9429,7 +9452,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.4.8</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.4.9</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

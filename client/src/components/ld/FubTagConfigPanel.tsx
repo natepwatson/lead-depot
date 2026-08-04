@@ -1,4 +1,4 @@
-// v20.4.8 — FUB tag → inventory bucket config panel.
+// v20.4.9 — FUB tag → inventory bucket config panel.
 // Lists all FUB tags. Admin selects a bucket per tag (pocket_listing / active_buyer / ignore)
 // and toggles enabled. Nightly sweep only pulls from enabled+bucketed tags.
 import { useEffect, useState } from "react";

@@ -128,7 +128,7 @@
     @apply border-border;
     box-sizing: border-box;
   }
-  /* v20.4.8 — app-wide viewport width guard.
+  /* v20.4.9 — app-wide viewport width guard.
      Nothing renders wider than the actual viewport. Kills horizontal page-scroll
      everywhere and enforces safe-area padding on notched phones. */
   html, body {

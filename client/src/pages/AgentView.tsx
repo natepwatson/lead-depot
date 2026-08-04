@@ -23,7 +23,7 @@ import TeamMap from "./TeamMap";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
 import GrandCelebration from "../components/ld/GrandCelebration";
 import { RankTrophy } from "../components/ld/RankTrophy";
-import { StreakBadge, ChampionFrame } from "../components/ld/StreakBadge";
+import { StreakBadge, ChampionFrame, useCurrentChampion } from "../components/ld/StreakBadge";
 import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
@@ -3294,6 +3294,9 @@ export function TeamPotCard() {
   const firstInitials = first?.name ? first.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase() : "—";
   const secondInitials = second?.name ? second.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase() : "—";
 
+  // v20.4.4 — Reigning Champion (previous month's winner) for the hero row.
+  const champ = useCurrentChampion();
+
   return (
     <>
       <style>{`
@@ -3516,6 +3519,44 @@ export function TeamPotCard() {
           </div>
         </div>
 
+        {/* v20.4.4 — Reigning Champion hero row (previous month's winner). */}
+        {champ.agentId ? (
+          <div style={{
+            position: "relative", zIndex: 1, marginBottom: 10,
+            display: "flex", alignItems: "center", gap: 12,
+            background: "linear-gradient(90deg, rgba(200,170,90,0.16), rgba(200,170,90,0.06) 60%, transparent)",
+            border: "1px solid rgba(200,170,90,0.45)",
+            padding: "10px 12px", borderRadius: 12,
+            boxShadow: "0 0 0 1px rgba(200,170,90,0.15), 0 0 18px rgba(200,170,90,0.12)",
+          }}>
+            <div style={{ flexShrink: 0 }}>
+              <ChampionFrame agentId={champ.agentId} size={40}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: "50%",
+                  background: "linear-gradient(135deg,#fef9c3,#facc15)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "#080808", fontWeight: 800, fontSize: 14,
+                }}>{champ.agentName ? champ.agentName.split(" ").map(s => s[0]).slice(0,2).join("").toUpperCase() : "—"}</div>
+              </ChampionFrame>
+            </div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 8.5, letterSpacing: "0.18em", color: "rgba(200,170,90,0.95)", textTransform: "uppercase", fontWeight: 800 }}>
+                Reigning Champion
+              </div>
+              <div style={{ fontSize: 14, color: "#fff", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {champ.agentName}
+              </div>
+              <div style={{
+                fontSize: 10, color: "rgba(200,170,90,0.85)", fontWeight: 700,
+                fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                letterSpacing: "0.02em", marginTop: 1,
+              }}>
+                {champ.points} pts · {champ.awardedForMonth}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {/* Standings row: 1st + 2nd side by side */}
         <div style={{ position: "relative", zIndex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           {[
@@ -3712,213 +3753,9 @@ function HomeShell({ mode = "seller" }: { mode?: "seller" } = {}) {
   );
 }
 
-// ─── v20.4.2 — Swipable Top-Producer Strip ───────────────────────────────────
-// Horizontal snap-scroll leaderboard strip. Sits above the classic vertical
-// list on the Home tab. Each card = one agent. Wide hero card for #1 with
-// trophy + points, then compact cards for the rest. On mount and on window
-// change, if the current agent isn't already visible in the first 3 cards,
-// the strip smoothly scrolls their card into view — so the user always sees
-// where they stand without having to hunt.
-function SwipableLeaderboardStrip({
-  ranked, meId, pickWin, window: winKey,
-}: {
-  ranked: any[];
-  meId: number | null;
-  pickWin: (s: any) => { points?: number; appts?: number; dials?: number; kit?: number; refs?: number };
-  window: string;
-}) {
-  const stripRef = useRef<HTMLDivElement | null>(null);
-  const myCardRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-scroll the current user's card into view whenever the strip renders
-  // OR the window filter changes. If the user is in the top 3, no scroll needed
-  // (they're already visible). Otherwise, smooth-scroll their card into center.
-  useEffect(() => {
-    if (!meId || !myCardRef.current || !stripRef.current) return;
-    const myIdx = ranked.findIndex(r => r.agent.id === meId);
-    if (myIdx < 3) return; // Already visible in the first paint
-    // Delay slightly so the strip has painted before we scroll.
-    const t = setTimeout(() => {
-      myCardRef.current?.scrollIntoView({
-        behavior: "smooth",
-        inline: "center",
-        block: "nearest",
-      });
-    }, 300);
-    return () => clearTimeout(t);
-  }, [meId, ranked, winKey]);
+// v20.4.4 — SwipableLeaderboardStrip removed (replaced by per-row sticky+swipe metric rail).
 
-  return (
-    <div style={{ marginBottom: 14, position: "relative" }}>
-      {/* Edge-fade masks so the last card fades into the page rather than
-          hard-cropping at the container edge. Purely cosmetic. */}
-      <style>{`
-        @keyframes stripCardIn {
-          from { opacity: 0; transform: translateX(12px) scale(0.96); }
-          to   { opacity: 1; transform: translateX(0)    scale(1); }
-        }
-        .lb-strip-scroller {
-          -webkit-overflow-scrolling: touch;
-          scrollbar-width: none;
-        }
-        .lb-strip-scroller::-webkit-scrollbar { display: none; }
-        .lb-strip-card { animation: stripCardIn 320ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-      `}</style>
-      <div
-        ref={stripRef}
-        className="lb-strip-scroller"
-        style={{
-          display: "flex",
-          gap: 10,
-          overflowX: "auto",
-          scrollSnapType: "x mandatory",
-          padding: "4px 4px 12px",
-          margin: "0 -4px",
-          scrollPaddingLeft: 4,
-          scrollPaddingRight: 4,
-        }}
-      >
-        {ranked.map((s: any, i: number) => {
-          const isMe = s.agent.id === meId;
-          const w = pickWin(s);
-          const hasPoints = (w.points || 0) > 0;
-          const isChamp = i === 0 && hasPoints;
-          const isTop3 = i < 3 && hasPoints;
-          const medalColor = i === 0 ? "#c8aa5a" : i === 1 ? "#c0c7cf" : i === 2 ? "#c48454" : null;
-          const initials = s.agent.name.split(" ").map((word: string) => word[0]).join("").toUpperCase().slice(0, 2);
-          const displayName = s.agent.name.split(" ")[0] + " " + (s.agent.name.split(" ")[1]?.[0] ?? "") + ".";
-          const cardWidth = isChamp ? 220 : 156;
-
-          return (
-            <div
-              key={s.agent.id}
-              ref={isMe ? myCardRef : undefined}
-              className="lb-strip-card"
-              style={{
-                flexShrink: 0,
-                width: cardWidth,
-                scrollSnapAlign: "center",
-                animationDelay: `${Math.min(i, 8) * 45}ms`,
-                position: "relative",
-                borderRadius: 14,
-                padding: isChamp ? "16px 14px 14px" : "12px 12px 10px",
-                background: isChamp
-                  ? "linear-gradient(155deg, rgba(200,170,90,0.22) 0%, rgba(200,170,90,0.06) 55%, rgba(20,15,5,0.85) 100%)"
-                  : isMe
-                  ? "linear-gradient(155deg, rgba(200,170,90,0.14) 0%, rgba(200,170,90,0.04) 100%)"
-                  : "rgba(255,255,255,0.035)",
-                border: isChamp
-                  ? "1px solid rgba(200,170,90,0.55)"
-                  : isMe
-                  ? "1px solid rgba(200,170,90,0.42)"
-                  : "1px solid rgba(255,255,255,0.08)",
-                boxShadow: isChamp
-                  ? "0 8px 28px rgba(200,170,90,0.22), 0 0 0 0.5px rgba(255,220,140,0.30) inset"
-                  : isMe
-                  ? "0 4px 16px rgba(200,170,90,0.10)"
-                  : "0 2px 8px rgba(0,0,0,0.25)",
-              }}
-            >
-              {/* Rank chip top-left */}
-              <div style={{
-                position: "absolute", top: 10, left: 12,
-                fontSize: 10, fontWeight: 800, letterSpacing: "0.12em",
-                color: medalColor ?? "rgba(255,255,255,0.35)",
-                textShadow: "0 1px 2px rgba(0,0,0,0.6)",
-              }}>#{i + 1}</div>
-
-              {/* "YOU" chip top-right when applicable */}
-              {isMe && (
-                <div style={{
-                  position: "absolute", top: 8, right: 10,
-                  fontSize: 9, fontWeight: 800, letterSpacing: "0.14em",
-                  color: "#0a0700", background: "#c8aa5a",
-                  padding: "3px 7px", borderRadius: 4,
-                }}>YOU</div>
-              )}
-
-              {/* Trophy or headshot centered */}
-              <div style={{
-                display: "flex", justifyContent: "center", alignItems: "center",
-                marginTop: isChamp ? 8 : 12, marginBottom: 10,
-              }}>
-                {isTop3 ? (
-                  <RankTrophy rank={(i + 1) as 1 | 2 | 3} size={isChamp ? 48 : 34} />
-                ) : s.agent.headshotUrl ? (
-                  <img
-                    src={s.agent.headshotUrl}
-                    alt={s.agent.name}
-                    style={{
-                      width: isChamp ? 56 : 44, height: isChamp ? 56 : 44,
-                      borderRadius: "50%",
-                      border: `1.5px solid ${isMe ? "#c8aa5a" : "rgba(255,255,255,0.14)"}`,
-                      objectFit: "cover",
-                    }}
-                  />
-                ) : (
-                  <div style={{
-                    width: isChamp ? 56 : 44, height: isChamp ? 56 : 44,
-                    borderRadius: "50%",
-                    background: "rgba(200,170,90,0.10)",
-                    border: `1.5px solid ${isMe ? "#c8aa5a" : "rgba(255,255,255,0.14)"}`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "#c8aa5a", fontSize: isChamp ? 18 : 14, fontWeight: 700,
-                    fontFamily: "'Cormorant Garamond','Georgia',serif",
-                  }}>{initials}</div>
-                )}
-              </div>
-
-              {/* Name */}
-              <p style={{
-                textAlign: "center",
-                fontSize: isChamp ? 14 : 12,
-                fontWeight: 700,
-                color: isMe ? "#c8aa5a" : "#fff",
-                marginBottom: isChamp ? 8 : 6,
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-              }}>{displayName}</p>
-
-              {/* Points hero */}
-              <div style={{ textAlign: "center", marginBottom: isChamp ? 8 : 4 }}>
-                <span style={{
-                  fontSize: isChamp ? 32 : 22,
-                  fontWeight: 700, color: "#c8aa5a",
-                  fontFamily: "'Cormorant Garamond','Georgia',serif",
-                  lineHeight: 1,
-                  textShadow: "0 2px 4px rgba(0,0,0,0.5)",
-                }}>{w.points ?? 0}</span>
-                <span style={{
-                  fontSize: 9, fontWeight: 700, letterSpacing: "0.16em",
-                  color: "rgba(200,170,90,0.75)", marginLeft: 6,
-                }}>PTS</span>
-              </div>
-
-              {/* Mini-stats row */}
-              <div style={{
-                display: "flex", justifyContent: "space-around",
-                paddingTop: 8,
-                borderTop: "1px solid rgba(255,255,255,0.06)",
-              }}>
-                <div style={{ textAlign: "center" }}>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{w.appts ?? 0}</p>
-                  <p style={{ fontSize: 8, color: "rgba(255,255,255,0.55)", letterSpacing: "0.1em", marginTop: 3, fontWeight: 600 }}>APPTS</p>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.85)", lineHeight: 1 }}>{w.dials ?? 0}</p>
-                  <p style={{ fontSize: 8, color: "rgba(255,255,255,0.55)", letterSpacing: "0.1em", marginTop: 3, fontWeight: 600 }}>DIALS</p>
-                </div>
-                <div style={{ textAlign: "center" }}>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: "#fde68a", lineHeight: 1 }}>{w.refs ?? 0}</p>
-                  <p style={{ fontSize: 8, color: "rgba(255,255,255,0.55)", letterSpacing: "0.1em", marginTop: 3, fontWeight: 600 }}>REFS</p>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
   const { user } = useAuth();
@@ -3978,14 +3815,36 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
   // yet (older cached client).
   const [lbWindow, setLbWindow] = useState<"today" | "weekly" | "monthly" | "allTime">("weekly");
   const pickWin = (s: any) => {
-    if (s?.windows?.[lbWindow]) return s.windows[lbWindow];
-    // Legacy fallback: current-cycle values shaped like a window block.
+    // v20.4.4 — server returns per-window blocks at the top level of each agent
+    // row: { today, weekly, monthly, allTime } each shaped like
+    // { dials, appts, kit, emails, noAnswer, convRate, referrals, oh, dm, dk, social }.
+    // We also splice in the top-level `points` (agent_points cycle total) so the
+    // sticky PTS column shows for every window (server sends a single points value).
+    const raw = s?.[lbWindow];
+    if (raw) {
+      return {
+        points:   s?.points || 0,
+        appts:    raw.appts || 0,
+        dials:    raw.dials || 0,
+        kit:      raw.kit || 0,
+        refs:     raw.referrals || 0,
+        oh:       raw.oh || 0,
+        dm:       raw.dm || 0,
+        dk:       raw.dk || 0,
+        social:   raw.social || 0,
+        emails:   raw.emails || 0,
+        noAnswer: raw.noAnswer || 0,
+        convRate: raw.convRate || 0,
+      };
+    }
+    // Legacy fallback (very old server payloads).
     return {
       points: s?.points || 0,
       appts:  s?.appointmentsSet || 0,
       dials:  s?.totalAttempts || 0,
       kit:    s?.outcomes?.keep_in_touch || 0,
       refs:   s?.refs || 0,
+      oh: 0, dm: 0, dk: 0, social: 0, emails: 0, noAnswer: 0, convRate: 0,
     };
   };
 
@@ -4092,6 +3951,11 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
 
       {/* ── Leaderboard ── */}
       <div style={{ marginBottom: 32 }}>
+        {/* v20.4.4 — hide scrollbar on the per-row swipe rail (WebKit + Firefox). */}
+        <style>{`
+          .lb-swipe-rail::-webkit-scrollbar { display: none; }
+          .lb-swipe-rail { scrollbar-width: none; }
+        `}</style>
         <p style={{
           fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase",
           color: "rgba(200,170,90,0.6)", marginBottom: 10, fontWeight: 600,
@@ -4121,19 +3985,9 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
           ))}
         </div>
 
-        {/* v20.4.2 — SWIPABLE TOP-PRODUCER STRIP.
-            Horizontal snap-scroll of hero cards for the currently-selected window.
-            Card 1 is the leader (full trophy), then 2–5, then the current agent's
-            card scrolls into view automatically on mount / window change.
-            The classic vertical list below is preserved for full standings. */}
-        {!isLoading && ranked.length > 0 && (
-          <SwipableLeaderboardStrip
-            ranked={ranked}
-            meId={user?.id ?? null}
-            pickWin={pickWin}
-            window={lbWindow}
-          />
-        )}
+        {/* v20.4.4 — SwipableLeaderboardStrip removed. Row-level horizontal swipe
+            on the metric columns takes over (sticky PTS/APPT/KIT/REFS + swipe rail
+            for DIALS/OH/DM/DK/FB/IG). See per-row rendering below. */}
 
         {isLoading ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -4157,23 +4011,24 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                              : null;
               return (
                 <div key={s.agent.id} style={{
-                  display: "flex", alignItems: "center", gap: 14,
-                  padding: "14px 16px",
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "12px 12px",
                   background: isMe
                     ? "linear-gradient(135deg, rgba(200,170,90,0.1) 0%, rgba(200,170,90,0.04) 100%)"
                     : "rgba(255,255,255,0.03)",
                   border: `1px solid ${isMe ? "rgba(200,170,90,0.35)" : "rgba(255,255,255,0.08)"}`,
                   borderRadius: 10,
                   boxShadow: isMe ? "0 2px 12px rgba(200,170,90,0.08)" : "none",
+                  overflow: "hidden", // v20.4.4 — contain the sticky+swipe metric block
                 }}>
-                  <span style={{ minWidth: 34, textAlign: "center", display: "flex", justifyContent: "center", alignItems: "center" }}>
+                  <span style={{ minWidth: 26, textAlign: "center", display: "flex", justifyContent: "center", alignItems: "center", flexShrink: 0 }}>
                     {trophyRank !== null ? (
                       <RankTrophy
                         rank={trophyRank}
-                        size={trophyRank === 1 ? 34 : trophyRank === 2 ? 30 : 26}
+                        size={trophyRank === 1 ? 28 : trophyRank === 2 ? 26 : 22}
                       />
                     ) : (
-                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>#{i+1}</span>
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>#{i+1}</span>
                     )}
                   </span>
                   {/* v13.9 — headshot or initials */}
@@ -4229,35 +4084,59 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                       {s.agent.name}{isMe ? " (you)" : ""}
                     </p>
                   </div>
-                  {/* v14.55 — Alex: "points should be the main indicator of first place... points
-                       represent what has been achieved. From left to right: points, appts, dials, email."
-                       PTS is now the hero (largest, gold pill), then APPTS, DIALS, EMAILS. Same order
-                       matches the admin leaderboard for consistency. */}
-                  {/* v16.7 — metrics come from the selected window (Today / Week /
-                      Month / All), plus a new Refs column for network referrals. */}
+                  {/* v20.4.4 — STICKY (PTS · APPT · KIT · REFS) + SWIPE RAIL (DIALS · OH · DM · DK · FB/IG).
+                       Sticky columns are the point-generating outcomes that always show;
+                       swipe rail holds the point-generating activities that overflow. */}
                   {(() => {
                     const w = pickWin(s);
+                    const stickyCell = (val: number, label: string, big: boolean, color: string) => (
+                      <div style={{ textAlign: "right", minWidth: big ? 44 : 34, flexShrink: 0 }}>
+                        <p style={big
+                          ? { fontSize: 22, fontWeight: 700, color, lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif", background: "rgba(200,170,90,0.12)", borderRadius: 8, padding: "2px 8px", display: "inline-block" }
+                          : { fontSize: 17, fontWeight: 700, color, lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }
+                        }>{val}</p>
+                        <p style={{ fontSize: 9, color: color === "#c8aa5a" ? "rgba(200,170,90,0.7)" : "rgba(255,255,255,0.4)", letterSpacing: "0.14em", marginTop: 4, fontWeight: 700 }}>{label}</p>
+                      </div>
+                    );
+                    const swipeCell = (val: number, label: string, color: string) => (
+                      <div style={{ textAlign: "right", minWidth: 34, flexShrink: 0 }}>
+                        <p style={{ fontSize: 15, fontWeight: 600, color, lineHeight: 1 }}>{val}</p>
+                        <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>{label}</p>
+                      </div>
+                    );
                     return (
-                      <div style={{ display: "flex", gap: 12, flexShrink: 0, alignItems: "center" }}>
-                        <div style={{ textAlign: "right", minWidth: 44 }}>
-                          <p style={{ fontSize: 22, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif", background: "rgba(200,170,90,0.12)", borderRadius: 8, padding: "2px 8px", display: "inline-block" }}>{w.points ?? 0}</p>
-                          <p style={{ fontSize: 9, color: "rgba(200,170,90,0.7)", letterSpacing: "0.14em", marginTop: 4, fontWeight: 700 }}>PTS</p>
+                      <div style={{ display: "flex", alignItems: "center", flexShrink: 0, minWidth: 0, position: "relative" }}>
+                        {/* STICKY LEFT: PTS · APPT · KIT · REFS */}
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0, paddingRight: 10, borderRight: "1px solid rgba(255,255,255,0.08)" }}>
+                          {stickyCell(w.points ?? 0, "PTS", true, "#c8aa5a")}
+                          {stickyCell(w.appts ?? 0, "APPT", false, "#c8aa5a")}
+                          {stickyCell(w.kit ?? 0, "KIT", false, "rgba(249,168,212,0.85)")}
+                          {stickyCell(w.refs ?? 0, "REFS", false, "#fde68a")}
                         </div>
-                        <div style={{ textAlign: "right", minWidth: 34 }}>
-                          <p style={{ fontSize: 17, fontWeight: 700, color: "#c8aa5a", lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }}>{w.appts ?? 0}</p>
-                          <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>APPTS</p>
-                        </div>
-                        <div style={{ textAlign: "right", minWidth: 30 }}>
-                          <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.7)", lineHeight: 1 }}>{w.dials ?? 0}</p>
-                          <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>DIALS</p>
-                        </div>
-                        <div style={{ textAlign: "right", minWidth: 30 }}>
-                          <p style={{ fontSize: 15, fontWeight: 600, color: "rgba(249,168,212,0.85)", lineHeight: 1 }}>{w.kit ?? 0}</p>
-                          <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>KIT</p>
-                        </div>
-                        <div style={{ textAlign: "right", minWidth: 30 }}>
-                          <p style={{ fontSize: 15, fontWeight: 600, color: "#fde68a", lineHeight: 1 }}>{w.refs ?? 0}</p>
-                          <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>REF</p>
+                        {/* SWIPE RAIL: DIALS · OH · DM · DK · FB/IG (horizontal scroll on phone) */}
+                        <div
+                          className="lb-swipe-rail"
+                          style={{
+                            display: "flex", gap: 10, alignItems: "center",
+                            overflowX: "auto", overflowY: "hidden",
+                            paddingLeft: 10, paddingRight: 6,
+                            maxWidth: 190,
+                            scrollSnapType: "x proximity",
+                            WebkitOverflowScrolling: "touch",
+                            scrollbarWidth: "none",
+                          }}
+                          onWheel={(e) => {
+                            // Convert vertical wheel to horizontal for desktop testing.
+                            if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                              e.currentTarget.scrollLeft += e.deltaY;
+                            }
+                          }}
+                        >
+                          {swipeCell(w.dials ?? 0, "DIALS", "rgba(255,255,255,0.7)")}
+                          {swipeCell(w.oh ?? 0, "OH", "rgba(134,239,172,0.85)")}
+                          {swipeCell(w.dm ?? 0, "DM", "rgba(147,197,253,0.85)")}
+                          {swipeCell(w.dk ?? 0, "DK", "rgba(253,186,116,0.85)")}
+                          {swipeCell(w.social ?? 0, "FB/IG", "rgba(216,180,254,0.85)")}
                         </div>
                       </div>
                     );
@@ -5678,7 +5557,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.2</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.4</span>
             </div>
           </div>
         </div>
@@ -6427,10 +6306,14 @@ function LeadGenSheet(props: {
   //   the middle Dial hero) so the fan reads as one gold set, not white glass
   //   with one gold odd-one-out. Plus icon rotates counter-clockwise (-135°).
   //
-  // Arc geometry:
-  //   7 bubbles across a 150° sweep for more space between neighbors.
-  //   Center = 90° (straight up). Sweep 15° → 165°, 25° apart.
-  //   Radius = 172px for regular, hero pulls up +22px so Dial crowns the arc.
+  // Arc geometry (v20.4.3 — no-overlap symmetric fit):
+  //   7 bubbles across a 168° sweep, 28° between neighbors.
+  //   Center = 90° (straight up). Angles 6°/34°/62°/90°/118°/146°/174° —
+  //   perfectly symmetric around 90°.
+  //   Radius = 178px, regular bubbles = 68px, hero = 88px.
+  //   Chord between neighbors = 2×178×sin(14°) ≈ 86px, so with 68px bubbles
+  //   there's ~18px of clean space at every join. No shoulder-kissing anywhere,
+  //   including the bottom corners which used to be the worst offenders.
   //
   // v20.4.2 — Access-priority arc ordering per Alex's spec:
   //   TOP (hero, most-accessible crown): DIAL
@@ -6444,21 +6327,21 @@ function LeadGenSheet(props: {
   //   sweeps up and around, and Door Knock lands last (bottom-right) — a natural
   //   rolling reveal from one corner to the other.
   if (view === "root") {
-    const ARC_RADIUS = 172;
-    const HERO_LIFT = 22;
-    const BUBBLE_SIZE = 84;
-    const HERO_SIZE = 104;
+    const ARC_RADIUS = 178;
+    const HERO_LIFT = 24;
+    const BUBBLE_SIZE = 68;
+    const HERO_SIZE = 88;
     const bubbles: Array<{
       key: string; label: string; icon: React.ReactNode;
       angleDeg: number; hero?: boolean; onClick: () => void;
     }> = [
-      { key: "mail",    label: "Direct Mail",    icon: <Mail size={24} />,     angleDeg: 165, onClick: () => setView("direct-mail" as any) },
-      { key: "network", label: "Network",        icon: <Users size={24} />,    angleDeg: 140, onClick: () => setView("network-referral") },
-      { key: "oh",      label: "Open House",     icon: <Home size={24} />,     angleDeg: 115, onClick: () => setView("open-house") },
-      { key: "dial",    label: "Dial",           icon: <Phone size={32} />,    angleDeg: 90,  hero: true, onClick: goToDial },
-      { key: "social",  label: "Social",         icon: <Share2 size={24} />,   angleDeg: 65,  onClick: () => setView("social" as any) },
-      { key: "refer",   label: "Agent Referral", icon: <Send size={24} />,     angleDeg: 40,  onClick: () => setView("refer-agent" as any) },
-      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={24} />, angleDeg: 15,  onClick: () => setView("door-knock" as any) },
+      { key: "mail",    label: "Direct Mail",    icon: <Mail size={20} />,     angleDeg: 174, onClick: () => setView("direct-mail" as any) },
+      { key: "network", label: "Network",        icon: <Users size={20} />,    angleDeg: 146, onClick: () => setView("network-referral") },
+      { key: "oh",      label: "Open House",     icon: <Home size={20} />,     angleDeg: 118, onClick: () => setView("open-house") },
+      { key: "dial",    label: "Dial",           icon: <Phone size={28} />,    angleDeg: 90,  hero: true, onClick: goToDial },
+      { key: "social",  label: "Social",         icon: <Share2 size={20} />,   angleDeg: 62,  onClick: () => setView("social" as any) },
+      { key: "refer",   label: "Agent Referral", icon: <Send size={20} />,     angleDeg: 34,  onClick: () => setView("refer-agent" as any) },
+      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={20} />, angleDeg: 6,   onClick: () => setView("door-knock" as any) },
     ];
     // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
     // Anchor the arc's origin over the FAB center.

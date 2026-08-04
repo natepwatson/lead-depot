@@ -300,7 +300,8 @@ export interface ChampionInfo {
   monthKey: string;            // "YYYY-MM" the wreath is FOR (i.e. this month)
   awardedForMonth: string;     // "YYYY-MM" the wreath was WON in (last month)
   awardedAt: string | null;    // ISO timestamp
-  appts: number;               // winner's appts for the winning month
+  points: number;              // winner's points for the winning month (v20.4.4 — was appts)
+  appts: number;               // kept for back-compat; winner's appts in winning month
 }
 
 export function getCurrentChampion(): ChampionInfo {
@@ -308,7 +309,7 @@ export function getCurrentChampion(): ChampionInfo {
   const row = rawDb.prepare(`SELECT value FROM app_settings WHERE key = ?`)
     .get("champion_current_month") as { value: string } | undefined;
   if (!row) {
-    return { agentId: null, agentName: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, appts: 0 };
+    return { agentId: null, agentName: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, points: 0, appts: 0 };
   }
   try {
     const j = JSON.parse(row.value);
@@ -316,7 +317,7 @@ export function getCurrentChampion(): ChampionInfo {
     // stale — the wreath expires on the 1st of the following month.
     // j.monthKey holds the DISPLAY month (the month in which the wreath is worn).
     if (j.monthKey !== nowMonth) {
-      return { agentId: null, agentName: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, appts: 0 };
+      return { agentId: null, agentName: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, points: 0, appts: 0 };
     }
     return {
       agentId: j.agentId,
@@ -324,10 +325,11 @@ export function getCurrentChampion(): ChampionInfo {
       monthKey: j.monthKey,
       awardedForMonth: j.awardedForMonth || "",
       awardedAt: j.awardedAt || null,
+      points: Number(j.points) || 0,
       appts: Number(j.appts) || 0,
     };
   } catch {
-    return { agentId: null, agentName: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, appts: 0 };
+    return { agentId: null, agentName: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, points: 0, appts: 0 };
   }
 }
 
@@ -344,19 +346,21 @@ export function crownMonthlyChampion(): ChampionInfo {
   const nextMonthDate = new Date(Date.UTC(y, m, 1));
   const monthEndExclusive = nextMonthDate.toISOString();
 
-  // v18.0 — was agent_lead_activity/caller_id, table dropped. Seller-side only now.
+  // v20.4.4 — Champion is the highest POINTS scorer for the closing month.
+  // Points are recorded in agent_points scoped to "seller". Also computes the
+  // winner's appts for that month as a display extra.
   const winner = rawDb.prepare(`
-    SELECT a.id as id, a.name as name, COUNT(*) as appts
-    FROM lead_activity la
-    JOIN agents a ON a.id = la.agent_id
-    WHERE la.outcome = 'contacted_appointment'
-      AND la.created_at >= ?
-      AND la.created_at <  ?
+    SELECT a.id as id, a.name as name, COALESCE(SUM(ap.points),0) as points
+    FROM agent_points ap
+    JOIN agents a ON a.id = ap.agent_id
+    WHERE ap.scope = 'seller'
+      AND ap.created_at >= ?
+      AND ap.created_at <  ?
       AND a.is_active = 1
     GROUP BY a.id
-    ORDER BY appts DESC, a.id ASC
+    ORDER BY points DESC, a.id ASC
     LIMIT 1
-  `).get(monthStart, monthEndExclusive) as { id: number; name: string; appts: number } | undefined;
+  `).get(monthStart, monthEndExclusive) as { id: number; name: string; points: number } | undefined;
 
   const displayMonth = (() => {
     const nm = new Date(Date.UTC(y, m, 1));
@@ -365,9 +369,19 @@ export function crownMonthlyChampion(): ChampionInfo {
     return `${yy}-${mm}`;
   })();
 
-  if (!winner) {
-    return { agentId: null, agentName: null, monthKey: displayMonth, awardedForMonth: closingMonth, awardedAt: null, appts: 0 };
+  if (!winner || (winner.points || 0) <= 0) {
+    return { agentId: null, agentName: null, monthKey: displayMonth, awardedForMonth: closingMonth, awardedAt: null, points: 0, appts: 0 };
   }
+
+  // Winner's appts for the closing month, for display alongside points.
+  const apptRow = rawDb.prepare(`
+    SELECT COUNT(*) as appts
+    FROM lead_activity
+    WHERE outcome = 'contacted_appointment'
+      AND agent_id = ?
+      AND created_at >= ?
+      AND created_at <  ?
+  `).get(winner.id, monthStart, monthEndExclusive) as { appts: number } | undefined;
 
   const record = {
     agentId: winner.id,
@@ -375,7 +389,8 @@ export function crownMonthlyChampion(): ChampionInfo {
     monthKey: displayMonth,          // month the wreath is DISPLAYED in
     awardedForMonth: closingMonth,   // month it was WON in
     awardedAt: new Date().toISOString(),
-    appts: winner.appts,
+    points: winner.points || 0,
+    appts: apptRow?.appts || 0,
   };
   rawDb.prepare(`
     INSERT INTO app_settings (key, value) VALUES (?, ?)

@@ -216,7 +216,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -445,7 +445,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.0 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.1 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -504,7 +504,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -552,7 +552,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1790,7 +1790,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.0</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.1</p>
             </div>
           `,
         });
@@ -1950,7 +1950,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.0 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.1 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -6629,7 +6629,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.0 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.1 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -7569,6 +7569,42 @@ This template is for informational/outreach purposes only.`;
     }
   });
 
+  // v20.1 diagnostic — admin-only. Returns FUB identity + user/seat count so Alex can
+  // see plan tier and remaining seats before we start auto-creating agent users on approve.
+  app.get("/api/admin/fub-diagnostic", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const key = process.env.FUB_API_KEY;
+    if (!key) return res.json({ ok: false, error: "FUB_API_KEY not set" });
+    const auth = "Basic " + Buffer.from(key + ":").toString("base64");
+    const headers = { Authorization: auth, "Content-Type": "application/json" };
+    try {
+      const [identityR, usersR] = await Promise.all([
+        fetch("https://api.followupboss.com/v1/identity", { headers }),
+        fetch("https://api.followupboss.com/v1/users?limit=100&includeDeleted=false", { headers }),
+      ]);
+      const identity = await identityR.json().catch(() => null);
+      const users = await usersR.json().catch(() => null);
+      const userList = users?.users || [];
+      const byRole: Record<string, number> = {};
+      const active: any[] = [];
+      for (const u of userList) {
+        const role = String(u.role || "unknown");
+        byRole[role] = (byRole[role] || 0) + 1;
+        active.push({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status });
+      }
+      res.json({
+        ok: true,
+        identity,
+        userCount: userList.length,
+        usersMeta: users?._metadata || null,
+        byRole,
+        users: active,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: String(err?.message || err) });
+    }
+  });
+
   app.get("/api/health", async (req, res) => {
     const results: Record<string, { ok: boolean; latencyMs?: number; detail?: string }> = {};
 
@@ -7678,7 +7714,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.0",
+      version: "v20.1",
       services: results,
     });
   });
@@ -7921,6 +7957,19 @@ This template is for informational/outreach purposes only.`;
     // a warm personal note from Alex.
     if (resend) {
       const firstName = String(cand.name).split(/\s+/)[0];
+
+      // v20.1 — Approve-flow test mode. When candidate email is Alex's personal test
+      // inbox (watsonag1@gmail.com), redirect ALL recipients (candidate to:, Nate CC,
+      // Denise CC, Brittany, Michelle) to that inbox so Alex sees the entire 4-email
+      // sequence live without anyone else getting hit. Subjects are prefixed [TEST].
+      const TEST_INBOX = "watsonag1@gmail.com";
+      const isTestApproval = String(cand.email || "").trim().toLowerCase() === TEST_INBOX;
+      const to = (arr: string[]) => isTestApproval ? [TEST_INBOX] : arr;
+      const cc = (arr: string[]) => isTestApproval ? [] : arr;
+      const subj = (s: string) => isTestApproval ? `[TEST] ${s}` : s;
+      if (isTestApproval) {
+        console.log(`[approve test-mode] candidate ${cid} email is ${TEST_INBOX} — redirecting all 4 recipients to test inbox`);
+      }
       const welcomeSubject = `Welcome to Brothers Group, ${firstName}`;
       const welcomeHtml = `<div style="font-family:'Helvetica Neue','Segoe UI',sans-serif;font-size:15px;line-height:1.65;color:#1a1a1a;max-width:600px;margin:0 auto;padding:32px 24px;background:#fff">
 <p style="margin:0 0 16px">Hi ${firstName},</p>
@@ -7940,10 +7989,10 @@ This template is for informational/outreach purposes only.`;
       if (cand.email) {
         resend.emails.send({
           from:    "Alex Watson <noreply@watsonbrothersgroup.com>",
-          to:      [cand.email],
-          cc:      ["nate@watsonbrothersgroup.com"],
+          to:      to([cand.email]),
+          cc:      cc(["nate@watsonbrothersgroup.com"]),
           replyTo: "alex@watsonbrothersgroup.com",
-          subject: welcomeSubject,
+          subject: subj(welcomeSubject),
           html:    welcomeHtml,
         }).catch(err => console.error("[welcome email]", err));
 
@@ -7954,9 +8003,9 @@ This template is for informational/outreach purposes only.`;
         const setupLink = `${appBase}/#/setup/${setupToken}`;
         resend.emails.send({
           from:    "Lead Depot <noreply@watsonbrothersgroup.com>",
-          to:      [cand.email],
+          to:      to([cand.email]),
           replyTo: "alex@watsonbrothersgroup.com",
-          subject: `Set up your Lead Depot access, ${firstName}`,
+          subject: subj(`Set up your Lead Depot access, ${firstName}`),
           html: `<div style="font-family:'Helvetica Neue','Segoe UI',sans-serif;font-size:15px;line-height:1.65;color:#1a1a1a;max-width:600px;margin:0 auto;padding:32px 24px;background:#fff">
 <p style="margin:0 0 16px">Hi ${firstName},</p>
 <p style="margin:0 0 16px">Your Lead Depot account is ready. Click below to pick your password and log in for the first time. This link is good for 7 days.</p>
@@ -7974,9 +8023,9 @@ This template is for informational/outreach purposes only.`;
       const briefRows = Object.entries(answers).map(([k,v]) => `• ${k.replace(/_/g,' ')}: ${String(v ?? '—')}`).join("\n");
       resend.emails.send({
         from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-        to:   ["nate@watsonbrothersgroup.com"],
-        cc:   ["alex@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"],
-        subject: `📋 Onboarding brief — ${cand.name}`,
+        to:   to(["nate@watsonbrothersgroup.com"]),
+        cc:   cc(["alex@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"]),
+        subject: subj(`📋 Onboarding brief — ${cand.name}`),
         html: `<p>Nate,</p><p>Alex just approved <strong>${cand.name}</strong> (${cand.phone}${cand.email ? " · " + cand.email : ""}). Please kick off their team onboarding to Momentum. Here's what they told us on the questionnaire so you know where to pick up the reins:</p><pre style="background:#f7f5ef;padding:16px;border-radius:8px;white-space:pre-wrap;font-family:'Helvetica Neue',sans-serif;font-size:13px">${briefRows}</pre><p>— Lead Depot</p>`,
       }).catch(err => console.error("[nate brief]", err));
 
@@ -7985,10 +8034,10 @@ This template is for informational/outreach purposes only.`;
       // (paperwork, MLS/board, systems access) starts in parallel with Nate's Depot onboarding.
       resend.emails.send({
         from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-        to:      ["momentumbkr@gmail.com", "michelle@movewithmomentum.com"],
-        cc:      ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+        to:      to(["momentumbkr@gmail.com", "michelle@movewithmomentum.com"]),
+        cc:      cc(["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"]),
         replyTo: "alex@watsonbrothersgroup.com",
-        subject: `New Brothers Group agent — please onboard ${cand.name} to Momentum`,
+        subject: subj(`New Brothers Group agent — please onboard ${cand.name} to Momentum`),
         html: `<p>Hi Brittany and Michelle,</p><p>We just brought on a new agent to the Brothers Group team — <strong>${cand.name}</strong>${cand.email ? ` (${cand.email})` : ""}${cand.phone ? ` · ${cand.phone}` : ""}. Could you please kick off their Momentum Realty onboarding whenever you have a moment?</p><p>A few quick details from their application to make it easier on your end:</p><pre style="background:#f7f5ef;padding:16px;border-radius:8px;white-space:pre-wrap;font-family:'Helvetica Neue',sans-serif;font-size:13px">${briefRows}</pre><p>Nate is running the team-side onboarding in parallel — feel free to loop him in on anything you need from us. Really appreciate you both.</p><p>— Alex<br/>Alex Watson · Brothers Group Real Estate at Momentum Realty</p>`,
       }).catch(err => console.error("[momentum onboarding]", err));
     }
@@ -8575,7 +8624,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.0</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.1</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

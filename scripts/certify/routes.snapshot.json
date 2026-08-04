@@ -19,6 +19,7 @@
   "GET /api/admin/db-repair/log",
   "GET /api/admin/diversity/history",
   "GET /api/admin/diversity/preview",
+  "GET /api/admin/fub-diagnostic",
   "GET /api/admin/holdouts",
   "GET /api/admin/kpi-ratios",
   "GET /api/admin/leaderboard",

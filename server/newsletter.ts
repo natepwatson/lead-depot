@@ -126,6 +126,32 @@ export function agentWeekStats(agentId: number, agentName: string, agentEmail: s
   };
 }
 
+// ─── AVAILABLE OPEN HOUSES ──────────────────────────────────────────────
+// Pull all approved & unclaimed OHs for this coming weekend + any beyond.
+// Newsletter fires Wednesday morning; agents get 3-4 days to grab a slot.
+export function availableOpenHouses(): Array<{
+  id: number;
+  address: string;
+  date: string;
+  time_start: string;
+  time_end: string;
+  list_price: number | null;
+  listing_agent: string | null;
+  notes: string | null;
+}> {
+  const rows = rawDb.prepare(`
+    SELECT oh.id, oh.address, oh.date, oh.time_start, oh.time_end,
+           oh.list_price, oh.listing_agent, oh.notes
+    FROM open_houses oh
+    WHERE oh.status = 'open'
+      AND oh.claimed_by_agent_id IS NULL
+      AND oh.date >= date('now')
+    ORDER BY oh.date ASC, oh.time_start ASC
+    LIMIT 20
+  `).all() as any[];
+  return rows;
+}
+
 export function topThisWeek(): Array<{ agentId: number; name: string; points: number; signature: string }> {
   const rows = rawDb.prepare(`
     SELECT ap.agent_id as agentId, a.name, coalesce(SUM(ap.points),0) as points
@@ -185,6 +211,28 @@ export function ldNewsletterHtml(s: AgentWeekStats, inputs: AlexInputs, topWeek:
   const tool = featuredTool();
   const changes = recentAppChanges();
   const rec = personalRecommendation(s);
+  const openHouses = availableOpenHouses();
+
+  const fmtOHDate = (d: string): string => {
+    try {
+      const [y, m, day] = d.split("-").map(Number);
+      const dt = new Date(y, m - 1, day);
+      return dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    } catch { return d; }
+  };
+  const fmtOHTime = (t: string): string => {
+    if (!t) return "";
+    const [h, m] = t.split(":").map(Number);
+    const period = h >= 12 ? "pm" : "am";
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return m > 0 ? `${h12}:${String(m).padStart(2,"0")}${period}` : `${h12}${period}`;
+  };
+  const fmtPrice = (n: number | null): string => {
+    if (!n) return "";
+    if (n >= 1000000) return `$${(n/1000000).toFixed(2).replace(/\.00$/,"")}M`;
+    if (n >= 1000)    return `$${Math.round(n/1000)}K`;
+    return `$${n}`;
+  };
 
   const trend = (cur: number, prev: number): string => {
     if (prev === 0) return cur > 0 ? " (new)" : "";
@@ -200,7 +248,7 @@ export function ldNewsletterHtml(s: AgentWeekStats, inputs: AlexInputs, topWeek:
 
   <!-- Header -->
   <div style="text-align:center;margin-bottom:32px">
-    <div style="color:#c8aa5a;font-size:11px;letter-spacing:.3em;text-transform:uppercase;margin-bottom:8px">Watson Brothers Group · Monday Brief</div>
+    <div style="color:#c8aa5a;font-size:11px;letter-spacing:.3em;text-transform:uppercase;margin-bottom:8px">Watson Brothers Group · Wednesday Brief</div>
     <div style="color:#f0f0f0;font-size:26px;font-weight:600;letter-spacing:-.02em">Good morning, ${first}</div>
     <div style="color:#7a7a7a;font-size:13px;margin-top:6px">${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>
   </div>
@@ -297,6 +345,30 @@ export function ldNewsletterHtml(s: AgentWeekStats, inputs: AlexInputs, topWeek:
   </div>
   ` : ""}
 
+  ${openHouses.length ? `
+  <!-- Available open houses (grab-a-slot) -->
+  <div style="background:#141414;padding:20px 24px;margin-bottom:32px;border:1px solid rgba(200,170,90,.25);border-radius:6px">
+    <div style="color:#c8aa5a;font-size:11px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;margin-bottom:6px">🏡 Open houses up for grabs</div>
+    <div style="color:#7a7a7a;font-size:12px;margin-bottom:14px">Approved. Unclaimed. First-come, first-served — grab in the app.</div>
+    ${openHouses.map((oh, i) => `
+      <div style="padding:12px 0;${i > 0 ? 'border-top:1px solid #2a2a2a' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+          <div style="color:#f0f0f0;font-size:14px;font-weight:600">${oh.address}</div>
+          ${oh.list_price ? `<div style="color:#c8aa5a;font-size:13px;font-weight:600">${fmtPrice(oh.list_price)}</div>` : ""}
+        </div>
+        <div style="color:#a0a0a0;font-size:13px">
+          ${fmtOHDate(oh.date)} · ${fmtOHTime(oh.time_start)}–${fmtOHTime(oh.time_end)}
+          ${oh.listing_agent ? ` · <span style="color:#7a7a7a">listing: ${oh.listing_agent}</span>` : ""}
+        </div>
+        ${oh.notes ? `<div style="color:#7a7a7a;font-size:12px;margin-top:4px;font-style:italic">${oh.notes}</div>` : ""}
+      </div>
+    `).join("")}
+    <div style="margin-top:14px;text-align:center">
+      <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;padding:8px 18px;background:#c8aa5a;color:#0a0a0a;text-decoration:none;border-radius:4px;font-weight:700;font-size:12px;letter-spacing:.08em;text-transform:uppercase">Grab a slot in Lead Depot</a>
+    </div>
+  </div>
+  ` : ""}
+
   <!-- Featured tool -->
   <div style="background:linear-gradient(135deg,#1a1408 0%,#0f0a04 100%);padding:24px;margin-bottom:32px;border:1px solid rgba(200,170,90,.25);border-radius:6px">
     <div style="color:#c8aa5a;font-size:11px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;margin-bottom:12px">🛠 Feature of the week</div>
@@ -338,14 +410,14 @@ export function prepEmailHtml(): string {
 <div style="max-width:640px;margin:0 auto;padding:40px 32px">
 
   <div style="text-align:center;margin-bottom:32px">
-    <div style="color:#c8aa5a;font-size:11px;letter-spacing:.3em;text-transform:uppercase;margin-bottom:8px">Newsletter Prep · Monday Morning</div>
-    <div style="color:#f0f0f0;font-size:24px;font-weight:600;letter-spacing:-.02em">Both newsletters, one reply</div>
+    <div style="color:#c8aa5a;font-size:11px;letter-spacing:.3em;text-transform:uppercase;margin-bottom:8px">Newsletter Heads-Up · Monday Morning</div>
+    <div style="color:#f0f0f0;font-size:24px;font-weight:600;letter-spacing:-.02em">Newsletter buckets for this week</div>
     <div style="color:#7a7a7a;font-size:13px;margin-top:6px">${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>
   </div>
 
   <div style="background:#141414;padding:20px 24px;margin-bottom:28px;border-radius:6px">
     <div style="color:#e8e8e8;font-size:14px;margin-bottom:16px">
-      Good morning, Alex. Reply to this email with the following (Tuesday 8am both newsletters go out — LD to all agents, BGRE draft to Nate).
+      Heads-up email — no reply needed. BGRE client draft goes to Nate Tuesday 8am ET. The LD team newsletter fires Wednesday 8am ET. If you want to shape the content for this week, log into Lead Depot and drop your inputs into the Newsletter Inputs panel any time before Wednesday 8am. Everything below shows what each bucket is for.
     </div>
   </div>
 
@@ -372,10 +444,11 @@ export function prepEmailHtml(): string {
   <div style="background:#141414;border-left:3px solid #a78bfa;padding:20px 24px;margin-bottom:28px">
     <div style="color:#a78bfa;font-size:11px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;margin-bottom:10px">5 · BGRE client newsletter — this week's angle</div>
     <div style="color:#e8e8e8;font-size:14px">One paragraph: What's the market concern? What's the data angle? What's the pivot to hope? What's the practical solution? I'll write the newsletter and hand it to Nate Tuesday 8am.</div>
+    <div style="color:#7a7a7a;font-size:12px;margin-top:8px">This one still fires Tuesday morning — LD team newsletter is Wednesday 8am.</div>
   </div>
 
   <div style="background:rgba(200,170,90,.05);padding:16px 20px;border-radius:6px;border:1px solid rgba(200,170,90,.15);text-align:center">
-    <div style="color:#7a7a7a;font-size:12px">Reply with any/all of these. Skipped sections just get dropped. See you Tuesday.</div>
+    <div style="color:#7a7a7a;font-size:12px">If you don't submit anything by Wednesday 8am, the LD newsletter still ships with agent stats, leaderboard, available open houses, feature of the week, and app changelog. Manual buckets just get skipped.</div>
   </div>
 
 </div>

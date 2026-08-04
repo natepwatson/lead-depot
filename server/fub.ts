@@ -1162,3 +1162,204 @@ export async function fubPostQuestionnaireNote(payload: CandidateSubmitFubPayloa
   console.log(`[FUB] Tags updated — person ${payload.fubPersonId} (added Application Submitted)`);
   return true;
 }
+
+// ─── v20.2 — Approve flow: create Vendor + set Person Stage=Vendor + create user seat
+// Called by POST /api/admin/candidates/:id/approve after the local agent row is created.
+// NON-BLOCKING per approve flow — caller catches errors and continues.
+export interface AgentApprovalFubPayload {
+  candidateId: number;
+  agentId: number;            // local Lead Depot agent id (for note reference)
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  invitedByName: string | null;
+  questionnaireSummary: string; // pre-formatted bullet block from approve endpoint
+  // v20.1 test-mode redirect flag — when true we log the payloads and use the test email
+  // for the FUB Person + User records so a fake test approve doesn't create a real Vendor
+  // or burn a $69/mo seat on the account.
+  isTestApproval?: boolean;
+  testInbox?: string;
+}
+
+export interface AgentApprovalFubResult {
+  personId: number | null;    // FUB Person row (Vendor)
+  userId: number | null;      // FUB User row (Agent seat, $69/mo on Grow)
+  vendorNoteId: number | null;
+  skipped: string[];
+  errors: string[];
+}
+
+export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload): Promise<AgentApprovalFubResult> {
+  const result: AgentApprovalFubResult = {
+    personId: null,
+    userId: null,
+    vendorNoteId: null,
+    skipped: [],
+    errors: [],
+  };
+
+  if (!FUB_API_KEY) {
+    console.warn("[FUB] FUB_API_KEY not set — skipping fubApproveAgentAsVendor");
+    result.skipped.push("no_api_key");
+    return result;
+  }
+
+  // v20.1 test-mode: don't touch real FUB records for test approves. Just log what
+  // would have happened so Alex can verify shape.
+  if (payload.isTestApproval) {
+    console.log(`[FUB approve/test-mode] Would create Vendor + Agent seat for ${payload.fullName} <${payload.email}>. SKIPPING real FUB calls to protect Grow-plan billing.`);
+    result.skipped.push("test_mode_active");
+    return result;
+  }
+
+  const displayName = payload.fullName;
+
+  // 1. Find existing FUB Person by email (preferred) or phone. Dedup before creating.
+  let personId: number | null = null;
+  if (payload.email) {
+    const q = encodeURIComponent(payload.email);
+    const findRes = await fubRequest("GET", `/people?query=${q}&limit=1`);
+    if (findRes.ok && findRes.data?.people?.length) {
+      personId = findRes.data.people[0].id;
+      console.log(`[FUB approve] Existing Person found by email → id=${personId}`);
+    }
+  }
+  if (!personId && payload.phone) {
+    const q = encodeURIComponent(payload.phone);
+    const findRes = await fubRequest("GET", `/people?query=${q}&limit=1`);
+    if (findRes.ok && findRes.data?.people?.length) {
+      personId = findRes.data.people[0].id;
+      console.log(`[FUB approve] Existing Person found by phone → id=${personId}`);
+    }
+  }
+
+  // 2. If no existing Person, create one via /events (per fub.ts hard rule — never POST /people).
+  //    Set Stage=Vendor + tags on creation.
+  const tagsForApproved = ["Recruiting", "Approved Agent", "Team", "Brothers Group"];
+
+  if (!personId) {
+    const eventPayload: any = {
+      source: "Lead Depot Approval",
+      system: FUB_SYSTEM,
+      type: "Registration",
+      message: `Agent approved to Brothers Group — ${displayName}`,
+      sourceUrl: "https://depot.watsonbrothersgroup.com",
+      person: {
+        firstName: payload.firstName,
+        lastName:  payload.lastName,
+        stage:     "Vendor",
+        tags:      tagsForApproved,
+        assignedTo: "Alex Watson",
+      },
+    };
+    if (payload.email) eventPayload.person.emails = [{ value: payload.email }];
+    if (payload.phone) eventPayload.person.phones = [{ value: payload.phone }];
+
+    const evRes = await fubRequest("POST", "/events", eventPayload);
+    if (!evRes.ok) {
+      console.error("[FUB approve] Failed to create Person via /events:", evRes.data);
+      result.errors.push(`person_create_failed:${evRes.status}`);
+    } else {
+      personId = evRes.data?.person?.id ?? null;
+      console.log(`[FUB approve] Person created → id=${personId} (Stage=Vendor)`);
+    }
+  }
+
+  // 3. Force Stage=Vendor and merge tags. Do this whether the Person was found or created —
+  //    an existing Recruit Lead needs to get moved to Vendor now that they're approved.
+  if (personId) {
+    // Merge tags on top of whatever the Person already has.
+    const getRes = await fubRequest("GET", `/people/${personId}`);
+    const existingTags: string[] = Array.isArray(getRes.data?.tags) ? getRes.data.tags : [];
+    const nextTags = Array.from(new Set([...existingTags, ...tagsForApproved]));
+
+    const putRes = await fubRequest("PUT", `/people/${personId}`, {
+      stage: "Vendor",
+      tags:  nextTags,
+    });
+    if (!putRes.ok) {
+      console.error(`[FUB approve] Failed to force Stage=Vendor for Person ${personId}:`, putRes.data);
+      result.errors.push(`stage_put_failed:${putRes.status}`);
+    } else {
+      console.log(`[FUB approve] Stage=Vendor forced + tags merged for Person ${personId}`);
+    }
+
+    // Post an approval note
+    const noteBody = [
+      "━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      "Lead Depot — Agent Approved",
+      "━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      `Approved: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} EDT`,
+      `Invited by: ${payload.invitedByName || "Lead Depot admin"}`,
+      `Local Lead Depot agent ID: ${payload.agentId}`,
+      "",
+      "── STAGE MOVED ──",
+      "→ Vendor (approved agent, active on team)",
+      "",
+      "── QUESTIONNAIRE ──",
+      payload.questionnaireSummary || "(no answers on file)",
+      "",
+      "── PARALLEL ONBOARDING ──",
+      "• Momentum brokerage kickoff email sent to Brittany + Michelle",
+      "• Team onboarding brief sent to Nate (CC Alex, Denise)",
+      "• Setup link email sent to candidate",
+      "",
+      "Source: depot.watsonbrothersgroup.com",
+    ].join("\n");
+
+    const noteRes = await fubRequest("POST", "/notes", {
+      personId,
+      body: noteBody,
+      isHtml: false,
+    });
+    if (noteRes.ok) {
+      result.vendorNoteId = noteRes.data?.id ?? null;
+      console.log(`[FUB approve] Approval note posted → note ${result.vendorNoteId}`);
+    } else {
+      console.warn("[FUB approve] Note post failed:", noteRes.data);
+      result.errors.push(`note_failed:${noteRes.status}`);
+    }
+  }
+  result.personId = personId;
+
+  // 4. Create the FUB User seat (Agent role). This is billable on Grow ($69/user/mo).
+  //    Skip if a user with this email already exists (idempotent — approve twice = one seat).
+  if (!payload.email) {
+    console.warn("[FUB approve] No candidate email — cannot create FUB User seat");
+    result.skipped.push("user_no_email");
+  } else {
+    // Check existing users by email
+    const existingRes = await fubRequest("GET", `/users?limit=100`);
+    if (existingRes.ok && Array.isArray(existingRes.data?.users)) {
+      const match = existingRes.data.users.find(
+        (u: any) => String(u.email || "").toLowerCase() === payload.email.toLowerCase()
+      );
+      if (match) {
+        result.userId = match.id;
+        console.log(`[FUB approve] User seat already exists → id=${match.id} (skipping create, no new seat charge)`);
+        result.skipped.push("user_already_exists");
+      }
+    }
+
+    if (!result.userId) {
+      // POST /v1/users — creates a new billable Agent seat.
+      const userPayload = {
+        name:  displayName,
+        email: payload.email,
+        role:  "Agent",
+      };
+      const createRes = await fubRequest("POST", "/users", userPayload);
+      if (createRes.ok) {
+        result.userId = createRes.data?.id ?? null;
+        console.log(`[FUB approve] User seat CREATED → id=${result.userId} — billable on Grow plan ($69/mo)`);
+      } else {
+        console.error("[FUB approve] User seat creation failed:", createRes.status, createRes.data);
+        result.errors.push(`user_create_failed:${createRes.status}`);
+      }
+    }
+  }
+
+  return result;
+}

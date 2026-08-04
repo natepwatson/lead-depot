@@ -1,4 +1,4 @@
-// v20.4.7 — Agent-facing Book Open House sheet.
+// v20.4.8 — Agent-facing Book Open House sheet.
 // Shows currently open (approved, unclaimed) open houses. Book = atomic claim.
 // On success, agent gets a rich Accept email server-side (address, date/time,
 // listing agent, list price, access info, prep checklist).

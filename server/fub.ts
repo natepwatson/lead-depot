@@ -1189,7 +1189,7 @@ export interface AgentApprovalFubResult {
   vendorNoteId: number | null;
   skipped: string[];
   errors: string[];
-  // v20.4.7 — Pro plan seat accounting. Set when this approve creates a seat.
+  // v20.4.8 — Pro plan seat accounting. Set when this approve creates a seat.
   //  seatUsageBefore/After: total billable seats visible in FUB before/after.
   //  includedSeats: 10 on Pro (contract cap).
   //  overageTriggered: true when the newly-created seat pushed the total > includedSeats.
@@ -1199,7 +1199,7 @@ export interface AgentApprovalFubResult {
   overageTriggered?: boolean;
 }
 
-// v20.4.7 — FUB Pro plan seat cap. First 10 users included in the $499/mo base;
+// v20.4.8 — FUB Pro plan seat cap. First 10 users included in the $499/mo base;
 // each additional seat is $49/mo. Use fubGetSeatUsage() to check headroom before
 // approve or from the admin dashboard.
 export const FUB_PRO_INCLUDED_SEATS = 10;
@@ -1277,7 +1277,7 @@ export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload):
     return result;
   }
 
-  // v20.4.7 — Pro plan seat accounting. Snapshot pre-approve usage so we can
+  // v20.4.8 — Pro plan seat accounting. Snapshot pre-approve usage so we can
   // detect whether this approve pushed us into $49/mo overage territory.
   const seatsBefore = await fubGetSeatUsage();
   result.seatUsageBefore = seatsBefore.used;
@@ -1437,7 +1437,7 @@ export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload):
     }
   }
 
-  // v20.4.7 — Post-approve seat accounting. Fetch again so the caller (and the
+  // v20.4.8 — Post-approve seat accounting. Fetch again so the caller (and the
   // Nate brief / admin dashboard) know whether this approve triggered overage.
   try {
     const seatsAfter = await fubGetSeatUsage();
@@ -1454,4 +1454,159 @@ export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload):
   }
 
   return result;
+}
+
+// ─── v20.4.8 — TAG SCAN + OPPORTUNITY / BUYER SWEEP ────────────────────────────
+
+export type FubTag = { name: string; peopleCount?: number };
+
+/**
+ * v20.4.8 — List all FUB tags in the account. Used by Admin → Inventory Sources
+ * to configure which tags feed the Pocket Listing bucket and which feed the
+ * Active Buyer bucket.
+ */
+export async function fubListTags(): Promise<FubTag[]> {
+  if (!FUB_API_KEY) return [];
+  try {
+    // FUB endpoint: GET /v1/people/tags — returns { tags: [...] } or an array of strings.
+    // Try /v1/people/tags first (canonical), fall back to /v1/tags.
+    const endpoints = [
+      "https://api.followupboss.com/v1/people/tags?limit=250",
+      "https://api.followupboss.com/v1/tags?limit=250",
+    ];
+    for (const url of endpoints) {
+      try {
+        const r = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: fubAuth(),
+            "X-System": "LeadDepot",
+            "X-System-Key": FUB_API_KEY,
+          },
+        });
+        if (!r.ok) continue;
+        const data: any = await r.json();
+        const raw: any[] = data.tags || data.data || (Array.isArray(data) ? data : []);
+        return raw
+          .map(t => (typeof t === "string" ? { name: t } : { name: String(t.name || t.tag || ""), peopleCount: t.peopleCount || t.count }))
+          .filter(t => t.name)
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } catch { /* try next */ }
+    }
+    return [];
+  } catch (err: any) {
+    console.warn("[FUB] fubListTags failed:", err?.message);
+    return [];
+  }
+}
+
+/**
+ * v20.4.8 — Return the list of people (with property + preference data) tagged
+ * with a specific FUB tag. Paginated automatically.
+ */
+export async function fubListPeopleByTag(tag: string, limitPerPage = 100): Promise<any[]> {
+  if (!FUB_API_KEY || !tag) return [];
+  const all: any[] = [];
+  let offset = 0;
+  const maxPages = 20; // hard cap 2000 people per tag
+  for (let page = 0; page < maxPages; page++) {
+    try {
+      const url = `https://api.followupboss.com/v1/people?tags=${encodeURIComponent(tag)}&limit=${limitPerPage}&offset=${offset}&fields=allFields`;
+      const r = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: fubAuth(),
+          "X-System": "LeadDepot",
+          "X-System-Key": FUB_API_KEY,
+        },
+      });
+      if (!r.ok) break;
+      const data: any = await r.json();
+      const people: any[] = data.people || [];
+      all.push(...people);
+      if (people.length < limitPerPage) break;
+      offset += limitPerPage;
+    } catch (err: any) {
+      console.warn(`[FUB] fubListPeopleByTag(${tag}) failed at offset ${offset}:`, err?.message);
+      break;
+    }
+  }
+  return all;
+}
+
+/**
+ * v20.4.8 — Extract the best available property address string from a FUB person.
+ * FUB stores addresses in multiple shapes across versions; try each.
+ */
+export function fubPersonAddress(p: any): { address: string | null; city: string | null; state: string | null; zip: string | null } {
+  if (!p) return { address: null, city: null, state: null, zip: null };
+  const addrs = p.addresses || p.address || [];
+  const list = Array.isArray(addrs) ? addrs : [addrs];
+  for (const a of list) {
+    if (!a) continue;
+    const street = a.street || a.line1 || a.streetAddress || a.address1;
+    if (street) {
+      return {
+        address: String(street).trim(),
+        city:    a.city ? String(a.city).trim() : null,
+        state:   a.state ? String(a.state).trim() : null,
+        zip:     a.zip || a.postalCode ? String(a.zip || a.postalCode).trim() : null,
+      };
+    }
+  }
+  // Some teams stash property address on customFields as "Property Address"
+  const cf = p.customFields || {};
+  for (const key of Object.keys(cf)) {
+    if (/property.*address|listing.*address/i.test(key) && cf[key]) {
+      return { address: String(cf[key]).trim(), city: null, state: null, zip: null };
+    }
+  }
+  return { address: null, city: null, state: null, zip: null };
+}
+
+/**
+ * v20.4.8 — Buyer preferences from a FUB person's custom fields.
+ * FUB has no fixed schema for buyer prefs; scan customFields for known keywords.
+ */
+export function fubPersonBuyerPrefs(p: any): {
+  price_min: number | null; price_max: number | null;
+  beds_min:  number | null; baths_min: number | null; sqft_min: number | null;
+  preferred_areas: string | null; timeline: string | null; must_haves: string | null; no_gos: string | null;
+  pre_approved: number; lender: string | null;
+} {
+  const cf: Record<string, any> = p.customFields || {};
+  const empty = {
+    price_min: null as number | null, price_max: null as number | null,
+    beds_min: null as number | null, baths_min: null as number | null, sqft_min: null as number | null,
+    preferred_areas: null as string | null, timeline: null as string | null,
+    must_haves: null as string | null, no_gos: null as string | null,
+    pre_approved: 0, lender: null as string | null,
+  };
+  const out = { ...empty };
+  const priceParse = (v: any): number | null => {
+    if (v == null) return null;
+    const s = String(v).replace(/[$,\s]/g, "").toLowerCase();
+    const m = s.match(/^([0-9.]+)\s*(k|m)?/);
+    if (!m) return null;
+    let n = parseFloat(m[1]);
+    if (m[2] === "k") n *= 1000;
+    if (m[2] === "m") n *= 1_000_000;
+    return isFinite(n) ? Math.round(n) : null;
+  };
+  for (const [k, v] of Object.entries(cf)) {
+    if (v == null || v === "") continue;
+    const lk = k.toLowerCase();
+    if (/price.*min|min.*price|budget.*min/.test(lk)) out.price_min = priceParse(v);
+    else if (/price.*max|max.*price|budget|price.*range/.test(lk) && !out.price_max) out.price_max = priceParse(v);
+    else if (/bed/.test(lk) && !out.beds_min) out.beds_min = parseInt(String(v), 10) || null;
+    else if (/bath/.test(lk) && !out.baths_min) out.baths_min = parseFloat(String(v)) || null;
+    else if (/sqft|square|size/.test(lk) && !out.sqft_min) out.sqft_min = parseInt(String(v).replace(/,/g,""), 10) || null;
+    else if (/area|neighborhood|location|zip/.test(lk) && !out.preferred_areas) out.preferred_areas = String(v).trim();
+    else if (/timeline|when|urgency/.test(lk) && !out.timeline) out.timeline = String(v).trim();
+    else if (/must.*have|require|need/.test(lk) && !out.must_haves) out.must_haves = String(v).trim();
+    else if (/no.*go|exclude|avoid|deal.*break/.test(lk) && !out.no_gos) out.no_gos = String(v).trim();
+    else if (/pre.*approv|preapprov/.test(lk)) out.pre_approved = /y|yes|true|1|approved/i.test(String(v)) ? 1 : 0;
+    else if (/lender|bank|mortgage/.test(lk) && !out.lender) out.lender = String(v).trim();
+  }
+  return out;
 }

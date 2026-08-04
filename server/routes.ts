@@ -6,7 +6,9 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD } from "./fub";
+import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD, fubListTags } from "./fub";
+import { runFubInventorySweep } from "./fubSweep";
+import { parseWeeklyWorkbook } from "./workbookParser";
 import { getCallHeatTier, tierForCell } from "../shared/prime-schedule";
 import {
   computeAndPersistStreak,
@@ -216,7 +218,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.8 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -445,7 +447,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.4.7 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.4.8 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -504,7 +506,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.8 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -552,7 +554,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.8 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1790,7 +1792,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.4.7</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.4.8</p>
             </div>
           `,
         });
@@ -1950,7 +1952,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.4.7 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.4.8 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2835,7 +2837,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Kick off background geocode 5s after routes are wired so we don't compete with startup traffic.
   setTimeout(() => { void runBackgroundGeocode("boot"); }, 5000);
 
-  // v20.4.7 — geocode any listings missing lat/lng. Reuses censusGeocodeAddresses.
+  // v20.4.8 — geocode any listings missing lat/lng. Reuses censusGeocodeAddresses.
   let listingGeocodeRunning = false;
   async function runListingGeocodePass(): Promise<{ geocoded: number; missing: number }> {
     if (listingGeocodeRunning) return { geocoded: 0, missing: 0 };
@@ -2872,7 +2874,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Kick a listings geocode pass at boot too (5s delay).
   setTimeout(() => { void runListingGeocodePass(); }, 6000);
 
-  // v20.4.7 — Open House acceptance email. Fires when an agent books an OH
+  // v20.4.8 — Open House acceptance email. Fires when an agent books an OH
   // (or when Denise's pre-typed host_preference auto-books on approval).
   // Includes: address, date/time, listing agent, list price, access info,
   // notes, prep instructions, and a link back to Lead Depot.
@@ -4953,7 +4955,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     catch (err: any) { res.status(500).json({ error: err?.message || "champion_history_error" }); }
   });
 
-  // v20.4.7 — FUB Pro plan seat headroom. Returns live FUB user-seat usage so
+  // v20.4.8 — FUB Pro plan seat headroom. Returns live FUB user-seat usage so
   // the admin Candidates tab can show "5/10 seats used, 5 remaining" and warn
   // before an approve would trigger $49/mo overage. Non-cached: hits FUB every
   // call so the number is always current at the moment Alex looks.
@@ -4979,7 +4981,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
-  // ─── v20.4.7 LISTINGS ────────────────────────────────────────
+  // ─── v20.4.8 LISTINGS ────────────────────────────────────────
   // Every Monday Denise uploads active/pending/sold listings via Upload CSV.
   // Each active listing becomes a candidate row on Tuesday's OH Schedule form.
   // Active listings also appear on the team map as muted-gold home pins.
@@ -5001,9 +5003,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   app.get("/api/listings/active-map", (req: any, res) => {
     if (!req.currentAgent) return res.status(401).json({ error: "unauthorized" });
     const rows = rawDb.prepare(`
-      SELECT id, address, city, state, zip, list_price, listing_agent, list_date, lat, lng
-      FROM listings WHERE status = 'active' AND lat IS NOT NULL AND lng IS NOT NULL
-      LIMIT 500
+      SELECT id, address, city, state, zip, list_price, status, listing_agent, list_date, lat, lng
+      FROM listings WHERE status IN ('active','coming_soon','pocket','sold','pending') AND lat IS NOT NULL AND lng IS NOT NULL
+      AND (status != 'sold' OR sold_date >= date('now','-60 days'))
+      LIMIT 1000
     `).all();
     res.json({ ok: true, listings: rows });
   });
@@ -5014,7 +5017,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const address = String(b.address || "").trim();
     if (!address) return res.status(400).json({ error: "address required" });
     const status = String(b.status || "active").toLowerCase();
-    if (!['active','pending','sold'].includes(status)) return res.status(400).json({ error: "status must be active|pending|sold" });
+    if (!['active','pending','sold','coming_soon','pocket'].includes(status)) return res.status(400).json({ error: "status must be active|pending|sold|coming_soon|pocket" });
     const info = rawDb.prepare(`
       INSERT INTO listings (address, city, state, zip, list_price, status, listing_agent, list_date, pending_date, sold_date, sold_price, mls_number, notes, uploaded_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -5128,7 +5131,112 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ok: true, ...result });
   });
 
-  // ─── v20.4.7 OPEN HOUSES ─────────────────────────────────────
+  // ─── v20.4.8 INVENTORY (buyers + sellers) + FUB TAG CONFIG ───
+  //
+  // GET  /api/inventory/sellers  → { active[], coming_soon[], pocket[], sold[] } for the Inventory page
+  // GET  /api/inventory/buyers   → { active[], closed[] }
+  // POST /api/admin/inventory/workbook (multipart .xlsx) → parse Denise's weekly workbook
+  // GET  /api/admin/fub/tags     → live FUB tag list + current bucket assignment
+  // POST /api/admin/fub/tag-config { tag_name, bucket, enabled } → save config
+  // POST /api/admin/fub/sweep    → run the sweep on demand
+
+  app.get("/api/inventory/sellers", (req, res) => {
+    try {
+      const active = rawDb.prepare(`SELECT * FROM listings WHERE status='active' ORDER BY list_date DESC NULLS LAST, list_price DESC`).all();
+      const comingSoon = rawDb.prepare(`SELECT * FROM listings WHERE status='coming_soon' ORDER BY updated_at DESC`).all();
+      const pocket = rawDb.prepare(`SELECT * FROM listings WHERE status='pocket' ORDER BY updated_at DESC`).all();
+      const sold = rawDb.prepare(`SELECT * FROM listings WHERE status='sold' AND (sold_date IS NULL OR sold_date >= date('now','-365 days')) ORDER BY sold_date DESC`).all();
+      const pending = rawDb.prepare(`SELECT * FROM listings WHERE status='pending' ORDER BY pending_date DESC NULLS LAST`).all();
+      res.json({ active, coming_soon: comingSoon, pocket, sold, pending });
+    } catch (err: any) {
+      console.error("[inventory/sellers]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/inventory/buyers", (req, res) => {
+    try {
+      const active = rawDb.prepare(`SELECT * FROM buyers WHERE status='active' ORDER BY price_max DESC NULLS LAST, updated_at DESC`).all();
+      const closed = rawDb.prepare(`SELECT * FROM buyers WHERE status='closed' AND (closed_date IS NULL OR closed_date >= date('now','-365 days')) ORDER BY closed_date DESC`).all();
+      res.json({ active, closed });
+    } catch (err: any) {
+      console.error("[inventory/buyers]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Weekly workbook upload — expects multipart 'file' field, .xlsx.
+  const uploadMemWb = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+  app.post("/api/admin/inventory/workbook", uploadMemWb.single("file"), async (req: any, res: any) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const uploader = req.session?.user?.email || "admin";
+      console.log(`[Workbook] Received ${req.file.originalname} (${req.file.size} bytes) from ${uploader}`);
+      const result = await parseWeeklyWorkbook(req.file.buffer, uploader);
+      // Kick geocoder to fill lat/lng on new listings (background)
+      setTimeout(() => { runListingGeocodePass().catch(() => {}); }, 500);
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[workbook]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Live FUB tag list + current config
+  app.get("/api/admin/fub/tags", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const tags = await fubListTags();
+      const cfgRows = rawDb.prepare(`SELECT tag_name, bucket, enabled, last_synced_at, last_person_count FROM fub_tag_config`).all() as any[];
+      const cfgMap: Record<string, any> = {};
+      for (const r of cfgRows) cfgMap[r.tag_name] = r;
+      const merged = tags.map(t => ({
+        name: t.name,
+        peopleCount: t.peopleCount ?? null,
+        bucket: cfgMap[t.name]?.bucket ?? "ignore",
+        enabled: cfgMap[t.name]?.enabled === 1,
+        last_synced_at: cfgMap[t.name]?.last_synced_at ?? null,
+        last_person_count: cfgMap[t.name]?.last_person_count ?? null,
+      }));
+      res.json({ tags: merged });
+    } catch (err: any) {
+      console.error("[fub/tags]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/admin/fub/tag-config", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const { tag_name, bucket, enabled } = req.body || {};
+      if (!tag_name || typeof tag_name !== "string") return res.status(400).json({ error: "tag_name required" });
+      const b = String(bucket || "ignore");
+      if (!["pocket_listing", "active_buyer", "ignore"].includes(b)) return res.status(400).json({ error: "invalid bucket" });
+      rawDb.prepare(`
+        INSERT INTO fub_tag_config (tag_name, bucket, enabled, updated_at)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(tag_name) DO UPDATE SET bucket = excluded.bucket, enabled = excluded.enabled, updated_at = datetime('now')
+      `).run(tag_name, b, enabled === false ? 0 : 1);
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[fub/tag-config]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/admin/fub/sweep", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const result = await runFubInventorySweep();
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[fub/sweep]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── v20.4.8 OPEN HOUSES ─────────────────────────────────────
   // Weekly flow:
   //   Monday  → Denise uploads active/pending/sold listings (see Listings above).
   //   Tuesday → Denise fills the OH Schedule (per-listing radio + date + start + length + access_info + notes)
@@ -7309,7 +7417,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.4.7 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.4.8 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8358,7 +8466,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.4.7",
+      version: "v20.4.8",
       services: results,
     });
   });
@@ -8686,7 +8794,7 @@ This template is for informational/outreach purposes only.`;
       }).catch(err => console.error("[momentum onboarding]", err));
     }
 
-    // v20.4.7 — FUB approve integration (Pro plan: first 10 seats included in
+    // v20.4.8 — FUB approve integration (Pro plan: first 10 seats included in
     // $499/mo base; seats 11+ = $49/mo each). Non-blocking: emails already sent
     // above; FUB failures don't fail the approve.
     // Test-mode: fubApproveAgentAsVendor is a no-op when isTestApproval=true so
@@ -8716,7 +8824,7 @@ This template is for informational/outreach purposes only.`;
           : '';
         console.log(`[approve→FUB] candidate ${cid} → personId=${result.personId} userId=${result.userId} noteId=${result.vendorNoteId}${seatMsg} skipped=${result.skipped.join(',') || 'none'} errors=${result.errors.join(',') || 'none'}`);
 
-        // v20.4.7 — If this approve triggered a $49/mo seat overage, in-app
+        // v20.4.8 — If this approve triggered a $49/mo seat overage, in-app
         // notify Alex so he knows the next FUB invoice will be higher. Non-
         // fatal, purely informational — the seat was created and the agent can
         // work immediately.
@@ -9321,7 +9429,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.4.7</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.4.8</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

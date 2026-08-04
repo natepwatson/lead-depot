@@ -29,6 +29,7 @@
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.45.2",
     "drizzle-zod": "^0.7.0",
+    "exceljs": "^4.4.0",
     "express": "^5.0.1",
     "express-session": "^1.18.1",
     "heic2any": "^0.0.4",

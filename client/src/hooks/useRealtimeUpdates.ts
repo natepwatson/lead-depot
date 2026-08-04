@@ -79,7 +79,7 @@ export function useRealtimeUpdates() {
               qc.invalidateQueries({ queryKey: ["/api/team-pot"] });
               break;
 
-            // v20.4.7 — FUB seat overage: this approve pushed us past 10 included
+            // v20.4.8 — FUB seat overage: this approve pushed us past 10 included
             // Pro seats and now costs +$49/mo. Refresh the seats pill and fire a
             // window event so the admin dashboard can surface a toast.
             case "fub_seat_overage":

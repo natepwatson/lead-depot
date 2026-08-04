@@ -25,11 +25,12 @@ interface Pin {
 }
 interface Totals { total: number; appt: number; contact: number; pool: number; }
 
-// v20.4.7 — Active listings shown as muted-gold home pins; approved open houses
+// v20.4.8 — Active listings shown as muted-gold home pins; approved open houses
 // show as bright pulsing gold flags with Book buttons.
 interface ListingPin {
   id: number; address: string; city: string | null; state: string | null; zip: string | null;
   list_price: number | null; listing_agent: string | null; lat: number; lng: number;
+  status?: string;
 }
 interface OpenHousePin {
   id: number; listing_id: number | null; address: string;
@@ -72,8 +73,48 @@ function makePin(fill: string, size: number, L: any) {
   return L.divIcon({ html: svg, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
 }
 
-// v20.4.7 — Listing (muted gold home icon).
-function makeListingPin(L: any) {
+// v20.4.8 — Status-aware listing pin.
+// LIVE (active) → champagne gold home
+// COMING SOON  → amber home with gold ring, slow pulse
+// POCKET       → electric teal diamond flag, fast pulse
+// SOLD         → sage green faded home
+// PENDING      → muted blue home (rare, transitional)
+function makeListingPin(L: any, status?: string) {
+  const s = String(status || "active").toLowerCase();
+  if (s === "pocket") {
+    // Diamond flag, teal
+    const html = `<div class="ld-pocket-pulse" style="width:24px;height:24px;transform:rotate(45deg);display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#14b8a6,#0d9488);border:1.5px solid #5eead4;border-radius:4px;box-shadow:0 0 0 3px rgba(20,184,166,0.35),0 2px 6px rgba(0,0,0,0.7)">
+      <svg style="transform:rotate(-45deg)" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#0a0a0a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 22V4"/><path d="M4 4h14l-3 4 3 4H4"/>
+      </svg>
+    </div>`;
+    return L.divIcon({ html, className: "", iconSize: [24, 24], iconAnchor: [12, 12] });
+  }
+  if (s === "coming_soon") {
+    const html = `<div class="ld-coming-pulse" style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:rgba(245,165,36,0.18);border:1.5px solid #f5a524;border-radius:6px;box-shadow:0 0 0 3px rgba(245,165,36,0.30),0 2px 6px rgba(0,0,0,0.6)">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/>
+      </svg>
+    </div>`;
+    return L.divIcon({ html, className: "", iconSize: [24, 24], iconAnchor: [12, 12] });
+  }
+  if (s === "sold") {
+    const html = `<div style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;background:rgba(107,142,90,0.10);border:1.2px solid rgba(107,142,90,0.45);border-radius:6px;opacity:0.55">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#a3c48f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/>
+      </svg>
+    </div>`;
+    return L.divIcon({ html, className: "", iconSize: [20, 20], iconAnchor: [10, 10] });
+  }
+  if (s === "pending") {
+    const html = `<div style="width:22px;height:22px;display:flex;align-items:center;justify-content:center;background:rgba(147,197,253,0.12);border:1.5px solid rgba(147,197,253,0.55);border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.6)">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#93c5fd" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/>
+      </svg>
+    </div>`;
+    return L.divIcon({ html, className: "", iconSize: [22, 22], iconAnchor: [11, 11] });
+  }
+  // default LIVE (active) — champagne gold
   const html = `<div style="width:22px;height:22px;display:flex;align-items:center;justify-content:center;background:rgba(200,170,90,0.15);border:1.5px solid rgba(200,170,90,0.55);border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.6)">
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#c8aa5a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
       <path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/>
@@ -82,11 +123,13 @@ function makeListingPin(L: any) {
   return L.divIcon({ html, className: "", iconSize: [22, 22], iconAnchor: [11, 11] });
 }
 
-// v20.4.7 — Open House (bright pulsing gold flag).
+// v20.4.8 — Open House pin.
+// OPEN (available)  → cherry red flag, pulsing (grabs attention immediately)
+// BOOKED (claimed)  → emerald green flag, no pulse
 function makeOHPin(L: any, booked: boolean) {
-  const glow = booked ? "rgba(126,212,154,0.55)" : "rgba(255,210,110,0.7)";
-  const bg = booked ? "linear-gradient(135deg,#7ed49a,#4faa5f)" : "linear-gradient(135deg,#ffd870,#c8aa5a)";
-  const border = booked ? "#7ed49a" : "#ffe090";
+  const glow = booked ? "rgba(16,185,129,0.55)" : "rgba(220,38,38,0.55)";
+  const bg = booked ? "linear-gradient(135deg,#10b981,#059669)" : "linear-gradient(135deg,#ef4444,#dc2626)";
+  const border = booked ? "#34d399" : "#fca5a5";
   const cls = booked ? "" : "oh-pulse";
   const html = `<div class="${cls}" style="position:relative;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:${bg};border:2px solid ${border};border-radius:50%;box-shadow:0 0 0 4px ${glow},0 4px 12px rgba(0,0,0,0.7);cursor:pointer">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0a0a0a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
@@ -207,7 +250,7 @@ export default function TeamMap() {
         setLoading(false);
       })
       .catch(() => { if (!cancelled) { setErr("Failed to load pins."); setLoading(false); } });
-    // v20.4.7 — Also fetch listings + open houses (best-effort, silent fail).
+    // v20.4.8 — Also fetch listings + open houses (best-effort, silent fail).
     fetch("/api/listings/active-map", { credentials: "include" })
       .then(r => r.ok ? r.json() : { listings: [] })
       .then((d: any) => { if (!cancelled) setListings(d.listings || []); })
@@ -258,14 +301,14 @@ export default function TeamMap() {
       // No hover binding on mobile — click/tap opens popup naturally.
       marker;
     }
-    // v20.4.7 — Listings layer (muted gold home icons).
+    // v20.4.8 — Listings layer (muted gold home icons).
     for (const l of listings) {
       if (l.lat == null || l.lng == null) continue;
-      L.marker([l.lat, l.lng], { icon: makeListingPin(L), zIndexOffset: 200 })
+      L.marker([l.lat, l.lng], { icon: makeListingPin(L, l.status), zIndexOffset: 200 })
         .bindPopup(listingPopupHTML(l), { className: "team-map-popup", maxWidth: 260, autoPan: true })
         .addTo(layerRef.current);
     }
-    // v20.4.7 — Open House layer (bright pulsing gold flags).
+    // v20.4.8 — Open House layer (bright pulsing gold flags).
     for (const oh of openHouses) {
       if (oh.lat == null || oh.lng == null) continue;
       const marker = L.marker([oh.lat, oh.lng], { icon: makeOHPin(L, oh.status === "booked"), zIndexOffset: 400 })
@@ -310,8 +353,12 @@ export default function TeamMap() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <style>{`
-        @keyframes ohPulse { 0%,100% { transform: scale(1); box-shadow: 0 0 0 4px rgba(255,210,110,0.7),0 4px 12px rgba(0,0,0,0.7); } 50% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(255,210,110,0.35),0 6px 16px rgba(0,0,0,0.8); } }
+        @keyframes ohPulse { 0%,100% { transform: scale(1); box-shadow: 0 0 0 4px rgba(220,38,38,0.55),0 4px 12px rgba(0,0,0,0.7); } 50% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(220,38,38,0.28),0 6px 16px rgba(0,0,0,0.8); } }
         .oh-pulse { animation: ohPulse 1.8s ease-in-out infinite; }
+        @keyframes comingPulse { 0%,100% { box-shadow: 0 0 0 3px rgba(245,165,36,0.30),0 2px 6px rgba(0,0,0,0.6); } 50% { box-shadow: 0 0 0 6px rgba(245,165,36,0.15),0 2px 6px rgba(0,0,0,0.6); } }
+        .ld-coming-pulse { animation: comingPulse 2.5s ease-in-out infinite; }
+        @keyframes pocketPulse { 0%,100% { box-shadow: 0 0 0 3px rgba(20,184,166,0.35),0 2px 6px rgba(0,0,0,0.7); } 50% { box-shadow: 0 0 0 6px rgba(20,184,166,0.20),0 2px 6px rgba(0,0,0,0.7); } }
+        .ld-pocket-pulse { animation: pocketPulse 1.2s ease-in-out infinite; }
         .team-map-popup .leaflet-popup-content-wrapper {
           background: linear-gradient(155deg, #0f1a12 0%, #0a1010 100%);
           border: 1px solid rgba(200,170,90,0.45);
@@ -374,6 +421,15 @@ export default function TeamMap() {
       {/* Map container */}
       <div style={{ height: "calc(100vh - 340px)", minHeight: 440, position: "relative", borderRadius: 10, overflow: "hidden", border: "1px solid rgba(200,170,90,0.15)" }}>
         <div ref={mapDiv} style={{ width: "100%", height: "100%", background: "#080808" }} />
+
+        {/* v20.4.8 — Inventory / OH pin legend, top-left of map */}
+        <div style={{ position:"absolute", top:10, left:10, zIndex:1000, background:"rgba(8,8,8,0.85)", border:"1px solid rgba(200,170,90,0.20)", borderRadius:8, padding:"6px 8px", display:"flex", flexDirection:"column", gap:4, fontSize:10, color:"#c7d1dd", pointerEvents:"none" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}><span style={{ width:9, height:9, background:"#c8aa5a", borderRadius:2, border:"1px solid rgba(200,170,90,0.6)" }}/> Live listing</div>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}><span style={{ width:9, height:9, background:"#f5a524", borderRadius:2 }}/> Coming soon</div>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}><span style={{ width:9, height:9, background:"#14b8a6", transform:"rotate(45deg)", display:"inline-block" }}/> Pocket</div>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}><span style={{ width:9, height:9, background:"#dc2626", borderRadius:"50%" }}/> OH open</div>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}><span style={{ width:9, height:9, background:"#10b981", borderRadius:"50%" }}/> OH claimed</div>
+        </div>
 
         {(loading || !lfReady) && !err && (
           <div style={{ position: "absolute", inset: 0, background: "#080808", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, zIndex: 1000 }}>

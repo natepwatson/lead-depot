@@ -16,7 +16,7 @@ import {
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
   Home, Voicemail, Layers, Calendar, FileText,
   Camera, DoorOpen, Zap, X, ArrowLeft, Plus,
-  Share2, Instagram, Target, Shield,
+  Share2, Instagram, Target, Shield, Package,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import TeamMap from "./TeamMap";
@@ -3155,7 +3155,7 @@ export function BonusCard() {
           >{pct}%</span>
         </div>
 
-        {/* Challenge name + detail — v20.4.7 readability pass: larger title,
+        {/* Challenge name + detail — v20.4.8 readability pass: larger title,
             higher-contrast detail, tighter line-height. Old 12px @ 0.65 opacity
             was unreadable in bright light against the gold gradient card bg. */}
         <div style={{ position: "relative", zIndex: 1, textAlign: "center", fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 600, fontSize: 24, letterSpacing: "0.01em", margin: "4px 0 6px", color: "#fff" }}>
@@ -4141,7 +4141,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                       {s.agent.name}{isMe ? " (you)" : ""}
                     </p>
                   </div>
-                  {/* v20.4.7 — STICKY (PTS · APPT only) + SWIPE RAIL (KIT · REFS · DIALS · OH · DM · DK · FB/IG).
+                  {/* v20.4.8 — STICKY (PTS · APPT only) + SWIPE RAIL (KIT · REFS · DIALS · OH · DM · DK · FB/IG).
                        Per Alex: only PTS and APPT stay pinned; everything else slides.
                        Swipe rail flexes to fill remaining space so it can scroll all the way to the last column
                        without snap-back or cutoff. */}
@@ -4170,7 +4170,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                           {stickyCell(w.appts ?? 0, "APPT", false, "#c8aa5a")}
                         </div>
                         {/* SWIPE RAIL: KIT · REFS · DIALS · OH · DM · DK · FB/IG (horizontal scroll on phone).
-                            v20.4.7 — flex:1 min-width:0 lets the rail take remaining width so scroll can
+                            v20.4.8 — flex:1 min-width:0 lets the rail take remaining width so scroll can
                             reach the last column. All rails sync-scroll together via registerRail. */}
                         <div
                           className="lb-swipe-rail"
@@ -4702,6 +4702,171 @@ const TIER_STYLES: Record<1|2|3, { bg: string; border: string; ring: string; chi
   2: { bg: "rgba(200,170,90,0.11)",  border: "rgba(200,170,90,0.50)",  ring: "rgba(240,210,130,0.95)", chipText: "#f0d282", label: "SILVER" },
   3: { bg: "rgba(220,120,90,0.13)",  border: "rgba(220,120,90,0.55)",  ring: "rgba(255,160,120,0.95)", chipText: "#ffb090", label: "GOLD"   },
 };
+
+// ─── v20.4.8 INVENTORY TAB ────────────────────────────────────────────────────
+// Sellers + Buyers subtabs. Fed by GET /api/inventory/sellers and /api/inventory/buyers.
+// Any agent can view. Match hints ("X buyers match this listing") badge on cards.
+
+type SellerRow = {
+  id: number; address: string; city?: string | null; state?: string | null; zip?: string | null;
+  list_price?: number | null; status: string; listing_agent?: string | null;
+  list_date?: string | null; days_on_market?: number | null;
+  beds?: number | null; baths?: number | null; sqft?: number | null;
+  notes?: string | null; source?: string | null;
+};
+
+type BuyerRow = {
+  id: number; name: string; phone?: string | null; email?: string | null; buyers_agent?: string | null;
+  price_min?: number | null; price_max?: number | null; preferred_areas?: string | null;
+  beds_min?: number | null; baths_min?: number | null; sqft_min?: number | null;
+  must_haves?: string | null; no_gos?: string | null; timeline?: string | null;
+  pre_approved?: number; lender?: string | null; status: string;
+};
+
+function fmtPrice(n?: number | null): string {
+  if (n == null) return "";
+  if (n >= 1_000_000) return `$${(n/1_000_000).toFixed(n%1_000_000===0?0:1)}M`;
+  if (n >= 1000) return `$${Math.round(n/1000)}K`;
+  return `$${n}`;
+}
+
+function StatusPill({ status }: { status: string }) {
+  const map: Record<string,{bg:string;fg:string;label:string}> = {
+    active:      { bg: "rgba(200,170,90,0.18)",  fg: "#e5c67a", label: "LIVE"        },
+    coming_soon: { bg: "rgba(245,165,36,0.18)",  fg: "#f5a524", label: "COMING SOON" },
+    pocket:      { bg: "rgba(20,184,166,0.18)",  fg: "#5eead4", label: "POCKET"      },
+    pending:     { bg: "rgba(147,197,253,0.15)", fg: "#93c5fd", label: "PENDING"     },
+    sold:        { bg: "rgba(107,142,90,0.15)",  fg: "#a3c48f", label: "SOLD"        },
+    closed:      { bg: "rgba(107,142,90,0.15)",  fg: "#a3c48f", label: "CLOSED"      },
+  };
+  const s = map[status] || { bg: "rgba(255,255,255,0.08)", fg: "#c7d1dd", label: status.toUpperCase() };
+  return <span style={{ display:"inline-block", padding:"2px 8px", borderRadius:6, background:s.bg, color:s.fg, fontSize:10, fontWeight:600, letterSpacing:0.5 }}>{s.label}</span>;
+}
+
+function SellerCard({ row }: { row: SellerRow }) {
+  return (
+    <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:12, padding:14, marginBottom:10 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
+        <div style={{ minWidth:0 }}>
+          <div style={{ fontSize:15, fontWeight:600, color:"#e5e7eb", lineHeight:1.3 }}>{row.address}</div>
+          <div style={{ fontSize:12, color:"#9ca3af", marginTop:2 }}>
+            {[row.city, row.state, row.zip].filter(Boolean).join(", ")}
+          </div>
+        </div>
+        <div style={{ textAlign:"right", flexShrink:0 }}>
+          <StatusPill status={row.status} />
+          {row.list_price != null && <div style={{ fontSize:15, fontWeight:600, color:"#e5c67a", marginTop:4 }}>{fmtPrice(row.list_price)}</div>}
+        </div>
+      </div>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:12, marginTop:10, fontSize:12, color:"#c7d1dd" }}>
+        {row.beds != null && <span>{row.beds} bd</span>}
+        {row.baths != null && <span>{row.baths} ba</span>}
+        {row.sqft != null && <span>{row.sqft.toLocaleString()} sqft</span>}
+        {row.listing_agent && <span>· {row.listing_agent}</span>}
+        {row.days_on_market != null && <span>· {row.days_on_market}d</span>}
+      </div>
+      {row.notes && <div style={{ fontSize:12, color:"#94a3b8", marginTop:8, fontStyle:"italic" }}>{row.notes}</div>}
+    </div>
+  );
+}
+
+function BuyerCard({ row }: { row: BuyerRow }) {
+  return (
+    <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:12, padding:14, marginBottom:10 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
+        <div style={{ minWidth:0 }}>
+          <div style={{ fontSize:15, fontWeight:600, color:"#e5e7eb", lineHeight:1.3 }}>{row.name}</div>
+          {row.buyers_agent && <div style={{ fontSize:12, color:"#9ca3af", marginTop:2 }}>Buyer's agent: {row.buyers_agent}</div>}
+        </div>
+        <div style={{ textAlign:"right", flexShrink:0 }}>
+          {row.pre_approved ? <span style={{ display:"inline-block", padding:"2px 8px", borderRadius:6, background:"rgba(107,142,90,0.15)", color:"#a3c48f", fontSize:10, fontWeight:600, letterSpacing:0.5 }}>PRE-APPROVED</span> : null}
+          {(row.price_min != null || row.price_max != null) && (
+            <div style={{ fontSize:14, fontWeight:600, color:"#5eead4", marginTop:4 }}>
+              {fmtPrice(row.price_min)}{row.price_min != null && row.price_max != null ? " – " : ""}{fmtPrice(row.price_max)}
+            </div>
+          )}
+        </div>
+      </div>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:12, marginTop:10, fontSize:12, color:"#c7d1dd" }}>
+        {row.beds_min != null && <span>{row.beds_min}+ bd</span>}
+        {row.baths_min != null && <span>{row.baths_min}+ ba</span>}
+        {row.sqft_min != null && <span>{row.sqft_min.toLocaleString()}+ sqft</span>}
+        {row.timeline && <span>· {row.timeline}</span>}
+      </div>
+      {row.preferred_areas && <div style={{ fontSize:12, color:"#94a3b8", marginTop:6 }}>Areas: {row.preferred_areas}</div>}
+      {row.must_haves && <div style={{ fontSize:12, color:"#94a3b8", marginTop:4 }}>Must have: {row.must_haves}</div>}
+      {row.no_gos && <div style={{ fontSize:12, color:"#94a3b8", marginTop:4 }}>No-gos: {row.no_gos}</div>}
+      {row.lender && <div style={{ fontSize:12, color:"#94a3b8", marginTop:4 }}>Lender: {row.lender}</div>}
+      {row.phone && <div style={{ fontSize:12, color:"#94a3b8", marginTop:4 }}>{row.phone}</div>}
+    </div>
+  );
+}
+
+function InventoryTab() {
+  const [subtab, setSubtab] = useState<"sellers" | "buyers">("sellers");
+  const [sellerFilter, setSellerFilter] = useState<"live" | "coming_soon" | "pocket" | "sold">("live");
+  const [buyerFilter, setBuyerFilter] = useState<"active" | "closed">("active");
+
+  const sellersQ = useQuery<{ active:SellerRow[]; coming_soon:SellerRow[]; pocket:SellerRow[]; sold:SellerRow[] }>({
+    queryKey: ["/api/inventory/sellers"],
+    queryFn: () => fetch("/api/inventory/sellers", { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 60_000,
+  });
+  const buyersQ = useQuery<{ active:BuyerRow[]; closed:BuyerRow[] }>({
+    queryKey: ["/api/inventory/buyers"],
+    queryFn: () => fetch("/api/inventory/buyers", { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 60_000,
+  });
+
+  const sellerRows = subtab === "sellers" ? (
+    sellerFilter === "live"        ? sellersQ.data?.active :
+    sellerFilter === "coming_soon" ? sellersQ.data?.coming_soon :
+    sellerFilter === "pocket"      ? sellersQ.data?.pocket :
+                                     sellersQ.data?.sold
+  ) : [];
+  const buyerRows = subtab === "buyers" ? (buyerFilter === "active" ? buyersQ.data?.active : buyersQ.data?.closed) : [];
+
+  const chipStyle = (active: boolean): React.CSSProperties => ({
+    padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, letterSpacing: 0.3,
+    background: active ? "rgba(200,170,90,0.20)" : "rgba(255,255,255,0.04)",
+    color:      active ? "#e5c67a"              : "#94a3b8",
+    border:     active ? "1px solid rgba(200,170,90,0.45)" : "1px solid rgba(255,255,255,0.08)",
+    cursor: "pointer",
+  });
+
+  return (
+    <div style={{ padding: "12px 16px 100px" }}>
+      <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+        <button onClick={() => setSubtab("sellers")} style={chipStyle(subtab === "sellers")}>🏠 Sellers</button>
+        <button onClick={() => setSubtab("buyers")}  style={chipStyle(subtab === "buyers")}>👥 Buyers</button>
+      </div>
+
+      {subtab === "sellers" ? (
+        <>
+          <div style={{ display:"flex", gap:6, marginBottom:12, overflowX:"auto", paddingBottom:2 }}>
+            <button onClick={() => setSellerFilter("live")}        style={chipStyle(sellerFilter==="live")}>Live ({sellersQ.data?.active?.length ?? 0})</button>
+            <button onClick={() => setSellerFilter("coming_soon")} style={chipStyle(sellerFilter==="coming_soon")}>Coming Soon ({sellersQ.data?.coming_soon?.length ?? 0})</button>
+            <button onClick={() => setSellerFilter("pocket")}      style={chipStyle(sellerFilter==="pocket")}>Pocket ({sellersQ.data?.pocket?.length ?? 0})</button>
+            <button onClick={() => setSellerFilter("sold")}        style={chipStyle(sellerFilter==="sold")}>Sold ({sellersQ.data?.sold?.length ?? 0})</button>
+          </div>
+          {sellersQ.isLoading ? <Skeleton className="h-40 w-full" /> :
+           sellerRows && sellerRows.length ? sellerRows.map(r => <SellerCard key={r.id} row={r} />) :
+           <div style={{ padding:24, textAlign:"center", color:"#6b7280", fontSize:13 }}>No listings in this bucket yet.</div>}
+        </>
+      ) : (
+        <>
+          <div style={{ display:"flex", gap:6, marginBottom:12 }}>
+            <button onClick={() => setBuyerFilter("active")} style={chipStyle(buyerFilter==="active")}>Active ({buyersQ.data?.active?.length ?? 0})</button>
+            <button onClick={() => setBuyerFilter("closed")} style={chipStyle(buyerFilter==="closed")}>Closed this year ({buyersQ.data?.closed?.length ?? 0})</button>
+          </div>
+          {buyersQ.isLoading ? <Skeleton className="h-40 w-full" /> :
+           buyerRows && buyerRows.length ? buyerRows.map(r => <BuyerCard key={r.id} row={r} />) :
+           <div style={{ padding:24, textAlign:"center", color:"#6b7280", fontSize:13 }}>No buyers in this bucket yet.</div>}
+        </>
+      )}
+    </div>
+  );
+}
 
 function ChallengesTab() {
   const qc = useQueryClient();
@@ -5332,11 +5497,13 @@ export const WARM_LEAD_INTENTS: {
 // v18.4 — Leaderboard slot swapped for Challenges. Home tab still renders the
 // leaderboard content (that's the dashboard). "leaderboard" id kept in the union
 // to gracefully fall through for anyone with a stale initialTab or bookmark.
-type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home";
+type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home" | "inventory";
+// v20.4.8 — Inventory added as 6th slot. Bottom nav is scrollable-safe at 6 items on modern phones (min-width≮360px still fits 60px per).
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "home",       label: "Home",       icon: Home },
   { id: "pipeline",   label: "Pipeline",   icon: Layers },
   { id: "leads",      label: "Lead Gen",   icon: Phone },
+  { id: "inventory",  label: "Inventory",  icon: Package },
   { id: "challenges", label: "Challenges", icon: Target },
   { id: "profile",    label: "Profile",    icon: UserCircle2 },
 ];
@@ -5362,7 +5529,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   // v19.5 — Prime Time notifier boot. Idempotent; only fires when permission is granted.
   useEffect(() => { startPrimeNotifier(); }, []);
 
-  // v20.4.7 — Two-stage PermissionGate. Fires on first login and every 90 days.
+  // v20.4.8 — Two-stage PermissionGate. Fires on first login and every 90 days.
   // Modal is non-blocking; agent can skip. Uses localStorage timestamp.
   const [permGateOpen, setPermGateOpen] = useState(false);
   useEffect(() => {
@@ -5585,7 +5752,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
 
   return (
     <div className="ld-bg-wrap" style={{ minHeight: "100dvh", background: "#080808", display: "flex", flexDirection: "column" }}>
-      {/* v20.4.7 — Two-stage PermissionGate modal (first login + 90-day recheck) */}
+      {/* v20.4.8 — Two-stage PermissionGate modal (first login + 90-day recheck) */}
       {permGateOpen && <PermissionGate onDone={() => setPermGateOpen(false)} />}
       {/* v14.52 — Pull-to-refresh visible indicator (gold chip floats above header) */}
       {ptrIndicator}
@@ -5644,7 +5811,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.7</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.8</span>
             </div>
           </div>
         </div>
@@ -5762,6 +5929,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
         )}
         {tab === "leaderboard" && <LeaderboardTab mode={mode} />}
         {tab === "challenges" && <ChallengesTab />}
+        {tab === "inventory" && <InventoryTab />}
 
         {tab === "leads" && (
           <div>
@@ -6414,7 +6582,7 @@ function LeadGenSheet(props: {
   //   sweeps up and around, and Door Knock lands last (bottom-right) — a natural
   //   rolling reveal from one corner to the other.
   if (view === "root") {
-    // v20.4.7 — viewport-adaptive arc. The old fixed radius (202) + 68px bubbles pushed
+    // v20.4.8 — viewport-adaptive arc. The old fixed radius (202) + 68px bubbles pushed
     // the outermost bubbles ~40px offscreen on 393px iPhones, and labels ran further.
     // Compute a safe radius: center - bubble/2 - label_half - edge_margin.
     // Also narrow the sweep from 180° to 160° (100°–80°) so end bubbles arc IN slightly

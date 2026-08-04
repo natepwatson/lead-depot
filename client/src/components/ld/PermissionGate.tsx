@@ -1,4 +1,4 @@
-// v20.4.7 — Two-stage PermissionGate.
+// v20.4.8 — Two-stage PermissionGate.
 //
 // Purpose: on first login and every 90 days, walk the agent through the 4
 // permissions Lead Depot actually depends on:

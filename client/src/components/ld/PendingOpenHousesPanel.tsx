@@ -1,4 +1,4 @@
-// v20.4.7 — Approvals tab section for pending Open Houses.
+// v20.4.8 — Approvals tab section for pending Open Houses.
 // Admin approves (→ 'open' or auto-'booked' if Denise pre-typed a host name)
 // or declines with reason (→ 'declined').
 import { useEffect, useState } from "react";

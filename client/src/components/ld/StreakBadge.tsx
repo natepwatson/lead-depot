@@ -153,7 +153,7 @@ export function StreakCard({ agentId }: { agentId: number }) {
 // entire following month everywhere the champion's headshot appears.
 // Endpoint: GET /api/champion → { agentId, agentName, monthKey, points, appts, awardedForMonth }
 
-// v20.4.7 — champion payload now includes headshotUrl so the Reigning Champion
+// v20.4.8 — champion payload now includes headshotUrl so the Reigning Champion
 // card renders a real photo (with laurel wreath frame), not just initials.
 type ChampionData = { agentId: number | null; agentName: string | null; headshotUrl: string | null; points: number; awardedForMonth: string };
 let _championCache: { data: ChampionData | null; at: number } | null = null;

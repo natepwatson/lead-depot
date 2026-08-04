@@ -3267,6 +3267,10 @@ export function TeamPotCard() {
     return () => { try { (window as any).__ldWs?.removeEventListener?.("message", listener); } catch {} };
   }, [qc]);
 
+  // v20.4.4 — Reigning Champion hook MUST be called before any early-return
+  // to keep hook order stable across renders (React error #310).
+  const champ = useCurrentChampion();
+
   if (expired) return null;
   if (!pot) return null; // wait for first fetch — no flash of empty ladder
 
@@ -3293,9 +3297,6 @@ export function TeamPotCard() {
   const second = pot.standings?.second;
   const firstInitials = first?.name ? first.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase() : "—";
   const secondInitials = second?.name ? second.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase() : "—";
-
-  // v20.4.4 — Reigning Champion (previous month's winner) for the hero row.
-  const champ = useCurrentChampion();
 
   return (
     <>
@@ -5557,7 +5558,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.4</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.5</span>
             </div>
           </div>
         </div>

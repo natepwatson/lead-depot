@@ -3866,6 +3866,50 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
   const pointsGap = rankAbove ? Math.max(0, (rankAbove.points || 0) - (myStats?.points || 0)) : 0;
   const apptsGap  = rankAbove && pointsGap === 0 ? Math.max(0, rankAbove.appointmentsSet - (myStats?.appointmentsSet ?? 0)) : 0;
 
+  // v20.4.6 — SYNC-SCROLL rails. All per-row swipe rails scroll together like
+  // frozen-column spreadsheet rows. We keep a Set of live rail nodes and a
+  // ref-based syncing lock to prevent scrollLeft assignments from triggering
+  // their own onScroll (which would feedback-loop across peers).
+  const railsRef = useRef<Set<HTMLDivElement>>(new Set());
+  const syncingRef = useRef(false);
+  const sharedScrollRef = useRef(0);
+  const railBindings = useRef(new WeakMap<HTMLDivElement, boolean>());
+  const registerRail = React.useCallback((el: HTMLDivElement | null) => {
+    if (!el) return; // React 18 callback refs get null on unmount; ok to let GC clean stale entries via natural DOM detach in the WeakMap. We still garbage-collect stale nodes below.
+    if (!railBindings.current.has(el)) {
+      railBindings.current.set(el, true);
+      railsRef.current.add(el);
+    }
+    // Bring newly-mounted rails into sync with the current shared position.
+    if (Math.abs(el.scrollLeft - sharedScrollRef.current) > 1) {
+      syncingRef.current = true;
+      el.scrollLeft = sharedScrollRef.current;
+      requestAnimationFrame(() => { syncingRef.current = false; });
+    }
+  }, []);
+  // Purge detached nodes from the peers set on each scroll to avoid stale refs.
+  const purgeStale = React.useCallback(() => {
+    for (const el of railsRef.current) {
+      if (!el.isConnected) railsRef.current.delete(el);
+    }
+  }, []);
+  const handleRailScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (syncingRef.current) return;
+    const src = e.currentTarget;
+    const next = src.scrollLeft;
+    sharedScrollRef.current = next;
+    syncingRef.current = true;
+    purgeStale();
+    for (const el of railsRef.current) {
+      if (el !== src && Math.abs(el.scrollLeft - next) > 0.5) {
+        el.scrollLeft = next;
+      }
+    }
+    // Release the lock next frame so the induced-scroll events (which fire
+    // async) get swallowed but user-driven scrolls resume normally.
+    requestAnimationFrame(() => { syncingRef.current = false; });
+  }, [purgeStale]);
+
   // v14.80 — Tier 3: rank-up toast + lift sound. Tracks the previous rank in a ref;
   // when the rank NUMBER decreases (i.e. climbing the board), fires a toast naming
   // whoever we just passed, plus a quick ascending "lift" chime.
@@ -4114,9 +4158,13 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                           {stickyCell(w.kit ?? 0, "KIT", false, "rgba(249,168,212,0.85)")}
                           {stickyCell(w.refs ?? 0, "REFS", false, "#fde68a")}
                         </div>
-                        {/* SWIPE RAIL: DIALS · OH · DM · DK · FB/IG (horizontal scroll on phone) */}
+                        {/* SWIPE RAIL: DIALS · OH · DM · DK · FB/IG (horizontal scroll on phone).
+                            v20.4.6 — sync-scroll across ALL rows via registerRail + handleRailScroll.
+                            Sticky columns (PTS/APPT/KIT/REFS) stay put; swipe rails move together. */}
                         <div
                           className="lb-swipe-rail"
+                          ref={registerRail}
+                          onScroll={handleRailScroll}
                           style={{
                             display: "flex", gap: 10, alignItems: "center",
                             overflowX: "auto", overflowY: "hidden",
@@ -4631,10 +4679,15 @@ type ChallengeState = {
 };
 type ChallengeFeed = { dailyKey: string; weeklyKey: string; daily: ChallengeState[]; weekly: ChallengeState[] };
 
-const TIER_STYLES: Record<1|2|3, { bg: string; border: string; ring: string; label: string }> = {
-  1: { bg: "rgba(120,140,160,0.05)", border: "rgba(160,180,200,0.20)", ring: "rgba(160,180,200,0.35)", label: "BRONZE" },
-  2: { bg: "rgba(200,170,90,0.05)",  border: "rgba(200,170,90,0.25)",  ring: "rgba(200,170,90,0.55)",  label: "SILVER" },
-  3: { bg: "rgba(220,120,90,0.06)",  border: "rgba(220,120,90,0.30)",  ring: "rgba(220,120,90,0.65)",  label: "GOLD"   },
+// v20.4.6 — readability pass. Deeper card bg tint (0.10–0.12 vs old 0.05),
+// stronger borders (0.35–0.45 vs old 0.20–0.30), and "chipText" is a high
+// contrast color for the tier label + points readout so they stop dissolving
+// into the card background. Actual tier ring color kept for progress bar +
+// side accent so the visual identity of Bronze/Silver/Gold still reads.
+const TIER_STYLES: Record<1|2|3, { bg: string; border: string; ring: string; chipText: string; label: string }> = {
+  1: { bg: "rgba(160,180,200,0.10)", border: "rgba(160,180,200,0.45)", ring: "rgba(190,210,230,0.90)", chipText: "#d5e2ee", label: "BRONZE" },
+  2: { bg: "rgba(200,170,90,0.11)",  border: "rgba(200,170,90,0.50)",  ring: "rgba(240,210,130,0.95)", chipText: "#f0d282", label: "SILVER" },
+  3: { bg: "rgba(220,120,90,0.13)",  border: "rgba(220,120,90,0.55)",  ring: "rgba(255,160,120,0.95)", chipText: "#ffb090", label: "GOLD"   },
 };
 
 function ChallengesTab() {
@@ -4734,24 +4787,31 @@ function ChallengesTab() {
               border: done ? "1px solid rgba(79,184,163,0.45)" : `1px solid ${tier.border}`,
               borderRadius: 12, padding: 14,
             }}>
-              {/* Tier chip + points — v20.4.2 legibility pass */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.16em", color: tier.ring, textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}>
+              {/* Tier chip + points — v20.4.6 legibility: chipText is a high
+                  contrast tinted color, points readout uses white to stop it
+                  from dissolving into gold/orange card background. */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.16em", color: tier.chipText, textShadow: "0 1px 3px rgba(0,0,0,0.85)" }}>
                   {tier.label} · {c.leg.replace("_", " ").toUpperCase()}
                 </span>
-                <span style={{ fontSize: 13, fontWeight: 800, color: done ? "#4fb8a3" : "#c8aa5a", textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}>
+                <span style={{
+                  fontSize: 13, fontWeight: 800,
+                  color: done ? "#4fb8a3" : "#ffffff",
+                  background: done ? "rgba(79,184,163,0.15)" : "rgba(0,0,0,0.35)",
+                  border: done ? "1px solid rgba(79,184,163,0.35)" : "1px solid rgba(255,255,255,0.15)",
+                  padding: "3px 9px", borderRadius: 999,
+                  textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+                }}>
                   +{c.points} pts
                 </span>
               </div>
 
-              {/* Label + detail — v20.4.2 legibility pass. Bumped label weight
-                  to 700 + size to 16, and detail from 0.5 opacity (≪WCAG AA) to
-                  0.82 opacity + line-height 1.4 so the text actually reads on
-                  the tinted card backgrounds. */}
-              <p style={{ fontSize: 16, fontWeight: 700, color: done ? "#4fb8a3" : "#ffffff", marginBottom: 5, lineHeight: 1.3, textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}>
+              {/* Label + detail — v20.4.6 legibility. Bigger label (17px), detail
+                  at 0.92 opacity, all with drop shadows so text pops on tinted bg. */}
+              <p style={{ fontSize: 17, fontWeight: 700, color: done ? "#4fb8a3" : "#ffffff", marginBottom: 6, lineHeight: 1.3, textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>
                 {c.label}{done ? " ✓" : ""}
               </p>
-              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.82)", lineHeight: 1.4, marginBottom: 12 }}>
+              <p style={{ fontSize: 13.5, color: "rgba(255,255,255,0.92)", lineHeight: 1.45, marginBottom: 12, textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}>
                 {c.detail}
               </p>
 
@@ -4767,7 +4827,7 @@ function ChallengesTab() {
                       boxShadow: done ? "0 0 8px rgba(79,184,163,0.55)" : `0 0 8px ${tier.ring}55`,
                     }}/>
                   </div>
-                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.72)", marginTop: 5, letterSpacing: "0.04em", fontWeight: 600 }}>
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.90)", marginTop: 6, letterSpacing: "0.04em", fontWeight: 700, textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}>
                     {c.progress} / {c.threshold} · {pct}%
                   </p>
                 </div>
@@ -5558,7 +5618,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.5</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.6</span>
             </div>
           </div>
         </div>
@@ -6328,21 +6388,23 @@ function LeadGenSheet(props: {
   //   sweeps up and around, and Door Knock lands last (bottom-right) — a natural
   //   rolling reveal from one corner to the other.
   if (view === "root") {
-    const ARC_RADIUS = 178;
-    const HERO_LIFT = 24;
+    // v20.4.6 — wider radius + wider sweep so bubbles have real breathing room
+    // and labels don't overlap neighbors. 30° between bubbles across a 180° sweep.
+    const ARC_RADIUS = 202;
+    const HERO_LIFT = 26;
     const BUBBLE_SIZE = 68;
     const HERO_SIZE = 88;
     const bubbles: Array<{
       key: string; label: string; icon: React.ReactNode;
       angleDeg: number; hero?: boolean; onClick: () => void;
     }> = [
-      { key: "mail",    label: "Direct Mail",    icon: <Mail size={20} />,     angleDeg: 174, onClick: () => setView("direct-mail" as any) },
-      { key: "network", label: "Network",        icon: <Users size={20} />,    angleDeg: 146, onClick: () => setView("network-referral") },
-      { key: "oh",      label: "Open House",     icon: <Home size={20} />,     angleDeg: 118, onClick: () => setView("open-house") },
+      { key: "mail",    label: "Direct Mail",    icon: <Mail size={20} />,     angleDeg: 180, onClick: () => setView("direct-mail" as any) },
+      { key: "network", label: "Network",        icon: <Users size={20} />,    angleDeg: 150, onClick: () => setView("network-referral") },
+      { key: "oh",      label: "Open House",     icon: <Home size={20} />,     angleDeg: 120, onClick: () => setView("open-house") },
       { key: "dial",    label: "Dial",           icon: <Phone size={28} />,    angleDeg: 90,  hero: true, onClick: goToDial },
-      { key: "social",  label: "Social",         icon: <Share2 size={20} />,   angleDeg: 62,  onClick: () => setView("social" as any) },
-      { key: "refer",   label: "Agent Referral", icon: <Send size={20} />,     angleDeg: 34,  onClick: () => setView("refer-agent" as any) },
-      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={20} />, angleDeg: 6,   onClick: () => setView("door-knock" as any) },
+      { key: "social",  label: "Social",         icon: <Share2 size={20} />,   angleDeg: 60,  onClick: () => setView("social" as any) },
+      { key: "refer",   label: "Agent Referral", icon: <Send size={20} />,     angleDeg: 30,  onClick: () => setView("refer-agent" as any) },
+      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={20} />, angleDeg: 0,   onClick: () => setView("door-knock" as any) },
     ];
     // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
     // Anchor the arc's origin over the FAB center.
@@ -6497,14 +6559,15 @@ function LeadGenSheet(props: {
                 {/* Label floats BELOW the bubble so the circle stays perfect.
                     v20.4.2.1 — label fades AFTER the bubble arrives at its destination
                     (delay = bubble delay + full bubble flight time). */}
+                {/* v20.4.6 — label legibility pass: bigger, mixed case, less letter-spacing,
+                    fuller opacity. Nowrap kept but multi-word labels have breathing room. */}
                 <span className="arc-label" style={{
-                  marginTop: 8,
-                  fontSize: b.hero ? 11 : 10,
-                  letterSpacing: "0.10em",
+                  marginTop: 10,
+                  fontSize: b.hero ? 13 : 12,
+                  letterSpacing: "0.02em",
                   fontWeight: b.hero ? 700 : 600,
-                  textTransform: "uppercase",
-                  color: b.hero ? "#fde68a" : "rgba(255,235,190,0.90)",
-                  textShadow: "0 1px 3px rgba(0,0,0,0.85)",
+                  color: b.hero ? "#fde68a" : "#fff5e0",
+                  textShadow: "0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.6)",
                   whiteSpace: "nowrap",
                   pointerEvents: "none",
                   animationDelay: `${delay + 320}ms`,

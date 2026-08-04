@@ -337,9 +337,14 @@ export function getCurrentChampion(): ChampionInfo {
 // the champion for the FOLLOWING month. Called by the cron on the last day of
 // the month at 11:59 PM ET. Idempotent — running twice in the same month keeps
 // the same winner.
-export function crownMonthlyChampion(): ChampionInfo {
+// v20.4.6 — Optional `forMonth` parameter enables retro-crowning a past month.
+// When omitted, behavior is unchanged: uses etMonthKey(now) as the closing month
+// (i.e. the month that just wrapped up), so the natural end-of-month cron still
+// works. When supplied, `forMonth` should be a "YYYY-MM" string identifying the
+// month whose winner should be crowned.
+export function crownMonthlyChampion(forMonth?: string): ChampionInfo {
   const now = new Date();
-  const closingMonth = etMonthKey(now); // month we just finished
+  const closingMonth = (forMonth && /^\d{4}-\d{2}$/.test(forMonth)) ? forMonth : etMonthKey(now); // month we just finished
   // Winner is #1 monthly appts (contacted_appointment) in that month, ET.
   const monthStart = `${closingMonth}-01T04:00:00Z`;     // ~00:00 ET on 1st
   const [y, m] = closingMonth.split("-").map(Number);

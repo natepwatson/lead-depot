@@ -216,7 +216,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -445,7 +445,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.3 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.4 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -504,7 +504,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -552,7 +552,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.3 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1790,7 +1790,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.3</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.4</p>
             </div>
           `,
         });
@@ -1950,7 +1950,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.3 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.4 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2891,60 +2891,114 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // address, NO id, NO phone, NO zip. Coordinates are jittered ±0.004° (~350m)
   // to hide exact property location. This is the "bragging" surface used to
   // recruit — shows density and appointment set count without leaking any PII.
-  app.get("/api/team-map/pins", (_req, res) => {
+  // v20.4 — REAL pins, REAL coords, per-lead popups. Owner/name/phone/street
+  // masked for non-admin viewers; city+ZIP+status always visible so the map
+  // feels authentic to agents without exposing enough to poach leads. Admins
+  // see everything unredacted.
+  app.get("/api/team-map/pins", (req, res) => {
+    const isAdmin = req.currentAgent?.role === "admin";
+
     const rows: any[] = rawDb.prepare(
-      `SELECT l.status, g.lat, g.lng
+      `SELECT l.id, l.status, l.owner_name, l.phone, l.address, l.city, l.state, l.zip,
+              l.assigned_agent_id, l.type, a.name as agent_name,
+              g.lat, g.lng
        FROM leads l
        INNER JOIN geo_cache g ON g.address_key = lower(trim(
          l.address || ', ' ||
          coalesce(nullif(l.city,''), '') || ', ' ||
          coalesce(nullif(l.state,''), 'FL') || ', ' ||
          coalesce(nullif(l.zip,''), '')
-       ))`
+       ))
+       LEFT JOIN agents a ON a.id = l.assigned_agent_id`
     ).all();
 
-    // Bucket status into three tiers for public display.
-    // Only three colors keeps the recruiting surface simple and readable.
+    // Bucket status into three tiers for pin color.
     const bucket = (s: string): "appt" | "contact" | "pool" => {
       if (s === "contacted_appointment") return "appt";
       if (s === "assigned" || s === "callback_requested" || s === "no_answer") return "contact";
       return "pool";
     };
 
-    // Deterministic jitter: seed by rounded coords so the same lead always jitters
-    // to the same spot (no shimmer between reloads). ±0.004° ≈ 350–450m in NE FL.
-    const jitter = (v: number, salt: number) => {
-      const h = Math.sin(v * 12345.6789 + salt) * 43758.5453;
-      return v + ((h - Math.floor(h)) - 0.5) * 0.008;
+    // Status label for popups (human readable).
+    const statusLabel = (s: string): string => {
+      switch (s) {
+        case "contacted_appointment": return "Appt Set";
+        case "contacted_not_interested": return "Not Interested";
+        case "assigned": return "Assigned";
+        case "callback_requested": return "Recycled";
+        case "no_answer": return "No Answer";
+        case "retired": return "Retired";
+        default: return "Pool";
+      }
     };
 
-    // Aggregate to per-block cells (~0.002° grid, ~180m) so admins can't reverse
-    // any single pin back to a house even if they know the source data. If a cell
-    // has ≥1 lead, emit ONE pin with the strongest bucket (appt > contact > pool).
-    const cells = new Map<string, { lat: number; lng: number; tier: "appt" | "contact" | "pool"; count: number }>();
-    const rank: Record<string, number> = { pool: 0, contact: 1, appt: 2 };
-    for (const r of rows) {
-      if (typeof r.lat !== "number" || typeof r.lng !== "number") continue;
-      const jLat = jitter(r.lat, 1);
-      const jLng = jitter(r.lng, 2);
-      const key = `${jLat.toFixed(3)}:${jLng.toFixed(3)}`;
-      const tier = bucket(r.status);
-      const prev = cells.get(key);
-      if (!prev) cells.set(key, { lat: jLat, lng: jLng, tier, count: 1 });
-      else {
-        prev.count += 1;
-        if (rank[tier] > rank[prev.tier]) prev.tier = tier;
-      }
-    }
+    // v20.4 masking helpers — admin sees everything; agents get
+    // NAME/PHONE/STREET masked with a fixed-width dot pattern that preserves
+    // rough length feel without leaking anything usable.
+    const maskName = (n: string | null | undefined) => {
+      if (!n) return "•••••••••";
+      // Keep same # of words, mask each to 8 dots.
+      const parts = n.trim().split(/\s+/).filter(Boolean);
+      return parts.map(() => "••••••••").join(" ");
+    };
+    const maskPhone = (p: string | null | undefined) => {
+      if (!p) return "(•••) •••-••••";
+      return "(•••) •••-••••";
+    };
+    const maskStreet = (addr: string | null | undefined) => {
+      if (!addr) return "••• ••••••••";
+      // Keep the street-suffix if we can find it (St / Ave / Rd / Dr / Ln / Ct / Blvd / Way / Pl).
+      const suffixMatch = addr.match(/\b(St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Ct|Court|Blvd|Boulevard|Way|Pl|Place|Cir|Circle|Ter|Terrace|Pkwy|Parkway|Hwy|Highway)\.?\b/i);
+      const suffix = suffixMatch ? ` ${suffixMatch[0]}` : "";
+      return `•••• ••••••••${suffix}`;
+    };
 
-    const pins = Array.from(cells.values());
+    // Emit one pin per lead at its REAL coords. No jitter, no aggregation. The
+    // agent should see exactly where the lead sits so the map feels authentic.
+    const pins = rows
+      .filter(r => typeof r.lat === "number" && typeof r.lng === "number")
+      .map(r => {
+        const tier = bucket(r.status);
+        const base = {
+          id: r.id,
+          lat: r.lat,
+          lng: r.lng,
+          tier,
+          status: statusLabel(r.status),
+          city: r.city || "",
+          zip: r.zip || "",
+          state: r.state || "FL",
+          type: r.type || null,
+        };
+        if (isAdmin) {
+          return {
+            ...base,
+            ownerName: r.owner_name || null,
+            phone: r.phone || null,
+            address: r.address || null,
+            assignedAgentId: r.assigned_agent_id || null,
+            assignedAgentName: r.agent_name || null,
+          };
+        }
+        // Non-admin (agent) view: mask identity + street. City/ZIP/state real.
+        return {
+          ...base,
+          ownerName: maskName(r.owner_name),
+          phone: maskPhone(r.phone),
+          address: maskStreet(r.address),
+          // Never reveal WHICH teammate owns the lead to another agent.
+          assignedAgentId: r.assigned_agent_id ? -1 : null,
+          assignedAgentName: r.assigned_agent_id ? "Assigned" : null,
+        };
+      });
+
     const totals = {
       total: pins.length,
       appt: pins.filter(p => p.tier === "appt").length,
       contact: pins.filter(p => p.tier === "contact").length,
       pool: pins.filter(p => p.tier === "pool").length,
     };
-    res.json({ pins, totals });
+    res.json({ pins, totals, viewerIsAdmin: isAdmin });
   });
 
   // v14.30 — manual trigger for background geocode (admin-only in practice; no auth
@@ -6468,20 +6522,9 @@ This template is for informational/outreach purposes only.`;
     const firstPayout = Math.round(currentPot * TEAM_POT_PAYOUT.first);
     const secondPayout = Math.round(currentPot * TEAM_POT_PAYOUT.second);
 
-    // v16.7 — Champion's Bonus preview. Only paid if the team hits $1000.
+    // v20.4 — Champion's Bonus RETIRED. Bonus recognition now flows through
+    // the Challenges system. Server no longer computes a champion bonus.
     const teamReachedStretch = teamAppts >= TEAM_POT_STRETCH.appts;
-    const championAppts = first?.appts || 0;
-    let championBonus = 0;
-    let championBonusBracket: any = null;
-    if (teamReachedStretch) {
-      for (const bracket of CHAMPION_BONUS_BRACKETS) {
-        if (championAppts >= bracket.appts) {
-          championBonus = bracket.bonus;
-          championBonusBracket = bracket;
-          break;
-        }
-      }
-    }
 
     res.json({
       monthLabel,
@@ -6497,17 +6540,9 @@ This template is for informational/outreach purposes only.`;
       stretchRevealed,
       stretchUnlocked,
       payoutSplit: TEAM_POT_PAYOUT,
-      // v16.7 — Champion's Bonus preview. Client shows this card only when
-      // stretch is unlocked; below $1000 it's just a locked teaser.
-      championBonus: {
-        active: teamReachedStretch,
-        amount: championBonus,
-        bracket: championBonusBracket,
-        championAppts,
-        brackets: CHAMPION_BONUS_BRACKETS,
-        capApptCount: CHAMPION_BONUS_BRACKETS[0].appts,
-        capAmount: CHAMPION_BONUS_BRACKETS[0].bonus,
-      },
+      // v20.4 — championBonus removed. Field kept as null so old clients
+      // don't blow up if they still expect the key.
+      championBonus: null,
       standings: {
         first: first ? {
           agentId: first.agent_id,
@@ -6629,7 +6664,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.3 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.4 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -7678,7 +7713,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.3",
+      version: "v20.4",
       services: results,
     });
   });
@@ -7922,7 +7957,7 @@ This template is for informational/outreach purposes only.`;
     if (resend) {
       const firstName = String(cand.name).split(/\s+/)[0];
 
-      // v20.3 — Approve-flow test mode. When candidate email is Alex's personal test
+      // v20.4 — Approve-flow test mode. When candidate email is Alex's personal test
       // inbox (watsonag1@gmail.com), redirect ALL recipients (candidate to:, Nate CC,
       // Denise CC, Brittany, Michelle) to that inbox so Alex sees the entire 4-email
       // sequence live without anyone else getting hit. Subjects are prefixed [TEST].
@@ -8006,7 +8041,7 @@ This template is for informational/outreach purposes only.`;
       }).catch(err => console.error("[momentum onboarding]", err));
     }
 
-    // v20.3 — FUB approve integration (Grow plan, $69/user/mo per new seat).
+    // v20.4 — FUB approve integration (Grow plan, $69/user/mo per new seat).
     // Non-blocking: emails already sent above; FUB failures don't fail the approve.
     // Test-mode: fubApproveAgentAsVendor is a no-op when isTestApproval=true so we
     // don't burn a $69 seat on watsonag1@gmail.com every dry run.
@@ -8620,7 +8655,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.3</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.4</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

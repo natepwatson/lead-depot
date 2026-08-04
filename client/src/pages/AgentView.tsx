@@ -3009,84 +3009,65 @@ function endOfMonthEtIso(): string {
 }
 
 export function BonusCard() {
-  const { data: leaderboard = [] } = useQuery<any[]>({
-    queryKey: ["/api/agent/leaderboard"],
-    queryFn: () => apiRequest("GET", "/api/agent/leaderboard").then(r => r.json()),
+  // v20.4 — Champion's Bonus RETIRED. This card now surfaces the SINGLE
+  // challenge the agent is closest to completing, with a live progress bar.
+  // If no accepted challenge with progress exists, the card hides entirely.
+  const { data: feed } = useQuery<any>({
+    queryKey: ["/api/challenges"],
+    queryFn: () => apiRequest("GET", "/api/challenges").then(r => r.json()),
     refetchInterval: 30000,
   });
-  const [now, setNow] = React.useState(() => Date.now());
-  React.useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const deadline = new Date(BONUS_CONFIG.deadlineIso).getTime();
-  const ms = Math.max(0, deadline - now);
-  const days = Math.floor(ms / 86400000);
-  const hours = Math.floor((ms % 86400000) / 3600000);
-  const mins = Math.floor((ms % 3600000) / 60000);
-  const secs = Math.floor((ms % 60000) / 1000);
-  const expired = ms === 0;
 
-  // #1 by points (leaderboard is already sorted by points desc).
-  // v15.11.31 fix: API row shape is { agent: { name, headshotUrl }, points, ... }
-  // — previous code read leader?.name (always undefined), so the card always
-  // showed "No leader yet—be the first" even when there was a clear #1. Flatten.
-  const raw = leaderboard[0] as any;
-  const leader = raw?.agent ? { ...raw.agent, points: raw.points } : raw;
-  const leaderInitials = leader?.name
-    ? leader.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase()
-    : "—";
-  const leaderPts = typeof leader?.points === "number" ? leader.points : 0;
+  // Flatten daily+weekly, filter to accepted+not-yet-completed+has-threshold,
+  // then pick the one closest to completion (highest progress percentage).
+  const closest = React.useMemo(() => {
+    const all: any[] = [
+      ...((feed?.daily as any[]) || []),
+      ...((feed?.weekly as any[]) || []),
+    ];
+    const eligible = all.filter(c => {
+      const done = c.completion && (c.completion.status === "complete" || c.completion.status === "approved");
+      const pending = c.completion?.status === "pending";
+      if (done || pending) return false;
+      if (!c.accepted) return false;
+      if (!c.threshold || c.threshold <= 0) return false;
+      return true;
+    });
+    if (!eligible.length) return null;
+    eligible.sort((a, b) => {
+      const pctA = Math.min(1, (a.progress || 0) / a.threshold);
+      const pctB = Math.min(1, (b.progress || 0) / b.threshold);
+      return pctB - pctA;
+    });
+    return eligible[0];
+  }, [feed]);
 
-  // Hide entirely after the deadline until Alex ships a winner card.
-  if (expired) return null;
+  if (!closest) return null;
 
-  const countdown = days > 0
-    ? `${days}d ${String(hours).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m`
-    : `${String(hours).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
+  const pct = Math.min(100, Math.round(((closest.progress || 0) / closest.threshold) * 100));
+  const remaining = Math.max(0, closest.threshold - (closest.progress || 0));
+  const cadenceLabel = closest.cadence === "weekly" ? "WEEKLY CHALLENGE" : "DAILY CHALLENGE";
+  const tierAccent =
+    closest.tier === 3 ? { ring: "rgba(220,120,90,0.65)", tint: "#e77b6a", tag: "GOLD" }
+    : closest.tier === 2 ? { ring: "rgba(200,170,90,0.65)", tint: "#c8aa5a", tag: "SILVER" }
+    : { ring: "rgba(160,180,200,0.55)", tint: "#a8bccc", tag: "BRONZE" };
 
   return (
     <>
       <style>{`
-        @keyframes bonusPulse {
-          0%,100% { opacity: 0.55; transform: scale(1); }
-          50%     { opacity: 0.9;  transform: scale(1.06); }
-        }
-        @keyframes bonusShimmer {
-          0%   { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
-        }
-        @keyframes bonusFloat1 {
-          0%,100% { transform: translate(0, 0); }
-          50%     { transform: translate(24px, -16px); }
-        }
-        @keyframes bonusFloat2 {
-          0%,100% { transform: translate(0, 0); }
-          50%     { transform: translate(-20px, 18px); }
-        }
-        @keyframes bonusDotPulse {
-          0%,100% { opacity: 1; }
-          50%     { opacity: 0.35; }
-        }
+        @keyframes bonusShimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes bonusDotPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
         @keyframes bonusMoneyGlow {
-          0%,100% { filter: drop-shadow(0 0 12px rgba(250,204,21,0.4)) drop-shadow(0 0 32px rgba(250,204,21,0.2)); }
-          50%     { filter: drop-shadow(0 0 22px rgba(250,204,21,0.75)) drop-shadow(0 0 56px rgba(250,204,21,0.4)); }
+          0%,100% { filter: drop-shadow(0 0 12px rgba(250,204,21,0.35)) drop-shadow(0 0 32px rgba(250,204,21,0.18)); }
+          50%     { filter: drop-shadow(0 0 22px rgba(250,204,21,0.70)) drop-shadow(0 0 56px rgba(250,204,21,0.38)); }
         }
+        @keyframes bonusFloat1 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(24px,-16px); } }
+        @keyframes bonusFloat2 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-20px,18px); } }
+        @keyframes progressPulse { 0%,100% { opacity: 0.85; } 50% { opacity: 1; } }
         .bonus-money-shimmer {
-          background-image: linear-gradient(
-            105deg,
-            #fef9c3 0%,
-            #facc15 30%,
-            #fef08a 45%,
-            #fbbf24 50%,
-            #fef08a 55%,
-            #facc15 70%,
-            #a16207 100%
-          );
+          background-image: linear-gradient(105deg, #fef9c3 0%, #facc15 30%, #fef08a 45%, #fbbf24 50%, #fef08a 55%, #facc15 70%, #a16207 100%);
           background-size: 200% 100%;
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
+          -webkit-background-clip: text; background-clip: text; color: transparent;
           animation: bonusShimmer 3.5s linear infinite, bonusMoneyGlow 2.8s ease-in-out infinite;
         }
         @media (prefers-reduced-motion: reduce) {
@@ -3111,42 +3092,38 @@ export function BonusCard() {
             "0 20px 60px -20px rgba(74,222,128,0.28)," +
             "0 8px 24px -8px rgba(0,0,0,0.9)",
           color: "#fff",
+          cursor: "pointer",
         }}
-        onClick={() => { try { (window as any).location.hash = "leaderboard"; } catch {} }}
+        onClick={() => { try { (window as any).location.hash = "challenges"; } catch {} }}
         role="button"
         tabIndex={0}
       >
-        {/* Ambient background motion — two large blurred blobs drifting */}
+        {/* Ambient blobs */}
         <div className="bonus-blob-1" style={{
           position: "absolute", top: -60, left: -40, width: 220, height: 220,
           borderRadius: "50%",
           background: "radial-gradient(circle, rgba(74,222,128,0.35), transparent 65%)",
-          filter: "blur(30px)",
-          animation: "bonusFloat1 8s ease-in-out infinite",
+          filter: "blur(30px)", animation: "bonusFloat1 8s ease-in-out infinite",
           pointerEvents: "none", zIndex: 0,
         }} />
         <div className="bonus-blob-2" style={{
           position: "absolute", bottom: -70, right: -50, width: 240, height: 240,
           borderRadius: "50%",
           background: "radial-gradient(circle, rgba(250,204,21,0.28), transparent 65%)",
-          filter: "blur(34px)",
-          animation: "bonusFloat2 9s ease-in-out infinite",
+          filter: "blur(34px)", animation: "bonusFloat2 9s ease-in-out infinite",
           pointerEvents: "none", zIndex: 0,
         }} />
-        {/* Diagonal shine sweep */}
-        <div style={{
-          position: "absolute", inset: 0,
-          background: "linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.05) 50%, transparent 60%)",
+        {/* Engraved gold lines */}
+        <div style={{ position: "absolute", left: 20, right: 20, bottom: 8, height: 1,
+          background: "linear-gradient(90deg, transparent, rgba(200,170,90,0.55), transparent)",
           pointerEvents: "none", zIndex: 0,
         }} />
-        {/* Top engraved gold line */}
-        <div style={{
-          position: "absolute", left: 20, right: 20, top: 8, height: 1,
+        <div style={{ position: "absolute", left: 20, right: 20, top: 8, height: 1,
           background: "linear-gradient(90deg, transparent, rgba(200,170,90,0.55), transparent)",
           pointerEvents: "none", zIndex: 0,
         }} />
 
-        {/* Kicker + timer */}
+        {/* Header row: LIVE dot + cadence label + tier tag */}
         <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9, letterSpacing: "0.24em", color: "#4ade80", fontWeight: 700, textTransform: "uppercase" }}>
             <span className="bonus-live-dot" style={{
@@ -3154,85 +3131,69 @@ export function BonusCard() {
               background: "#4ade80", boxShadow: "0 0 10px #4ade80",
               animation: "bonusDotPulse 1.6s ease-in-out infinite",
             }} />
-            {BONUS_CONFIG.monthLabel} Champion Bonus
+            {cadenceLabel}
           </div>
-          <div style={{ fontFamily: "ui-monospace, 'JetBrains Mono', monospace", fontSize: 10, letterSpacing: "0.10em", color: "rgba(255,255,255,0.55)", fontWeight: 600, textTransform: "uppercase" }}>
-            <span style={{ color: "#fde047", fontWeight: 700 }}>{countdown}</span> to win
-          </div>
+          <div style={{
+            fontSize: 9, letterSpacing: "0.16em", fontWeight: 700, color: tierAccent.tint,
+            padding: "3px 8px", borderRadius: 6,
+            border: `1px solid ${tierAccent.ring}`,
+            background: "rgba(0,0,0,0.32)",
+          }}>{tierAccent.tag} · +{closest.points} PTS</div>
         </div>
 
-        {/* $ Amount — shimmering gold with real dollar sign */}
+        {/* Hero % complete */}
         <div style={{ position: "relative", zIndex: 1, textAlign: "center", margin: "6px 0 4px" }}>
           <span
             className="bonus-money-shimmer"
             style={{
               fontFamily: "'Cormorant Garamond', Georgia, serif",
-              fontWeight: 600,
-              fontSize: 92,
-              letterSpacing: "0.01em",
-              lineHeight: 1,
-              display: "inline-block",
+              fontWeight: 600, fontSize: 92, letterSpacing: "0.01em",
+              lineHeight: 1, display: "inline-block",
             }}
-          >${BONUS_CONFIG.amount}</span>
+          >{pct}%</span>
         </div>
 
-        {/* Headline + subhead */}
+        {/* Challenge name + detail */}
         <div style={{ position: "relative", zIndex: 1, textAlign: "center", fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 600, fontSize: 22, letterSpacing: "0.02em", margin: "4px 0 4px" }}>
-          {BONUS_CONFIG.headline}
+          {closest.label}
         </div>
         <p style={{ position: "relative", zIndex: 1, textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.65)", margin: "0 0 14px", lineHeight: 1.5 }}>
-          {BONUS_CONFIG.subhead}
+          {closest.detail}
         </p>
 
-        {/* Current leader row */}
+        {/* Progress bar row */}
         <div style={{
           position: "relative", zIndex: 1,
-          display: "flex", alignItems: "center", gap: 10,
           background: "rgba(0,0,0,0.38)",
           border: "1px solid rgba(200,170,90,0.3)",
-          padding: "10px 12px",
+          padding: "12px 14px",
           borderRadius: 12,
         }}>
-          <div style={{ position: "relative" }}>
-            <ChampionFrame agentId={leader?.id ?? null} size={36}>
-            {leader?.headshotUrl ? (
-              <img src={leader.headshotUrl} alt={leader.name}
-                style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(200,170,90,0.5)" }} />
-            ) : (
-              <div style={{
-                width: 36, height: 36, borderRadius: "50%",
-                background: "linear-gradient(135deg,#c8aa5a,#8b6b2d)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: "#080808", fontWeight: 800, fontSize: 13,
-              }}>{leaderInitials}</div>
-            )}
-            </ChampionFrame>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+            <span style={{ fontSize: 9, letterSpacing: "0.20em", color: "rgba(200,170,90,0.8)", textTransform: "uppercase", fontWeight: 700 }}>
+              Progress
+            </span>
+            <span style={{
+              fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+              fontSize: 13, color: "#fff", fontWeight: 700, letterSpacing: "0.02em",
+            }}>
+              {closest.progress || 0} / {closest.threshold}
+            </span>
+          </div>
+          <div style={{ height: 8, borderRadius: 6, background: "rgba(255,255,255,0.06)", overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.4) inset" }}>
             <div style={{
-              position: "absolute", top: -6, right: -6,
-              width: 18, height: 18, borderRadius: "50%",
-              background: "linear-gradient(135deg,#fef9c3,#facc15)",
-              color: "#080808", fontSize: 10, fontWeight: 800,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 2px 6px rgba(250,204,21,0.55)",
-            }}>1</div>
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 9, letterSpacing: "0.20em", color: "rgba(200,170,90,0.8)", textTransform: "uppercase", fontWeight: 700 }}>
-              Who's #1 Right Now
-            </div>
-            <div style={{ fontSize: 14, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{leader?.name || "No leader yet — be the first"}</span>
-              {leader?.id ? <StreakBadge agentId={leader.id} size="sm" /> : null}
-            </div>
-          </div>
-          <div style={{ marginLeft: "auto", fontFamily: "ui-monospace, 'JetBrains Mono', monospace", fontSize: 13, color: "#4ade80", fontWeight: 700, letterSpacing: "0.02em", whiteSpace: "nowrap" }}>
-            {leaderPts.toLocaleString()} pts
+              height: "100%", width: `${pct}%`,
+              background: `linear-gradient(90deg, ${tierAccent.tint}, #fde047)`,
+              boxShadow: `0 0 12px ${tierAccent.tint}88`,
+              transition: "width 500ms cubic-bezier(0.16,1,0.3,1)",
+              animation: pct < 100 ? "progressPulse 2.2s ease-in-out infinite" : undefined,
+            }}/>
           </div>
         </div>
 
         {/* CTA */}
         <div style={{ position: "relative", zIndex: 1, textAlign: "center", marginTop: 12, fontSize: 10, letterSpacing: "0.26em", color: "rgba(200,170,90,0.85)", textTransform: "uppercase", fontWeight: 700 }}>
-          {BONUS_CONFIG.cta}
+          {remaining > 0 ? `${remaining} to go — finish it →` : "Ready to claim →"}
         </div>
       </div>
     </>
@@ -3611,73 +3572,8 @@ export function TeamPotCard() {
           ))}
         </div>
 
-        {/* v16.7 — Champion's Bonus panel. Locked until team reaches 30 appts,
-            then flips to show the bonus the current champion would earn. */}
-        {pot.championBonus && (() => {
-          const cb = pot.championBonus;
-          const active = !!cb.active;
-          const amount = cb.amount || 0;
-          const chAppts = cb.championAppts || 0;
-          const capAppts = cb.capApptCount || 30;
-          const capAmt = cb.capAmount || 500;
-          return (
-            <div style={{
-              position: "relative", zIndex: 1, marginTop: 10,
-              padding: "10px 12px", borderRadius: 12,
-              background: active
-                ? "linear-gradient(120deg, rgba(250,204,21,0.10), rgba(250,204,21,0.04))"
-                : "rgba(0,0,0,0.35)",
-              border: active ? "1px solid rgba(250,204,21,0.55)" : "1px dashed rgba(200,170,90,0.35)",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ fontSize: 14 }}>{active ? "👑" : "🔒"}</div>
-                  <div>
-                    <div style={{ fontSize: 8.5, letterSpacing: "0.18em", color: active ? "#fde047" : "rgba(200,170,90,0.7)", textTransform: "uppercase", fontWeight: 800 }}>
-                      Champion&apos;s Bonus
-                    </div>
-                    <div style={{ fontSize: 10.5, color: active ? "#fff" : "rgba(255,255,255,0.6)", marginTop: 1 }}>
-                      {active
-                        ? (amount > 0
-                            ? `${first?.name || "Champion"} — ${chAppts} appts locks in a bonus`
-                            : `Champion needs 15+ personal appts to unlock`)
-                        : `Unlocks when team hits 30 team appts (up to $${capAmt})`}
-                    </div>
-                  </div>
-                </div>
-                <div style={{
-                  fontSize: 15, fontWeight: 800,
-                  color: active && amount > 0 ? "#fde047" : "rgba(200,170,90,0.55)",
-                  fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
-                  textShadow: active && amount > 0 ? "0 0 8px rgba(250,204,21,0.45)" : "none",
-                }}>
-                  {active && amount > 0 ? `+$${amount}` : `$0–$${capAmt}`}
-                </div>
-              </div>
-              {/* Bracket ladder */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4, marginTop: 8 }}>
-                {[...(cb.brackets || [])].reverse().map((b: any) => {
-                  const hit = chAppts >= b.appts && active;
-                  return (
-                    <div key={b.appts} style={{
-                      padding: "5px 4px", borderRadius: 7,
-                      background: hit ? "rgba(250,204,21,0.18)" : "rgba(0,0,0,0.32)",
-                      border: hit ? "1px solid rgba(250,204,21,0.55)" : "1px solid rgba(200,170,90,0.14)",
-                      textAlign: "center",
-                    }}>
-                      <div style={{ fontSize: 8, letterSpacing: "0.10em", color: hit ? "#fde047" : "rgba(200,170,90,0.6)", fontWeight: 700, textTransform: "uppercase" }}>
-                        {b.appts}+
-                      </div>
-                      <div style={{ fontSize: 10, color: hit ? "#fff" : "rgba(255,255,255,0.55)", fontWeight: 700, marginTop: 1 }}>
-                        ${b.bonus}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })()}
+        {/* v20.4 — Champion's Bonus panel REMOVED. All bonus recognition now
+            flows through the Challenges system (see ActiveChallengeCard). */}
 
         {/* CTA */}
         <div style={{ position: "relative", zIndex: 1, textAlign: "center", marginTop: 12, fontSize: 10, letterSpacing: "0.26em", color: "rgba(200,170,90,0.85)", textTransform: "uppercase", fontWeight: 700 }}>
@@ -4754,8 +4650,8 @@ function ChallengesTab() {
                 {c.detail}
               </p>
 
-              {/* Progress bar (non-gated with threshold) */}
-              {c.threshold != null && !c.gated && (
+              {/* Progress bar — v20.4 also shows on gated challenges once accepted */}
+              {c.threshold != null && (!c.gated || c.accepted) && (
                 <div style={{ marginBottom: 10 }}>
                   <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
                     <div style={{
@@ -5555,7 +5451,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.3</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4</span>
             </div>
           </div>
         </div>
@@ -6286,7 +6182,7 @@ function LeadGenSheet(props: {
     </button>
   );
 
-  // v20.3 — Frosted glass 7-bubble arc for the root chooser. visionOS-style:
+  // v20.4 — Frosted glass 7-bubble arc for the root chooser. visionOS-style:
   // translucent panels, soft depth, medium spring motion, staggered fan-out.
   // Dial hero centered at 12 o'clock. Sub-views (forms) keep the bottom sheet.
   //
@@ -6299,21 +6195,24 @@ function LeadGenSheet(props: {
   // Reading left-to-right along the arc (angle in polar, 0°=right, 90°=up):
   //   Social · Direct Mail · Open House · DIAL(hero) · Door Knock · Network · Agent Referral
   if (view === "root") {
-    const ARC_RADIUS = 130;
-    const HERO_LIFT = 18;   // Dial bubble sits +18px above the arc line
-    const BUBBLE_SIZE = 72;
-    const HERO_SIZE = 92;
+    // v20.4 — Liquid glass arc. Real dome geometry: icon inside a perfect
+    // circle, label floats BELOW the bubble. Layered glass = base tint +
+    // top specular highlight + rim inner-shadow + soft outer shadow.
+    const ARC_RADIUS = 148;
+    const HERO_LIFT = 22;
+    const BUBBLE_SIZE = 88;
+    const HERO_SIZE = 108;
     const bubbles: Array<{
       key: string; label: string; icon: React.ReactNode;
       angleDeg: number; hero?: boolean; onClick: () => void;
     }> = [
-      { key: "social",  label: "Social",         icon: <Share2 size={22} />,   angleDeg: 157.5, onClick: () => setView("social" as any) },
-      { key: "mail",    label: "Direct Mail",    icon: <Mail size={22} />,     angleDeg: 135,   onClick: () => setView("direct-mail" as any) },
-      { key: "oh",      label: "Open House",     icon: <Home size={22} />,     angleDeg: 112.5, onClick: () => setView("open-house") },
-      { key: "dial",    label: "Dial",           icon: <Phone size={26} />,    angleDeg: 90,    hero: true, onClick: goToDial },
-      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={22} />, angleDeg: 67.5,  onClick: () => setView("door-knock" as any) },
-      { key: "network", label: "Network",        icon: <Users size={22} />,    angleDeg: 45,    onClick: () => setView("network-referral") },
-      { key: "refer",   label: "Agent Referral", icon: <Send size={22} />,     angleDeg: 22.5,  onClick: () => setView("refer-agent" as any) },
+      { key: "social",  label: "Social",         icon: <Share2 size={26} />,   angleDeg: 157.5, onClick: () => setView("social" as any) },
+      { key: "mail",    label: "Direct Mail",    icon: <Mail size={26} />,     angleDeg: 135,   onClick: () => setView("direct-mail" as any) },
+      { key: "oh",      label: "Open House",     icon: <Home size={26} />,     angleDeg: 112.5, onClick: () => setView("open-house") },
+      { key: "dial",    label: "Dial",           icon: <Phone size={32} />,    angleDeg: 90,    hero: true, onClick: goToDial },
+      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={26} />, angleDeg: 67.5,  onClick: () => setView("door-knock" as any) },
+      { key: "network", label: "Network",        icon: <Users size={26} />,    angleDeg: 45,    onClick: () => setView("network-referral") },
+      { key: "refer",   label: "Agent Referral", icon: <Send size={26} />,     angleDeg: 22.5,  onClick: () => setView("refer-agent" as any) },
     ];
     // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
     // Anchor the arc's origin over the FAB center.
@@ -6328,11 +6227,17 @@ function LeadGenSheet(props: {
         <style>{`
           @keyframes arcBackdropFade { from { opacity: 0 } to { opacity: 1 } }
           @keyframes arcBubbleIn {
-            from { opacity: 0; transform: translate(0px, 0px) scale(0.4); }
+            from { opacity: 0; transform: translate(0px, 0px) scale(0.35); }
             to   { opacity: 1; transform: var(--arc-final-transform) scale(1); }
           }
           @keyframes arcHint { 0%,100% { opacity: 0.55 } 50% { opacity: 0.9 } }
-          .arc-bubble { animation: arcBubbleIn 380ms cubic-bezier(0.16,1,0.3,1) both; }
+          @keyframes arcHeroPulse {
+            0%,100% { box-shadow: 0 14px 44px rgba(200,170,90,0.45), 0 6px 20px rgba(0,0,0,0.40), 0 0 0 0.5px rgba(255,255,255,0.35) inset, 0 2px 0 rgba(255,255,255,0.55) inset, 0 -8px 18px rgba(80,50,10,0.30) inset, 0 12px 24px rgba(255,220,120,0.14) inset; }
+            50%     { box-shadow: 0 18px 56px rgba(220,180,90,0.60), 0 6px 20px rgba(0,0,0,0.40), 0 0 0 0.5px rgba(255,255,255,0.42) inset, 0 2px 0 rgba(255,255,255,0.65) inset, 0 -8px 18px rgba(80,50,10,0.30) inset, 0 14px 28px rgba(255,220,120,0.22) inset; }
+          }
+          .arc-bubble { animation: arcBubbleIn 460ms cubic-bezier(0.16,1,0.3,1) both; }
+          .arc-glass:active { transform: scale(0.93); }
+          .arc-glass-hero { animation: arcHeroPulse 2.4s ease-in-out infinite; animation-delay: 700ms; }
         `}</style>
 
         {/* Arc container anchored to bottom-center where the FAB sits. */}
@@ -6346,58 +6251,119 @@ function LeadGenSheet(props: {
         }} onClick={e => e.stopPropagation()}>
           {bubbles.map((b, idx) => {
             const rad = (b.angleDeg * Math.PI) / 180;
-            // polarToXY — y-axis points up, so we negate the sin result.
             const dx = Math.cos(rad) * ARC_RADIUS;
             const dy = -Math.sin(rad) * ARC_RADIUS - (b.hero ? HERO_LIFT : 0);
             const size = b.hero ? HERO_SIZE : BUBBLE_SIZE;
-            // Stagger from center outward: dial first (index 3), then
-            // neighbors, then edges. Delay increases with distance from center.
             const distFromCenter = Math.abs(idx - 3);
-            const delay = distFromCenter * 45;   // 0/45/90/135ms
+            const delay = distFromCenter * 55;
+            // Liquid glass layers (composited via multiple box-shadow + gradients):
+            //   1. Base surface  : radial gradient (top-lit) over frosted backdrop
+            //   2. Rim highlight : thin bright inner ring at top edge
+            //   3. Inner shadow  : darker at bottom for convex depth
+            //   4. Outer shadow  : soft ambient below bubble
+            //   5. Specular      : ::before pseudo (elevated white gloss at top)
+            const glassBase = b.hero
+              ? "radial-gradient(circle at 50% 22%, rgba(255,240,180,0.42) 0%, rgba(253,224,71,0.24) 32%, rgba(200,170,90,0.16) 62%, rgba(138,111,42,0.20) 100%)"
+              : "radial-gradient(circle at 50% 22%, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.14) 40%, rgba(255,255,255,0.08) 78%, rgba(255,255,255,0.04) 100%)";
+            const glassBorder = b.hero
+              ? "1px solid rgba(255,220,140,0.55)"
+              : "1px solid rgba(255,255,255,0.28)";
+            const glassShadow = b.hero
+              ? [
+                  "0 14px 44px rgba(200,170,90,0.45)",             // ambient gold glow
+                  "0 6px 20px rgba(0,0,0,0.40)",                    // depth shadow
+                  "0 0 0 0.5px rgba(255,255,255,0.35) inset",       // outer rim
+                  "0 2px 0 rgba(255,255,255,0.55) inset",           // top rim highlight
+                  "0 -8px 18px rgba(80,50,10,0.30) inset",          // bottom inner shadow
+                  "0 12px 24px rgba(255,220,120,0.14) inset",       // interior warm bloom
+                ].join(", ")
+              : [
+                  "0 12px 36px rgba(0,0,0,0.55)",                   // ambient depth
+                  "0 4px 14px rgba(0,0,0,0.35)",                    // contact shadow
+                  "0 0 0 0.5px rgba(255,255,255,0.20) inset",       // outer rim
+                  "0 2px 0 rgba(255,255,255,0.42) inset",           // top rim highlight
+                  "0 -8px 18px rgba(0,0,0,0.30) inset",             // bottom inner shadow
+                ].join(", ");
             return (
-              <button
+              <div
                 key={b.key}
-                onClick={b.onClick}
                 className="arc-bubble"
                 style={{
                   position: "absolute",
                   left: `${dx}px`,
                   top: `${dy}px`,
                   transform: "translate(-50%, -50%)",
-                  width: size, height: size,
-                  borderRadius: "50%",
-                  border: b.hero
-                    ? "1px solid rgba(200,170,90,0.55)"
-                    : "1px solid rgba(255,255,255,0.18)",
-                  background: b.hero
-                    ? "linear-gradient(135deg, rgba(253,224,71,0.22) 0%, rgba(200,170,90,0.16) 45%, rgba(138,111,42,0.14) 100%)"
-                    : "rgba(255,255,255,0.08)",
-                  backdropFilter: "blur(24px) saturate(180%)",
-                  WebkitBackdropFilter: "blur(24px) saturate(180%)",
-                  boxShadow: b.hero
-                    ? "0 8px 32px rgba(200,170,90,0.28), 0 0 0 1px rgba(255,255,255,0.08) inset, 0 1px 0 rgba(255,255,255,0.22) inset"
-                    : "0 8px 24px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06) inset, 0 1px 0 rgba(255,255,255,0.14) inset",
-                  cursor: "pointer",
-                  display: "flex", flexDirection: "column",
-                  alignItems: "center", justifyContent: "center",
-                  gap: 4,
-                  color: b.hero ? "#fde68a" : "#fff",
                   pointerEvents: "auto",
                   animationDelay: `${delay}ms`,
-                  // CSS custom property so the keyframe knows where to land.
-                  // @ts-ignore
+                  // @ts-ignore CSS custom property
                   "--arc-final-transform": `translate(-50%, -50%)`,
+                  display: "flex", flexDirection: "column", alignItems: "center",
                 } as React.CSSProperties}
               >
-                <div style={{ marginBottom: 2 }}>{b.icon}</div>
+                <button
+                  onClick={b.onClick}
+                  aria-label={b.label}
+                  className={b.hero ? "arc-glass arc-glass-hero" : "arc-glass"}
+                  style={{
+                    position: "relative",
+                    width: size, height: size,
+                    borderRadius: "50%",
+                    border: glassBorder,
+                    background: glassBase,
+                    backdropFilter: "blur(28px) saturate(200%) brightness(1.06)",
+                    WebkitBackdropFilter: "blur(28px) saturate(200%) brightness(1.06)",
+                    boxShadow: glassShadow,
+                    cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: b.hero ? "#fff5d0" : "#fff",
+                    padding: 0,
+                    transition: "transform 180ms cubic-bezier(0.16,1,0.3,1)",
+                  }}
+                >
+                  {/* Specular gloss — thin bright crescent hugging the top rim */}
+                  <span aria-hidden="true" style={{
+                    position: "absolute",
+                    top: 3, left: "14%", right: "14%", height: "38%",
+                    borderRadius: "50% / 100% 100% 0 0",
+                    background: b.hero
+                      ? "linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.10) 55%, rgba(255,255,255,0) 100%)"
+                      : "linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.08) 55%, rgba(255,255,255,0) 100%)",
+                    pointerEvents: "none",
+                    filter: "blur(0.5px)",
+                  }} />
+                  {/* Tiny specular dot — the pinpoint highlight that sells 'liquid' */}
+                  <span aria-hidden="true" style={{
+                    position: "absolute",
+                    top: "14%", left: "32%",
+                    width: "14%", height: "9%",
+                    borderRadius: "50%",
+                    background: "rgba(255,255,255,0.72)",
+                    filter: "blur(1.5px)",
+                    pointerEvents: "none",
+                  }} />
+                  <span style={{
+                    position: "relative", zIndex: 1,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    filter: b.hero
+                      ? "drop-shadow(0 1px 2px rgba(0,0,0,0.5))"
+                      : "drop-shadow(0 1px 2px rgba(0,0,0,0.65))",
+                  }}>
+                    {b.icon}
+                  </span>
+                </button>
+                {/* Label floats BELOW the bubble so the circle stays perfect */}
                 <span style={{
-                  fontSize: b.hero ? 11 : 9.5,
-                  letterSpacing: "0.06em",
+                  marginTop: 8,
+                  fontSize: b.hero ? 11 : 10,
+                  letterSpacing: "0.10em",
                   fontWeight: b.hero ? 700 : 600,
-                  textShadow: "0 1px 2px rgba(0,0,0,0.55)",
+                  textTransform: "uppercase",
+                  color: b.hero ? "#fde68a" : "rgba(255,255,255,0.85)",
+                  textShadow: "0 1px 3px rgba(0,0,0,0.85)",
                   whiteSpace: "nowrap",
+                  pointerEvents: "none",
                 }}>{b.label}</span>
-              </button>
+              </div>
             );
           })}
         </div>

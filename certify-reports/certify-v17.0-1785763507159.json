@@ -1,0 +1,59 @@
+{
+  "startedAt": "2026-08-03T13:24:54.447Z",
+  "finishedAt": "2026-08-03T13:25:07.159Z",
+  "durationMs": 12711,
+  "tier": "preflight",
+  "plan": [
+    "T0"
+  ],
+  "version": "v17.0",
+  "summary": {
+    "passed": 3,
+    "failed": 1,
+    "critFail": 1,
+    "skipped": 0,
+    "total": 5
+  },
+  "results": [
+    {
+      "tier": "Tier 0 · Pre-flight",
+      "name": "version-alignment",
+      "status": "pass",
+      "critical": true,
+      "detail": "target=v17.0 spots=5 unique=v17.0 missing=0 wrong=0",
+      "durationMs": 8
+    },
+    {
+      "tier": "Tier 0 · Pre-flight",
+      "name": "dist-freshness",
+      "status": "pass",
+      "critical": true,
+      "detail": "bundle=index-BAw7zqjZ.js staleSources=0",
+      "durationMs": 0
+    },
+    {
+      "tier": "Tier 0 · Pre-flight",
+      "name": "typescript",
+      "status": "fail",
+      "critical": true,
+      "detail": "9 type errors (baseline 0)",
+      "durationMs": 12648
+    },
+    {
+      "tier": "Tier 0 · Pre-flight",
+      "name": "route-inventory",
+      "status": "warn",
+      "critical": false,
+      "detail": "+6 -0 vs snapshot (run: node scripts/certify/tier0-preflight.mjs --update-snapshot)",
+      "durationMs": 3
+    },
+    {
+      "tier": "Tier 0 · Pre-flight",
+      "name": "grep-guards",
+      "status": "pass",
+      "critical": true,
+      "detail": "7 rules checked, 0 violations",
+      "durationMs": 50
+    }
+  ]
+}

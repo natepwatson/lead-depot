@@ -148,61 +148,22 @@ export function StreakCard({ agentId }: { agentId: number }) {
 
 // ─── Champion Wreath frame ───────────────────────────────────────────────────
 
-let _champCache: { at: number; data: { agentId: number | null } } | null = null;
+// v20.4 — Champion Wreath RETIRED. Points + recognition now flow entirely
+// through Challenges (see ActiveChallengeCard). Hook kept as a stub so callers
+// don't crash; always returns { agentId: null } and never fetches /api/champion.
 export function useCurrentChampion(): { agentId: number | null } {
-  const [state, setState] = useState<{ agentId: number | null }>(
-    _champCache ? _champCache.data : { agentId: null }
-  );
-  useEffect(() => {
-    if (_champCache && (Date.now() - _champCache.at) < 5 * 60_000) return;
-    let cancelled = false;
-    fetch("/api/champion", { credentials: "include" })
-      .then(r => r.ok ? r.json() : null)
-      .then(j => {
-        if (cancelled) return;
-        const data = { agentId: j?.agentId ?? null };
-        _champCache = { at: Date.now(), data };
-        setState(data);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-  return state;
+  return { agentId: null };
 }
 
-// Wrap any headshot in the wreath frame if the agent is the current champion.
-// Otherwise it just renders `children` as-is (no visual change).
+// v20.4 — Champion wreath retired. ChampionFrame is now a pass-through:
+// it renders `children` unchanged so we don't have to unwind ChampionFrame
+// wrappers across the codebase. Delete this component entirely in v20.5+.
 export function ChampionFrame({
-  agentId, size, children,
+  children,
 }: {
-  agentId: number | null | undefined;
-  size: number;
+  agentId?: number | null | undefined;
+  size?: number;
   children: React.ReactNode;
 }) {
-  const champ = useCurrentChampion();
-  const isChamp = agentId != null && champ.agentId === agentId;
-  if (!isChamp) return <>{children}</>;
-
-  // Wreath PNG has transparent center. Layer the headshot INSIDE the wreath by
-  // rendering the wreath as an absolute-positioned overlay of ~130% size.
-  const outerPx = Math.round(size * 1.30);
-  const inset = Math.round((outerPx - size) / 2);
-  return (
-    <span style={{ position: "relative", display: "inline-block", width: outerPx, height: outerPx, verticalAlign: "middle" }}
-          title="This month's Champion">
-      <span style={{ position: "absolute", left: inset, top: inset, width: size, height: size, display: "inline-block" }}>
-        {children}
-      </span>
-      <img
-        src="/badges/champion-wreath.png"
-        alt="Champion"
-        style={{
-          position: "absolute", inset: 0,
-          width: "100%", height: "100%",
-          pointerEvents: "none",
-          filter: "drop-shadow(0 0 6px rgba(200,170,90,0.55))",
-        }}
-      />
-    </span>
-  );
+  return <>{children}</>;
 }

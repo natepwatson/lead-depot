@@ -6,7 +6,8 @@ import { RankTrophy } from "../components/ld/RankTrophy";
 import { StreakBadge, ChampionFrame } from "../components/ld/StreakBadge";
 import ProfilePage from "./ProfilePage";
 import ScriptEditor from "../components/ScriptEditor";
-import MapView from "./MapView";
+// v20.4 — old admin Territory Map removed. Team map now lives in AgentView.
+// import MapView from "./MapView";
 import AnimatedNumber from "../components/AnimatedNumber";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -1733,7 +1734,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.3
+              v20.4
             </p>
           </div>
         </div>
@@ -1819,14 +1820,15 @@ export default function AdminDashboard({
             display: "flex", flexWrap: "wrap", gap: 2,
           }}>
             {[
+              // v20.4 — removed "Map View" (old admin territory map) and "Diversity"
+              // (now a challenge, not a standalone tab). Team map lives in the
+              // agent surface (AgentView → Leaderboard → Map toggle).
               { value: "admin",       icon: Shield,      label: "Admin" },
               { value: "leads",       icon: List,        label: "Lead Pool" },
-              { value: "map",         icon: MapIcon,     label: "Map View" },
               { value: "reports",     icon: BarChart2,   label: "Reports" },
               { value: "kpi",         icon: TrendingUp,  label: "KPI" },
               { value: "approvals",   icon: CheckCircle2, label: "Approvals" },
               { value: "candidates",  icon: UserPlus,    label: "Candidates" },
-              { value: "diversity",   icon: Sparkles,    label: "Diversity" },
               { value: "dbhealth",    icon: Database,    label: "DB Health" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "agents",      icon: Users,       label: "Agents" },
@@ -2610,76 +2612,7 @@ export default function AdminDashboard({
                           }}
                         >⬇ Export Activity CSV</button>
                       </div>
-                      <Dialog open={agentDialogOpen} onOpenChange={setAgentDialogOpen}>
-                        <DialogTrigger asChild>
-                          <button
-                            style={{
-                              display: "flex", alignItems: "center", gap: 6,
-                              padding: "8px 16px",
-                              background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-                              border: "none", borderRadius: 6,
-                              fontSize: 12, fontWeight: 600, letterSpacing: "0.08em",
-                              color: "#080808", cursor: "pointer",
-                            }}
-                            data-testid="button-add-agent"
-                          >
-                            <Plus size={12}/>Add Agent
-                          </button>
-                        </DialogTrigger>
-                        <DialogContent style={{
-                          background: "#0f0f0f",
-                          border: "1px solid rgba(200,170,90,0.15)",
-                        }}>
-                          <DialogHeader>
-                            <DialogTitle style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontWeight: 300, fontSize: "1.3rem", color: "#fff" }}>
-                              Add Agent
-                            </DialogTitle>
-                          </DialogHeader>
-                          <div className="space-y-3 mt-2">
-                            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", lineHeight: 1.6, margin: "0 0 8px" }}>
-                              Enter the agent's name and email. They'll receive a secure invitation link to set their own password and complete their profile.
-                            </p>
-                            <div className="space-y-1">
-                              <Label className="text-xs text-foreground/60">Full Name</Label>
-                              <Input value={newAgent.name} onChange={e => setNewAgent(p => ({...p, name: e.target.value}))} className="bg-secondary border-border" placeholder="Jane Smith" data-testid="input-agent-name"/>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs text-foreground/60">Email Address</Label>
-                              <Input type="email" value={newAgent.email} onChange={e => setNewAgent(p => ({...p, email: e.target.value}))} className="bg-secondary border-border" placeholder="jane@momentum.com" data-testid="input-agent-email"/>
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Role</Label>
-                                <select
-                                  value={newAgent.role}
-                                  onChange={e => setNewAgent(p => ({...p, role: e.target.value}))}
-                                  style={{
-                                    width: "100%", padding: "8px 10px", marginTop: 4,
-                                    background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
-                                    borderRadius: 6, color: "#e5e5e5", fontSize: 13, cursor: "pointer",
-                                  }}
-                                >
-                                  <option value="agent" style={{ background: "#111" }}>Agent — works seller leads</option>
-                                  <option value="admin" style={{ background: "#111" }}>Admin — full access</option>
-                                </select>
-                              </div>
-                            </div>
-                            <button
-                              style={{
-                                width: "100%", padding: "12px",
-                                background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-                                border: "none", borderRadius: 6,
-                                fontSize: 12, fontWeight: 600, letterSpacing: "0.08em",
-                                color: "#080808", cursor: "pointer",
-                                opacity: (createAgentMutation.isPending || !newAgent.name || !newAgent.email) ? 0.5 : 1,
-                              }}
-                              onClick={() => createAgentMutation.mutate({ name: newAgent.name, email: newAgent.email, role: newAgent.role })}
-                              disabled={createAgentMutation.isPending || !newAgent.name || !newAgent.email}
-                              data-testid="button-save-agent"
-                            >
-                              {createAgentMutation.isPending ? "Sending invite…" : "Send Invitation"}
-                            </button>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
+                      {/* v20.4 — Add Agent removed. Agents now come in through Candidates → Approve. */}
                     </div>
 
                     {/* v13.1 — Agent Inactivity Alert moved to Admin tab */}
@@ -3010,10 +2943,8 @@ export default function AdminDashboard({
             <ScriptEditor />
           </TabsContent>
 
-          {/* ── MAP VIEW ────────────────────────────────────────────────────── */}
-          <TabsContent value="map" className="mt-5">
-            <MapView />
-          </TabsContent>
+          {/* v20.4 — Old admin Territory Map (MapView.tsx) removed. Team map lives in
+              AgentView → Leaderboard → Map toggle and is now real-coord + masked. */}
 
         </Tabs>
       </main>

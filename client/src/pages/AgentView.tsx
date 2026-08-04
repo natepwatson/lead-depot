@@ -6326,22 +6326,51 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                  inset shadow so it reads as "pressed in", and a slow 2.4s ring pulse.
                  On other tabs, it stays big & raised as the CTA to enter dialing. */}
               {isDial ? (
-                <div className={(!active && !leadGenOpen) ? `fab-breathe${fabNudge ? " fab-nudge" : ""}` : undefined} style={{
+                /* v20.6.7 — FAB now wears the arc-hero glass treatment at rest:
+                   radial gold gradient + inner rims + specular gloss + soft ambient
+                   glow so it already looks like the bubble it's about to unspool.
+                   Retains the 60px black safety ring so it stands off the nav bar. */
+                <div className={(!active && !leadGenOpen) ? `fab-hero-pulse${fabNudge ? " fab-nudge" : ""}` : undefined} style={{
                   position: "relative",
-                  // v17.2 — Yellow "+" chooser button. Rotates to "×" when chooser
-                  // sheet is open. Still gets the raised pill treatment.
                   width: 60, height: 60,
                   marginTop: -22,
                   borderRadius: "50%",
-                  background: "linear-gradient(135deg, #fde047 0%, #c8aa5a 55%, #8a6f2a 100%)",
+                  background: "radial-gradient(circle at 50% 22%, rgba(255,240,180,0.65) 0%, rgba(253,224,71,0.42) 30%, rgba(200,170,90,0.32) 62%, rgba(138,111,42,0.42) 100%)",
+                  border: "1px solid rgba(255,220,140,0.75)",
+                  backdropFilter: "blur(20px) saturate(180%) brightness(1.06)",
+                  WebkitBackdropFilter: "blur(20px) saturate(180%) brightness(1.06)",
+                  boxShadow: [
+                    "0 12px 36px rgba(200,170,90,0.55)",           // ambient gold glow
+                    "0 4px 14px rgba(0,0,0,0.42)",                  // depth
+                    "0 0 0 3px rgba(6,6,6,0.98)",                   // safety ring against nav
+                    "0 0 0 0.5px rgba(255,255,255,0.35) inset",     // outer rim
+                    "0 2px 0 rgba(255,240,190,0.55) inset",         // top rim highlight
+                    "0 -8px 18px rgba(80,50,10,0.30) inset",        // bottom inner shadow
+                    "0 12px 22px rgba(255,220,120,0.18) inset",     // interior warm bloom
+                  ].join(", "),
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: "0 4px 16px rgba(200,170,90,0.42), 0 0 0 3px rgba(6,6,6,0.98)",
-                  // v20.4.2.1 — rotate COUNTER-clockwise on open. + becomes × by
-                  // spinning back the other way. Slightly slower + softer ease.
                   transition: "transform 0.36s cubic-bezier(0.16, 1, 0.3, 1)",
                   transform: leadGenOpen ? "rotate(-135deg)" : "rotate(0deg)",
                 }}>
-                  <Plus size={32} style={{ color: "#0a0700", strokeWidth: 2.5 }} />
+                  {/* Specular gloss on the FAB itself so it reads as liquid, not flat. */}
+                  <span aria-hidden="true" style={{
+                    position: "absolute",
+                    top: 3, left: "14%", right: "14%", height: "38%",
+                    borderRadius: "50% / 100% 100% 0 0",
+                    background: "linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.10) 55%, rgba(255,255,255,0) 100%)",
+                    pointerEvents: "none",
+                    filter: "blur(0.5px)",
+                  }} />
+                  <span aria-hidden="true" style={{
+                    position: "absolute",
+                    top: "14%", left: "32%",
+                    width: "14%", height: "9%",
+                    borderRadius: "50%",
+                    background: "rgba(255,255,255,0.72)",
+                    filter: "blur(1.5px)",
+                    pointerEvents: "none",
+                  }} />
+                  <Plus size={32} style={{ color: "#0a0700", strokeWidth: 2.5, position: "relative", zIndex: 1, filter: "drop-shadow(0 1px 2px rgba(255,240,180,0.35))" }} />
                   {showBadge && (
                     /* v14.68 — Red dot only (no count). Signals "there is activity" without dread. */
                     <span style={{
@@ -6428,6 +6457,14 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           50%     { background: linear-gradient(135deg, #d9bf74 0%, #a8893a 100%); }
         }
         .fab-breathe { animation: fabBreathe 4s ease-in-out infinite; }
+        /* v20.6.7 — hero-bubble pulse for the collapsed Dial FAB. Same rhythm as
+           the arc-hero bubble; slightly lower amplitude because the FAB is smaller
+           and always on-screen so a big pulse would be visually loud. */
+        @keyframes fabHeroPulse {
+          0%,100% { box-shadow: 0 12px 36px rgba(200,170,90,0.55), 0 4px 14px rgba(0,0,0,0.42), 0 0 0 3px rgba(6,6,6,0.98), 0 0 0 0.5px rgba(255,255,255,0.35) inset, 0 2px 0 rgba(255,240,190,0.55) inset, 0 -8px 18px rgba(80,50,10,0.30) inset, 0 12px 22px rgba(255,220,120,0.18) inset; }
+          50%     { box-shadow: 0 18px 52px rgba(220,180,90,0.72), 0 4px 14px rgba(0,0,0,0.42), 0 0 0 3px rgba(6,6,6,0.98), 0 0 0 0.5px rgba(255,255,255,0.42) inset, 0 2px 0 rgba(255,240,190,0.65) inset, 0 -8px 18px rgba(80,50,10,0.30) inset, 0 14px 24px rgba(255,220,120,0.28) inset; }
+        }
+        .fab-hero-pulse { animation: fabHeroPulse 3.2s ease-in-out infinite; }
         /* Idle nudge: bigger-amplitude override, active for 2.5s then removed by JS */
         @keyframes fabNudgePulse {
           0%,100% { transform: scale(1); }
@@ -6588,15 +6625,19 @@ function LeadGenSheet(props: {
     // Also narrow the sweep from 180° to 160° (100°–80°) so end bubbles arc IN slightly
     // rather than sitting flat on the horizon line where they clip against the screen edge.
     const vw = typeof window !== "undefined" ? window.innerWidth : 393;
-    const BUBBLE_SIZE = vw < 360 ? 58 : vw < 400 ? 62 : 66;
-    const HERO_SIZE = BUBBLE_SIZE + 20;
-    const LABEL_HALF = 40; // half-width budget for widest label ("Agent Referral")
-    const EDGE_MARGIN = 10;
+    const BUBBLE_SIZE = vw < 360 ? 56 : vw < 400 ? 60 : 64;
+    const HERO_SIZE = BUBBLE_SIZE + 22;
+    // v20.6.7 — Labels were overlapping neighbor bubbles on 393px iPhones because
+    // the previous LABEL_HALF (40) was too tight for "Agent Referral" (~112px wide
+    // at 12px semibold). Widen the label budget to guarantee each label has clear
+    // air on both sides of its own bubble.
+    const LABEL_HALF = 62; // half-width budget for widest label ("Agent Referral" ≈ 112px)
+    const EDGE_MARGIN = 12;
     const MAX_RADIUS = (vw / 2) - (BUBBLE_SIZE / 2) - LABEL_HALF - EDGE_MARGIN;
     // We also need to keep bubbles above the fold: cap by vertical space too.
     const vh = typeof window !== "undefined" ? window.innerHeight : 780;
-    const VERTICAL_CAP = vh - 220; // reserve room for nav + safe area + label
-    const ARC_RADIUS = Math.max(140, Math.min(202, MAX_RADIUS, VERTICAL_CAP));
+    const VERTICAL_CAP = vh - 240; // reserve room for nav + safe area + label + label breathing
+    const ARC_RADIUS = Math.max(140, Math.min(210, MAX_RADIUS, VERTICAL_CAP));
     const HERO_LIFT = 20;
     // Narrower 160° sweep: 100° (leftmost) → 80° (rightmost) covers 20° span per bubble step * 6 gaps.
     // Actually keep 30° stepping but rotate the whole sweep inward by 10° on each side: 170° → 10°.
@@ -6627,10 +6668,15 @@ function LeadGenSheet(props: {
           /* v20.4.2.1 — bubbles FLY OUT from FAB origin to their polar destination.
              --arc-dx / --arc-dy carry the final polar offset; keyframe drives the
              translate + scale together for a proper spring pop. */
+          /* v20.6.7 — bubbles now TWIST and SPIN into place. Starting rotation is
+             −220deg (feels like they're unspooling from the FAB); end at 0. Slight
+             overshoot in the scale curve keeps the "pop" alive so the spin never
+             feels sluggish. */
           @keyframes arcBubbleFly {
-            0%   { opacity: 0; transform: translate(-50%, -50%) translate(0px, 0px) scale(0.25); }
-            60%  { opacity: 1; }
-            100% { opacity: 1; transform: translate(-50%, -50%) translate(var(--arc-dx), var(--arc-dy)) scale(1); }
+            0%   { opacity: 0; transform: translate(-50%, -50%) translate(0px, 0px) rotate(-220deg) scale(0.18); }
+            55%  { opacity: 1; }
+            80%  { transform: translate(-50%, -50%) translate(calc(var(--arc-dx) * 1.03), calc(var(--arc-dy) * 1.03)) rotate(8deg) scale(1.05); }
+            100% { opacity: 1; transform: translate(-50%, -50%) translate(var(--arc-dx), var(--arc-dy)) rotate(0deg) scale(1); }
           }
           @keyframes arcLabelFade {
             0%   { opacity: 0; transform: translateY(-4px); }
@@ -6641,7 +6687,7 @@ function LeadGenSheet(props: {
             50%     { box-shadow: 0 20px 60px rgba(220,180,90,0.72), 0 6px 20px rgba(0,0,0,0.40), 0 0 0 0.5px rgba(255,255,255,0.42) inset, 0 2px 0 rgba(255,255,255,0.65) inset, 0 -8px 18px rgba(80,50,10,0.30) inset, 0 14px 28px rgba(255,220,120,0.26) inset; }
           }
           .arc-bubble {
-            animation: arcBubbleFly 520ms cubic-bezier(0.16,1,0.3,1) both;
+            animation: arcBubbleFly 620ms cubic-bezier(0.16,1,0.3,1) both;
           }
           .arc-label {
             animation: arcLabelFade 220ms ease-out both;
@@ -6773,10 +6819,16 @@ function LeadGenSheet(props: {
                   letterSpacing: "0.02em",
                   fontWeight: b.hero ? 700 : 600,
                   color: b.hero ? "#fde68a" : "#fff5e0",
-                  textShadow: "0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.6)",
+                  /* v20.6.7 — label backing pill: solid-ish dark chip behind each
+                     label so if two labels ever crowd on a tiny viewport they
+                     don't visually merge into the neighbor bubble. */
+                  background: "linear-gradient(180deg, rgba(6,6,6,0.68) 0%, rgba(6,6,6,0.82) 100%)",
+                  padding: "3px 8px",
+                  borderRadius: 999,
+                  textShadow: "0 1px 2px rgba(0,0,0,0.9)",
                   whiteSpace: "nowrap",
                   pointerEvents: "none",
-                  animationDelay: `${delay + 320}ms`,
+                  animationDelay: `${delay + 380}ms`,
                 }}>{b.label}</span>
               </div>
             );

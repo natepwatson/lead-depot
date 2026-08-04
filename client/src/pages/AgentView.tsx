@@ -3009,7 +3009,7 @@ function endOfMonthEtIso(): string {
 }
 
 export function BonusCard() {
-  // v20.4 — Champion's Bonus RETIRED. This card now surfaces the SINGLE
+  // v20.4.1 — Champion's Bonus RETIRED. This card now surfaces the SINGLE
   // challenge the agent is closest to completing, with a live progress bar.
   // If no accepted challenge with progress exists, the card hides entirely.
   const { data: feed } = useQuery<any>({
@@ -3572,7 +3572,7 @@ export function TeamPotCard() {
           ))}
         </div>
 
-        {/* v20.4 — Champion's Bonus panel REMOVED. All bonus recognition now
+        {/* v20.4.1 — Champion's Bonus panel REMOVED. All bonus recognition now
             flows through the Challenges system (see ActiveChallengeCard). */}
 
         {/* CTA */}
@@ -4650,7 +4650,7 @@ function ChallengesTab() {
                 {c.detail}
               </p>
 
-              {/* Progress bar — v20.4 also shows on gated challenges once accepted */}
+              {/* Progress bar — v20.4.1 also shows on gated challenges once accepted */}
               {c.threshold != null && (!c.gated || c.accepted) && (
                 <div style={{ marginBottom: 10 }}>
                   <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
@@ -5451,7 +5451,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.1</span>
             </div>
           </div>
         </div>
@@ -5975,8 +5975,10 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                   background: "linear-gradient(135deg, #fde047 0%, #c8aa5a 55%, #8a6f2a 100%)",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   boxShadow: "0 4px 16px rgba(200,170,90,0.42), 0 0 0 3px rgba(6,6,6,0.98)",
-                  transition: "transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)",
-                  transform: leadGenOpen ? "rotate(135deg)" : "rotate(0deg)",
+                  // v20.4.1.1 — rotate COUNTER-clockwise on open. + becomes × by
+                  // spinning back the other way. Slightly slower + softer ease.
+                  transition: "transform 0.36s cubic-bezier(0.16, 1, 0.3, 1)",
+                  transform: leadGenOpen ? "rotate(-135deg)" : "rotate(0deg)",
                 }}>
                   <Plus size={32} style={{ color: "#0a0700", strokeWidth: 2.5 }} />
                   {showBadge && (
@@ -6182,37 +6184,45 @@ function LeadGenSheet(props: {
     </button>
   );
 
-  // v20.4 — Frosted glass 7-bubble arc for the root chooser. visionOS-style:
-  // translucent panels, soft depth, medium spring motion, staggered fan-out.
-  // Dial hero centered at 12 o'clock. Sub-views (forms) keep the bottom sheet.
+  // v20.4.1.1 — GOLD LIQUID ARC. Rebuilt from v20.4.1 which shipped with three bugs:
+  //   1) Overlap: 7 bubbles across 135° sweep kissed at the shoulders. Fix:
+  //      widened radius to 172px + slightly compressed the sweep so bubbles have
+  //      real breathing room.
+  //   2) Broken animation: --arc-final-transform was set to translate(-50%,-50%)
+  //      which is just the CENTERING math. Bubbles faded in place instead of
+  //      flying out from the FAB. Fix: keyframe now animates FROM the FAB origin
+  //      (0,0 relative to arc anchor) TO the bubble's polar destination.
+  //   3) Ripple stagger from center: bubbles pulsed OUT from Dial in both
+  //      directions. Fix: sequential LEFT→RIGHT stagger keyed by index, 42ms
+  //      apart, cubic-bezier(0.16,1,0.3,1) — fast but rhythmic, like flicking
+  //      a rolodex open.
+  //   Also: color pass. Regular bubbles now warm gold-tinted glass (matching
+  //   the middle Dial hero) so the fan reads as one gold set, not white glass
+  //   with one gold odd-one-out. Plus icon rotates counter-clockwise (-135°).
   //
   // Arc geometry:
-  //   7 bubbles across a 135° sweep (~3/8 of a circle).
-  //   Center = 90° (straight up from FAB). Sweep 22.5° → 157.5°, 22.5° apart.
-  //   Radius = 130px from FAB center for regular bubbles, hero pulls up +18px
-  //   so the Dial bubble crowns above the arc line and reads as the anchor.
+  //   7 bubbles across a 150° sweep for more space between neighbors.
+  //   Center = 90° (straight up). Sweep 15° → 165°, 25° apart.
+  //   Radius = 172px for regular, hero pulls up +22px so Dial crowns the arc.
   //
-  // Reading left-to-right along the arc (angle in polar, 0°=right, 90°=up):
+  // Reading left-to-right along the arc (angle 0°=right, 90°=up):
   //   Social · Direct Mail · Open House · DIAL(hero) · Door Knock · Network · Agent Referral
   if (view === "root") {
-    // v20.4 — Liquid glass arc. Real dome geometry: icon inside a perfect
-    // circle, label floats BELOW the bubble. Layered glass = base tint +
-    // top specular highlight + rim inner-shadow + soft outer shadow.
-    const ARC_RADIUS = 148;
+    const ARC_RADIUS = 172;
     const HERO_LIFT = 22;
-    const BUBBLE_SIZE = 88;
-    const HERO_SIZE = 108;
+    const BUBBLE_SIZE = 84;
+    const HERO_SIZE = 104;
     const bubbles: Array<{
       key: string; label: string; icon: React.ReactNode;
       angleDeg: number; hero?: boolean; onClick: () => void;
     }> = [
-      { key: "social",  label: "Social",         icon: <Share2 size={26} />,   angleDeg: 157.5, onClick: () => setView("social" as any) },
-      { key: "mail",    label: "Direct Mail",    icon: <Mail size={26} />,     angleDeg: 135,   onClick: () => setView("direct-mail" as any) },
-      { key: "oh",      label: "Open House",     icon: <Home size={26} />,     angleDeg: 112.5, onClick: () => setView("open-house") },
-      { key: "dial",    label: "Dial",           icon: <Phone size={32} />,    angleDeg: 90,    hero: true, onClick: goToDial },
-      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={26} />, angleDeg: 67.5,  onClick: () => setView("door-knock" as any) },
-      { key: "network", label: "Network",        icon: <Users size={26} />,    angleDeg: 45,    onClick: () => setView("network-referral") },
-      { key: "refer",   label: "Agent Referral", icon: <Send size={26} />,     angleDeg: 22.5,  onClick: () => setView("refer-agent" as any) },
+      { key: "social",  label: "Social",         icon: <Share2 size={24} />,   angleDeg: 165, onClick: () => setView("social" as any) },
+      { key: "mail",    label: "Direct Mail",    icon: <Mail size={24} />,     angleDeg: 140, onClick: () => setView("direct-mail" as any) },
+      { key: "oh",      label: "Open House",     icon: <Home size={24} />,     angleDeg: 115, onClick: () => setView("open-house") },
+      { key: "dial",    label: "Dial",           icon: <Phone size={32} />,    angleDeg: 90,  hero: true, onClick: goToDial },
+      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={24} />, angleDeg: 65,  onClick: () => setView("door-knock" as any) },
+      { key: "network", label: "Network",        icon: <Users size={24} />,    angleDeg: 40,  onClick: () => setView("network-referral") },
+      { key: "refer",   label: "Agent Referral", icon: <Send size={24} />,     angleDeg: 15,  onClick: () => setView("refer-agent" as any) },
     ];
     // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
     // Anchor the arc's origin over the FAB center.
@@ -6226,18 +6236,31 @@ function LeadGenSheet(props: {
       <div style={arcBackdrop} onClick={close}>
         <style>{`
           @keyframes arcBackdropFade { from { opacity: 0 } to { opacity: 1 } }
-          @keyframes arcBubbleIn {
-            from { opacity: 0; transform: translate(0px, 0px) scale(0.35); }
-            to   { opacity: 1; transform: var(--arc-final-transform) scale(1); }
+          /* v20.4.1.1 — bubbles FLY OUT from FAB origin to their polar destination.
+             --arc-dx / --arc-dy carry the final polar offset; keyframe drives the
+             translate + scale together for a proper spring pop. */
+          @keyframes arcBubbleFly {
+            0%   { opacity: 0; transform: translate(-50%, -50%) translate(0px, 0px) scale(0.25); }
+            60%  { opacity: 1; }
+            100% { opacity: 1; transform: translate(-50%, -50%) translate(var(--arc-dx), var(--arc-dy)) scale(1); }
           }
-          @keyframes arcHint { 0%,100% { opacity: 0.55 } 50% { opacity: 0.9 } }
+          @keyframes arcLabelFade {
+            0%   { opacity: 0; transform: translateY(-4px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
           @keyframes arcHeroPulse {
-            0%,100% { box-shadow: 0 14px 44px rgba(200,170,90,0.45), 0 6px 20px rgba(0,0,0,0.40), 0 0 0 0.5px rgba(255,255,255,0.35) inset, 0 2px 0 rgba(255,255,255,0.55) inset, 0 -8px 18px rgba(80,50,10,0.30) inset, 0 12px 24px rgba(255,220,120,0.14) inset; }
-            50%     { box-shadow: 0 18px 56px rgba(220,180,90,0.60), 0 6px 20px rgba(0,0,0,0.40), 0 0 0 0.5px rgba(255,255,255,0.42) inset, 0 2px 0 rgba(255,255,255,0.65) inset, 0 -8px 18px rgba(80,50,10,0.30) inset, 0 14px 28px rgba(255,220,120,0.22) inset; }
+            0%,100% { box-shadow: 0 14px 44px rgba(200,170,90,0.55), 0 6px 20px rgba(0,0,0,0.40), 0 0 0 0.5px rgba(255,255,255,0.35) inset, 0 2px 0 rgba(255,255,255,0.55) inset, 0 -8px 18px rgba(80,50,10,0.30) inset, 0 12px 24px rgba(255,220,120,0.16) inset; }
+            50%     { box-shadow: 0 20px 60px rgba(220,180,90,0.72), 0 6px 20px rgba(0,0,0,0.40), 0 0 0 0.5px rgba(255,255,255,0.42) inset, 0 2px 0 rgba(255,255,255,0.65) inset, 0 -8px 18px rgba(80,50,10,0.30) inset, 0 14px 28px rgba(255,220,120,0.26) inset; }
           }
-          .arc-bubble { animation: arcBubbleIn 460ms cubic-bezier(0.16,1,0.3,1) both; }
-          .arc-glass:active { transform: scale(0.93); }
-          .arc-glass-hero { animation: arcHeroPulse 2.4s ease-in-out infinite; animation-delay: 700ms; }
+          .arc-bubble {
+            animation: arcBubbleFly 520ms cubic-bezier(0.16,1,0.3,1) both;
+          }
+          .arc-label {
+            animation: arcLabelFade 220ms ease-out both;
+          }
+          .arc-glass { transition: transform 160ms cubic-bezier(0.16,1,0.3,1); }
+          .arc-glass:active { transform: scale(0.92); }
+          .arc-glass-hero { animation: arcHeroPulse 2.6s ease-in-out infinite; animation-delay: 800ms; }
         `}</style>
 
         {/* Arc container anchored to bottom-center where the FAB sits. */}
@@ -6254,35 +6277,33 @@ function LeadGenSheet(props: {
             const dx = Math.cos(rad) * ARC_RADIUS;
             const dy = -Math.sin(rad) * ARC_RADIUS - (b.hero ? HERO_LIFT : 0);
             const size = b.hero ? HERO_SIZE : BUBBLE_SIZE;
-            const distFromCenter = Math.abs(idx - 3);
-            const delay = distFromCenter * 55;
-            // Liquid glass layers (composited via multiple box-shadow + gradients):
-            //   1. Base surface  : radial gradient (top-lit) over frosted backdrop
-            //   2. Rim highlight : thin bright inner ring at top edge
-            //   3. Inner shadow  : darker at bottom for convex depth
-            //   4. Outer shadow  : soft ambient below bubble
-            //   5. Specular      : ::before pseudo (elevated white gloss at top)
+            // v20.4.1.1 — sequential LEFT→RIGHT stagger by index.
+            // idx 0 (Social, leftmost) fires first, idx 6 (Refer, rightmost) last.
+            // 42ms between each = ~294ms total spread = fast but rhythmic.
+            const delay = idx * 42;
+            // v20.4.1.1 — GOLD glass on regular bubbles (matches Dial), just a
+            // shade cooler + more translucent so Dial still crowns as the hero.
             const glassBase = b.hero
-              ? "radial-gradient(circle at 50% 22%, rgba(255,240,180,0.42) 0%, rgba(253,224,71,0.24) 32%, rgba(200,170,90,0.16) 62%, rgba(138,111,42,0.20) 100%)"
-              : "radial-gradient(circle at 50% 22%, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.14) 40%, rgba(255,255,255,0.08) 78%, rgba(255,255,255,0.04) 100%)";
+              ? "radial-gradient(circle at 50% 22%, rgba(255,240,180,0.55) 0%, rgba(253,224,71,0.32) 30%, rgba(200,170,90,0.22) 62%, rgba(138,111,42,0.28) 100%)"
+              : "radial-gradient(circle at 50% 22%, rgba(255,235,175,0.30) 0%, rgba(230,195,105,0.18) 40%, rgba(190,155,75,0.13) 78%, rgba(140,110,50,0.14) 100%)";
             const glassBorder = b.hero
-              ? "1px solid rgba(255,220,140,0.55)"
-              : "1px solid rgba(255,255,255,0.28)";
+              ? "1px solid rgba(255,220,140,0.65)"
+              : "1px solid rgba(220,185,115,0.42)";
             const glassShadow = b.hero
               ? [
-                  "0 14px 44px rgba(200,170,90,0.45)",             // ambient gold glow
+                  "0 16px 48px rgba(200,170,90,0.55)",             // ambient gold glow
                   "0 6px 20px rgba(0,0,0,0.40)",                    // depth shadow
-                  "0 0 0 0.5px rgba(255,255,255,0.35) inset",       // outer rim
-                  "0 2px 0 rgba(255,255,255,0.55) inset",           // top rim highlight
-                  "0 -8px 18px rgba(80,50,10,0.30) inset",          // bottom inner shadow
-                  "0 12px 24px rgba(255,220,120,0.14) inset",       // interior warm bloom
+                  "0 0 0 0.5px rgba(255,255,255,0.40) inset",       // outer rim
+                  "0 2px 0 rgba(255,240,190,0.60) inset",           // top rim highlight (warmer)
+                  "0 -8px 18px rgba(80,50,10,0.35) inset",          // bottom inner shadow
+                  "0 14px 26px rgba(255,220,120,0.18) inset",       // interior warm bloom
                 ].join(", ")
               : [
-                  "0 12px 36px rgba(0,0,0,0.55)",                   // ambient depth
+                  "0 14px 40px rgba(140,105,45,0.42)",              // warm gold ambient (was black)
                   "0 4px 14px rgba(0,0,0,0.35)",                    // contact shadow
-                  "0 0 0 0.5px rgba(255,255,255,0.20) inset",       // outer rim
-                  "0 2px 0 rgba(255,255,255,0.42) inset",           // top rim highlight
-                  "0 -8px 18px rgba(0,0,0,0.30) inset",             // bottom inner shadow
+                  "0 0 0 0.5px rgba(255,220,140,0.28) inset",       // outer gold rim
+                  "0 2px 0 rgba(255,235,180,0.45) inset",           // top gold rim highlight
+                  "0 -8px 18px rgba(60,40,10,0.32) inset",          // bottom warm inner shadow
                 ].join(", ");
             return (
               <div
@@ -6290,14 +6311,16 @@ function LeadGenSheet(props: {
                 className="arc-bubble"
                 style={{
                   position: "absolute",
-                  left: `${dx}px`,
-                  top: `${dy}px`,
-                  transform: "translate(-50%, -50%)",
+                  left: "0px",
+                  top: "0px",
                   pointerEvents: "auto",
                   animationDelay: `${delay}ms`,
                   // @ts-ignore CSS custom property
-                  "--arc-final-transform": `translate(-50%, -50%)`,
+                  "--arc-dx": `${dx}px`,
+                  // @ts-ignore CSS custom property
+                  "--arc-dy": `${dy}px`,
                   display: "flex", flexDirection: "column", alignItems: "center",
+                  transformOrigin: "center center",
                 } as React.CSSProperties}
               >
                 <button
@@ -6351,17 +6374,20 @@ function LeadGenSheet(props: {
                     {b.icon}
                   </span>
                 </button>
-                {/* Label floats BELOW the bubble so the circle stays perfect */}
-                <span style={{
+                {/* Label floats BELOW the bubble so the circle stays perfect.
+                    v20.4.1.1 — label fades AFTER the bubble arrives at its destination
+                    (delay = bubble delay + full bubble flight time). */}
+                <span className="arc-label" style={{
                   marginTop: 8,
                   fontSize: b.hero ? 11 : 10,
                   letterSpacing: "0.10em",
                   fontWeight: b.hero ? 700 : 600,
                   textTransform: "uppercase",
-                  color: b.hero ? "#fde68a" : "rgba(255,255,255,0.85)",
+                  color: b.hero ? "#fde68a" : "rgba(255,235,190,0.90)",
                   textShadow: "0 1px 3px rgba(0,0,0,0.85)",
                   whiteSpace: "nowrap",
                   pointerEvents: "none",
+                  animationDelay: `${delay + 320}ms`,
                 }}>{b.label}</span>
               </div>
             );

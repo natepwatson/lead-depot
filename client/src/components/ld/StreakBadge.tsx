@@ -148,14 +148,14 @@ export function StreakCard({ agentId }: { agentId: number }) {
 
 // ─── Champion Wreath frame ───────────────────────────────────────────────────
 
-// v20.4 — Champion Wreath RETIRED. Points + recognition now flow entirely
+// v20.4.1 — Champion Wreath RETIRED. Points + recognition now flow entirely
 // through Challenges (see ActiveChallengeCard). Hook kept as a stub so callers
 // don't crash; always returns { agentId: null } and never fetches /api/champion.
 export function useCurrentChampion(): { agentId: number | null } {
   return { agentId: null };
 }
 
-// v20.4 — Champion wreath retired. ChampionFrame is now a pass-through:
+// v20.4.1 — Champion wreath retired. ChampionFrame is now a pass-through:
 // it renders `children` unchanged so we don't have to unwind ChampionFrame
 // wrappers across the codebase. Delete this component entirely in v20.5+.
 export function ChampionFrame({

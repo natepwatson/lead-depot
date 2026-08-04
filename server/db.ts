@@ -1068,6 +1068,87 @@ rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_status ON approval_reque
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_agent ON approval_requests(agent_id, submitted_at DESC)`).run();
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_kind ON approval_requests(kind, status)`).run();
 
+// v20.4.7 — Listings table. Denise uploads Monday via Admin/Upload CSV — Listings.
+// These are the team's Active / Pending / Sold listings. Each active listing
+// becomes a candidate row on Tuesday's Open House Schedule form.
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS listings (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    address           TEXT NOT NULL,
+    city              TEXT,
+    state             TEXT,
+    zip               TEXT,
+    list_price        INTEGER,                   -- USD whole dollars
+    status            TEXT NOT NULL DEFAULT 'active', -- 'active' | 'pending' | 'sold'
+    listing_agent     TEXT,
+    list_date         TEXT,                      -- YYYY-MM-DD when listed
+    pending_date      TEXT,
+    sold_date         TEXT,
+    sold_price        INTEGER,
+    mls_number        TEXT,
+    notes             TEXT,
+    lat               REAL,                      -- geocoded via geo_cache on upload
+    lng               REAL,
+    uploaded_by       TEXT,                      -- admin who did the upload
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status, list_date DESC)`).run();
+rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_addr ON listings(lower(address), coalesce(zip,''))`).run();
+console.log("[db] v20.4.7 listings table ready");
+
+// v20.4.7 — Open Houses table. Rebuilt around the new Monday/Tuesday flow:
+//   Monday: Denise uploads listings via Upload CSV.
+//   Tuesday: Denise fills the Open House Schedule form (per active listing:
+//     Yes/No, date, start time, length, optional host preference name,
+//     REQUIRED access info — lockbox/alarm codes, optional notes).
+//   Admin then approves the pending OHs. Approved OHs go live on the map
+//   and in the agent's Book Open House chooser. First-come first-serve
+//   claim; Accept fires an email with full instructions + access info.
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS open_houses (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    listing_id          INTEGER,                    -- FK to listings.id (null for legacy/admin-added)
+    address             TEXT NOT NULL,
+    date                TEXT NOT NULL,              -- YYYY-MM-DD
+    time_start          TEXT NOT NULL,              -- HH:MM (24h)
+    time_end            TEXT NOT NULL,              -- HH:MM (24h)
+    listing_agent       TEXT,
+    list_price          INTEGER,
+    host_preference     TEXT,                       -- optional — name of agent Denise pre-assigned
+    access_info         TEXT,                       -- REQUIRED lockbox/alarm/key info; only revealed on Accept
+    notes               TEXT,
+    status              TEXT NOT NULL DEFAULT 'pending_approval', -- 'pending_approval' | 'open' | 'booked' | 'completed' | 'cancelled' | 'declined'
+    approved_by_id      INTEGER,
+    approved_at         TEXT,
+    declined_reason     TEXT,
+    claimed_by_agent_id INTEGER,
+    claimed_at          TEXT,
+    source              TEXT NOT NULL DEFAULT 'denise_schedule',  -- 'denise_schedule' | 'admin' | 'agent_self'
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    cancelled_at        TEXT
+  )
+`);
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_oh_date ON open_houses(date, status)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_oh_status ON open_houses(status, date)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_oh_agent ON open_houses(claimed_by_agent_id, date)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_oh_listing ON open_houses(listing_id)`).run();
+
+// v20.4.7 — migrate any existing open_houses rows to add new columns.
+try {
+  const cols = rawDb.prepare(`PRAGMA table_info(open_houses)`).all() as { name: string }[];
+  const names = new Set(cols.map(c => c.name));
+  if (!names.has("listing_id"))       rawDb.exec(`ALTER TABLE open_houses ADD COLUMN listing_id INTEGER`);
+  if (!names.has("access_info"))      rawDb.exec(`ALTER TABLE open_houses ADD COLUMN access_info TEXT`);
+  if (!names.has("approved_by_id"))   rawDb.exec(`ALTER TABLE open_houses ADD COLUMN approved_by_id INTEGER`);
+  if (!names.has("approved_at"))      rawDb.exec(`ALTER TABLE open_houses ADD COLUMN approved_at TEXT`);
+  if (!names.has("declined_reason"))  rawDb.exec(`ALTER TABLE open_houses ADD COLUMN declined_reason TEXT`);
+} catch (e) { console.warn("[db] open_houses migration warn:", (e as Error).message); }
+
+console.log("[db] v20.4.7 open_houses + listings tables ready");
+
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");
 console.log("[db] v15.5 onboarding candidate schema ready (candidates + onboarding_checklist + 9 agents cols)");

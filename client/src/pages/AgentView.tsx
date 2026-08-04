@@ -24,6 +24,8 @@ import ConfettiCelebration from "../components/ld/ConfettiCelebration";
 import GrandCelebration from "../components/ld/GrandCelebration";
 import { RankTrophy } from "../components/ld/RankTrophy";
 import { StreakBadge, ChampionFrame, useCurrentChampion } from "../components/ld/StreakBadge";
+import PermissionGate, { shouldPromptPermissions } from "../components/ld/PermissionGate";
+import { BookOpenHouseSheet } from "../components/ld/BookOpenHouseSheet";
 import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
@@ -3153,11 +3155,13 @@ export function BonusCard() {
           >{pct}%</span>
         </div>
 
-        {/* Challenge name + detail */}
-        <div style={{ position: "relative", zIndex: 1, textAlign: "center", fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 600, fontSize: 22, letterSpacing: "0.02em", margin: "4px 0 4px" }}>
+        {/* Challenge name + detail — v20.4.7 readability pass: larger title,
+            higher-contrast detail, tighter line-height. Old 12px @ 0.65 opacity
+            was unreadable in bright light against the gold gradient card bg. */}
+        <div style={{ position: "relative", zIndex: 1, textAlign: "center", fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 600, fontSize: 24, letterSpacing: "0.01em", margin: "4px 0 6px", color: "#fff" }}>
           {closest.label}
         </div>
-        <p style={{ position: "relative", zIndex: 1, textAlign: "center", fontSize: 12, color: "rgba(255,255,255,0.65)", margin: "0 0 14px", lineHeight: 1.5 }}>
+        <p style={{ position: "relative", zIndex: 1, textAlign: "center", fontSize: 13.5, color: "rgba(255,255,255,0.88)", margin: "0 0 14px", lineHeight: 1.45, fontWeight: 500, textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}>
           {closest.detail}
         </p>
 
@@ -3532,12 +3536,20 @@ export function TeamPotCard() {
           }}>
             <div style={{ flexShrink: 0 }}>
               <ChampionFrame agentId={champ.agentId} size={40}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: "50%",
-                  background: "linear-gradient(135deg,#fef9c3,#facc15)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  color: "#080808", fontWeight: 800, fontSize: 14,
-                }}>{champ.agentName ? champ.agentName.split(" ").map(s => s[0]).slice(0,2).join("").toUpperCase() : "—"}</div>
+                {champ.headshotUrl ? (
+                  <img
+                    src={champ.headshotUrl}
+                    alt={champ.agentName || ""}
+                    style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", border: "1px solid rgba(200,170,90,0.5)" }}
+                  />
+                ) : (
+                  <div style={{
+                    width: 40, height: 40, borderRadius: "50%",
+                    background: "linear-gradient(135deg,#fef9c3,#facc15)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#080808", fontWeight: 800, fontSize: 14,
+                  }}>{champ.agentName ? champ.agentName.split(" ").map(s => s[0]).slice(0,2).join("").toUpperCase() : "—"}</div>
+                )}
               </ChampionFrame>
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
@@ -4129,47 +4141,46 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                       {s.agent.name}{isMe ? " (you)" : ""}
                     </p>
                   </div>
-                  {/* v20.4.4 — STICKY (PTS · APPT · KIT · REFS) + SWIPE RAIL (DIALS · OH · DM · DK · FB/IG).
-                       Sticky columns are the point-generating outcomes that always show;
-                       swipe rail holds the point-generating activities that overflow. */}
+                  {/* v20.4.7 — STICKY (PTS · APPT only) + SWIPE RAIL (KIT · REFS · DIALS · OH · DM · DK · FB/IG).
+                       Per Alex: only PTS and APPT stay pinned; everything else slides.
+                       Swipe rail flexes to fill remaining space so it can scroll all the way to the last column
+                       without snap-back or cutoff. */}
                   {(() => {
                     const w = pickWin(s);
                     const stickyCell = (val: number, label: string, big: boolean, color: string) => (
-                      <div style={{ textAlign: "right", minWidth: big ? 44 : 34, flexShrink: 0 }}>
+                      <div style={{ textAlign: "right", minWidth: big ? 42 : 32, flexShrink: 0 }}>
                         <p style={big
-                          ? { fontSize: 22, fontWeight: 700, color, lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif", background: "rgba(200,170,90,0.12)", borderRadius: 8, padding: "2px 8px", display: "inline-block" }
-                          : { fontSize: 17, fontWeight: 700, color, lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }
+                          ? { fontSize: 20, fontWeight: 700, color, lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif", background: "rgba(200,170,90,0.12)", borderRadius: 8, padding: "2px 6px", display: "inline-block" }
+                          : { fontSize: 16, fontWeight: 700, color, lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }
                         }>{val}</p>
                         <p style={{ fontSize: 9, color: color === "#c8aa5a" ? "rgba(200,170,90,0.7)" : "rgba(255,255,255,0.4)", letterSpacing: "0.14em", marginTop: 4, fontWeight: 700 }}>{label}</p>
                       </div>
                     );
                     const swipeCell = (val: number, label: string, color: string) => (
-                      <div style={{ textAlign: "right", minWidth: 34, flexShrink: 0 }}>
+                      <div style={{ textAlign: "right", minWidth: 32, flexShrink: 0 }}>
                         <p style={{ fontSize: 15, fontWeight: 600, color, lineHeight: 1 }}>{val}</p>
                         <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>{label}</p>
                       </div>
                     );
                     return (
-                      <div style={{ display: "flex", alignItems: "center", flexShrink: 0, minWidth: 0, position: "relative" }}>
-                        {/* STICKY LEFT: PTS · APPT · KIT · REFS */}
-                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0, paddingRight: 10, borderRight: "1px solid rgba(255,255,255,0.08)" }}>
+                      <div style={{ display: "flex", alignItems: "center", flex: "1 1 auto", minWidth: 0, position: "relative" }}>
+                        {/* STICKY LEFT: PTS · APPT only */}
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0, paddingRight: 8, borderRight: "1px solid rgba(255,255,255,0.08)" }}>
                           {stickyCell(w.points ?? 0, "PTS", true, "#c8aa5a")}
                           {stickyCell(w.appts ?? 0, "APPT", false, "#c8aa5a")}
-                          {stickyCell(w.kit ?? 0, "KIT", false, "rgba(249,168,212,0.85)")}
-                          {stickyCell(w.refs ?? 0, "REFS", false, "#fde68a")}
                         </div>
-                        {/* SWIPE RAIL: DIALS · OH · DM · DK · FB/IG (horizontal scroll on phone).
-                            v20.4.6 — sync-scroll across ALL rows via registerRail + handleRailScroll.
-                            Sticky columns (PTS/APPT/KIT/REFS) stay put; swipe rails move together. */}
+                        {/* SWIPE RAIL: KIT · REFS · DIALS · OH · DM · DK · FB/IG (horizontal scroll on phone).
+                            v20.4.7 — flex:1 min-width:0 lets the rail take remaining width so scroll can
+                            reach the last column. All rails sync-scroll together via registerRail. */}
                         <div
                           className="lb-swipe-rail"
                           ref={registerRail}
                           onScroll={handleRailScroll}
                           style={{
-                            display: "flex", gap: 10, alignItems: "center",
+                            display: "flex", gap: 8, alignItems: "center",
                             overflowX: "auto", overflowY: "hidden",
-                            paddingLeft: 10, paddingRight: 6,
-                            maxWidth: 190,
+                            paddingLeft: 8, paddingRight: 4,
+                            flex: "1 1 0", minWidth: 0,
                             scrollSnapType: "x proximity",
                             WebkitOverflowScrolling: "touch",
                             scrollbarWidth: "none",
@@ -4181,6 +4192,8 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                             }
                           }}
                         >
+                          {swipeCell(w.kit ?? 0, "KIT", "rgba(249,168,212,0.85)")}
+                          {swipeCell(w.refs ?? 0, "REFS", "#fde68a")}
                           {swipeCell(w.dials ?? 0, "DIALS", "rgba(255,255,255,0.7)")}
                           {swipeCell(w.oh ?? 0, "OH", "rgba(134,239,172,0.85)")}
                           {swipeCell(w.dm ?? 0, "DM", "rgba(147,197,253,0.85)")}
@@ -5348,6 +5361,17 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
 
   // v19.5 — Prime Time notifier boot. Idempotent; only fires when permission is granted.
   useEffect(() => { startPrimeNotifier(); }, []);
+
+  // v20.4.7 — Two-stage PermissionGate. Fires on first login and every 90 days.
+  // Modal is non-blocking; agent can skip. Uses localStorage timestamp.
+  const [permGateOpen, setPermGateOpen] = useState(false);
+  useEffect(() => {
+    // Delay a tick so we don't slam the modal over the login transition.
+    const t = setTimeout(() => {
+      if (shouldPromptPermissions()) setPermGateOpen(true);
+    }, 1200);
+    return () => clearTimeout(t);
+  }, []);
   const [primePerm, setPrimePerm] = useState<NotificationPermission>(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "denied"
   );
@@ -5561,6 +5585,8 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
 
   return (
     <div className="ld-bg-wrap" style={{ minHeight: "100dvh", background: "#080808", display: "flex", flexDirection: "column" }}>
+      {/* v20.4.7 — Two-stage PermissionGate modal (first login + 90-day recheck) */}
+      {permGateOpen && <PermissionGate onDone={() => setPermGateOpen(false)} />}
       {/* v14.52 — Pull-to-refresh visible indicator (gold chip floats above header) */}
       {ptrIndicator}
       {/* Luxury ambient glows */}
@@ -5618,7 +5644,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.6</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.7</span>
             </div>
           </div>
         </div>
@@ -6388,23 +6414,35 @@ function LeadGenSheet(props: {
   //   sweeps up and around, and Door Knock lands last (bottom-right) — a natural
   //   rolling reveal from one corner to the other.
   if (view === "root") {
-    // v20.4.6 — wider radius + wider sweep so bubbles have real breathing room
-    // and labels don't overlap neighbors. 30° between bubbles across a 180° sweep.
-    const ARC_RADIUS = 202;
-    const HERO_LIFT = 26;
-    const BUBBLE_SIZE = 68;
-    const HERO_SIZE = 88;
+    // v20.4.7 — viewport-adaptive arc. The old fixed radius (202) + 68px bubbles pushed
+    // the outermost bubbles ~40px offscreen on 393px iPhones, and labels ran further.
+    // Compute a safe radius: center - bubble/2 - label_half - edge_margin.
+    // Also narrow the sweep from 180° to 160° (100°–80°) so end bubbles arc IN slightly
+    // rather than sitting flat on the horizon line where they clip against the screen edge.
+    const vw = typeof window !== "undefined" ? window.innerWidth : 393;
+    const BUBBLE_SIZE = vw < 360 ? 58 : vw < 400 ? 62 : 66;
+    const HERO_SIZE = BUBBLE_SIZE + 20;
+    const LABEL_HALF = 40; // half-width budget for widest label ("Agent Referral")
+    const EDGE_MARGIN = 10;
+    const MAX_RADIUS = (vw / 2) - (BUBBLE_SIZE / 2) - LABEL_HALF - EDGE_MARGIN;
+    // We also need to keep bubbles above the fold: cap by vertical space too.
+    const vh = typeof window !== "undefined" ? window.innerHeight : 780;
+    const VERTICAL_CAP = vh - 220; // reserve room for nav + safe area + label
+    const ARC_RADIUS = Math.max(140, Math.min(202, MAX_RADIUS, VERTICAL_CAP));
+    const HERO_LIFT = 20;
+    // Narrower 160° sweep: 100° (leftmost) → 80° (rightmost) covers 20° span per bubble step * 6 gaps.
+    // Actually keep 30° stepping but rotate the whole sweep inward by 10° on each side: 170° → 10°.
     const bubbles: Array<{
       key: string; label: string; icon: React.ReactNode;
       angleDeg: number; hero?: boolean; onClick: () => void;
     }> = [
-      { key: "mail",    label: "Direct Mail",    icon: <Mail size={20} />,     angleDeg: 180, onClick: () => setView("direct-mail" as any) },
-      { key: "network", label: "Network",        icon: <Users size={20} />,    angleDeg: 150, onClick: () => setView("network-referral") },
-      { key: "oh",      label: "Open House",     icon: <Home size={20} />,     angleDeg: 120, onClick: () => setView("open-house") },
+      { key: "mail",    label: "Direct Mail",    icon: <Mail size={20} />,     angleDeg: 170, onClick: () => setView("direct-mail" as any) },
+      { key: "network", label: "Network",        icon: <Users size={20} />,    angleDeg: 143, onClick: () => setView("network-referral") },
+      { key: "oh",      label: "Open House",     icon: <Home size={20} />,     angleDeg: 116, onClick: () => setView("open-house") },
       { key: "dial",    label: "Dial",           icon: <Phone size={28} />,    angleDeg: 90,  hero: true, onClick: goToDial },
-      { key: "social",  label: "Social",         icon: <Share2 size={20} />,   angleDeg: 60,  onClick: () => setView("social" as any) },
-      { key: "refer",   label: "Agent Referral", icon: <Send size={20} />,     angleDeg: 30,  onClick: () => setView("refer-agent" as any) },
-      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={20} />, angleDeg: 0,   onClick: () => setView("door-knock" as any) },
+      { key: "social",  label: "Social",         icon: <Share2 size={20} />,   angleDeg: 64,  onClick: () => setView("social" as any) },
+      { key: "refer",   label: "Agent Referral", icon: <Send size={20} />,     angleDeg: 37,  onClick: () => setView("refer-agent" as any) },
+      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={20} />, angleDeg: 10,  onClick: () => setView("door-knock" as any) },
     ];
     // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
     // Anchor the arc's origin over the FAB center.
@@ -6615,6 +6653,11 @@ function LeadGenSheet(props: {
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {tile({
+                icon: <MapPin size={22} />, title: "Book an Open House", sub: "Grab an open house from the team's offered list. First come, first serve.",
+                hero: true,
+                onClick: () => setView("oh-book" as any),
+              })}
+              {tile({
                 icon: <Camera size={22} />, title: "Log Open House", sub: "Selfie + address. Proof you showed up. 20 pts.",
                 onClick: () => setView("oh-log"),
               })}
@@ -6635,6 +6678,13 @@ function LeadGenSheet(props: {
           <>
             {header("Log Open House", () => setView("open-house"))}
             <OpenHouseLogForm user={user} toast={toast} onDone={close} />
+          </>
+        )}
+
+        {view === ("oh-book" as any) && (
+          <>
+            {header("Book Open House", () => setView("open-house"))}
+            <BookOpenHouseSheet userId={(user as any)?.id} onBooked={() => { /* handled inside sheet */ }} />
           </>
         )}
 

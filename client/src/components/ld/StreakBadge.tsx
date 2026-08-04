@@ -153,19 +153,23 @@ export function StreakCard({ agentId }: { agentId: number }) {
 // entire following month everywhere the champion's headshot appears.
 // Endpoint: GET /api/champion → { agentId, agentName, monthKey, points, appts, awardedForMonth }
 
-let _championCache: { data: { agentId: number | null; agentName: string | null; points: number; awardedForMonth: string } | null; at: number } | null = null;
+// v20.4.7 — champion payload now includes headshotUrl so the Reigning Champion
+// card renders a real photo (with laurel wreath frame), not just initials.
+type ChampionData = { agentId: number | null; agentName: string | null; headshotUrl: string | null; points: number; awardedForMonth: string };
+let _championCache: { data: ChampionData | null; at: number } | null = null;
 const CHAMPION_CACHE_MS = 60_000;
 
-async function fetchChampion(): Promise<{ agentId: number | null; agentName: string | null; points: number; awardedForMonth: string } | null> {
+async function fetchChampion(): Promise<ChampionData | null> {
   const now = Date.now();
   if (_championCache && (now - _championCache.at) < CHAMPION_CACHE_MS) return _championCache.data;
   try {
     const res = await fetch(`/api/champion`, { credentials: "include" });
     if (!res.ok) return null;
     const j = await res.json();
-    const data = {
+    const data: ChampionData = {
       agentId: j.agentId ?? null,
       agentName: j.agentName ?? null,
+      headshotUrl: j.headshotUrl ?? null,
       points: Number(j.points) || 0,
       awardedForMonth: j.awardedForMonth || "",
     };
@@ -174,8 +178,8 @@ async function fetchChampion(): Promise<{ agentId: number | null; agentName: str
   } catch { return null; }
 }
 
-export function useCurrentChampion(): { agentId: number | null; agentName: string | null; points: number; awardedForMonth: string } {
-  const [c, setC] = useState<{ agentId: number | null; agentName: string | null; points: number; awardedForMonth: string }>({ agentId: null, agentName: null, points: 0, awardedForMonth: "" });
+export function useCurrentChampion(): ChampionData {
+  const [c, setC] = useState<ChampionData>({ agentId: null, agentName: null, headshotUrl: null, points: 0, awardedForMonth: "" });
   useEffect(() => {
     let cancelled = false;
     fetchChampion().then(x => { if (!cancelled && x) setC(x); });

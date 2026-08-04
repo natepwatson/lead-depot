@@ -25,6 +25,21 @@ interface Pin {
 }
 interface Totals { total: number; appt: number; contact: number; pool: number; }
 
+// v20.4.7 — Active listings shown as muted-gold home pins; approved open houses
+// show as bright pulsing gold flags with Book buttons.
+interface ListingPin {
+  id: number; address: string; city: string | null; state: string | null; zip: string | null;
+  list_price: number | null; listing_agent: string | null; lat: number; lng: number;
+}
+interface OpenHousePin {
+  id: number; listing_id: number | null; address: string;
+  date: string; time_start: string; time_end: string;
+  listing_agent: string | null; list_price: number | null;
+  lat: number | null; lng: number | null;
+  status: "open" | "booked";
+  claimed_by_id: string | null; claimed_by_name: string | null;
+}
+
 const NE_FL = { lat: 30.18, lng: -81.65, zoom: 10 };
 
 const TIER: Record<string, { fill: string; label: string; short: string }> = {
@@ -55,6 +70,73 @@ function loadLF(): Promise<void> {
 function makePin(fill: string, size: number, L: any) {
   const svg = `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${fill};box-shadow:0 0 0 2px rgba(0,0,0,0.4),0 2px 8px rgba(0,0,0,0.6);border:1.5px solid rgba(255,255,255,0.6);cursor:pointer"></div>`;
   return L.divIcon({ html: svg, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+}
+
+// v20.4.7 — Listing (muted gold home icon).
+function makeListingPin(L: any) {
+  const html = `<div style="width:22px;height:22px;display:flex;align-items:center;justify-content:center;background:rgba(200,170,90,0.15);border:1.5px solid rgba(200,170,90,0.55);border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,0.6)">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#c8aa5a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/>
+    </svg>
+  </div>`;
+  return L.divIcon({ html, className: "", iconSize: [22, 22], iconAnchor: [11, 11] });
+}
+
+// v20.4.7 — Open House (bright pulsing gold flag).
+function makeOHPin(L: any, booked: boolean) {
+  const glow = booked ? "rgba(126,212,154,0.55)" : "rgba(255,210,110,0.7)";
+  const bg = booked ? "linear-gradient(135deg,#7ed49a,#4faa5f)" : "linear-gradient(135deg,#ffd870,#c8aa5a)";
+  const border = booked ? "#7ed49a" : "#ffe090";
+  const cls = booked ? "" : "oh-pulse";
+  const html = `<div class="${cls}" style="position:relative;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:${bg};border:2px solid ${border};border-radius:50%;box-shadow:0 0 0 4px ${glow},0 4px 12px rgba(0,0,0,0.7);cursor:pointer">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0a0a0a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 22V4"/><path d="M4 4h14l-3 4 3 4H4"/>
+    </svg>
+  </div>`;
+  return L.divIcon({ html, className: "", iconSize: [30, 30], iconAnchor: [15, 15] });
+}
+
+const fmtDate = (d: string) => {
+  try { const [y, m, da] = d.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, da)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+  } catch { return d; }
+};
+const fmtTime = (t: string) => {
+  try { const [h, mi] = t.split(":").map(Number);
+    const suf = h >= 12 ? "PM" : "AM"; const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${String(mi).padStart(2, "0")} ${suf}`;
+  } catch { return t; }
+};
+
+function listingPopupHTML(l: ListingPin): string {
+  const cityLine = `${l.city || ""}${l.city && l.zip ? ", " : ""}${l.state || ""} ${l.zip || ""}`.trim();
+  return `
+    <div style="min-width:200px;padding:2px">
+      <div style="font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:#c8aa5a;font-weight:700;margin-bottom:6px">Our Listing</div>
+      <div style="font-size:13px;color:#fff;line-height:1.3">${l.address}</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:2px">${cityLine}</div>
+      ${l.listing_agent ? `<div style="font-size:11px;color:rgba(200,170,90,0.75);margin-top:6px">Listed by ${l.listing_agent}</div>` : ""}
+      ${l.list_price ? `<div style="font-size:12px;color:#fff;margin-top:4px;font-weight:600">$${l.list_price.toLocaleString()}</div>` : ""}
+    </div>`;
+}
+
+function ohPopupHTML(oh: OpenHousePin, viewerIsMineOrAdmin: boolean): string {
+  const dt = `${fmtDate(oh.date)} · ${fmtTime(oh.time_start)}–${fmtTime(oh.time_end)}`;
+  const statusBadge = oh.status === "booked"
+    ? `<div style="display:inline-block;padding:3px 9px;border-radius:4px;background:rgba(126,212,154,0.15);border:1px solid rgba(126,212,154,0.4);font-size:9px;letter-spacing:0.16em;text-transform:uppercase;color:#7ed49a;font-weight:700">Booked${oh.claimed_by_name ? ` · ${oh.claimed_by_name}` : ""}</div>`
+    : `<div style="display:inline-block;padding:3px 9px;border-radius:4px;background:rgba(255,210,110,0.15);border:1px solid rgba(255,210,110,0.5);font-size:9px;letter-spacing:0.16em;text-transform:uppercase;color:#ffd870;font-weight:700">Open House Opportunity</div>`;
+  const bookBtn = oh.status === "open"
+    ? `<a href="#" data-oh-book="${oh.id}" style="display:block;margin-top:10px;padding:8px 14px;border-radius:6px;background:#c8aa5a;color:#0a0a0a;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;text-align:center;text-decoration:none;border:1px solid rgba(200,170,90,0.6)">Book This Open House</a>`
+    : "";
+  return `
+    <div style="min-width:220px;padding:2px">
+      ${statusBadge}
+      <div style="font-size:13px;color:#fff;margin-top:8px;line-height:1.3">${oh.address}</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:4px">${dt}</div>
+      ${oh.listing_agent ? `<div style="font-size:11px;color:rgba(200,170,90,0.7);margin-top:4px">Listed by ${oh.listing_agent}</div>` : ""}
+      ${oh.list_price ? `<div style="font-size:12px;color:#fff;margin-top:4px;font-weight:600">$${oh.list_price.toLocaleString()}</div>` : ""}
+      ${bookBtn}
+    </div>`;
 }
 
 function popupHTML(p: Pin, viewerIsAdmin: boolean) {
@@ -106,6 +188,8 @@ export default function TeamMap() {
   const [lfReady, setLfReady] = useState(false);
   const [err, setErr] = useState("");
   const [tierFilter, setTierFilter] = useState<"all" | "appt" | "contact" | "pool">("all");
+  const [listings, setListings] = useState<ListingPin[]>([]);
+  const [openHouses, setOpenHouses] = useState<OpenHousePin[]>([]);
 
   useEffect(() => {
     loadLF().then(() => setLfReady(true)).catch(() => setErr("Failed to load map."));
@@ -123,6 +207,15 @@ export default function TeamMap() {
         setLoading(false);
       })
       .catch(() => { if (!cancelled) { setErr("Failed to load pins."); setLoading(false); } });
+    // v20.4.7 — Also fetch listings + open houses (best-effort, silent fail).
+    fetch("/api/listings/active-map", { credentials: "include" })
+      .then(r => r.ok ? r.json() : { listings: [] })
+      .then((d: any) => { if (!cancelled) setListings(d.listings || []); })
+      .catch(() => {});
+    fetch("/api/open-houses/upcoming", { credentials: "include" })
+      .then(r => r.ok ? r.json() : { openHouses: [] })
+      .then((d: any) => { if (!cancelled) setOpenHouses(d.openHouses || []); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
@@ -165,6 +258,41 @@ export default function TeamMap() {
       // No hover binding on mobile — click/tap opens popup naturally.
       marker;
     }
+    // v20.4.7 — Listings layer (muted gold home icons).
+    for (const l of listings) {
+      if (l.lat == null || l.lng == null) continue;
+      L.marker([l.lat, l.lng], { icon: makeListingPin(L), zIndexOffset: 200 })
+        .bindPopup(listingPopupHTML(l), { className: "team-map-popup", maxWidth: 260, autoPan: true })
+        .addTo(layerRef.current);
+    }
+    // v20.4.7 — Open House layer (bright pulsing gold flags).
+    for (const oh of openHouses) {
+      if (oh.lat == null || oh.lng == null) continue;
+      const marker = L.marker([oh.lat, oh.lng], { icon: makeOHPin(L, oh.status === "booked"), zIndexOffset: 400 })
+        .bindPopup(ohPopupHTML(oh, viewerIsAdmin), { className: "team-map-popup", maxWidth: 280, autoPan: true })
+        .addTo(layerRef.current);
+      marker.on("popupopen", (e: any) => {
+        const el = e.popup.getElement();
+        if (!el) return;
+        const btn = el.querySelector(`[data-oh-book="${oh.id}"]`);
+        if (btn) {
+          btn.addEventListener("click", async (ev: Event) => {
+            ev.preventDefault();
+            if (!confirm(`Book this open house?\n\n${oh.address}`)) return;
+            try {
+              const r = await fetch(`/api/open-houses/${oh.id}/claim`, { method: "POST", credentials: "include" });
+              if (!r.ok) throw new Error(await r.text());
+              alert("✓ Booked! Check your email for full details.");
+              // Refresh open house pins.
+              const dd = await fetch("/api/open-houses/upcoming", { credentials: "include" }).then(x => x.json());
+              setOpenHouses(dd.openHouses || []);
+            } catch (err: any) {
+              alert(`Could not book: ${err?.message || "unknown error"}`);
+            }
+          }, { once: true });
+        }
+      });
+    }
     if (!hasFitRef.current && filtered.length > 0) {
       hasFitRef.current = true;
       try {
@@ -172,7 +300,7 @@ export default function TeamMap() {
         map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
       } catch (_) { /* ignore */ }
     }
-  }, [pins, lfReady, tierFilter, viewerIsAdmin]);
+  }, [pins, lfReady, tierFilter, viewerIsAdmin, listings, openHouses]);
 
   const filterCount = tierFilter === "all" ? totals.total
                     : tierFilter === "appt" ? totals.appt
@@ -182,6 +310,8 @@ export default function TeamMap() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <style>{`
+        @keyframes ohPulse { 0%,100% { transform: scale(1); box-shadow: 0 0 0 4px rgba(255,210,110,0.7),0 4px 12px rgba(0,0,0,0.7); } 50% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(255,210,110,0.35),0 6px 16px rgba(0,0,0,0.8); } }
+        .oh-pulse { animation: ohPulse 1.8s ease-in-out infinite; }
         .team-map-popup .leaflet-popup-content-wrapper {
           background: linear-gradient(155deg, #0f1a12 0%, #0a1010 100%);
           border: 1px solid rgba(200,170,90,0.45);

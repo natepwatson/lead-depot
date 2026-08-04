@@ -6,7 +6,7 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor } from "./fub";
+import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD } from "./fub";
 import { getCallHeatTier, tierForCell } from "../shared/prime-schedule";
 import {
   computeAndPersistStreak,
@@ -216,7 +216,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.6 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.7 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -445,7 +445,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.4.6 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.4.7 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -504,7 +504,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.6 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.7 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -552,7 +552,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.6 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.7 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1790,7 +1790,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.4.6</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.4.7</p>
             </div>
           `,
         });
@@ -1950,7 +1950,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.4.6 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.4.7 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2834,6 +2834,126 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   }
   // Kick off background geocode 5s after routes are wired so we don't compete with startup traffic.
   setTimeout(() => { void runBackgroundGeocode("boot"); }, 5000);
+
+  // v20.4.7 — geocode any listings missing lat/lng. Reuses censusGeocodeAddresses.
+  let listingGeocodeRunning = false;
+  async function runListingGeocodePass(): Promise<{ geocoded: number; missing: number }> {
+    if (listingGeocodeRunning) return { geocoded: 0, missing: 0 };
+    listingGeocodeRunning = true;
+    let geocoded = 0;
+    try {
+      const missing: any[] = rawDb.prepare(`SELECT id, address, city, state, zip FROM listings WHERE lat IS NULL OR lng IS NULL LIMIT 500`).all();
+      if (!missing.length) return { geocoded: 0, missing: 0 };
+      const items = missing.map((l: any) => ({
+        id: l.id,
+        addr: [l.address, l.city, l.state || "FL", l.zip].filter(Boolean).join(", "),
+        street: l.address || "",
+        city: l.city || "",
+        state: l.state || "FL",
+        zip: l.zip || "",
+      }));
+      const BATCH = 500;
+      for (let i = 0; i < items.length; i += BATCH) {
+        const slice = items.slice(i, i + BATCH);
+        try {
+          const results = await censusGeocodeAddresses(slice);
+          const upd = rawDb.prepare(`UPDATE listings SET lat = ?, lng = ?, updated_at = datetime('now') WHERE id = ?`);
+          for (const [id, coords] of results.entries()) {
+            upd.run(coords.lat, coords.lng, id);
+            geocoded++;
+          }
+        } catch (e) { console.error("[listings-geocode] batch failed:", e); }
+        if (i + BATCH < items.length) await new Promise(r => setTimeout(r, 3000));
+      }
+      console.log(`[listings-geocode] done — geocoded ${geocoded}/${missing.length} listings`);
+      return { geocoded, missing: missing.length };
+    } finally { listingGeocodeRunning = false; }
+  }
+  // Kick a listings geocode pass at boot too (5s delay).
+  setTimeout(() => { void runListingGeocodePass(); }, 6000);
+
+  // v20.4.7 — Open House acceptance email. Fires when an agent books an OH
+  // (or when Denise's pre-typed host_preference auto-books on approval).
+  // Includes: address, date/time, listing agent, list price, access info,
+  // notes, prep instructions, and a link back to Lead Depot.
+  async function sendOpenHouseAcceptanceEmail(ohId: number, agentId: number): Promise<void> {
+    if (!resend) { console.warn("[oh-email] resend not configured"); return; }
+    const oh = rawDb.prepare(`SELECT * FROM open_houses WHERE id = ?`).get(ohId) as any;
+    if (!oh) return;
+    const agent = rawDb.prepare(`SELECT id, name, email FROM agents WHERE id = ?`).get(agentId) as any;
+    if (!agent?.email) { console.warn(`[oh-email] agent ${agentId} has no email`); return; }
+    const fmtDate = (d: string) => {
+      try {
+        const [y, m, day] = d.split("-").map(Number);
+        const dt = new Date(Date.UTC(y, m - 1, day));
+        return dt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+      } catch { return d; }
+    };
+    const fmtTime = (t: string) => {
+      try {
+        const [h, mi] = t.split(":").map(Number);
+        const suffix = h >= 12 ? "PM" : "AM";
+        const h12 = h % 12 === 0 ? 12 : h % 12;
+        return `${h12}:${String(mi).padStart(2, "0")} ${suffix}`;
+      } catch { return t; }
+    };
+    const fmtMoney = (n: any) => n ? ("$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 })) : "—";
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 620px; margin: 0 auto; color: #1a1a1a; line-height: 1.55;">
+        <div style="background: linear-gradient(135deg, #C9A961 0%, #B8964F 100%); padding: 28px 32px; color: #fff; border-radius: 6px 6px 0 0;">
+          <div style="font-size: 12px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.85; margin-bottom: 8px;">Lead Depot — Open House Booked</div>
+          <h1 style="margin: 0; font-size: 22px; font-weight: 600;">You’re on for ${oh.address}</h1>
+        </div>
+        <div style="background: #fff; padding: 28px 32px; border: 1px solid #e5e5e5; border-top: none; border-radius: 0 0 6px 6px;">
+          <p style="margin: 0 0 20px 0; font-size: 15px;">Hey ${agent.name?.split(" ")[0] || agent.name || "there"} — you’ve got this open house. Here’s everything you need.</p>
+
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+            <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 13px; color: #666; width: 140px;">Address</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 15px; font-weight: 500;">${oh.address}</td></tr>
+            <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 13px; color: #666;">Date</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 15px; font-weight: 500;">${fmtDate(oh.date)}</td></tr>
+            <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 13px; color: #666;">Time</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 15px; font-weight: 500;">${fmtTime(oh.time_start)} – ${fmtTime(oh.time_end)}</td></tr>
+            <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 13px; color: #666;">Listing Agent</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 15px;">${oh.listing_agent || "—"}</td></tr>
+            <tr><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 13px; color: #666;">List Price</td><td style="padding: 10px 0; border-bottom: 1px solid #eee; font-size: 15px;">${fmtMoney(oh.list_price)}</td></tr>
+          </table>
+
+          <div style="background: #FFF9EE; border-left: 4px solid #C9A961; padding: 16px 20px; margin-bottom: 24px; border-radius: 4px;">
+            <div style="font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #7A6B3E; margin-bottom: 8px; font-weight: 600;">Access Info</div>
+            <div style="font-size: 15px; white-space: pre-wrap;">${(oh.access_info || "").replace(/</g, "&lt;")}</div>
+          </div>
+
+          ${oh.notes ? `<div style="background: #F4F4F4; padding: 16px 20px; margin-bottom: 24px; border-radius: 4px;"><div style="font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #555; margin-bottom: 8px; font-weight: 600;">Notes from Denise</div><div style="font-size: 14px; white-space: pre-wrap;">${oh.notes.replace(/</g, "&lt;")}</div></div>` : ""}
+
+          <div style="background: #1a1a1a; color: #fff; padding: 20px 24px; border-radius: 6px; margin-bottom: 24px;">
+            <div style="font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #C9A961; margin-bottom: 12px; font-weight: 600;">Prep Checklist</div>
+            <ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.8;">
+              <li><strong>Arrive 30 minutes early</strong> to unlock, unlock lights, set up sign-in.</li>
+              <li><strong>Come prepared with flyers</strong> — grab them from the office if you don’t have any.</li>
+              <li><strong>Place a minimum of 5 open house signs</strong> at every major turn leading to the property.</li>
+              <li>Log every conversation as a lead in Lead Depot before you leave the driveway.</li>
+            </ul>
+            <div style="margin-top: 14px; font-size: 14px; color: #C9A961; font-weight: 600;">Good luck!</div>
+          </div>
+
+          <div style="text-align: center;">
+            <a href="https://depot.watsonbrothersgroup.com" style="display: inline-block; background: #1a1a1a; color: #fff; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-size: 14px; font-weight: 600;">Open Lead Depot</a>
+          </div>
+
+          <p style="margin: 32px 0 0 0; font-size: 12px; color: #999; text-align: center;">Need to bail? Text Alex or Nate directly — no self-serve cancel in the app.</p>
+        </div>
+      </div>
+    `;
+    try {
+      await resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to: agent.email,
+        subject: `Open House — ${fmtDate(oh.date)} — ${oh.address}`,
+        html,
+      });
+      console.log(`[oh-email] sent acceptance to ${agent.email} for OH ${ohId}`);
+    } catch (e: any) {
+      console.error(`[oh-email] send failed for OH ${ohId}:`, e?.message || e);
+      throw e;
+    }
+  }
 
   app.get("/api/leads/map", (req, res) => {
     // v14.30 — viewport rebuild:
@@ -4833,6 +4953,435 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     catch (err: any) { res.status(500).json({ error: err?.message || "champion_history_error" }); }
   });
 
+  // v20.4.7 — FUB Pro plan seat headroom. Returns live FUB user-seat usage so
+  // the admin Candidates tab can show "5/10 seats used, 5 remaining" and warn
+  // before an approve would trigger $49/mo overage. Non-cached: hits FUB every
+  // call so the number is always current at the moment Alex looks.
+  app.get("/api/admin/fub-seats", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const usage = await fubGetSeatUsage();
+      res.json({
+        ok: !usage.error,
+        used: usage.used,
+        included: usage.included,
+        remaining: usage.remaining,
+        overageSeats: usage.overageSeats,
+        overageMonthlyCost: usage.overageMonthlyCost,
+        overagePerSeat: FUB_PRO_OVERAGE_PER_SEAT_USD,
+        nextApproveWouldOverage: usage.remaining <= 0 && !usage.error,
+        users: usage.users,
+        fetchedAt: usage.fetchedAt,
+        error: usage.error,
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || "fub_seats_error" });
+    }
+  });
+
+  // ─── v20.4.7 LISTINGS ────────────────────────────────────────
+  // Every Monday Denise uploads active/pending/sold listings via Upload CSV.
+  // Each active listing becomes a candidate row on Tuesday's OH Schedule form.
+  // Active listings also appear on the team map as muted-gold home pins.
+
+  app.get("/api/admin/listings", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const status = req.query?.status ? String(req.query.status) : null;
+    const where = status ? "WHERE status = ?" : "";
+    const rows = rawDb.prepare(`
+      SELECT * FROM listings ${where}
+      ORDER BY (CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 WHEN 'sold' THEN 2 ELSE 3 END),
+               list_date DESC, id DESC
+      LIMIT 1000
+    `).all(...(status ? [status] : []));
+    res.json({ ok: true, listings: rows });
+  });
+
+  // Agent-facing: only geocoded ACTIVE listings, for the team map.
+  app.get("/api/listings/active-map", (req: any, res) => {
+    if (!req.currentAgent) return res.status(401).json({ error: "unauthorized" });
+    const rows = rawDb.prepare(`
+      SELECT id, address, city, state, zip, list_price, listing_agent, list_date, lat, lng
+      FROM listings WHERE status = 'active' AND lat IS NOT NULL AND lng IS NOT NULL
+      LIMIT 500
+    `).all();
+    res.json({ ok: true, listings: rows });
+  });
+
+  app.post("/api/admin/listings", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const b = req.body || {};
+    const address = String(b.address || "").trim();
+    if (!address) return res.status(400).json({ error: "address required" });
+    const status = String(b.status || "active").toLowerCase();
+    if (!['active','pending','sold'].includes(status)) return res.status(400).json({ error: "status must be active|pending|sold" });
+    const info = rawDb.prepare(`
+      INSERT INTO listings (address, city, state, zip, list_price, status, listing_agent, list_date, pending_date, sold_date, sold_price, mls_number, notes, uploaded_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      address, b.city || null, b.state || "FL", b.zip || null,
+      b.list_price ? Number(b.list_price) : null,
+      status, b.listing_agent || null,
+      b.list_date || null, b.pending_date || null, b.sold_date || null,
+      b.sold_price ? Number(b.sold_price) : null,
+      b.mls_number || null, b.notes || null,
+      req.currentAgent?.name || "admin",
+    );
+    try { broadcast({ type: "listing_updated", id: info.lastInsertRowid }); } catch {}
+    res.json({ ok: true, id: info.lastInsertRowid });
+  });
+
+  // Bulk CSV import: { rows: [{address, city, state, zip, list_price, status, listing_agent, ...}, ...] }
+  app.post("/api/admin/listings/bulk", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: "rows required" });
+    const insert = rawDb.prepare(`
+      INSERT INTO listings (address, city, state, zip, list_price, status, listing_agent, list_date, pending_date, sold_date, sold_price, mls_number, notes, uploaded_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const upsert = rawDb.prepare(`
+      UPDATE listings SET city=?, state=?, list_price=?, status=?, listing_agent=?, list_date=?, pending_date=?, sold_date=?, sold_price=?, mls_number=?, notes=?, uploaded_by=?, updated_at=datetime('now')
+      WHERE lower(address) = lower(?) AND coalesce(zip,'') = coalesce(?, '')
+    `);
+    const findExisting = rawDb.prepare(`SELECT id FROM listings WHERE lower(address) = lower(?) AND coalesce(zip,'') = coalesce(?, '') LIMIT 1`);
+    let ok = 0, err = 0;
+    const errors: string[] = [];
+    const tx = rawDb.transaction((rs: any[]) => {
+      for (const r of rs) {
+        const addr = String(r.address || "").trim();
+        if (!addr) { err++; errors.push("missing address"); continue; }
+        const status = String(r.status || "active").toLowerCase();
+        if (!['active','pending','sold'].includes(status)) { err++; errors.push(`bad status: ${status}`); continue; }
+        const zip = r.zip ? String(r.zip) : null;
+        const priceNum = (v: any) => v ? Number(String(v).replace(/[^0-9.]/g, "")) : null;
+        try {
+          const existing = findExisting.get(addr, zip) as any;
+          if (existing?.id) {
+            upsert.run(
+              r.city || null, r.state || "FL", priceNum(r.list_price),
+              status, r.listing_agent || null,
+              r.list_date || null, r.pending_date || null, r.sold_date || null,
+              priceNum(r.sold_price), r.mls_number || null, r.notes || null,
+              (req.currentAgent?.name || "admin"),
+              addr, zip,
+            );
+          } else {
+            insert.run(
+              addr, r.city || null, r.state || "FL", zip,
+              priceNum(r.list_price),
+              status, r.listing_agent || null,
+              r.list_date || null, r.pending_date || null, r.sold_date || null,
+              priceNum(r.sold_price),
+              r.mls_number || null, r.notes || null,
+              req.currentAgent?.name || "admin",
+            );
+          }
+          ok++;
+        } catch (e: any) { err++; errors.push(`${addr}: ${e?.message || "err"}`); }
+      }
+    });
+    tx(rows);
+    // Fire-and-forget geocode pass so map populates soon after upload.
+    setImmediate(() => {
+      try { runListingGeocodePass().catch(() => {}); } catch {}
+    });
+    try { broadcast({ type: "listings_bulk_updated", count: ok }); } catch {}
+    res.json({ ok: true, imported: ok, failed: err, errors: errors.slice(0, 20) });
+  });
+
+  app.put("/api/admin/listings/:id", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(req.params.id);
+    const b = req.body || {};
+    const fields: string[] = [], params: any[] = [];
+    for (const k of ['address','city','state','zip','listing_agent','list_date','pending_date','sold_date','mls_number','notes']) {
+      if (k in b) { fields.push(`${k} = ?`); params.push(b[k]); }
+    }
+    if ('list_price' in b) { fields.push('list_price = ?'); params.push(b.list_price ? Number(b.list_price) : null); }
+    if ('sold_price' in b) { fields.push('sold_price = ?'); params.push(b.sold_price ? Number(b.sold_price) : null); }
+    if ('status' in b) {
+      const s = String(b.status).toLowerCase();
+      if (!['active','pending','sold'].includes(s)) return res.status(400).json({ error: "status must be active|pending|sold" });
+      fields.push('status = ?'); params.push(s);
+    }
+    if (!fields.length) return res.status(400).json({ error: "no fields" });
+    fields.push("updated_at = datetime('now')");
+    params.push(id);
+    rawDb.prepare(`UPDATE listings SET ${fields.join(", ")} WHERE id = ?`).run(...params);
+    try { broadcast({ type: "listing_updated", id }); } catch {}
+    res.json({ ok: true });
+  });
+
+  app.delete("/api/admin/listings/:id", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(req.params.id);
+    rawDb.prepare(`DELETE FROM listings WHERE id = ?`).run(id);
+    try { broadcast({ type: "listing_updated", id }); } catch {}
+    res.json({ ok: true });
+  });
+
+  // Manual trigger for a geocode pass. Uses same Nominatim path as leads geocoding.
+  app.post("/api/admin/listings/geocode", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const result = await runListingGeocodePass();
+    res.json({ ok: true, ...result });
+  });
+
+  // ─── v20.4.7 OPEN HOUSES ─────────────────────────────────────
+  // Weekly flow:
+  //   Monday  → Denise uploads active/pending/sold listings (see Listings above).
+  //   Tuesday → Denise fills the OH Schedule (per-listing radio + date + start + length + access_info + notes)
+  //             which creates pending_approval rows.
+  //   Approval → Admin approves (→ 'open') or declines (→ 'declined').
+  //              If Denise pre-typed a host name on an active agent, the approve
+  //              step auto-books the row and fires the acceptance email.
+  //   Booking → Any agent taps Book on the map or lead-gen chooser. First to
+  //             tap wins; row flips to 'booked' and email fires with access info.
+  //   Cancel  → No self-serve cancellation. Agents text Alex/Nate directly.
+
+  // Agent-facing list: any 'open' OH plus this agent's own 'booked' OHs.
+  // Never leaks access_info or notes to agents who haven't claimed the row.
+  app.get("/api/open-houses/upcoming", (req: any, res) => {
+    if (!req.currentAgent) return res.status(401).json({ error: "unauthorized" });
+    const today = new Date().toISOString().slice(0, 10);
+    const agentId = req.currentAgent.id;
+    const rows = rawDb.prepare(`
+      SELECT oh.*, a.name AS claimed_by_name, l.lat, l.lng
+      FROM open_houses oh
+      LEFT JOIN agents a ON a.id = oh.claimed_by_agent_id
+      LEFT JOIN listings l ON l.id = oh.listing_id
+      WHERE oh.date >= ?
+        AND (
+          oh.status = 'open'
+          OR (oh.status = 'booked' AND oh.claimed_by_agent_id = ?)
+        )
+      ORDER BY oh.date ASC, oh.time_start ASC
+      LIMIT 100
+    `).all(today, agentId);
+    for (const r of rows as any[]) {
+      if (r.claimed_by_agent_id !== agentId) {
+        r.access_info = null;
+        r.notes = null;
+      }
+    }
+    res.json({ ok: true, openHouses: rows });
+  });
+
+  // Admin: list ALL open houses (any status, any date)
+  app.get("/api/admin/open-houses", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const status = req.query?.status ? String(req.query.status) : null;
+    const since = req.query?.since ? String(req.query.since) : null;
+    const where: string[] = [];
+    const params: any[] = [];
+    if (status) { where.push("oh.status = ?"); params.push(status); }
+    if (since)  { where.push("oh.date >= ?");  params.push(since); }
+    const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+    const rows = rawDb.prepare(`
+      SELECT oh.*, a.name AS claimed_by_name, ap.name AS approved_by_name
+      FROM open_houses oh
+      LEFT JOIN agents a ON a.id = oh.claimed_by_agent_id
+      LEFT JOIN agents ap ON ap.id = oh.approved_by_id
+      ${whereSql}
+      ORDER BY oh.date DESC, oh.time_start ASC
+      LIMIT 500
+    `).all(...params);
+    res.json({ ok: true, openHouses: rows });
+  });
+
+  // Admin: pending-approval OHs only. Driven by Denise's Tuesday submission.
+  app.get("/api/admin/open-houses/pending", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const rows = rawDb.prepare(`
+      SELECT oh.*, l.list_price AS listing_list_price, l.listing_agent AS listing_listing_agent
+      FROM open_houses oh
+      LEFT JOIN listings l ON l.id = oh.listing_id
+      WHERE oh.status = 'pending_approval'
+      ORDER BY oh.date ASC, oh.time_start ASC
+    `).all();
+    res.json({ ok: true, pending: rows });
+  });
+
+  // Admin: approve a pending OH.
+  // If Denise pre-typed a host_preference matching an active agent, auto-book
+  // and fire acceptance email. Otherwise flip to 'open' for first-come booking.
+  app.post("/api/admin/open-houses/:id/approve", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(req.params.id);
+    const row = rawDb.prepare(`SELECT * FROM open_houses WHERE id = ?`).get(id) as any;
+    if (!row) return res.status(404).json({ error: "not found" });
+    if (row.status !== "pending_approval") return res.status(409).json({ error: `not pending (status=${row.status})` });
+    let claimedId: number | null = null;
+    if (row.host_preference && String(row.host_preference).trim()) {
+      const name = String(row.host_preference).trim();
+      const agent = rawDb.prepare(`SELECT id FROM agents WHERE active = 1 AND lower(name) = lower(?) LIMIT 1`).get(name) as any;
+      if (agent?.id) claimedId = agent.id;
+    }
+    const now = new Date().toISOString();
+    if (claimedId) {
+      rawDb.prepare(`UPDATE open_houses SET status='booked', approved_by_id=?, approved_at=?, claimed_by_agent_id=?, claimed_at=?, updated_at=? WHERE id=?`)
+        .run(req.currentAgent.id, now, claimedId, now, now, id);
+      try { await sendOpenHouseAcceptanceEmail(id, claimedId); } catch (e) { console.warn("[oh] preassign email warn:", e); }
+    } else {
+      rawDb.prepare(`UPDATE open_houses SET status='open', approved_by_id=?, approved_at=?, updated_at=? WHERE id=?`)
+        .run(req.currentAgent.id, now, now, id);
+    }
+    try { broadcast({ type: "open_house_updated", id }); } catch {}
+    res.json({ ok: true, autoBooked: !!claimedId });
+  });
+
+  // Admin: decline a pending OH.
+  app.post("/api/admin/open-houses/:id/decline", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(req.params.id);
+    const reason = req.body?.reason ? String(req.body.reason) : null;
+    const now = new Date().toISOString();
+    rawDb.prepare(`UPDATE open_houses SET status='declined', declined_reason=?, updated_at=? WHERE id=?`).run(reason, now, id);
+    try { broadcast({ type: "open_house_updated", id }); } catch {}
+    res.json({ ok: true });
+  });
+
+  // Denise-facing (admin auth): submit the weekly OH schedule.
+  // Body: { picks: [{listing_id, date, time_start (HH:MM), length_hours, host_preference?, access_info, notes?}, ...] }
+  // Any existing pending_approval or declined row for the same (listing_id, date)
+  // is replaced so re-submitting is safe.
+  app.post("/api/admin/open-house-schedule", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const picks = Array.isArray(req.body?.picks) ? req.body.picks : [];
+    if (!picks.length) return res.status(400).json({ error: "picks required" });
+    let ok = 0, err = 0;
+    const errors: string[] = [];
+    const insertStmt = rawDb.prepare(`
+      INSERT INTO open_houses (listing_id, address, date, time_start, time_end, listing_agent, list_price, host_preference, access_info, notes, status, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', 'denise_schedule')
+    `);
+    const tx = rawDb.transaction((ps: any[]) => {
+      for (const p of ps) {
+        try {
+          const listing = rawDb.prepare(`SELECT * FROM listings WHERE id = ? AND status = 'active'`).get(Number(p.listing_id)) as any;
+          if (!listing) { err++; errors.push(`listing ${p.listing_id} not active`); continue; }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(p.date || ""))) { err++; errors.push(`bad date on listing ${p.listing_id}`); continue; }
+          if (!/^\d{2}:\d{2}$/.test(String(p.time_start || ""))) { err++; errors.push(`bad time on listing ${p.listing_id}`); continue; }
+          const len = Math.max(1, Math.min(6, Number(p.length_hours) || 3));
+          const [sh, sm] = String(p.time_start).split(":").map(Number);
+          const endH = (sh + len) % 24;
+          const time_end = String(endH).padStart(2, "0") + ":" + String(sm).padStart(2, "0");
+          if (!String(p.access_info || "").trim()) { err++; errors.push(`access_info required on listing ${p.listing_id}`); continue; }
+          rawDb.prepare(`DELETE FROM open_houses WHERE listing_id = ? AND date = ? AND status IN ('pending_approval','declined')`).run(listing.id, p.date);
+          insertStmt.run(
+            listing.id, listing.address, p.date, p.time_start, time_end,
+            listing.listing_agent || null, listing.list_price || null,
+            p.host_preference ? String(p.host_preference).trim() : null,
+            String(p.access_info).trim(),
+            p.notes ? String(p.notes) : null,
+          );
+          ok++;
+        } catch (e: any) { err++; errors.push(`listing ${p.listing_id}: ${e?.message || "err"}`); }
+      }
+    });
+    tx(picks);
+    try { broadcast({ type: "open_house_schedule_submitted", count: ok }); } catch {}
+    res.json({ ok: true, created: ok, failed: err, errors: errors.slice(0, 20) });
+  });
+
+  // Admin: create a new open house
+  app.post("/api/admin/open-houses", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const b = req.body || {};
+    const address = String(b.address || "").trim();
+    const date = String(b.date || "").trim();
+    const time_start = String(b.time_start || "").trim();
+    const time_end = String(b.time_end || "").trim();
+    if (!address || !date || !time_start || !time_end) {
+      return res.status(400).json({ error: "address, date, time_start, time_end required" });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+    }
+    if (!/^\d{2}:\d{2}$/.test(time_start) || !/^\d{2}:\d{2}$/.test(time_end)) {
+      return res.status(400).json({ error: "times must be HH:MM (24h)" });
+    }
+    const info = rawDb.prepare(`
+      INSERT INTO open_houses
+        (address, date, time_start, time_end, listing_agent, list_price, host_preference, notes, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      address, date, time_start, time_end,
+      b.listing_agent ? String(b.listing_agent) : null,
+      b.list_price ? Number(b.list_price) : null,
+      b.host_preference ? String(b.host_preference) : null,
+      b.notes ? String(b.notes) : null,
+      b.source ? String(b.source) : "admin",
+    );
+    try { broadcast({ type: "open_house_updated", id: info.lastInsertRowid }); } catch {}
+    res.json({ ok: true, id: info.lastInsertRowid });
+  });
+
+  // Admin: update open house
+  app.put("/api/admin/open-houses/:id", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(req.params.id);
+    const b = req.body || {};
+    const fields: string[] = [];
+    const params: any[] = [];
+    const setField = (k: string, v: any) => { fields.push(`${k} = ?`); params.push(v); };
+    if (typeof b.address === "string") setField("address", b.address.trim());
+    if (typeof b.date === "string") setField("date", b.date);
+    if (typeof b.time_start === "string") setField("time_start", b.time_start);
+    if (typeof b.time_end === "string") setField("time_end", b.time_end);
+    if ("listing_agent" in b) setField("listing_agent", b.listing_agent ? String(b.listing_agent) : null);
+    if ("list_price" in b) setField("list_price", b.list_price ? Number(b.list_price) : null);
+    if ("host_preference" in b) setField("host_preference", b.host_preference ? String(b.host_preference) : null);
+    if ("notes" in b) setField("notes", b.notes ? String(b.notes) : null);
+    if (typeof b.status === "string") {
+      setField("status", b.status);
+      if (b.status === "cancelled") { setField("cancelled_at", new Date().toISOString()); }
+    }
+    if ("claimed_by_agent_id" in b) {
+      setField("claimed_by_agent_id", b.claimed_by_agent_id ? Number(b.claimed_by_agent_id) : null);
+      setField("claimed_at", b.claimed_by_agent_id ? new Date().toISOString() : null);
+    }
+    if (!fields.length) return res.status(400).json({ error: "no fields to update" });
+    setField("updated_at", new Date().toISOString());
+    params.push(id);
+    rawDb.prepare(`UPDATE open_houses SET ${fields.join(", ")} WHERE id = ?`).run(...params);
+    try { broadcast({ type: "open_house_updated", id }); } catch {}
+    res.json({ ok: true });
+  });
+
+  // Admin: delete open house (hard delete — use status=cancelled if you want to preserve)
+  app.delete("/api/admin/open-houses/:id", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(req.params.id);
+    rawDb.prepare(`DELETE FROM open_houses WHERE id = ?`).run(id);
+    try { broadcast({ type: "open_house_updated", id }); } catch {}
+    res.json({ ok: true });
+  });
+
+  // Agent: BOOK an open house (self-serve, first come first serve).
+  // Only 'open' OHs can be booked. Atomic UPDATE with WHERE status='open'
+  // guarantees only one agent wins the race. On success, acceptance email
+  // fires with full access info + prep instructions.
+  app.post("/api/open-houses/:id/claim", async (req: any, res) => {
+    if (!req.currentAgent) return res.status(401).json({ error: "unauthorized" });
+    const id = parseInt(req.params.id);
+    const now = new Date().toISOString();
+    const result = rawDb.prepare(`
+      UPDATE open_houses
+      SET status = 'booked', claimed_by_agent_id = ?, claimed_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'open'
+    `).run(req.currentAgent.id, now, now, id);
+    if (result.changes === 0) {
+      const row = rawDb.prepare(`SELECT status FROM open_houses WHERE id = ?`).get(id) as any;
+      if (!row) return res.status(404).json({ error: "not found" });
+      return res.status(409).json({ error: `cannot book: status=${row.status}` });
+    }
+    try { broadcast({ type: "open_house_updated", id }); } catch {}
+    try { await sendOpenHouseAcceptanceEmail(id, req.currentAgent.id); } catch (e) { console.warn("[oh] acceptance email warn:", e); }
+    res.json({ ok: true });
+  });
+
   // Admin-only: manually crown the champion (used for testing or catching a
   // missed monthly reset). Requires admin session.
   // v20.4.6 — accepts optional { forMonth: "YYYY-MM" } body to retro-crown a
@@ -6760,7 +7309,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.4.6 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.4.7 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -7809,7 +8358,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.4.6",
+      version: "v20.4.7",
       services: results,
     });
   });
@@ -8137,10 +8686,11 @@ This template is for informational/outreach purposes only.`;
       }).catch(err => console.error("[momentum onboarding]", err));
     }
 
-    // v20.4.2 — FUB approve integration (Grow plan, $69/user/mo per new seat).
-    // Non-blocking: emails already sent above; FUB failures don't fail the approve.
-    // Test-mode: fubApproveAgentAsVendor is a no-op when isTestApproval=true so we
-    // don't burn a $69 seat on watsonag1@gmail.com every dry run.
+    // v20.4.7 — FUB approve integration (Pro plan: first 10 seats included in
+    // $499/mo base; seats 11+ = $49/mo each). Non-blocking: emails already sent
+    // above; FUB failures don't fail the approve.
+    // Test-mode: fubApproveAgentAsVendor is a no-op when isTestApproval=true so
+    // watsonag1@gmail.com dry runs never touch the real FUB account.
     try {
       const briefRowsForFub = Object.entries(answers).map(([k,v]) => `• ${k.replace(/_/g,' ')}: ${String(v ?? '—')}`).join("\n");
       const TEST_INBOX_FUB = "watsonag1@gmail.com";
@@ -8161,7 +8711,27 @@ This template is for informational/outreach purposes only.`;
         isTestApproval: isTestApprovalFub,
         testInbox: TEST_INBOX_FUB,
       }).then((result) => {
-        console.log(`[approve→FUB] candidate ${cid} → personId=${result.personId} userId=${result.userId} noteId=${result.vendorNoteId} skipped=${result.skipped.join(',') || 'none'} errors=${result.errors.join(',') || 'none'}`);
+        const seatMsg = result.seatUsageAfter !== undefined
+          ? ` seats=${result.seatUsageAfter}/${result.includedSeats}${result.overageTriggered ? ` OVERAGE_TRIGGERED(+$${FUB_PRO_OVERAGE_PER_SEAT_USD}/mo)` : ''}`
+          : '';
+        console.log(`[approve→FUB] candidate ${cid} → personId=${result.personId} userId=${result.userId} noteId=${result.vendorNoteId}${seatMsg} skipped=${result.skipped.join(',') || 'none'} errors=${result.errors.join(',') || 'none'}`);
+
+        // v20.4.7 — If this approve triggered a $49/mo seat overage, in-app
+        // notify Alex so he knows the next FUB invoice will be higher. Non-
+        // fatal, purely informational — the seat was created and the agent can
+        // work immediately.
+        if (result.overageTriggered) {
+          try {
+            broadcast({
+              type: "fub_seat_overage",
+              agentId,
+              candidateName: cand.name,
+              seatsUsed: result.seatUsageAfter,
+              includedSeats: result.includedSeats,
+              overageCostPerSeat: FUB_PRO_OVERAGE_PER_SEAT_USD,
+            });
+          } catch { /* broadcast is best-effort */ }
+        }
       }).catch((err) => {
         console.error(`[approve→FUB] candidate ${cid} — unhandled error:`, err);
       });
@@ -8751,7 +9321,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.4.6</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.4.7</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

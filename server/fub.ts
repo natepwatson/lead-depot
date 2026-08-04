@@ -1185,10 +1185,73 @@ export interface AgentApprovalFubPayload {
 
 export interface AgentApprovalFubResult {
   personId: number | null;    // FUB Person row (Vendor)
-  userId: number | null;      // FUB User row (Agent seat, $69/mo on Grow)
+  userId: number | null;      // FUB User row (Agent seat)
   vendorNoteId: number | null;
   skipped: string[];
   errors: string[];
+  // v20.4.7 — Pro plan seat accounting. Set when this approve creates a seat.
+  //  seatUsageBefore/After: total billable seats visible in FUB before/after.
+  //  includedSeats: 10 on Pro (contract cap).
+  //  overageTriggered: true when the newly-created seat pushed the total > includedSeats.
+  seatUsageBefore?: number;
+  seatUsageAfter?: number;
+  includedSeats?: number;
+  overageTriggered?: boolean;
+}
+
+// v20.4.7 — FUB Pro plan seat cap. First 10 users included in the $499/mo base;
+// each additional seat is $49/mo. Use fubGetSeatUsage() to check headroom before
+// approve or from the admin dashboard.
+export const FUB_PRO_INCLUDED_SEATS = 10;
+export const FUB_PRO_OVERAGE_PER_SEAT_USD = 49;
+
+export interface FubSeatUsage {
+  used: number;              // total non-disabled billable seats currently in FUB
+  included: number;          // 10 on Pro
+  remaining: number;         // included - used, floored at 0
+  overageSeats: number;      // seats above included, 0 if under cap
+  overageMonthlyCost: number;// overageSeats * $49
+  users: Array<{ id: number; email: string; role: string; name: string }>;
+  fetchedAt: string;
+  error?: string;
+}
+
+// Fetch current FUB user seat usage. Called by approve flow (to detect overage)
+// and by the admin dashboard (to display headroom).
+export async function fubGetSeatUsage(): Promise<FubSeatUsage> {
+  const base: FubSeatUsage = {
+    used: 0,
+    included: FUB_PRO_INCLUDED_SEATS,
+    remaining: FUB_PRO_INCLUDED_SEATS,
+    overageSeats: 0,
+    overageMonthlyCost: 0,
+    users: [],
+    fetchedAt: new Date().toISOString(),
+  };
+  if (!FUB_API_KEY) {
+    base.error = "no_api_key";
+    return base;
+  }
+  const res = await fubRequest("GET", "/users?limit=100");
+  if (!res.ok || !Array.isArray(res.data?.users)) {
+    base.error = `fetch_failed:${res.status}`;
+    return base;
+  }
+  // Every non-disabled user counts against the seat cap regardless of role
+  // (FUB bills disabled users as $0). Guard against a missing `disabled` field
+  // by treating undefined as false.
+  const users = res.data.users.filter((u: any) => !u.disabled);
+  base.users = users.map((u: any) => ({
+    id: u.id,
+    email: String(u.email || ""),
+    role: String(u.role || ""),
+    name: String(u.name || ""),
+  }));
+  base.used = users.length;
+  base.remaining = Math.max(0, base.included - base.used);
+  base.overageSeats = Math.max(0, base.used - base.included);
+  base.overageMonthlyCost = base.overageSeats * FUB_PRO_OVERAGE_PER_SEAT_USD;
+  return base;
 }
 
 export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload): Promise<AgentApprovalFubResult> {
@@ -1209,9 +1272,20 @@ export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload):
   // v20.1 test-mode: don't touch real FUB records for test approves. Just log what
   // would have happened so Alex can verify shape.
   if (payload.isTestApproval) {
-    console.log(`[FUB approve/test-mode] Would create Vendor + Agent seat for ${payload.fullName} <${payload.email}>. SKIPPING real FUB calls to protect Grow-plan billing.`);
+    console.log(`[FUB approve/test-mode] Would create Vendor + Agent seat for ${payload.fullName} <${payload.email}>. SKIPPING real FUB calls (test mode).`);
     result.skipped.push("test_mode_active");
     return result;
+  }
+
+  // v20.4.7 — Pro plan seat accounting. Snapshot pre-approve usage so we can
+  // detect whether this approve pushed us into $49/mo overage territory.
+  const seatsBefore = await fubGetSeatUsage();
+  result.seatUsageBefore = seatsBefore.used;
+  result.includedSeats = seatsBefore.included;
+  if (seatsBefore.remaining <= 0 && !seatsBefore.error) {
+    console.warn(`[FUB approve] SEAT OVERAGE INCOMING — currently at ${seatsBefore.used}/${seatsBefore.included} included seats. Approving ${payload.fullName} will add a $${FUB_PRO_OVERAGE_PER_SEAT_USD}/mo seat.`);
+  } else if (!seatsBefore.error) {
+    console.log(`[FUB approve] Pro seat headroom: ${seatsBefore.used}/${seatsBefore.included} used, ${seatsBefore.remaining} remaining before overage.`);
   }
 
   const displayName = payload.fullName;
@@ -1324,7 +1398,9 @@ export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload):
   }
   result.personId = personId;
 
-  // 4. Create the FUB User seat (Agent role). This is billable on Grow ($69/user/mo).
+  // 4. Create the FUB User seat (Agent role). On Pro, the first 10 users are
+  //    included in the $499/mo base; seats 11+ cost $49/mo. Approving is never
+  //    blocked by seat cost — we just surface the overage state to the admin.
   //    Skip if a user with this email already exists (idempotent — approve twice = one seat).
   if (!payload.email) {
     console.warn("[FUB approve] No candidate email — cannot create FUB User seat");
@@ -1353,12 +1429,28 @@ export async function fubApproveAgentAsVendor(payload: AgentApprovalFubPayload):
       const createRes = await fubRequest("POST", "/users", userPayload);
       if (createRes.ok) {
         result.userId = createRes.data?.id ?? null;
-        console.log(`[FUB approve] User seat CREATED → id=${result.userId} — billable on Grow plan ($69/mo)`);
+        console.log(`[FUB approve] User seat CREATED → id=${result.userId}`);
       } else {
         console.error("[FUB approve] User seat creation failed:", createRes.status, createRes.data);
         result.errors.push(`user_create_failed:${createRes.status}`);
       }
     }
+  }
+
+  // v20.4.7 — Post-approve seat accounting. Fetch again so the caller (and the
+  // Nate brief / admin dashboard) know whether this approve triggered overage.
+  try {
+    const seatsAfter = await fubGetSeatUsage();
+    if (!seatsAfter.error) {
+      result.seatUsageAfter = seatsAfter.used;
+      const before = result.seatUsageBefore ?? seatsAfter.used;
+      result.overageTriggered = before < FUB_PRO_INCLUDED_SEATS && seatsAfter.used > FUB_PRO_INCLUDED_SEATS;
+      if (result.overageTriggered) {
+        console.warn(`[FUB approve] Seat overage TRIGGERED by this approve. Now at ${seatsAfter.used}/${seatsAfter.included} — next FUB invoice will include $${FUB_PRO_OVERAGE_PER_SEAT_USD}/mo overage.`);
+      }
+    }
+  } catch (err: any) {
+    console.warn("[FUB approve] Post-approve seat usage check failed:", err?.message);
   }
 
   return result;

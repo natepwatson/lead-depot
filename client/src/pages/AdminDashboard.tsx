@@ -4,6 +4,9 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import ActivityFeed from "../components/ld/ActivityFeed";
 import { RankTrophy } from "../components/ld/RankTrophy";
 import { StreakBadge, ChampionFrame } from "../components/ld/StreakBadge";
+import { ListingsPanel } from "../components/ld/ListingsPanel";
+import { OpenHouseSchedulePanel } from "../components/ld/OpenHouseSchedulePanel";
+import { PendingOpenHousesPanel } from "../components/ld/PendingOpenHousesPanel";
 import ProfilePage from "./ProfilePage";
 import ScriptEditor from "../components/ScriptEditor";
 // v20.4.2 — old admin Territory Map removed. Team map now lives in AgentView.
@@ -28,7 +31,7 @@ import {
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, Heart, Map as MapIcon,
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
   UserPlus, UserCircle2, KeyRound, RotateCcw,
-  Sparkles, Database, Wrench, FileText, PlayCircle
+  Sparkles, Database, Wrench, FileText, PlayCircle, Home, CalendarDays
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -810,6 +813,10 @@ const SERVICE_LABELS: Record<string, string> = {
   websocket:      "WebSocket",
 };
 
+// v20.4.7 — HealthWidget rebuilt: green-light service checks + live terminal feed.
+// The terminal subscribes to the existing /ws hub and prints events like a
+// small tail -f. No new API surface — pure client wiring on top of the same
+// broadcasts the app already emits (outcomes, pulls, uploads, seats).
 function HealthWidget() {
   const [open, setOpen] = useState(false);
   const { data, isLoading, refetch } = useQuery<HealthData>({
@@ -818,6 +825,40 @@ function HealthWidget() {
     refetchInterval: 60_000, // poll every 60 seconds
     staleTime: 50_000,
   });
+
+  // Rolling terminal feed — last 40 WS events, newest at bottom.
+  const [feed, setFeed] = useState<Array<{ t: number; type: string; note?: string }>>([]);
+  useEffect(() => {
+    if (!open) return; // only subscribe while panel is open, to keep this cheap
+    let ws: WebSocket | null = null;
+    let cancelled = false;
+    const connect = () => {
+      if (cancelled) return;
+      try {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+        ws.onmessage = (ev) => {
+          try {
+            const j = JSON.parse(ev.data);
+            const type = j.type || j.event || "message";
+            let note: string | undefined;
+            if (j.leadId) note = `lead #${j.leadId}`;
+            else if (j.agentName) note = j.agentName;
+            else if (j.name) note = j.name;
+            else if (j.count !== undefined) note = `n=${j.count}`;
+            setFeed(prev => {
+              const next = [...prev, { t: Date.now(), type, note }];
+              return next.length > 40 ? next.slice(-40) : next;
+            });
+          } catch { /* ignore non-json frames */ }
+        };
+        ws.onclose = () => { if (!cancelled) setTimeout(connect, 3000); };
+        ws.onerror = () => ws?.close();
+      } catch { /* ignore */ }
+    };
+    connect();
+    return () => { cancelled = true; ws?.close(); };
+  }, [open]);
 
   const status = data?.status ?? (isLoading ? "loading" : "unknown");
   const allOk = status === "healthy";
@@ -855,7 +896,7 @@ function HealthWidget() {
       {open && (
         <div style={{
           position: "absolute", top: "calc(100% + 8px)", right: 0,
-          width: 280, zIndex: 200,
+          width: 340, zIndex: 200,
           background: "#0f0e0c",
           border: "1px solid rgba(200,170,90,0.2)",
           borderRadius: 12,
@@ -935,6 +976,40 @@ function HealthWidget() {
               <p style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", margin: 0 }}>All systems operational · Auto-refreshes every 60s</p>
             </div>
           )}
+
+          {/* Live terminal feed — last WS events, newest at bottom. */}
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", background: "#050403" }}>
+            <div style={{
+              padding: "6px 12px", display: "flex", justifyContent: "space-between", alignItems: "center",
+              borderBottom: "1px solid rgba(255,255,255,0.04)",
+            }}>
+              <span style={{ fontSize: 9, letterSpacing: "0.18em", fontWeight: 700, textTransform: "uppercase", color: "rgba(74,222,128,0.75)" }}>
+                Live Feed
+              </span>
+              <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontFamily: "ui-monospace, monospace" }}>{feed.length} events</span>
+            </div>
+            <div
+              ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+              style={{
+                maxHeight: 160, overflowY: "auto", padding: "6px 12px",
+                fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                fontSize: 10.5, lineHeight: 1.5, color: "#4ade80",
+              }}
+            >
+              {feed.length === 0 ? (
+                <span style={{ color: "rgba(255,255,255,0.25)" }}>— waiting for events —</span>
+              ) : feed.map((e, i) => {
+                const d = new Date(e.t);
+                const ts = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
+                return (
+                  <div key={i} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <span style={{ color: "rgba(255,255,255,0.35)" }}>{ts}</span>{" "}
+                    <span style={{ color: "#fde047" }}>{e.type}</span>{e.note ? <span style={{ color: "rgba(255,255,255,0.6)" }}>{" · " + e.note}</span> : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1020,6 +1095,31 @@ export default function AdminDashboard({
   useRealtimeUpdates();
   const { toast } = useToast();
   const qc = useQueryClient();
+
+  // v20.4.7 — Listen for FUB seat overage broadcasts and toast the admin.
+  // Event is dispatched by useRealtimeUpdates when the server broadcasts
+  // fub_seat_overage after an approve that pushed us past 10 included seats.
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as {
+        candidateName?: string;
+        seatsUsed?: number;
+        includedSeats?: number;
+        overageCostPerSeat?: number;
+      };
+      const name = detail?.candidateName || "New agent";
+      const cost = detail?.overageCostPerSeat ?? 49;
+      const used = detail?.seatsUsed;
+      const included = detail?.includedSeats;
+      toast({
+        title: `FUB seat overage triggered — +$${cost}/mo`,
+        description: `${name}'s seat brought us to ${used ?? "?"}/${included ?? "?"}. Next FUB invoice will include the extra seat.`,
+        duration: 12000,
+      });
+    };
+    window.addEventListener("ld:fub_seat_overage", handler);
+    return () => window.removeEventListener("ld:fub_seat_overage", handler);
+  }, [toast]);
   // v14.50 — pull-to-refresh site-wide.
   // v14.53 — destructure indicator so the pull gesture has visible feedback (gold chip at top)
   const { indicator: ptrIndicator } = usePullToRefresh(() => qc.invalidateQueries());
@@ -1734,7 +1834,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.4.6
+              v20.4.7
             </p>
           </div>
         </div>
@@ -1831,6 +1931,7 @@ export default function AdminDashboard({
               { value: "candidates",  icon: UserPlus,    label: "Candidates" },
               { value: "dbhealth",    icon: Database,    label: "DB Health" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
+              { value: "openhouses",  icon: CalendarDays, label: "Open Houses" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
             ].map(tab => (
@@ -2457,6 +2558,8 @@ export default function AdminDashboard({
               once their flows ship. Approve = award points + insert lead_activity.
               Reject = no points, no activity, decision_notes saved for audit. */}
           <TabsContent value="approvals" className="mt-5">
+            {/* v20.4.7 — Pending open houses submitted by Denise appear at the top. */}
+            <PendingOpenHousesPanel />
             <ApprovalsPanel />
           </TabsContent>
 
@@ -2559,7 +2662,15 @@ export default function AdminDashboard({
                     </div>
 
               </div>
+
+              {/* v20.4.7 — Listings section: Denise's Monday upload. */}
+              <ListingsPanel />
             </div>
+          </TabsContent>
+
+          {/* v20.4.7 — Open Houses admin tab: Denise's Tuesday schedule form. */}
+          <TabsContent value="openhouses" className="mt-5">
+            <OpenHouseSchedulePanel />
           </TabsContent>
 
                     <TabsContent value="agents"
@@ -3647,6 +3758,15 @@ function CandidatesPanel() {
     refetchInterval: 30_000,
   });
 
+  // v20.4.7 — FUB Pro plan seat headroom. First 10 seats included in $499/mo
+  // base; seat 11+ is $49/mo. Show a pill above the list so Alex sees the state
+  // before hitting Approve. Refetches on candidate-list refetch cadence.
+  const seats = useQuery({
+    queryKey: ["/api/admin/fub-seats"],
+    queryFn: async () => (await fetch("/api/admin/fub-seats", { credentials: "include" })).json(),
+    refetchInterval: 60_000,
+  });
+
   const approveMut = useMutation({
     mutationFn: async (id: number) => {
       const res = await fetch(`/api/admin/candidates/${id}/approve`, { method: "POST", credentials: "include" });
@@ -3748,8 +3868,29 @@ function CandidatesPanel() {
 
   if (list.isLoading) return <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Loading candidates…</p>;
 
+  // v20.4.7 — seat pill rendering
+  const seatData = seats.data;
+  const seatPill = (() => {
+    if (!seatData) return null;
+    if (seatData.error) {
+      return <span style={{ padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700, letterSpacing: ".08em", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.14)", color: "rgba(255,255,255,0.5)" }}>FUB seats — unavailable</span>;
+    }
+    const overage = seatData.overageSeats > 0;
+    const willOverage = seatData.nextApproveWouldOverage && !overage;
+    const color = overage ? "#f87171" : willOverage ? "#fbbf24" : "#4ade80";
+    const bg    = overage ? "rgba(248,113,113,0.14)" : willOverage ? "rgba(251,191,36,0.14)" : "rgba(74,222,128,0.12)";
+    const border = overage ? "rgba(248,113,113,0.4)" : willOverage ? "rgba(251,191,36,0.4)" : "rgba(74,222,128,0.3)";
+    const label = overage
+      ? `FUB seats: ${seatData.used}/${seatData.included} — overage +$${seatData.overageMonthlyCost}/mo (${seatData.overageSeats} extra)`
+      : willOverage
+      ? `FUB seats: ${seatData.used}/${seatData.included} — next approve = +$${seatData.overagePerSeat}/mo`
+      : `FUB seats: ${seatData.used}/${seatData.included} — ${seatData.remaining} remaining`;
+    return <span style={{ padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: 700, letterSpacing: ".08em", background: bg, border: `1px solid ${border}`, color }}>{label}</span>;
+  })();
+
   return (
     <div>
+      {seatPill && <div style={{ marginBottom: 10 }}>{seatPill}</div>}
       <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 16, lineHeight: 1.55 }}>
 Only Alex can approve. Approve creates the agent row, drafts a personal welcome email to Alex's inbox (to hand-send from Superhuman), emails Nate an onboarding brief (CC Alex + Denise), AND emails Brittany Brooks + Michelle Weaver to kick off Momentum Realty onboarding (CC Alex + Nate). Decline sends a polite pass email.
       </p>

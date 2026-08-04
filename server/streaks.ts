@@ -297,6 +297,7 @@ export function recomputeAllStreaks(): { count: number; ms: number } {
 export interface ChampionInfo {
   agentId: number | null;
   agentName: string | null;
+  headshotUrl: string | null; // v20.4.7 — for laurel wreath card in leaderboard
   monthKey: string;            // "YYYY-MM" the wreath is FOR (i.e. this month)
   awardedForMonth: string;     // "YYYY-MM" the wreath was WON in (last month)
   awardedAt: string | null;    // ISO timestamp
@@ -304,24 +305,32 @@ export interface ChampionInfo {
   appts: number;               // kept for back-compat; winner's appts in winning month
 }
 
+function lookupHeadshot(agentId: number | null): string | null {
+  if (!agentId) return null;
+  try {
+    const row = rawDb.prepare(`SELECT headshot_url FROM agents WHERE id = ?`).get(agentId) as { headshot_url?: string } | undefined;
+    return row?.headshot_url || null;
+  } catch {
+    return null;
+  }
+}
+
 export function getCurrentChampion(): ChampionInfo {
   const nowMonth = etMonthKey();
   const row = rawDb.prepare(`SELECT value FROM app_settings WHERE key = ?`)
     .get("champion_current_month") as { value: string } | undefined;
   if (!row) {
-    return { agentId: null, agentName: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, points: 0, appts: 0 };
+    return { agentId: null, agentName: null, headshotUrl: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, points: 0, appts: 0 };
   }
   try {
     const j = JSON.parse(row.value);
-    // If the stored champion is for a month that is NO LONGER current, treat as
-    // stale — the wreath expires on the 1st of the following month.
-    // j.monthKey holds the DISPLAY month (the month in which the wreath is worn).
     if (j.monthKey !== nowMonth) {
-      return { agentId: null, agentName: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, points: 0, appts: 0 };
+      return { agentId: null, agentName: null, headshotUrl: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, points: 0, appts: 0 };
     }
     return {
       agentId: j.agentId,
       agentName: j.agentName,
+      headshotUrl: lookupHeadshot(j.agentId),
       monthKey: j.monthKey,
       awardedForMonth: j.awardedForMonth || "",
       awardedAt: j.awardedAt || null,
@@ -329,7 +338,7 @@ export function getCurrentChampion(): ChampionInfo {
       appts: Number(j.appts) || 0,
     };
   } catch {
-    return { agentId: null, agentName: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, points: 0, appts: 0 };
+    return { agentId: null, agentName: null, headshotUrl: null, monthKey: nowMonth, awardedForMonth: "", awardedAt: null, points: 0, appts: 0 };
   }
 }
 
@@ -375,7 +384,7 @@ export function crownMonthlyChampion(forMonth?: string): ChampionInfo {
   })();
 
   if (!winner || (winner.points || 0) <= 0) {
-    return { agentId: null, agentName: null, monthKey: displayMonth, awardedForMonth: closingMonth, awardedAt: null, points: 0, appts: 0 };
+    return { agentId: null, agentName: null, headshotUrl: null, monthKey: displayMonth, awardedForMonth: closingMonth, awardedAt: null, points: 0, appts: 0 };
   }
 
   // Winner's appts for the closing month, for display alongside points.
@@ -388,9 +397,10 @@ export function crownMonthlyChampion(forMonth?: string): ChampionInfo {
       AND created_at <  ?
   `).get(winner.id, monthStart, monthEndExclusive) as { appts: number } | undefined;
 
-  const record = {
+  const record: ChampionInfo = {
     agentId: winner.id,
     agentName: winner.name,
+    headshotUrl: lookupHeadshot(winner.id),
     monthKey: displayMonth,          // month the wreath is DISPLAYED in
     awardedForMonth: closingMonth,   // month it was WON in
     awardedAt: new Date().toISOString(),

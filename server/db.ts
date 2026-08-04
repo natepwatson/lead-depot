@@ -1195,8 +1195,12 @@ rawDb.exec(`
   )
 `);
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_buyers_status ON buyers(status, price_max DESC)`).run();
-rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_buyers_dedupe ON buyers(coalesce(lower(phone),lower(email),lower(name)))`).run();
-console.log("[db] v20.4.9 buyers table ready");
+// v20.6.5 EMERGENCY: The legacy unique dedupe index was crashing boot when duplicates
+// exist (parser inserted colliding rows). It was superseded by idx_buyers_name_ordinal
+// down in the v20.5.0 block. Drop it defensively here BEFORE the v20.5.0 code tries.
+// We do NOT re-create the old unique index — v20.5.0 semantics use (name, multi_search_ordinal).
+rawDb.exec(`DROP INDEX IF EXISTS idx_buyers_dedupe`);
+console.log("[db] v20.4.9 buyers table ready (legacy dedupe index dropped)");
 
 // v20.4.9 — FUB tag configuration. Admin picks which FUB tags feed which bucket.
 rawDb.exec(`
@@ -1276,7 +1280,7 @@ rawDb.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `);
-console.log("[db] v20.6.3 newsletter_inputs table ready");
+console.log("[db] v20.6.5 newsletter_inputs table ready");
 
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");

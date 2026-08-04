@@ -5,7 +5,8 @@ import ActivityFeed from "../components/ld/ActivityFeed";
 import { RankTrophy } from "../components/ld/RankTrophy";
 import { StreakBadge, ChampionFrame } from "../components/ld/StreakBadge";
 import { ListingsPanel } from "../components/ld/ListingsPanel";
-import { WeeklyWorkbookPanel } from "../components/ld/WeeklyWorkbookPanel";
+// v20.6.5 — WeeklyWorkbookPanel removed; FUB is source of truth. Keeping import commented for git history.
+// import { WeeklyWorkbookPanel } from "../components/ld/WeeklyWorkbookPanel";
 import { FubTagConfigPanel } from "../components/ld/FubTagConfigPanel";
 import { OpenHouseSchedulePanel } from "../components/ld/OpenHouseSchedulePanel";
 import { PendingOpenHousesPanel } from "../components/ld/PendingOpenHousesPanel";
@@ -1837,7 +1838,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.6.3
+              v20.6.5
             </p>
           </div>
         </div>
@@ -2671,8 +2672,32 @@ export default function AdminDashboard({
               {/* v20.4.9 — Listings section: Denise's Monday upload. */}
               <ListingsPanel />
 
-              {/* v20.4.9 — Weekly workbook upload + FUB tag config */}
-              <WeeklyWorkbookPanel />
+              {/* v20.6.5 — Weekly workbook upload REMOVED. FUB is now source of truth.
+                  Denise updates FUB directly; the Monday 6am sweep pulls state into LD.
+                  Backup exports flow FROM LD via the button below. */}
+              <div style={{ marginTop: 24, padding: 20, borderRadius: 12, background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.3)" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "#c8aa5a", marginBottom: 8 }}>Source of Truth Backup</div>
+                <div style={{ fontSize: 14, color: "rgba(255,255,255,0.75)", lineHeight: 1.55, marginBottom: 14 }}>
+                  FUB is the master record. This button exports Lead Depot's current state as an Excel workbook (Sellers + Buyers + Rentals tabs) so you can hand it to Denise or archive it. Nothing is uploaded here anymore — Denise updates FUB directly and the Monday 6am sweep pulls the fresh state in.
+                </div>
+                <a
+                  href="/api/admin/source-of-truth-backup/download"
+                  download
+                  style={{
+                    display: "inline-block",
+                    padding: "10px 18px",
+                    borderRadius: 8,
+                    background: "#c8aa5a",
+                    color: "#0d0d0d",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    textDecoration: "none",
+                    letterSpacing: ".02em",
+                  }}
+                >
+                  Download Backup Workbook (.xlsx)
+                </a>
+              </div>
               <FubTagConfigPanel />
             </div>
           </TabsContent>

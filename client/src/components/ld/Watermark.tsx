@@ -77,7 +77,7 @@ export default function Watermark() {
     opacity: 0.9,  // combined with the low SVG fill alpha = ~5% effective opacity
   };
 
-  return <div aria-hidden="true" data-watermark="lead-depot-v20.2" style={style} />;
+  return <div aria-hidden="true" data-watermark="lead-depot-v20.3" style={style} />;
 }
 
 function escapeXml(s: string): string {

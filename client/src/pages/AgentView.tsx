@@ -5555,7 +5555,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.2</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.3</span>
             </div>
           </div>
         </div>
@@ -6286,6 +6286,137 @@ function LeadGenSheet(props: {
     </button>
   );
 
+  // v20.3 — Frosted glass 7-bubble arc for the root chooser. visionOS-style:
+  // translucent panels, soft depth, medium spring motion, staggered fan-out.
+  // Dial hero centered at 12 o'clock. Sub-views (forms) keep the bottom sheet.
+  //
+  // Arc geometry:
+  //   7 bubbles across a 135° sweep (~3/8 of a circle).
+  //   Center = 90° (straight up from FAB). Sweep 22.5° → 157.5°, 22.5° apart.
+  //   Radius = 130px from FAB center for regular bubbles, hero pulls up +18px
+  //   so the Dial bubble crowns above the arc line and reads as the anchor.
+  //
+  // Reading left-to-right along the arc (angle in polar, 0°=right, 90°=up):
+  //   Social · Direct Mail · Open House · DIAL(hero) · Door Knock · Network · Agent Referral
+  if (view === "root") {
+    const ARC_RADIUS = 130;
+    const HERO_LIFT = 18;   // Dial bubble sits +18px above the arc line
+    const BUBBLE_SIZE = 72;
+    const HERO_SIZE = 92;
+    const bubbles: Array<{
+      key: string; label: string; icon: React.ReactNode;
+      angleDeg: number; hero?: boolean; onClick: () => void;
+    }> = [
+      { key: "social",  label: "Social",         icon: <Share2 size={22} />,   angleDeg: 157.5, onClick: () => setView("social" as any) },
+      { key: "mail",    label: "Direct Mail",    icon: <Mail size={22} />,     angleDeg: 135,   onClick: () => setView("direct-mail" as any) },
+      { key: "oh",      label: "Open House",     icon: <Home size={22} />,     angleDeg: 112.5, onClick: () => setView("open-house") },
+      { key: "dial",    label: "Dial",           icon: <Phone size={26} />,    angleDeg: 90,    hero: true, onClick: goToDial },
+      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={22} />, angleDeg: 67.5,  onClick: () => setView("door-knock" as any) },
+      { key: "network", label: "Network",        icon: <Users size={22} />,    angleDeg: 45,    onClick: () => setView("network-referral") },
+      { key: "refer",   label: "Agent Referral", icon: <Send size={22} />,     angleDeg: 22.5,  onClick: () => setView("refer-agent" as any) },
+    ];
+    // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
+    // Anchor the arc's origin over the FAB center.
+    const arcBackdrop: React.CSSProperties = {
+      position: "fixed", inset: 0, zIndex: 60,
+      background: "radial-gradient(ellipse at 50% 100%, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.88) 60%, rgba(0,0,0,0.94) 100%)",
+      backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+      animation: "arcBackdropFade 0.24s ease-out",
+    };
+    return (
+      <div style={arcBackdrop} onClick={close}>
+        <style>{`
+          @keyframes arcBackdropFade { from { opacity: 0 } to { opacity: 1 } }
+          @keyframes arcBubbleIn {
+            from { opacity: 0; transform: translate(0px, 0px) scale(0.4); }
+            to   { opacity: 1; transform: var(--arc-final-transform) scale(1); }
+          }
+          @keyframes arcHint { 0%,100% { opacity: 0.55 } 50% { opacity: 0.9 } }
+          .arc-bubble { animation: arcBubbleIn 380ms cubic-bezier(0.16,1,0.3,1) both; }
+        `}</style>
+
+        {/* Arc container anchored to bottom-center where the FAB sits. */}
+        <div style={{
+          position: "absolute",
+          left: "50%",
+          // FAB center: bottom of nav (~66px tall) + FAB lift (~-22px from nav top) → ~52-58px above screen bottom, add safe-area.
+          bottom: `calc(52px + env(safe-area-inset-bottom, 0px))`,
+          width: 0, height: 0,
+          pointerEvents: "none",
+        }} onClick={e => e.stopPropagation()}>
+          {bubbles.map((b, idx) => {
+            const rad = (b.angleDeg * Math.PI) / 180;
+            // polarToXY — y-axis points up, so we negate the sin result.
+            const dx = Math.cos(rad) * ARC_RADIUS;
+            const dy = -Math.sin(rad) * ARC_RADIUS - (b.hero ? HERO_LIFT : 0);
+            const size = b.hero ? HERO_SIZE : BUBBLE_SIZE;
+            // Stagger from center outward: dial first (index 3), then
+            // neighbors, then edges. Delay increases with distance from center.
+            const distFromCenter = Math.abs(idx - 3);
+            const delay = distFromCenter * 45;   // 0/45/90/135ms
+            return (
+              <button
+                key={b.key}
+                onClick={b.onClick}
+                className="arc-bubble"
+                style={{
+                  position: "absolute",
+                  left: `${dx}px`,
+                  top: `${dy}px`,
+                  transform: "translate(-50%, -50%)",
+                  width: size, height: size,
+                  borderRadius: "50%",
+                  border: b.hero
+                    ? "1px solid rgba(200,170,90,0.55)"
+                    : "1px solid rgba(255,255,255,0.18)",
+                  background: b.hero
+                    ? "linear-gradient(135deg, rgba(253,224,71,0.22) 0%, rgba(200,170,90,0.16) 45%, rgba(138,111,42,0.14) 100%)"
+                    : "rgba(255,255,255,0.08)",
+                  backdropFilter: "blur(24px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(24px) saturate(180%)",
+                  boxShadow: b.hero
+                    ? "0 8px 32px rgba(200,170,90,0.28), 0 0 0 1px rgba(255,255,255,0.08) inset, 0 1px 0 rgba(255,255,255,0.22) inset"
+                    : "0 8px 24px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06) inset, 0 1px 0 rgba(255,255,255,0.14) inset",
+                  cursor: "pointer",
+                  display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center",
+                  gap: 4,
+                  color: b.hero ? "#fde68a" : "#fff",
+                  pointerEvents: "auto",
+                  animationDelay: `${delay}ms`,
+                  // CSS custom property so the keyframe knows where to land.
+                  // @ts-ignore
+                  "--arc-final-transform": `translate(-50%, -50%)`,
+                } as React.CSSProperties}
+              >
+                <div style={{ marginBottom: 2 }}>{b.icon}</div>
+                <span style={{
+                  fontSize: b.hero ? 11 : 9.5,
+                  letterSpacing: "0.06em",
+                  fontWeight: b.hero ? 700 : 600,
+                  textShadow: "0 1px 2px rgba(0,0,0,0.55)",
+                  whiteSpace: "nowrap",
+                }}>{b.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* "Tap outside to close" hint at the top of the screen. */}
+        <div style={{
+          position: "absolute", top: `calc(20px + env(safe-area-inset-top, 0px))`,
+          left: 0, right: 0, textAlign: "center",
+          animation: "arcHint 2.4s ease-in-out infinite",
+          pointerEvents: "none",
+        }}>
+          <p style={{ margin: 0, fontSize: 10, letterSpacing: "0.28em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>
+            What are you doing?
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={backdrop} onClick={close}>
       <div style={sheet} onClick={e => e.stopPropagation()}>
@@ -6293,43 +6424,6 @@ function LeadGenSheet(props: {
           @keyframes leadgenFade { from { opacity: 0 } to { opacity: 1 } }
           @keyframes leadgenSlide { from { transform: translateY(24px); opacity: 0.6 } to { transform: translateY(0); opacity: 1 } }
         `}</style>
-
-        {view === "root" && (
-          <>
-            {header("What are you doing?")}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {tile({
-                icon: <Phone size={22} />, title: "Dial", sub: "Work the phones — expired listings and warm leads.",
-                hero: true,
-                onClick: goToDial,
-              })}
-              {tile({
-                icon: <Home size={22} />, title: "Open House", sub: "Log an open house or capture a lead there.",
-                onClick: () => setView("open-house"),
-              })}
-              {tile({
-                icon: <DoorOpen size={22} />, title: "Door Knocking", sub: "Log a knock route — evidence + pending admin approval.",
-                onClick: () => setView("door-knock" as any),
-              })}
-              {tile({
-                icon: <Mail size={22} />, title: "Direct Mail", sub: "Log a mailer campaign — evidence + pending admin approval.",
-                onClick: () => setView("direct-mail" as any),
-              })}
-              {tile({
-                icon: <Users size={22} />, title: "Network Referral", sub: "Submit a client you know — auto-assigned to you.",
-                onClick: () => setView("network-referral"),
-              })}
-              {tile({
-                icon: <Share2 size={22} />, title: "Social Post", sub: "Log a brand-tagged post — 15 pts, one per day.",
-                onClick: () => setView("social" as any),
-              })}
-              {tile({
-                icon: <Send size={22} />, title: "Refer an Agent", sub: "Know a licensed agent? Send them the /join link — 100 pts if hired.",
-                onClick: () => setView("refer-agent" as any),
-              })}
-            </div>
-          </>
-        )}
 
         {view === "refer-agent" && (
           <>

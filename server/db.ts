@@ -1276,7 +1276,7 @@ rawDb.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `);
-console.log("[db] v20.6.4 newsletter_inputs table ready");
+console.log("[db] v20.6.3 newsletter_inputs table ready");
 
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");

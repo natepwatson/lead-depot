@@ -1,4 +1,4 @@
-// v20.6.4 — Weekly BGRE Commission Tracker workbook parser.
+// v20.6.3 — Weekly BGRE Commission Tracker workbook parser.
 // Denise uploads a single .xlsx with these tabs (4 real + reference):
 //   Tab 1: Closed        (historical, ignored)
 //   Tab 2: Sellers       (color-coded, 5-col shape: Name, Address, Price, Gross Commission, Hired)
@@ -26,31 +26,6 @@
 import ExcelJS from "exceljs";
 import { rawDb } from "./db";
 import { parseIntent } from "./buyerIntentParser";
-
-// v20.6.4 — Header/junk row detector.
-// Excel workbooks routinely have section-title rows ("Active Sellers", "Hot Prospects"),
-// column-header rows ("Name", "Purchaser", "Address"), and totals rows where the address
-// column literally contains the string "Listings" or a count. These would otherwise flow
-// into the database as junk listings. Return true if this row's address looks like header/junk.
-const HEADER_JUNK_TOKENS = new Set([
-  "address", "listings", "purchaser", "prospect", "prospect name", "prospects",
-  "name", "buyer", "seller", "active sellers", "active buyers", "hot prospects",
-  "closed", "pending", "active", "pocket", "expired", "coming soon",
-  "price", "gross commission", "commission", "hired", "notes",
-  "mls", "mls#", "mls #", "list price", "total", "totals", "sold",
-]);
-function looksLikeHeaderOrJunk(address: string, name?: string): boolean {
-  const a = String(address || "").trim().toLowerCase();
-  if (!a) return true;
-  if (HEADER_JUNK_TOKENS.has(a)) return true;
-  // A totals row often has a numeric "name" column and a section label in address.
-  const n = String(name || "").trim();
-  if (/^\d+$/.test(n) && HEADER_JUNK_TOKENS.has(a)) return true;
-  // A real address always has at least one digit (street number or zip).
-  // If the address is pure text with no digits AND matches a junk token, skip.
-  if (!/\d/.test(a) && HEADER_JUNK_TOKENS.has(a)) return true;
-  return false;
-}
 
 // Rough color buckets. ARGB hex from Excel fill.fgColor.argb.
 // Excel default no-fill is undefined/null, treated as white.
@@ -354,8 +329,6 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
       }
       const address = String(row.address || "").trim();
       if (!address) { result.sellers.skipped_other++; continue; }
-      // v20.6.4: guard against section-title/header/totals rows that leak past the header search.
-      if (looksLikeHeaderOrJunk(address, row.name)) { result.sellers.skipped_other++; continue; }
 
       try {
         const info = upsert.run({
@@ -489,11 +462,6 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
 
       const name = String(row.name || "").trim();
       if (!name) { result.buyers.skipped++; continue; }
-      // v20.6.4: guard against header/section rows ("Purchaser", "Active Buyers", numeric totals).
-      // Buyers use the "name" column as identity; treat a name that matches a header token as junk.
-      const nameLC = name.toLowerCase();
-      const NAME_JUNK = new Set(["purchaser", "buyer", "buyers", "active buyers", "prospect", "prospect name", "name", "total", "totals"]);
-      if (NAME_JUNK.has(nameLC) || /^\d+$/.test(name)) { result.buyers.skipped++; continue; }
 
       // v20.6.3: New 5-col shape puts the intent blurb in the "Address" column
       // (e.g. "Downsize Jax 2BR under 300k"). Legacy uploads may still use Notes.
@@ -611,8 +579,6 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
       const prospect = String(row.prospect_name || "").trim();
       // Skip totals rows (numeric first col, blank address) and header-only rows
       if (!address || /^\d+$/.test(prospect)) { result.appointments.skipped++; continue; }
-      // v20.6.4: guard against "Hot Prospects" section-title / "Prospect Name" header rows.
-      if (looksLikeHeaderOrJunk(address, prospect)) { result.appointments.skipped++; continue; }
 
       try {
         upsert.run({

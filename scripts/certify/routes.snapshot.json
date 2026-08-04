@@ -38,7 +38,6 @@
   "GET /api/admin/pipeline",
   "GET /api/admin/snapshots/agent/:id",
   "GET /api/admin/snapshots/daily",
-  "GET /api/admin/source-of-truth-backup/download",
   "GET /api/agent/:id/skip-quota",
   "GET /api/agent/leaderboard",
   "GET /api/agents",

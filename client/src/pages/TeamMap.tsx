@@ -1,4 +1,4 @@
-// v20.4.1 — Team Map (real, authentic, tap-to-open pins).
+// v20.4.2 — Team Map (real, authentic, tap-to-open pins).
 //
 // Data comes from /api/team-map/pins. The server returns REAL coordinates for
 // every geocoded lead. Owner name, phone, and street number are masked for
@@ -131,7 +131,7 @@ export default function TeamMap() {
     const L = (window as any).L;
     const map = L.map(mapDiv.current, {
       center: [NE_FL.lat, NE_FL.lng], zoom: NE_FL.zoom,
-      // v20.4.1 — real map. Users can zoom in as far as tiles support so the
+      // v20.4.2 — real map. Users can zoom in as far as tiles support so the
       // pin sitting on the actual lot feels honest. Popup masking keeps PII safe.
       maxZoom: 19, minZoom: 8,
       scrollWheelZoom: true, doubleClickZoom: true,

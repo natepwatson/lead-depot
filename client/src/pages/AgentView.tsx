@@ -3009,7 +3009,7 @@ function endOfMonthEtIso(): string {
 }
 
 export function BonusCard() {
-  // v20.4.1 — Champion's Bonus RETIRED. This card now surfaces the SINGLE
+  // v20.4.2 — Champion's Bonus RETIRED. This card now surfaces the SINGLE
   // challenge the agent is closest to completing, with a live progress bar.
   // If no accepted challenge with progress exists, the card hides entirely.
   const { data: feed } = useQuery<any>({
@@ -3572,7 +3572,7 @@ export function TeamPotCard() {
           ))}
         </div>
 
-        {/* v20.4.1 — Champion's Bonus panel REMOVED. All bonus recognition now
+        {/* v20.4.2 — Champion's Bonus panel REMOVED. All bonus recognition now
             flows through the Challenges system (see ActiveChallengeCard). */}
 
         {/* CTA */}
@@ -3708,6 +3708,214 @@ function HomeShell({ mode = "seller" }: { mode?: "seller" } = {}) {
         </div>
       </div>
       {view === "board" ? <LeaderboardTab mode={mode} /> : <TeamMap />}
+    </div>
+  );
+}
+
+// ─── v20.4.2 — Swipable Top-Producer Strip ───────────────────────────────────
+// Horizontal snap-scroll leaderboard strip. Sits above the classic vertical
+// list on the Home tab. Each card = one agent. Wide hero card for #1 with
+// trophy + points, then compact cards for the rest. On mount and on window
+// change, if the current agent isn't already visible in the first 3 cards,
+// the strip smoothly scrolls their card into view — so the user always sees
+// where they stand without having to hunt.
+function SwipableLeaderboardStrip({
+  ranked, meId, pickWin, window: winKey,
+}: {
+  ranked: any[];
+  meId: number | null;
+  pickWin: (s: any) => { points?: number; appts?: number; dials?: number; kit?: number; refs?: number };
+  window: string;
+}) {
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const myCardRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll the current user's card into view whenever the strip renders
+  // OR the window filter changes. If the user is in the top 3, no scroll needed
+  // (they're already visible). Otherwise, smooth-scroll their card into center.
+  useEffect(() => {
+    if (!meId || !myCardRef.current || !stripRef.current) return;
+    const myIdx = ranked.findIndex(r => r.agent.id === meId);
+    if (myIdx < 3) return; // Already visible in the first paint
+    // Delay slightly so the strip has painted before we scroll.
+    const t = setTimeout(() => {
+      myCardRef.current?.scrollIntoView({
+        behavior: "smooth",
+        inline: "center",
+        block: "nearest",
+      });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [meId, ranked, winKey]);
+
+  return (
+    <div style={{ marginBottom: 14, position: "relative" }}>
+      {/* Edge-fade masks so the last card fades into the page rather than
+          hard-cropping at the container edge. Purely cosmetic. */}
+      <style>{`
+        @keyframes stripCardIn {
+          from { opacity: 0; transform: translateX(12px) scale(0.96); }
+          to   { opacity: 1; transform: translateX(0)    scale(1); }
+        }
+        .lb-strip-scroller {
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+        }
+        .lb-strip-scroller::-webkit-scrollbar { display: none; }
+        .lb-strip-card { animation: stripCardIn 320ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+      `}</style>
+      <div
+        ref={stripRef}
+        className="lb-strip-scroller"
+        style={{
+          display: "flex",
+          gap: 10,
+          overflowX: "auto",
+          scrollSnapType: "x mandatory",
+          padding: "4px 4px 12px",
+          margin: "0 -4px",
+          scrollPaddingLeft: 4,
+          scrollPaddingRight: 4,
+        }}
+      >
+        {ranked.map((s: any, i: number) => {
+          const isMe = s.agent.id === meId;
+          const w = pickWin(s);
+          const hasPoints = (w.points || 0) > 0;
+          const isChamp = i === 0 && hasPoints;
+          const isTop3 = i < 3 && hasPoints;
+          const medalColor = i === 0 ? "#c8aa5a" : i === 1 ? "#c0c7cf" : i === 2 ? "#c48454" : null;
+          const initials = s.agent.name.split(" ").map((word: string) => word[0]).join("").toUpperCase().slice(0, 2);
+          const displayName = s.agent.name.split(" ")[0] + " " + (s.agent.name.split(" ")[1]?.[0] ?? "") + ".";
+          const cardWidth = isChamp ? 220 : 156;
+
+          return (
+            <div
+              key={s.agent.id}
+              ref={isMe ? myCardRef : undefined}
+              className="lb-strip-card"
+              style={{
+                flexShrink: 0,
+                width: cardWidth,
+                scrollSnapAlign: "center",
+                animationDelay: `${Math.min(i, 8) * 45}ms`,
+                position: "relative",
+                borderRadius: 14,
+                padding: isChamp ? "16px 14px 14px" : "12px 12px 10px",
+                background: isChamp
+                  ? "linear-gradient(155deg, rgba(200,170,90,0.22) 0%, rgba(200,170,90,0.06) 55%, rgba(20,15,5,0.85) 100%)"
+                  : isMe
+                  ? "linear-gradient(155deg, rgba(200,170,90,0.14) 0%, rgba(200,170,90,0.04) 100%)"
+                  : "rgba(255,255,255,0.035)",
+                border: isChamp
+                  ? "1px solid rgba(200,170,90,0.55)"
+                  : isMe
+                  ? "1px solid rgba(200,170,90,0.42)"
+                  : "1px solid rgba(255,255,255,0.08)",
+                boxShadow: isChamp
+                  ? "0 8px 28px rgba(200,170,90,0.22), 0 0 0 0.5px rgba(255,220,140,0.30) inset"
+                  : isMe
+                  ? "0 4px 16px rgba(200,170,90,0.10)"
+                  : "0 2px 8px rgba(0,0,0,0.25)",
+              }}
+            >
+              {/* Rank chip top-left */}
+              <div style={{
+                position: "absolute", top: 10, left: 12,
+                fontSize: 10, fontWeight: 800, letterSpacing: "0.12em",
+                color: medalColor ?? "rgba(255,255,255,0.35)",
+                textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+              }}>#{i + 1}</div>
+
+              {/* "YOU" chip top-right when applicable */}
+              {isMe && (
+                <div style={{
+                  position: "absolute", top: 8, right: 10,
+                  fontSize: 9, fontWeight: 800, letterSpacing: "0.14em",
+                  color: "#0a0700", background: "#c8aa5a",
+                  padding: "3px 7px", borderRadius: 4,
+                }}>YOU</div>
+              )}
+
+              {/* Trophy or headshot centered */}
+              <div style={{
+                display: "flex", justifyContent: "center", alignItems: "center",
+                marginTop: isChamp ? 8 : 12, marginBottom: 10,
+              }}>
+                {isTop3 ? (
+                  <RankTrophy rank={(i + 1) as 1 | 2 | 3} size={isChamp ? 48 : 34} />
+                ) : s.agent.headshotUrl ? (
+                  <img
+                    src={s.agent.headshotUrl}
+                    alt={s.agent.name}
+                    style={{
+                      width: isChamp ? 56 : 44, height: isChamp ? 56 : 44,
+                      borderRadius: "50%",
+                      border: `1.5px solid ${isMe ? "#c8aa5a" : "rgba(255,255,255,0.14)"}`,
+                      objectFit: "cover",
+                    }}
+                  />
+                ) : (
+                  <div style={{
+                    width: isChamp ? 56 : 44, height: isChamp ? 56 : 44,
+                    borderRadius: "50%",
+                    background: "rgba(200,170,90,0.10)",
+                    border: `1.5px solid ${isMe ? "#c8aa5a" : "rgba(255,255,255,0.14)"}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#c8aa5a", fontSize: isChamp ? 18 : 14, fontWeight: 700,
+                    fontFamily: "'Cormorant Garamond','Georgia',serif",
+                  }}>{initials}</div>
+                )}
+              </div>
+
+              {/* Name */}
+              <p style={{
+                textAlign: "center",
+                fontSize: isChamp ? 14 : 12,
+                fontWeight: 700,
+                color: isMe ? "#c8aa5a" : "#fff",
+                marginBottom: isChamp ? 8 : 6,
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              }}>{displayName}</p>
+
+              {/* Points hero */}
+              <div style={{ textAlign: "center", marginBottom: isChamp ? 8 : 4 }}>
+                <span style={{
+                  fontSize: isChamp ? 32 : 22,
+                  fontWeight: 700, color: "#c8aa5a",
+                  fontFamily: "'Cormorant Garamond','Georgia',serif",
+                  lineHeight: 1,
+                  textShadow: "0 2px 4px rgba(0,0,0,0.5)",
+                }}>{w.points ?? 0}</span>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: "0.16em",
+                  color: "rgba(200,170,90,0.75)", marginLeft: 6,
+                }}>PTS</span>
+              </div>
+
+              {/* Mini-stats row */}
+              <div style={{
+                display: "flex", justifyContent: "space-around",
+                paddingTop: 8,
+                borderTop: "1px solid rgba(255,255,255,0.06)",
+              }}>
+                <div style={{ textAlign: "center" }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{w.appts ?? 0}</p>
+                  <p style={{ fontSize: 8, color: "rgba(255,255,255,0.55)", letterSpacing: "0.1em", marginTop: 3, fontWeight: 600 }}>APPTS</p>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.85)", lineHeight: 1 }}>{w.dials ?? 0}</p>
+                  <p style={{ fontSize: 8, color: "rgba(255,255,255,0.55)", letterSpacing: "0.1em", marginTop: 3, fontWeight: 600 }}>DIALS</p>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: "#fde68a", lineHeight: 1 }}>{w.refs ?? 0}</p>
+                  <p style={{ fontSize: 8, color: "rgba(255,255,255,0.55)", letterSpacing: "0.1em", marginTop: 3, fontWeight: 600 }}>REFS</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -3912,6 +4120,20 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
             </button>
           ))}
         </div>
+
+        {/* v20.4.2 — SWIPABLE TOP-PRODUCER STRIP.
+            Horizontal snap-scroll of hero cards for the currently-selected window.
+            Card 1 is the leader (full trophy), then 2–5, then the current agent's
+            card scrolls into view automatically on mount / window change.
+            The classic vertical list below is preserved for full standings. */}
+        {!isLoading && ranked.length > 0 && (
+          <SwipableLeaderboardStrip
+            ranked={ranked}
+            meId={user?.id ?? null}
+            pickWin={pickWin}
+            window={lbWindow}
+          />
+        )}
 
         {isLoading ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -4632,36 +4854,41 @@ function ChallengesTab() {
               border: done ? "1px solid rgba(79,184,163,0.45)" : `1px solid ${tier.border}`,
               borderRadius: 12, padding: 14,
             }}>
-              {/* Tier chip + points */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", color: tier.ring }}>
+              {/* Tier chip + points — v20.4.2 legibility pass */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.16em", color: tier.ring, textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}>
                   {tier.label} · {c.leg.replace("_", " ").toUpperCase()}
                 </span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: done ? "#4fb8a3" : "#c8aa5a" }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: done ? "#4fb8a3" : "#c8aa5a", textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}>
                   +{c.points} pts
                 </span>
               </div>
 
-              {/* Label + detail */}
-              <p style={{ fontSize: 15, fontWeight: 600, color: done ? "#4fb8a3" : "#fff", marginBottom: 4, lineHeight: 1.25 }}>
+              {/* Label + detail — v20.4.2 legibility pass. Bumped label weight
+                  to 700 + size to 16, and detail from 0.5 opacity (≪WCAG AA) to
+                  0.82 opacity + line-height 1.4 so the text actually reads on
+                  the tinted card backgrounds. */}
+              <p style={{ fontSize: 16, fontWeight: 700, color: done ? "#4fb8a3" : "#ffffff", marginBottom: 5, lineHeight: 1.3, textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}>
                 {c.label}{done ? " ✓" : ""}
               </p>
-              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.35, marginBottom: 10 }}>
+              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.82)", lineHeight: 1.4, marginBottom: 12 }}>
                 {c.detail}
               </p>
 
-              {/* Progress bar — v20.4.1 also shows on gated challenges once accepted */}
+              {/* Progress bar — v20.4.2 also shows on gated challenges once accepted */}
               {c.threshold != null && (!c.gated || c.accepted) && (
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                  {/* v20.4.2 — taller bar (5→7), brighter track, readable readout */}
+                  <div style={{ height: 7, borderRadius: 4, background: "rgba(255,255,255,0.10)", overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.35) inset" }}>
                     <div style={{
                       height: "100%", width: `${pct}%`,
                       background: done ? "#4fb8a3" : tier.ring,
                       transition: "width 400ms ease",
+                      boxShadow: done ? "0 0 8px rgba(79,184,163,0.55)" : `0 0 8px ${tier.ring}55`,
                     }}/>
                   </div>
-                  <p style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 4, letterSpacing: "0.04em" }}>
-                    {c.progress} / {c.threshold}
+                  <p style={{ fontSize: 11, color: "rgba(255,255,255,0.72)", marginTop: 5, letterSpacing: "0.04em", fontWeight: 600 }}>
+                    {c.progress} / {c.threshold} · {pct}%
                   </p>
                 </div>
               )}
@@ -5451,7 +5678,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.1</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.4.2</span>
             </div>
           </div>
         </div>
@@ -5975,7 +6202,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                   background: "linear-gradient(135deg, #fde047 0%, #c8aa5a 55%, #8a6f2a 100%)",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   boxShadow: "0 4px 16px rgba(200,170,90,0.42), 0 0 0 3px rgba(6,6,6,0.98)",
-                  // v20.4.1.1 — rotate COUNTER-clockwise on open. + becomes × by
+                  // v20.4.2.1 — rotate COUNTER-clockwise on open. + becomes × by
                   // spinning back the other way. Slightly slower + softer ease.
                   transition: "transform 0.36s cubic-bezier(0.16, 1, 0.3, 1)",
                   transform: leadGenOpen ? "rotate(-135deg)" : "rotate(0deg)",
@@ -6184,7 +6411,7 @@ function LeadGenSheet(props: {
     </button>
   );
 
-  // v20.4.1.1 — GOLD LIQUID ARC. Rebuilt from v20.4.1 which shipped with three bugs:
+  // v20.4.2.1 — GOLD LIQUID ARC. Rebuilt from v20.4.2 which shipped with three bugs:
   //   1) Overlap: 7 bubbles across 135° sweep kissed at the shoulders. Fix:
   //      widened radius to 172px + slightly compressed the sweep so bubbles have
   //      real breathing room.
@@ -6205,8 +6432,17 @@ function LeadGenSheet(props: {
   //   Center = 90° (straight up). Sweep 15° → 165°, 25° apart.
   //   Radius = 172px for regular, hero pulls up +22px so Dial crowns the arc.
   //
-  // Reading left-to-right along the arc (angle 0°=right, 90°=up):
-  //   Social · Direct Mail · Open House · DIAL(hero) · Door Knock · Network · Agent Referral
+  // v20.4.2 — Access-priority arc ordering per Alex's spec:
+  //   TOP (hero, most-accessible crown): DIAL
+  //   Middle-upper (next-most-accessible): Open House (left), Social (right)
+  //   Middle-lower: Network (left), Agent Referral (right)
+  //   Bottom (least-accessible, hardest to hit from the thumb): Direct Mail (left), Door Knock (right)
+  //
+  //   Reading left-to-right along the arc:
+  //     Direct Mail · Network · Open House · DIAL · Social · Agent Referral · Door Knock
+  //   The sequential L→R stagger means Direct Mail flies out first (bottom-left),
+  //   sweeps up and around, and Door Knock lands last (bottom-right) — a natural
+  //   rolling reveal from one corner to the other.
   if (view === "root") {
     const ARC_RADIUS = 172;
     const HERO_LIFT = 22;
@@ -6216,13 +6452,13 @@ function LeadGenSheet(props: {
       key: string; label: string; icon: React.ReactNode;
       angleDeg: number; hero?: boolean; onClick: () => void;
     }> = [
-      { key: "social",  label: "Social",         icon: <Share2 size={24} />,   angleDeg: 165, onClick: () => setView("social" as any) },
-      { key: "mail",    label: "Direct Mail",    icon: <Mail size={24} />,     angleDeg: 140, onClick: () => setView("direct-mail" as any) },
+      { key: "mail",    label: "Direct Mail",    icon: <Mail size={24} />,     angleDeg: 165, onClick: () => setView("direct-mail" as any) },
+      { key: "network", label: "Network",        icon: <Users size={24} />,    angleDeg: 140, onClick: () => setView("network-referral") },
       { key: "oh",      label: "Open House",     icon: <Home size={24} />,     angleDeg: 115, onClick: () => setView("open-house") },
       { key: "dial",    label: "Dial",           icon: <Phone size={32} />,    angleDeg: 90,  hero: true, onClick: goToDial },
-      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={24} />, angleDeg: 65,  onClick: () => setView("door-knock" as any) },
-      { key: "network", label: "Network",        icon: <Users size={24} />,    angleDeg: 40,  onClick: () => setView("network-referral") },
-      { key: "refer",   label: "Agent Referral", icon: <Send size={24} />,     angleDeg: 15,  onClick: () => setView("refer-agent" as any) },
+      { key: "social",  label: "Social",         icon: <Share2 size={24} />,   angleDeg: 65,  onClick: () => setView("social" as any) },
+      { key: "refer",   label: "Agent Referral", icon: <Send size={24} />,     angleDeg: 40,  onClick: () => setView("refer-agent" as any) },
+      { key: "knock",   label: "Door Knock",     icon: <DoorOpen size={24} />, angleDeg: 15,  onClick: () => setView("door-knock" as any) },
     ];
     // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
     // Anchor the arc's origin over the FAB center.
@@ -6236,7 +6472,7 @@ function LeadGenSheet(props: {
       <div style={arcBackdrop} onClick={close}>
         <style>{`
           @keyframes arcBackdropFade { from { opacity: 0 } to { opacity: 1 } }
-          /* v20.4.1.1 — bubbles FLY OUT from FAB origin to their polar destination.
+          /* v20.4.2.1 — bubbles FLY OUT from FAB origin to their polar destination.
              --arc-dx / --arc-dy carry the final polar offset; keyframe drives the
              translate + scale together for a proper spring pop. */
           @keyframes arcBubbleFly {
@@ -6277,11 +6513,11 @@ function LeadGenSheet(props: {
             const dx = Math.cos(rad) * ARC_RADIUS;
             const dy = -Math.sin(rad) * ARC_RADIUS - (b.hero ? HERO_LIFT : 0);
             const size = b.hero ? HERO_SIZE : BUBBLE_SIZE;
-            // v20.4.1.1 — sequential LEFT→RIGHT stagger by index.
+            // v20.4.2.1 — sequential LEFT→RIGHT stagger by index.
             // idx 0 (Social, leftmost) fires first, idx 6 (Refer, rightmost) last.
             // 42ms between each = ~294ms total spread = fast but rhythmic.
             const delay = idx * 42;
-            // v20.4.1.1 — GOLD glass on regular bubbles (matches Dial), just a
+            // v20.4.2.1 — GOLD glass on regular bubbles (matches Dial), just a
             // shade cooler + more translucent so Dial still crowns as the hero.
             const glassBase = b.hero
               ? "radial-gradient(circle at 50% 22%, rgba(255,240,180,0.55) 0%, rgba(253,224,71,0.32) 30%, rgba(200,170,90,0.22) 62%, rgba(138,111,42,0.28) 100%)"
@@ -6375,7 +6611,7 @@ function LeadGenSheet(props: {
                   </span>
                 </button>
                 {/* Label floats BELOW the bubble so the circle stays perfect.
-                    v20.4.1.1 — label fades AFTER the bubble arrives at its destination
+                    v20.4.2.1 — label fades AFTER the bubble arrives at its destination
                     (delay = bubble delay + full bubble flight time). */}
                 <span className="arc-label" style={{
                   marginTop: 8,

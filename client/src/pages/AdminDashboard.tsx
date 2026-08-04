@@ -6,7 +6,7 @@ import { RankTrophy } from "../components/ld/RankTrophy";
 import { StreakBadge, ChampionFrame } from "../components/ld/StreakBadge";
 import ProfilePage from "./ProfilePage";
 import ScriptEditor from "../components/ScriptEditor";
-// v20.4.1 — old admin Territory Map removed. Team map now lives in AgentView.
+// v20.4.2 — old admin Territory Map removed. Team map now lives in AgentView.
 // import MapView from "./MapView";
 import AnimatedNumber from "../components/AnimatedNumber";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
@@ -1734,7 +1734,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.4.1
+              v20.4.2
             </p>
           </div>
         </div>
@@ -1820,7 +1820,7 @@ export default function AdminDashboard({
             display: "flex", flexWrap: "wrap", gap: 2,
           }}>
             {[
-              // v20.4.1 — removed "Map View" (old admin territory map) and "Diversity"
+              // v20.4.2 — removed "Map View" (old admin territory map) and "Diversity"
               // (now a challenge, not a standalone tab). Team map lives in the
               // agent surface (AgentView → Leaderboard → Map toggle).
               { value: "admin",       icon: Shield,      label: "Admin" },
@@ -2612,7 +2612,7 @@ export default function AdminDashboard({
                           }}
                         >⬇ Export Activity CSV</button>
                       </div>
-                      {/* v20.4.1 — Add Agent removed. Agents now come in through Candidates → Approve. */}
+                      {/* v20.4.2 — Add Agent removed. Agents now come in through Candidates → Approve. */}
                     </div>
 
                     {/* v13.1 — Agent Inactivity Alert moved to Admin tab */}
@@ -2943,7 +2943,7 @@ export default function AdminDashboard({
             <ScriptEditor />
           </TabsContent>
 
-          {/* v20.4.1 — Old admin Territory Map (MapView.tsx) removed. Team map lives in
+          {/* v20.4.2 — Old admin Territory Map (MapView.tsx) removed. Team map lives in
               AgentView → Leaderboard → Map toggle and is now real-coord + masked. */}
 
         </Tabs>

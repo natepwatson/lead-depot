@@ -32,7 +32,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   Trophy, Layers, Phone, UserPlus, UserCircle2, ChevronDown,
   PhoneMissed, AlertTriangle, PhoneOff, XCircle, RefreshCw, Heart,
-  CheckCircle2, Home, Award, Coins, Sparkles,
+  CheckCircle2, Home, Award, Coins, Sparkles, Target,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { playSound, forceTutorialSounds } from "@/lib/sounds";
@@ -69,24 +69,27 @@ const chapterWrap: React.CSSProperties = {
 };
 
 // Mini nav icon config — mirrors AgentView's NAV array exactly.
+// v19.0 — MINI_NAV mirrors the real bottom nav (see AgentView NAV constant).
+// Order: Home / Pipeline / Lead Gen[+] / Challenges / Profile. The old
+// Dashboard/Referrals/Dial trio was retired in v17.2–v18.4.
 const MINI_NAV = [
-  { id: "leaderboard", label: "Dashboard", icon: Trophy },
-  { id: "pipeline",    label: "Pipeline",  icon: Layers },
-  { id: "leads",       label: "Dial",      icon: Phone },
-  { id: "refer",       label: "Referrals", icon: UserPlus },
-  { id: "profile",     label: "Profile",   icon: UserCircle2 },
+  { id: "home",       label: "Home",       icon: Home },
+  { id: "pipeline",   label: "Pipeline",   icon: Layers },
+  { id: "leads",      label: "Lead Gen",   icon: Phone },
+  { id: "challenges", label: "Challenges", icon: Target },
+  { id: "profile",    label: "Profile",    icon: UserCircle2 },
 ] as const;
 
 const TAB_COPY: Record<string, string> = {
-  // v16.7 — copy updated to match current app: Pipeline permanence, Team Pot
-  // on the leaderboard, offline queue safety.
-  leaderboard: "The team scoreboard — dials, contacts, and appointments, updated live. Also home to the Team Pot: everyone's shot at the monthly $1,000 pool. Effort is visible.",
-  pipeline:    "Every lead you personally moved forward — Keep in Touch, Appointments, and closed wins. This never gets pulled back to the pool. Ever. Boot to boot, month to month, it stays yours.",
-  leads:       "The gold button. Tap the phone, run LPMAMA (buyer) or CPMAMA (seller), log the outcome. Every tap is receipted — offline or online, no dial ever gets lost. This is where the money gets made.",
-  // Network/Referral leads: leads the agent personally sourced (church, gym,
-  // in person) and works themselves. If it fizzles, it goes back in the pool.
-  refer:       "Referrals — leads YOU sourced from your own network (church, gym, in person). You keep them, work them, and if one fizzles you toss it back and grab another.",
-  profile:     "Your headshot, rank, sound preferences, and settings. Also where you replay this tutorial.",
+  // v19.0 — copy rewritten to match the current 5-tab nav. Home replaces the
+  // old Dashboard slot, Challenges replaces Referrals (referrals fold into the
+  // yellow radial chooser on the Lead Gen [+] button), and Pipeline now has a
+  // Kanban / List toggle.
+  home:       "Your dashboard: live team leaderboard, Team Pot progress toward the $1,000 monthly pool, the ON AIR / Prime Time banner, and today's dial count. Toggle to the anonymized Team Map to see where BGRE is on the ground across NE Florida. Effort is visible — the standings update the moment someone logs an outcome.",
+  pipeline:   "Every lead you personally moved forward — Lead, Contacted, Nurture, Hot, Appt Set, Client Active. Toggle List or Kanban view. This never gets pulled back to the pool. Ever. Boot to boot, month to month, it stays yours.",
+  leads:      "The gold [+] button. Tap it and pick your leg: Dial, Open House, Door Knock, Direct Mail, or Network Referral. Every action is receipted — offline or online, no dial ever gets lost. This is where the money gets made.",
+  challenges: "Daily and weekly challenges. Hit them to earn bonus points, unlock the Diversity Challenge streak, and stack toward the Champion's Bonus. Accept the ones that fit your day; claim gated ones with evidence.",
+  profile:    "Your headshot, rank, sound preferences, Prime Time alert opt-in, and settings. Also where you replay this tutorial.",
 };
 
 // v15.0 — Tutorial OUTCOME_TILES now mirrors AgentView's OUTCOMES array

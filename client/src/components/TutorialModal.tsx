@@ -7,7 +7,7 @@ import {
   X, Trophy, Phone, Briefcase, UserPlus, UserCircle2,
   ChevronRight, ChevronLeft, Heart, CheckCircle2,
   PhoneMissed, XCircle, AlertTriangle, RefreshCw,
-  Map, MessageSquare, Star,
+  Map, MessageSquare, Star, Target, Layers, Home as HomeIcon, Flame,
 } from "lucide-react";
 
 interface Slide {
@@ -57,12 +57,12 @@ const SLIDES: Slide[] = [
     ),
   },
   {
-    icon: <Trophy size={26} style={{ color: GOLD }} />,
-    title: "Dashboard",
+    icon: <HomeIcon size={26} style={{ color: GOLD }} />,
+    title: "Home",
     body: (
       <div>
         <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 1.7, marginBottom: 16 }}>
-          Your home screen. Shows today's leaderboard — your team's performance at a glance — and weekly stats.
+          Your dashboard. Live team leaderboard, Team Pot progress toward the $1,000 monthly pool, the ON AIR / Prime Time banner, and today's dial count — all in one glance.
         </p>
         <div style={CARD}>
           <p style={SECTION_TITLE}>What you'll see</p>
@@ -71,9 +71,11 @@ const SLIDES: Slide[] = [
             ["Dials", "Every call attempt you've logged."],
             ["Contacts", "Leads where you actually spoke to someone."],
             ["Appts", "Appointments set — the most valuable outcome."],
+            ["Team Pot", "Live progress bar toward the $1,000 monthly pool."],
+            ["On Air", "Prime Time / Mid / Downtime banner — tap to see the full research-locked schedule."],
           ].map(([k, v]) => (
             <div key={k} style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-              <span style={{ color: GOLD, fontSize: 12, fontWeight: 700, minWidth: 60 }}>{k}</span>
+              <span style={{ color: GOLD, fontSize: 12, fontWeight: 700, minWidth: 70 }}>{k}</span>
               <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, lineHeight: 1.5 }}>{v}</span>
             </div>
           ))}
@@ -85,8 +87,38 @@ const SLIDES: Slide[] = [
     ),
   },
   {
+    icon: <Layers size={26} style={{ color: GOLD }} />,
+    title: "Pipeline",
+    body: (
+      <div>
+        <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 1.7, marginBottom: 16 }}>
+          Every lead you personally moved forward — permanent, yours forever. Nothing here returns to the shared pool.
+        </p>
+        <div style={CARD}>
+          <p style={SECTION_TITLE}>Six stages</p>
+          {[
+            ["Lead",           "Assigned to you, not yet contacted."],
+            ["Contacted",      "You've reached them; still deciding."],
+            ["Nurture",        "Longer-term follow-up (Keep in Touch — Nurture)."],
+            ["Hot",            "Close to ready (Keep in Touch — Hot Prospect)."],
+            ["Appt Set",       "Meeting on the books."],
+            ["Client Active",  "Currently working with you."],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", gap: 10, marginBottom: 9 }}>
+              <span style={{ color: GOLD, fontSize: 12, fontWeight: 700, minWidth: 90 }}>{k}</span>
+              <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, lineHeight: 1.5 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <p style={{ color: "rgba(200,170,90,0.6)", fontSize: 12, lineHeight: 1.6 }}>
+          Toggle List ↔ Kanban view with the button in the tab header. Kanban is horizontal-scroll on mobile.
+        </p>
+      </div>
+    ),
+  },
+  {
     icon: <Phone size={26} style={{ color: GOLD }} />,
-    title: "Dial — Working Your Leads",
+    title: "Working a Lead Card",
     body: (
       <div>
         <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 1.7, marginBottom: 16 }}>
@@ -104,7 +136,7 @@ const SLIDES: Slide[] = [
           </ol>
         </div>
         <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 12 }}>
-          The gold badge in the bottom nav pulses when you have leads waiting.
+          Below the lead card you'll also see <b>Listing Intel</b> (MLS data) and <b>Zillow Intel</b> (price, beds, baths, hero photo) whenever we can pull them.
         </p>
       </div>
     ),
@@ -144,24 +176,108 @@ const SLIDES: Slide[] = [
   // v14.38 — "My Leads" tutorial card removed with the tab itself.
   // KIT is a FUB commitment; agents look in Follow Up Boss for long-term nurture.
   {
-    icon: <UserPlus size={26} style={{ color: GOLD }} />,
-    title: "Network Leads (Refer)",
+    icon: <Phone size={26} style={{ color: GOLD }} />,
+    title: "Lead Gen [+] — The gold button",
     body: (
       <div>
         <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 1.7, marginBottom: 16 }}>
-          Know someone thinking about selling? Drop their info here and we'll assist all the way to closing.
+          The gold [+] in the middle of the bottom nav is the master lead-generation button. Tap it and pick your leg.
+        </p>
+        <div style={CARD}>
+          <p style={SECTION_TITLE}>Five ways to work</p>
+          {[
+            ["Dial",               "Work your assigned queue. LPMAMA / CPMAMA scripts loaded, offline-safe outcome logging."],
+            ["Open House",         "Log an OH and add new sign-in leads on the spot."],
+            ["Door Knock",         "Log a knock route; add doors turned into leads."],
+            ["Direct Mail",        "Log a mail drop and any callbacks from the piece."],
+            ["Network Referral",   "Add a lead from your personal network — church, gym, in person. Auto-assigned to you, admins notified, tracked to closing."],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", gap: 10, marginBottom: 9 }}>
+              <span style={{ color: GOLD, fontSize: 12, fontWeight: 700, minWidth: 110 }}>{k}</span>
+              <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, lineHeight: 1.5 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <p style={{ color: "rgba(200,170,90,0.5)", fontSize: 12, lineHeight: 1.6, marginTop: 4 }}>
+          Every leg counts toward your leaderboard rank, challenge progress, and the Team Pot.
+        </p>
+      </div>
+    ),
+  },
+  {
+    icon: <Target size={26} style={{ color: GOLD }} />,
+    title: "Challenges",
+    body: (
+      <div>
+        <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 1.7, marginBottom: 16 }}>
+          Daily and weekly challenges. Bonus points, streak unlocks, and stackers toward the Champion's Bonus.
         </p>
         <div style={CARD}>
           <p style={SECTION_TITLE}>How it works</p>
           <ol style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, lineHeight: 1.7, paddingLeft: 18, margin: 0 }}>
-            <li>Fill in the person's name, phone, and any details you know.</li>
-            <li>Submit the form — the lead is automatically assigned to you as the referring agent.</li>
-            <li>The admin team is notified immediately so it gets logged in Follow Up Boss.</li>
-            <li>Your referral is tracked — you get credit.</li>
+            <li>Open the Challenges tab (fourth slot in the bottom nav).</li>
+            <li>Toggle between <b>Daily</b> (37 challenges, refresh every day) and <b>Weekly</b> (25 challenges, refresh every Monday).</li>
+            <li>Accept the ones that fit your day. Non-gated challenges auto-track from your normal actions.</li>
+            <li>Gated challenges (Direct Mail proof, weekly outcome mixes) need a photo or admin approval to claim.</li>
+            <li>Stack them for the <b>Lead Diversity Challenge</b> streak and the <b>Champion's Bonus</b> ladder.</li>
           </ol>
         </div>
         <p style={{ color: "rgba(200,170,90,0.5)", fontSize: 12, lineHeight: 1.6, marginTop: 4 }}>
-          Network leads are the highest-quality leads in the system. They come with a warm relationship already in place.
+          Challenges are the fastest way to climb the leaderboard without dialing more. Play the smart mix.
+        </p>
+      </div>
+    ),
+  },
+  {
+    icon: <Map size={26} style={{ color: GOLD }} />,
+    title: "Team Map",
+    body: (
+      <div>
+        <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 1.7, marginBottom: 16 }}>
+          Toggle on the Home tab to see where the whole team is working across Northeast Florida.
+        </p>
+        <div style={CARD}>
+          <p style={SECTION_TITLE}>What you'll see</p>
+          {[
+            ["Green pins",   "Appointments set. Every green dot is a live booking."],
+            ["Gold pins",    "Actively working — assigned, callback due, or dialed today."],
+            ["Teal pins",    "Territory coverage — leads BGRE owns in the pool."],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", gap: 10, marginBottom: 9 }}>
+              <span style={{ color: GOLD, fontSize: 12, fontWeight: 700, minWidth: 84 }}>{k}</span>
+              <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, lineHeight: 1.5 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <p style={{ color: "rgba(200,170,90,0.55)", fontSize: 12, lineHeight: 1.6, marginTop: 4 }}>
+          <b>Privacy:</b> pins are anonymized and offset ~350m. No names, addresses, or phone numbers ever appear here. This is a bragging · recruiting surface, not a lead browser.
+        </p>
+      </div>
+    ),
+  },
+  {
+    icon: <Flame size={26} style={{ color: "#f97316" }} />,
+    title: "Prime Time",
+    body: (
+      <div>
+        <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 1.7, marginBottom: 16 }}>
+          The always-visible banner at the top of every screen. Tells you at a glance whether we're PRIME, MID, or DOWNTIME.
+        </p>
+        <div style={CARD}>
+          <p style={SECTION_TITLE}>Three tiers</p>
+          {[
+            ["PRIME",     "Best answer rates. Every dial + outcome pays 1.5x points. Flashing red banner. Dial away."],
+            ["MID",       "Standard yield. 1.0x points. Amber banner."],
+            ["DOWNTIME",  "Low yield. The dial button locks out with a toast; outcomes still work. Gray banner."],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+              <span style={{ color: k === "PRIME" ? "#ef4444" : k === "MID" ? "#f59e0b" : "#9ca3af", fontSize: 12, fontWeight: 700, minWidth: 84 }}>{k}</span>
+              <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, lineHeight: 1.5 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <p style={{ color: "rgba(200,170,90,0.5)", fontSize: 12, lineHeight: 1.6, marginTop: 4 }}>
+          The app fires one browser notification at the START of every Prime block (never mid-block). Tap the banner to see the full 7-day heatmap and the research behind each hour.
         </p>
       </div>
     ),
@@ -203,12 +319,13 @@ const SLIDES: Slide[] = [
           A few habits that separate top performers on the leaderboard.
         </p>
         {[
-          ["Dial first thing", "Start your day in the Dial tab. Fresh leads get the best contact rates."],
+          ["Dial in Prime Time", "When the banner is PRIME, every dial + outcome pays 1.5x points. Show up in the green blocks and your rank climbs faster."],
           ["Log every call", "Even no-answers. It keeps the system accurate and protects your numbers."],
           ["Add real notes", "Notes are cumulative and visible to the whole team. Write what you'd want to know if you were reading this lead for the first time."],
           ["Use the script", "CPMAMA (sellers) / LPMAMA (buyers) isn't a rigid script — it's a framework. Hit the highlights naturally."],
           ["Be human", "People can tell when they're being sold to. Ask questions. Listen more than you talk."],
-          ["Refer generously", "Every referral you enter is a lead that's already warmed up. Submit them the same day you hear about them."],
+          ["Stack challenges", "Accept 2–3 daily challenges every morning — they auto-track from normal work. Free points."],
+          ["Refer generously", "Network Referrals are the highest-quality leads in the system. Add them the same day you hear about them."],
         ].map(([k, v]) => (
           <div key={k} style={CARD}>
             <p style={{ color: GOLD, fontSize: 12, fontWeight: 700, margin: "0 0 6px", letterSpacing: "0.04em" }}>{k}</p>

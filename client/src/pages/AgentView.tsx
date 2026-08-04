@@ -19,6 +19,7 @@ import {
   Share2, Instagram, Target, Shield,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
+import TeamMap from "./TeamMap";
 import ConfettiCelebration from "../components/ld/ConfettiCelebration";
 import GrandCelebration from "../components/ld/GrandCelebration";
 import { RankTrophy } from "../components/ld/RankTrophy";
@@ -2202,7 +2203,7 @@ function LeadCard({ lead }: { lead: Lead }) {
           );
         })()}
 
-        {/* v19.0 — Zillow Intel (public scrape, 24h cache). Renders inline if scrape succeeds.
+        {/* v19.1 — Zillow Intel (public scrape, 24h cache). Renders inline if scrape succeeds.
             Silently omitted when Zillow blocks or the address doesn't resolve. */}
         {lead.address && <ZillowIntelPanel address={lead.address} city={lead.city} state={lead.state} zip={lead.zip} />}
       </div>
@@ -3778,6 +3779,43 @@ function CallHeatMeter() {
   );
 }
 
+// v19.1 — HomeShell wraps LeaderboardTab with a small "Board ↔ Team Map"
+// segmented toggle at the very top. Team Map is a zero-PII recruiting surface
+// (see /api/team-map/pins). Toggle state is local to the tab so it resets on
+// leave/return, which is fine — board is the default landing.
+function HomeShell({ mode = "seller" }: { mode?: "seller" } = {}) {
+  const [view, setView] = useState<"board" | "map">("board");
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+        <div style={{ display: "inline-flex", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 999, padding: 3 }}>
+          {([
+            { k: "board", l: "Leaderboard" },
+            { k: "map",   l: "Team Map"   },
+          ] as const).map(o => {
+            const active = view === o.k;
+            return (
+              <button key={o.k} onClick={() => setView(o.k)} style={{
+                padding: "6px 16px",
+                borderRadius: 999,
+                border: "none",
+                background: active ? "rgba(200,170,90,0.14)" : "transparent",
+                color: active ? "#c8aa5a" : "rgba(255,255,255,0.45)",
+                fontSize: 12,
+                letterSpacing: "0.05em",
+                fontWeight: 500,
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}>{o.l}</button>
+            );
+          })}
+        </div>
+      </div>
+      {view === "board" ? <LeaderboardTab mode={mode} /> : <TeamMap />}
+    </div>
+  );
+}
+
 function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -4189,7 +4227,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
 // Nav shrank from 5 tabs to 4 (Dashboard / Dial / Refer / Profile).
 // v14.68 — RESTORED (no 60-day filter). See MyLeadsTab component just below.
 
-// v19.0 — ZillowIntelPanel: lazy-loads /api/zillow/intel when a lead detail
+// v19.1 — ZillowIntelPanel: lazy-loads /api/zillow/intel when a lead detail
 // opens. Renders nothing until we have data. If Zillow blocks or the address
 // doesn't resolve, silently omit. 24h server-side cache keeps this cheap.
 function ZillowIntelPanel({ address, city, state, zip }: { address: string; city?: string | null; state?: string | null; zip?: string | null }) {
@@ -4383,7 +4421,7 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
   // v14.80 — Agent Pipeline redesign: tiles now filter the list below instead of
   // just displaying counts. "all" (default) shows every owned pipeline lead.
   const [pipelineFilter, setPipelineFilter] = useState<"all" | "appts" | "kit" | "network">("all");
-  // v19.0 — Pipeline view toggle: List (default, phone-friendly) or Kanban (6 stages).
+  // v19.1 — Pipeline view toggle: List (default, phone-friendly) or Kanban (6 stages).
   const [pipelineView, setPipelineView] = useState<"list" | "kanban">(() => {
     try { return (window.localStorage.getItem("ld_pipeline_view_v1") as any) || "list"; } catch { return "list"; }
   });
@@ -4424,7 +4462,7 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
         </p>
       </div>
 
-      {/* v19.0 — List / Kanban toggle */}
+      {/* v19.1 — List / Kanban toggle */}
       <div style={{ display: "flex", gap: 6, marginBottom: 16, padding: 3, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.15)", borderRadius: 8, width: "fit-content" }}>
         {([{ k: "list", label: "LIST" }, { k: "kanban", label: "KANBAN" }] as const).map(o => (
           <button key={o.k} data-testid={`pipeline-view-${o.k}`} onClick={() => setPipelineView(o.k as any)}
@@ -4520,7 +4558,7 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
   );
 }
 
-// v19.0 — KanbanBoard: 6-column horizontally-scrollable board.
+// v19.1 — KanbanBoard: 6-column horizontally-scrollable board.
 // Columns: Lead / Contacted / Nurture / Hot / Appt Set / Client Active.
 interface KanbanBoardProps {
   isLoading: boolean;
@@ -5275,7 +5313,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   const qc = useQueryClient();
   const { toast } = useToast(); // v15.11.17 — used by CLOSED_STATUSES redirect notice
 
-  // v19.0 — Prime Time notifier boot. Idempotent; only fires when permission is granted.
+  // v19.1 — Prime Time notifier boot. Idempotent; only fires when permission is granted.
   useEffect(() => { startPrimeNotifier(); }, []);
   const [primePerm, setPrimePerm] = useState<NotificationPermission>(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "denied"
@@ -5547,7 +5585,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v19.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v19.1</span>
             </div>
           </div>
         </div>
@@ -5660,7 +5698,9 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             Live On Air / KPIs / challenges). Phase 3d will split them: Home stays
             personal-focused; Leaderboard tab becomes standings-focused with the
             sticky-swipe agent selector. Placeholder for now so the nav renders. */}
-        {tab === "home" && <LeaderboardTab mode={mode} />}
+        {tab === "home" && (
+          <HomeShell mode={mode} />
+        )}
         {tab === "leaderboard" && <LeaderboardTab mode={mode} />}
         {tab === "challenges" && <ChallengesTab />}
 

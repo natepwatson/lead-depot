@@ -69,6 +69,7 @@
   "GET /api/scripts/expired/audit",
   "GET /api/settings/agent-prospecting-mode",
   "GET /api/streaks",
+  "GET /api/team-map/pins",
   "GET /api/team-pot",
   "GET /api/territories",
   "GET /join",

@@ -405,7 +405,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v19.0 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v19.1 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -464,7 +464,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -749,7 +749,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v19.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1987,7 +1987,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v19.0</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v19.1</p>
             </div>
           `,
         });
@@ -2147,7 +2147,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v19.0 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v19.1 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3083,6 +3083,67 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ leads, totalCount, geocodedCount, pending, bgRunning: bgGeocodeRunning });
   });
 
+  // v19.1 — Public Team Map endpoint. Any authenticated agent can call this;
+  // returns only anonymized coordinates + coarse bucket. NO owner name, NO
+  // address, NO id, NO phone, NO zip. Coordinates are jittered ±0.004° (~350m)
+  // to hide exact property location. This is the "bragging" surface used to
+  // recruit — shows density and appointment set count without leaking any PII.
+  app.get("/api/team-map/pins", (_req, res) => {
+    const rows: any[] = rawDb.prepare(
+      `SELECT l.status, g.lat, g.lng
+       FROM leads l
+       INNER JOIN geo_cache g ON g.address_key = lower(trim(
+         l.address || ', ' ||
+         coalesce(nullif(l.city,''), '') || ', ' ||
+         coalesce(nullif(l.state,''), 'FL') || ', ' ||
+         coalesce(nullif(l.zip,''), '')
+       ))`
+    ).all();
+
+    // Bucket status into three tiers for public display.
+    // Only three colors keeps the recruiting surface simple and readable.
+    const bucket = (s: string): "appt" | "contact" | "pool" => {
+      if (s === "contacted_appointment") return "appt";
+      if (s === "assigned" || s === "callback_requested" || s === "no_answer") return "contact";
+      return "pool";
+    };
+
+    // Deterministic jitter: seed by rounded coords so the same lead always jitters
+    // to the same spot (no shimmer between reloads). ±0.004° ≈ 350–450m in NE FL.
+    const jitter = (v: number, salt: number) => {
+      const h = Math.sin(v * 12345.6789 + salt) * 43758.5453;
+      return v + ((h - Math.floor(h)) - 0.5) * 0.008;
+    };
+
+    // Aggregate to per-block cells (~0.002° grid, ~180m) so admins can't reverse
+    // any single pin back to a house even if they know the source data. If a cell
+    // has ≥1 lead, emit ONE pin with the strongest bucket (appt > contact > pool).
+    const cells = new Map<string, { lat: number; lng: number; tier: "appt" | "contact" | "pool"; count: number }>();
+    const rank: Record<string, number> = { pool: 0, contact: 1, appt: 2 };
+    for (const r of rows) {
+      if (typeof r.lat !== "number" || typeof r.lng !== "number") continue;
+      const jLat = jitter(r.lat, 1);
+      const jLng = jitter(r.lng, 2);
+      const key = `${jLat.toFixed(3)}:${jLng.toFixed(3)}`;
+      const tier = bucket(r.status);
+      const prev = cells.get(key);
+      if (!prev) cells.set(key, { lat: jLat, lng: jLng, tier, count: 1 });
+      else {
+        prev.count += 1;
+        if (rank[tier] > rank[prev.tier]) prev.tier = tier;
+      }
+    }
+
+    const pins = Array.from(cells.values());
+    const totals = {
+      total: pins.length,
+      appt: pins.filter(p => p.tier === "appt").length,
+      contact: pins.filter(p => p.tier === "contact").length,
+      pool: pins.filter(p => p.tier === "pool").length,
+    };
+    res.json({ pins, totals });
+  });
+
   // v14.30 — manual trigger for background geocode (admin-only in practice; no auth
   // check here because whole app is behind login, but harmless to expose).
   app.post("/api/leads/map/refresh-geocode", async (_req, res) => {
@@ -3543,7 +3604,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const kit     = owned.filter(l => l.status === 'keep_in_touch');
     const network = owned.filter(l => l.lead_type === 'network' && l.status !== 'keep_in_touch' && l.status !== 'contacted_appointment');
 
-    // v19.0 — Kanban 6-stage bucketing. Alex spec: no Under Contract, no Closed.
+    // v19.1 — Kanban 6-stage bucketing. Alex spec: no Under Contract, no Closed.
     //   Lead          — assigned to agent, no activity yet
     //   Contacted     — has activity but neutral outcome (no_answer, recycled)
     //   Nurture       — KIT with stage='Nurture'
@@ -7183,7 +7244,7 @@ Brothers Group Real Estate Team at Momentum Realty
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v19.0 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v19.1 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8201,7 +8262,7 @@ Brothers Group Real Estate Team at Momentum Realty
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v19.0",
+      version: "v19.1",
       services: results,
     });
   });
@@ -8829,7 +8890,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v19.0</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v19.1</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

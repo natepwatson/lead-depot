@@ -1604,6 +1604,47 @@ export function fubPersonAddress(p: any): { address: string | null; city: string
  * v20.4.9 — Buyer preferences from a FUB person's custom fields.
  * FUB has no fixed schema for buyer prefs; scan customFields for known keywords.
  */
+// v20.5.0 — Fetch all notes for a FUB person (chronological concat for intent parser)
+export async function fubListPersonNotes(personId: string | number, limit = 25): Promise<string> {
+  if (!FUB_API_KEY || !personId) return "";
+  try {
+    const r = await fubRequest("GET", `/notes?personId=${personId}&limit=${limit}&sort=-created`);
+    if (!r?.ok) return "";
+    const items: any[] = r?.data?.notes || [];
+    if (!Array.isArray(items) || !items.length) return "";
+    // Concat newest-first, oldest-last, separated by " \u2014 " for parser context
+    return items
+      .map(n => String(n.body || "").trim())
+      .filter(Boolean)
+      .join(" \u2014 ");
+  } catch (err: any) {
+    console.warn(`[FUB] fubListPersonNotes(${personId}) failed:`, err?.message);
+    return "";
+  }
+}
+
+// v20.5.0 — Combine a FUB person's background/customFields/notes into one text blob
+//           for the intent parser. Cheap: uses fields already on the person object,
+//           optionally calls /notes for deeper history.
+export async function fubPersonIntentBlob(p: any, includeNotes = true): Promise<string> {
+  const parts: string[] = [];
+  if (p.background) parts.push(String(p.background).trim());
+  const cf: Record<string, any> = p.customFields || {};
+  for (const [k, v] of Object.entries(cf)) {
+    if (v == null || v === "") continue;
+    // Only include free-text-looking customFields (skip yes/no, dates, numbers-only)
+    const sv = String(v).trim();
+    if (sv.length > 3 && !/^[0-9.\-\/]+$/.test(sv) && !/^(yes|no|true|false)$/i.test(sv)) {
+      parts.push(`[${k}] ${sv}`);
+    }
+  }
+  if (includeNotes && p.id) {
+    const notes = await fubListPersonNotes(p.id, 25);
+    if (notes) parts.push(notes);
+  }
+  return parts.join(" \u2014 ").slice(0, 8000); // hard cap to keep parser fast
+}
+
 export function fubPersonBuyerPrefs(p: any): {
   price_min: number | null; price_max: number | null;
   beds_min:  number | null; baths_min: number | null; sqft_min: number | null;

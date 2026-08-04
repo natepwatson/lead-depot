@@ -15,6 +15,7 @@
 
 import ExcelJS from "exceljs";
 import { rawDb } from "./db";
+import { parseIntent } from "./buyerIntentParser";
 
 // Rough color buckets. ARGB hex from Excel fill.fgColor.argb.
 // Excel default no-fill is undefined/null, treated as white.
@@ -319,34 +320,63 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
   // ─── BUYERS ──────────────────────────────────────────────
   if (buyersSheet) {
     const rows = readSheetRows(buyersSheet, BUYER_HEADER_MAP);
+
+    // v20.5.0: Track (name+ordinal) so a repeat buyer with two rows on the same
+    // sheet gets ordinal=1 and ordinal=2 (Alex's Q1 rule: same name, different
+    // intent = two rows). Same-name Rank #2 gets a new row, not an overwrite.
+    const nameOrdinal = new Map<string, number>();
+    function nextOrdinal(name: string): number {
+      const key = name.toLowerCase().trim();
+      const cur = nameOrdinal.get(key) || 0;
+      const next = cur + 1;
+      nameOrdinal.set(key, next);
+      return next;
+    }
+
     const upsert = rawDb.prepare(`
       INSERT INTO buyers (
         name, phone, email, buyers_agent, status,
-        price_min, price_max, preferred_areas,
+        price_min, price_max, preferred_areas, zip_codes,
         beds_min, baths_min, sqft_min,
+        land_acres_min, lot_width_min, arv_min, arv_max,
         must_haves, no_gos, pre_approved, lender, timeline,
         closed_date, closed_address, closed_price,
-        notes, source, source_ref, last_updated_by, created_at, updated_at
+        notes, intent_phrases,
+        intent_property_types, intent_conditions, intent_verbs,
+        financing, is_investor, is_rental, rental_type,
+        confidence, origin_sources, multi_search_ordinal,
+        source, source_ref, last_updated_by, created_at, updated_at
       ) VALUES (
         @name, @phone, @email, @buyers_agent, @status,
-        @price_min, @price_max, @preferred_areas,
+        @price_min, @price_max, @preferred_areas, @zip_codes,
         @beds_min, @baths_min, @sqft_min,
+        @land_acres_min, @lot_width_min, @arv_min, @arv_max,
         @must_haves, @no_gos, @pre_approved, @lender, @timeline,
         @closed_date, @closed_address, @closed_price,
-        @notes, 'excel', @source_ref, @last_updated_by, datetime('now'), datetime('now')
+        @notes, @intent_phrases,
+        @intent_property_types, @intent_conditions, @intent_verbs,
+        @financing, @is_investor, @is_rental, @rental_type,
+        @confidence, @origin_sources, @multi_search_ordinal,
+        'excel', @source_ref, @last_updated_by, datetime('now'), datetime('now')
       )
-      ON CONFLICT(coalesce(lower(phone),lower(email),lower(name))) DO UPDATE SET
-        name             = excluded.name,
+      ON CONFLICT(lower(name), multi_search_ordinal) DO UPDATE SET
         phone            = COALESCE(excluded.phone, buyers.phone),
         email            = COALESCE(excluded.email, buyers.email),
         buyers_agent     = COALESCE(excluded.buyers_agent, buyers.buyers_agent),
-        status           = excluded.status,
+        status           = CASE WHEN buyers.do_not_import = 1
+                                THEN buyers.status
+                                ELSE excluded.status END,
         price_min        = COALESCE(excluded.price_min, buyers.price_min),
         price_max        = COALESCE(excluded.price_max, buyers.price_max),
         preferred_areas  = COALESCE(excluded.preferred_areas, buyers.preferred_areas),
+        zip_codes        = COALESCE(excluded.zip_codes, buyers.zip_codes),
         beds_min         = COALESCE(excluded.beds_min, buyers.beds_min),
         baths_min        = COALESCE(excluded.baths_min, buyers.baths_min),
         sqft_min         = COALESCE(excluded.sqft_min, buyers.sqft_min),
+        land_acres_min   = COALESCE(excluded.land_acres_min, buyers.land_acres_min),
+        lot_width_min    = COALESCE(excluded.lot_width_min, buyers.lot_width_min),
+        arv_min          = COALESCE(excluded.arv_min, buyers.arv_min),
+        arv_max          = COALESCE(excluded.arv_max, buyers.arv_max),
         must_haves       = COALESCE(excluded.must_haves, buyers.must_haves),
         no_gos           = COALESCE(excluded.no_gos, buyers.no_gos),
         pre_approved     = excluded.pre_approved,
@@ -356,11 +386,26 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
         closed_address   = COALESCE(excluded.closed_address, buyers.closed_address),
         closed_price     = COALESCE(excluded.closed_price, buyers.closed_price),
         notes            = COALESCE(excluded.notes, buyers.notes),
+        intent_phrases   = COALESCE(excluded.intent_phrases, buyers.intent_phrases),
+        intent_property_types = COALESCE(excluded.intent_property_types, buyers.intent_property_types),
+        intent_conditions = COALESCE(excluded.intent_conditions, buyers.intent_conditions),
+        intent_verbs     = COALESCE(excluded.intent_verbs, buyers.intent_verbs),
+        financing        = COALESCE(excluded.financing, buyers.financing),
+        is_investor      = excluded.is_investor,
+        is_rental        = excluded.is_rental,
+        rental_type      = COALESCE(excluded.rental_type, buyers.rental_type),
+        confidence       = MAX(excluded.confidence, COALESCE(buyers.confidence, 0)),
+        origin_sources   = excluded.origin_sources,
         source           = 'excel',
         source_ref       = excluded.source_ref,
         last_updated_by  = excluded.last_updated_by,
         updated_at       = datetime('now')
     `);
+
+    // Read existing origin_sources so we can APPEND 'excel' instead of overwriting
+    const readOriginStmt = rawDb.prepare(
+      `SELECT origin_sources FROM buyers WHERE lower(name) = ? AND multi_search_ordinal = ?`
+    );
 
     for (let i = 0; i < rows.length; i++) {
       const { color, row } = rows[i];
@@ -371,6 +416,33 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
       const name = String(row.name || "").trim();
       if (!name) { result.buyers.skipped++; continue; }
 
+      // v20.5.0: run intent parser on Denise's jumbled notes column
+      const rawNotes = row.notes ? String(row.notes).trim() : "";
+      const intent = parseIntent(rawNotes);
+
+      // Assign multi-search ordinal (1 first, 2 second, etc. per name in this upload)
+      const ordinal = nextOrdinal(name);
+
+      // Merge origin_sources: existing (if any) UNION ['excel']
+      let originSources: string[] = ["excel"];
+      try {
+        const existing = readOriginStmt.get(name.toLowerCase(), ordinal) as { origin_sources: string } | undefined;
+        if (existing?.origin_sources) {
+          const arr = JSON.parse(existing.origin_sources);
+          if (Array.isArray(arr)) originSources = Array.from(new Set([...arr, "excel"]));
+        }
+      } catch { /* first sighting of this name+ordinal, keep ['excel'] */ }
+
+      // Excel columns win when filled; intent parser fills the gaps
+      const priceMin = parsePrice(row.price_min) ?? intent.price_min;
+      const priceMax = parsePrice(row.price_max) ?? intent.price_max;
+      const bedsMin  = parseInt2(row.beds_min)   ?? intent.beds_min;
+      const bathsMin = parseFloat2(row.baths_min) ?? intent.baths_min;
+      const sqftMin  = parseInt2(row.sqft_min)   ?? intent.sqft_min;
+      const areas    = row.preferred_areas
+                        ? String(row.preferred_areas).trim()
+                        : (intent.areas.length ? intent.areas.join(", ") : null);
+
       try {
         upsert.run({
           name,
@@ -378,12 +450,17 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
           email:            row.email ? String(row.email).trim() : null,
           buyers_agent:     row.buyers_agent ? String(row.buyers_agent).trim() : null,
           status,
-          price_min:        parsePrice(row.price_min),
-          price_max:        parsePrice(row.price_max),
-          preferred_areas:  row.preferred_areas ? String(row.preferred_areas).trim() : null,
-          beds_min:         parseInt2(row.beds_min),
-          baths_min:        parseFloat2(row.baths_min),
-          sqft_min:         parseInt2(row.sqft_min),
+          price_min:        priceMin,
+          price_max:        priceMax,
+          preferred_areas:  areas,
+          zip_codes:        intent.zip_codes.length ? intent.zip_codes.join(",") : null,
+          beds_min:         bedsMin,
+          baths_min:        bathsMin,
+          sqft_min:         sqftMin,
+          land_acres_min:   intent.land_acres_min,
+          lot_width_min:    intent.lot_width_min,
+          arv_min:          intent.arv_min,
+          arv_max:          intent.arv_max,
           must_haves:       row.must_haves ? String(row.must_haves).trim() : null,
           no_gos:           row.no_gos ? String(row.no_gos).trim() : null,
           pre_approved:     parseBool(row.pre_approved),
@@ -392,8 +469,19 @@ export async function parseWeeklyWorkbook(buf: Buffer, uploadedBy: string): Prom
           closed_date:      status === "closed" ? (toIsoDate(row.closed_date) || new Date().toISOString().slice(0,10)) : null,
           closed_address:   status === "closed" ? (row.closed_address ? String(row.closed_address).trim() : null) : null,
           closed_price:     status === "closed" ? parsePrice(row.closed_price) : null,
-          notes:            row.notes ? String(row.notes).trim() : null,
-          source_ref:       `workbook:buyers:r${i + 2}`,
+          notes:            rawNotes || null,
+          intent_phrases:        rawNotes ? JSON.stringify([rawNotes]) : null,
+          intent_property_types: intent.property_types.length ? intent.property_types.join(",") : null,
+          intent_conditions:     intent.conditions.length ? intent.conditions.join(",") : null,
+          intent_verbs:          intent.verbs.length ? intent.verbs.join(",") : null,
+          financing:        intent.financing,
+          is_investor:      intent.is_investor ? 1 : 0,
+          is_rental:        intent.is_rental ? 1 : 0,
+          rental_type:      intent.rental_type,
+          confidence:       intent.confidence,
+          origin_sources:   JSON.stringify(originSources),
+          multi_search_ordinal: ordinal,
+          source_ref:       `workbook:buyers:r${i + 2}:ord${ordinal}`,
           last_updated_by:  uploadedBy,
         });
         result.buyers.inserted++;

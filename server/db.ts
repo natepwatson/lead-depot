@@ -1212,6 +1212,51 @@ rawDb.exec(`
 `);
 console.log("[db] v20.4.9 fub_tag_config table ready");
 
+// ─── v20.5.0 — buyer master list schema extensions ───────────────────────────
+// Adds columns to buyers table for the three-phase reconciliation workflow.
+// Uses PRAGMA table_info to guard against "duplicate column" on restart.
+function addColumnIfMissing(table: string, colName: string, colDef: string) {
+  const cols = rawDb.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.find(c => c.name === colName)) {
+    rawDb.exec(`ALTER TABLE ${table} ADD COLUMN ${colName} ${colDef}`);
+    console.log(`[db] v20.5.0 added ${table}.${colName}`);
+  }
+}
+addColumnIfMissing("buyers", "intent_phrases",     "TEXT");           // JSON array of parsed intent objects
+addColumnIfMissing("buyers", "do_not_import",      "INTEGER DEFAULT 0"); // 1 = block future FUB sweeps from re-adding
+addColumnIfMissing("buyers", "exclude_reason",     "TEXT");           // free-text: 'fired us', 'moving out of state', etc.
+addColumnIfMissing("buyers", "confidence",         "REAL DEFAULT 0.5"); // 0-1, based on how much intent parser extracted
+addColumnIfMissing("buyers", "origin_sources",     "TEXT");           // JSON array: ['excel','fub:stage:Active Client','fub:deal:buyer']
+addColumnIfMissing("buyers", "linked_transaction_id", "INTEGER");     // FK to closed listing/buyer if this is a repeat buyer
+addColumnIfMissing("buyers", "intent_property_types", "TEXT");        // csv: 'SFH,land,commercial,ranch,manufactured'
+addColumnIfMissing("buyers", "intent_conditions",  "TEXT");           // csv: 'new_build,reno,fixer,flip'
+addColumnIfMissing("buyers", "intent_verbs",       "TEXT");           // csv: 'downsize,move_up,investor,gift'
+addColumnIfMissing("buyers", "financing",          "TEXT");           // 'cash','conventional','FHA','VA'
+addColumnIfMissing("buyers", "is_investor",        "INTEGER DEFAULT 0"); // 1 if investor flag detected
+addColumnIfMissing("buyers", "is_rental",          "INTEGER DEFAULT 0"); // 1 = renter, NOT a purchase buyer
+addColumnIfMissing("buyers", "rental_type",        "TEXT");           // 'commercial_lease' | 'residential_rental' | 'land_lease'
+addColumnIfMissing("buyers", "multi_search_ordinal", "INTEGER DEFAULT 1"); // 1,2,3 for same-name multi-searches
+addColumnIfMissing("buyers", "land_acres_min",     "REAL");           // 1, 2.5, 10
+addColumnIfMissing("buyers", "zip_codes",          "TEXT");           // csv of specific ZIPs mentioned
+addColumnIfMissing("buyers", "arv_min",            "INTEGER");        // for investor buyers: After Repair Value floor
+addColumnIfMissing("buyers", "arv_max",            "INTEGER");
+addColumnIfMissing("buyers", "lot_width_min",      "INTEGER");        // luxury "80'+ lot" cases
+
+// Same on listings — track origin source and confidence for reconciliation
+addColumnIfMissing("listings", "do_not_import",   "INTEGER DEFAULT 0");
+addColumnIfMissing("listings", "exclude_reason",  "TEXT");
+addColumnIfMissing("listings", "origin_sources",  "TEXT");
+
+// Drop the unique dedupe index so multi-search rows for same buyer can coexist.
+// v20.5.0 rule: same buyer name + different intent = TWO rows (Alex's Q1 answer).
+// We now dedupe by (name + multi_search_ordinal) instead of by contact info alone.
+rawDb.exec(`DROP INDEX IF EXISTS idx_buyers_dedupe`);
+// UNIQUE on (lower(name), multi_search_ordinal) so ON CONFLICT works. Same person
+// with the same ordinal (default 1) dedupes; a second search creates ordinal=2.
+rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_buyers_name_ordinal ON buyers(lower(name), multi_search_ordinal)`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_buyers_do_not_import ON buyers(do_not_import) WHERE do_not_import = 1`).run();
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_buyers_origin ON buyers(source)`).run();
+console.log("[db] v20.5.0 buyer master list schema ready");
 
 console.log("[db] v20.4.9 open_houses + listings tables ready");
 

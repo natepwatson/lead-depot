@@ -33,7 +33,8 @@ import {
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, Heart, Map as MapIcon,
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
   UserPlus, UserCircle2, KeyRound, RotateCcw,
-  Sparkles, Database, Wrench, FileText, PlayCircle, Home, CalendarDays
+  Sparkles, Database, Wrench, FileText, PlayCircle, Home, CalendarDays,
+  ClipboardList
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -1836,7 +1837,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.4.9
+              v20.6.0
             </p>
           </div>
         </div>
@@ -1933,6 +1934,7 @@ export default function AdminDashboard({
               { value: "candidates",  icon: UserPlus,    label: "Candidates" },
               { value: "dbhealth",    icon: Database,    label: "DB Health" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
+              { value: "masterlist",  icon: ClipboardList, label: "Master List" },
               { value: "openhouses",  icon: CalendarDays, label: "Open Houses" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
@@ -2672,6 +2674,11 @@ export default function AdminDashboard({
               <WeeklyWorkbookPanel />
               <FubTagConfigPanel />
             </div>
+          </TabsContent>
+
+          {/* v20.6.0 — MASTER LIST: every buyer + renter, merged sources, K/X + rental toggle. */}
+          <TabsContent value="masterlist" className="mt-5">
+            <MasterListPanel />
           </TabsContent>
 
           {/* v20.4.9 — Open Houses admin tab: Denise's Tuesday schedule form. */}
@@ -4313,4 +4320,252 @@ function DbHealthPanel() {
       </div>
     </div>
   );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v20.6.0 — MASTER LIST PANEL
+//   Every buyer + renter, merged sources, source badges, K/X + rental toggle.
+//   Backend: GET /api/admin/master-list, POST /api/admin/master-list/:id/action
+// ═══════════════════════════════════════════════════════════════════════════
+function MasterListPanel() {
+  const [q, setQ] = useState("");
+  const [source, setSource] = useState<"all"|"excel"|"fub"|"lead_depot">("all");
+  const [kind, setKind] = useState<"all"|"buyer"|"rental">("all");
+  const [status, setStatus] = useState<"all"|"active"|"nurture"|"closed"|"rental"|"dead">("all");
+  const [rows, setRows] = useState<any[]>([]);
+  const [counts, setCounts] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = React.useCallback(async () => {
+    setBusy(true);
+    try {
+      const params = new URLSearchParams({ q, source, kind, status });
+      const r = await fetch(`/api/admin/master-list?${params.toString()}`, { credentials: "include" });
+      const j = await r.json();
+      setRows(j.rows || []);
+      setCounts(j.counts || null);
+    } catch (e) { console.error("[master-list load]", e); }
+    finally { setBusy(false); }
+  }, [q, source, kind, status]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const doAction = async (id: number, action: "keep"|"kill"|"toggle_rental") => {
+    if (action === "kill" && !window.confirm("Mark as DEAD? Row will be excluded from all lists. (You can restore with 'K'.)")) return;
+    try {
+      const r = await fetch(`/api/admin/master-list/${id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action }),
+      });
+      if (r.ok) await load();
+    } catch (e) { console.error("[master-list action]", e); }
+  };
+
+  const pill = (label: string, active: boolean, on: () => void) => (
+    <button
+      onClick={on}
+      style={{
+        padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+        border: active ? "1px solid #c8aa5a" : "1px solid rgba(200,170,90,0.2)",
+        background: active ? "rgba(200,170,90,0.15)" : "transparent",
+        color: active ? "#c8aa5a" : "#a0a0a0",
+        cursor: "pointer", transition: "all 0.15s",
+      }}
+    >{label}</button>
+  );
+
+  const sourceBadge = (origins: string) => {
+    const parsed: string[] = (() => { try { return JSON.parse(origins || "[]"); } catch { return []; } })();
+    const chip = (src: string, color: string) => (
+      <span key={src} style={{
+        display: "inline-block", padding: "2px 6px", borderRadius: 3, fontSize: 10,
+        fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase",
+        background: color, color: "#0a0a0a", marginRight: 4,
+      }}>{src === "lead_depot" ? "LD" : src.toUpperCase()}</span>
+    );
+    return (
+      <>
+        {parsed.includes("excel")      && chip("excel",      "#c8aa5a")}
+        {parsed.includes("fub")        && chip("fub",        "#93c5fd")}
+        {parsed.includes("lead_depot") && chip("lead_depot", "#4ade80")}
+      </>
+    );
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Header + counts */}
+      <div style={{
+        background: "rgba(200,170,90,0.05)",
+        border: "1px solid rgba(200,170,90,0.15)",
+        borderRadius: 10, padding: 20,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#f0f0f0", letterSpacing: -0.2 }}>Master List</div>
+            <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 2 }}>
+              Every buyer + renter, all sources merged. K = keep · X = kill · Rental toggle flips between the two buckets.
+            </div>
+          </div>
+          <button onClick={load} disabled={busy} style={{
+            padding: "8px 14px", background: "rgba(200,170,90,0.15)",
+            border: "1px solid rgba(200,170,90,0.3)", borderRadius: 6,
+            color: "#c8aa5a", fontSize: 12, fontWeight: 600, cursor: busy ? "wait" : "pointer",
+          }}>{busy ? "Loading…" : "Refresh"}</button>
+        </div>
+
+        {counts && (
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+            <StatChip label="Total" value={counts.total} accent="#f0f0f0" />
+            <StatChip label="Buyers" value={counts.buyers} accent="#93c5fd" />
+            <StatChip label="Rentals" value={counts.rentals} accent="#a78bfa" />
+            <StatChip label="From Excel" value={counts.by_source.excel} accent="#c8aa5a" />
+            <StatChip label="From FUB" value={counts.by_source.fub} accent="#93c5fd" />
+            <StatChip label="From LD" value={counts.by_source.lead_depot} accent="#4ade80" />
+          </div>
+        )}
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search name / email / phone / area / notes…"
+          style={{
+            flex: "1 1 240px", padding: "8px 12px", background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(200,170,90,0.15)", borderRadius: 6, color: "#f0f0f0", fontSize: 13,
+          }}
+        />
+        <div style={{ display: "flex", gap: 4 }}>
+          <span style={{ fontSize: 11, color: "#7a7a7a", alignSelf: "center", marginRight: 4 }}>Kind:</span>
+          {pill("All", kind === "all", () => setKind("all"))}
+          {pill("Buyers", kind === "buyer", () => setKind("buyer"))}
+          {pill("Rentals", kind === "rental", () => setKind("rental"))}
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          <span style={{ fontSize: 11, color: "#7a7a7a", alignSelf: "center", marginRight: 4 }}>Source:</span>
+          {pill("All", source === "all", () => setSource("all"))}
+          {pill("Excel", source === "excel", () => setSource("excel"))}
+          {pill("FUB", source === "fub", () => setSource("fub"))}
+          {pill("LD", source === "lead_depot", () => setSource("lead_depot"))}
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          <span style={{ fontSize: 11, color: "#7a7a7a", alignSelf: "center", marginRight: 4 }}>Status:</span>
+          {pill("All", status === "all", () => setStatus("all"))}
+          {pill("Active", status === "active", () => setStatus("active"))}
+          {pill("Nurture", status === "nurture", () => setStatus("nurture"))}
+          {pill("Closed", status === "closed", () => setStatus("closed"))}
+          {pill("Rental", status === "rental", () => setStatus("rental"))}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto", border: "1px solid rgba(200,170,90,0.1)", borderRadius: 8 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead style={{ background: "rgba(200,170,90,0.06)" }}>
+            <tr style={{ textAlign: "left" }}>
+              <th style={hdrStyle}>Name</th>
+              <th style={hdrStyle}>Contact</th>
+              <th style={hdrStyle}>Status</th>
+              <th style={hdrStyle}>Budget</th>
+              <th style={hdrStyle}>Areas</th>
+              <th style={hdrStyle}>Source</th>
+              <th style={hdrStyle}>Conf</th>
+              <th style={{ ...hdrStyle, textAlign: "right" }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id} style={{ borderTop: "1px solid rgba(200,170,90,0.06)", opacity: r.status === "dead" ? 0.4 : 1 }}>
+                <td style={cellStyle}>
+                  <div style={{ fontWeight: 600, color: "#f0f0f0" }}>
+                    {r.name}
+                    {r.multi_search_ordinal > 1 && <span style={{ marginLeft: 6, fontSize: 10, color: "#7a7a7a" }}>#{r.multi_search_ordinal}</span>}
+                    {r.is_rental ? <span style={{ marginLeft: 8, padding: "1px 6px", background: "rgba(167,139,250,0.15)", color: "#a78bfa", borderRadius: 3, fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{(r.rental_type || "rental").replace(/_/g, " ")}</span> : null}
+                    {r.is_investor ? <span style={{ marginLeft: 6, padding: "1px 6px", background: "rgba(250,204,21,0.15)", color: "#facc15", borderRadius: 3, fontSize: 10, fontWeight: 700 }}>INV</span> : null}
+                  </div>
+                  {r.buyers_agent && <div style={{ fontSize: 10, color: "#7a7a7a", marginTop: 2 }}>Agent: {r.buyers_agent}</div>}
+                </td>
+                <td style={cellStyle}>
+                  {r.phone && <div style={{ color: "#a0a0a0" }}>{r.phone}</div>}
+                  {r.email && <div style={{ color: "#7a7a7a", fontSize: 11 }}>{r.email}</div>}
+                </td>
+                <td style={cellStyle}>
+                  <span style={{
+                    padding: "2px 8px", borderRadius: 3, fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+                    background: r.status === "active" ? "rgba(74,222,128,0.15)" :
+                               r.status === "nurture" ? "rgba(250,204,21,0.15)" :
+                               r.status === "rental"  ? "rgba(167,139,250,0.15)" :
+                               r.status === "closed"  ? "rgba(147,197,253,0.15)" :
+                                                        "rgba(239,68,68,0.15)",
+                    color:      r.status === "active" ? "#4ade80" :
+                               r.status === "nurture" ? "#facc15" :
+                               r.status === "rental"  ? "#a78bfa" :
+                               r.status === "closed"  ? "#93c5fd" :
+                                                        "#ef4444",
+                  }}>{r.status || "—"}</span>
+                </td>
+                <td style={cellStyle}>
+                  {(r.price_min || r.price_max) ? (
+                    <span style={{ color: "#c8aa5a", fontWeight: 600 }}>
+                      {r.price_min ? `$${(r.price_min / 1000).toFixed(0)}K` : "—"} – {r.price_max ? `$${(r.price_max / 1000).toFixed(0)}K` : "—"}
+                    </span>
+                  ) : <span style={{ color: "#5a5a5a" }}>—</span>}
+                </td>
+                <td style={{ ...cellStyle, maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.preferred_areas || ""}>
+                  <span style={{ color: "#a0a0a0" }}>{r.preferred_areas || "—"}</span>
+                </td>
+                <td style={cellStyle}>{sourceBadge(r.origin_sources)}</td>
+                <td style={cellStyle}>
+                  <span style={{
+                    color: r.confidence >= 0.8 ? "#4ade80" : r.confidence >= 0.5 ? "#facc15" : "#7a7a7a",
+                    fontWeight: 600,
+                  }}>{r.confidence ? (r.confidence * 100).toFixed(0) + "%" : "—"}</span>
+                </td>
+                <td style={{ ...cellStyle, textAlign: "right", whiteSpace: "nowrap" }}>
+                  <button onClick={() => doAction(r.id, "keep")} title="Keep — bump to 100% confidence" style={actionBtn("#4ade80")}>K</button>
+                  <button onClick={() => doAction(r.id, "toggle_rental")} title={r.is_rental ? "Convert to Buyer" : "Convert to Rental"} style={actionBtn("#a78bfa")}>{r.is_rental ? "→B" : "→R"}</button>
+                  <button onClick={() => doAction(r.id, "kill")} title="Kill — mark as dead" style={actionBtn("#ef4444")}>X</button>
+                </td>
+              </tr>
+            ))}
+            {!rows.length && (
+              <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: "#5a5a5a" }}>
+                {busy ? "Loading…" : "No rows match those filters."}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function StatChip({ label, value, accent }: { label: string; value: number; accent: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: "#7a7a7a", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: accent, marginTop: 2 }}>{value}</div>
+    </div>
+  );
+}
+
+const hdrStyle: React.CSSProperties = {
+  padding: "10px 12px", fontSize: 10, fontWeight: 700, letterSpacing: 0.5,
+  textTransform: "uppercase", color: "#7a7a7a", borderBottom: "1px solid rgba(200,170,90,0.1)",
+};
+
+const cellStyle: React.CSSProperties = {
+  padding: "10px 12px", verticalAlign: "top",
+};
+
+function actionBtn(color: string): React.CSSProperties {
+  return {
+    padding: "4px 8px", marginLeft: 4, borderRadius: 3,
+    background: "transparent", border: `1px solid ${color}`, color,
+    fontSize: 11, fontWeight: 700, cursor: "pointer",
+  };
 }

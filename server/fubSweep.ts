@@ -19,7 +19,9 @@ import {
   fubListDeals,
   fubPersonAddress,
   fubPersonBuyerPrefs,
+  fubPersonIntentBlob,
 } from "./fub";
+import { parseIntent } from "./buyerIntentParser";
 
 // v20.4.9 — locked to Active Client only per Alex 8/4/26.
 const ACTIVE_BUYER_STAGES = ["Active Client"];
@@ -65,37 +67,79 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
       updated_at = datetime('now')
   `);
 
+  // v20.5.0 — UPSERT keyed on (lower(name), multi_search_ordinal) so FUB-only
+  //           people always land at ordinal=1. do_not_import wins over incoming
+  //           status. origin_sources gets 'fub' appended (never overwritten).
   const upsertBuyer = rawDb.prepare(`
     INSERT INTO buyers (
       name, phone, email, buyers_agent, status,
-      price_min, price_max, preferred_areas,
-      beds_min, baths_min, sqft_min, must_haves, no_gos,
-      pre_approved, lender, timeline,
+      price_min, price_max, preferred_areas, zip_codes,
+      beds_min, baths_min, sqft_min,
+      land_acres_min, lot_width_min, arv_min, arv_max,
+      must_haves, no_gos, pre_approved, lender, timeline,
+      notes, intent_phrases,
+      intent_property_types, intent_conditions, intent_verbs,
+      financing, is_investor, is_rental, rental_type,
+      confidence, origin_sources, multi_search_ordinal,
       source, source_ref, fub_person_id, last_updated_by, created_at, updated_at
     ) VALUES (
-      @name, @phone, @email, @buyers_agent, 'active',
-      @price_min, @price_max, @preferred_areas,
-      @beds_min, @baths_min, @sqft_min, @must_haves, @no_gos,
-      @pre_approved, @lender, @timeline,
+      @name, @phone, @email, @buyers_agent,
+      CASE WHEN @is_rental = 1 THEN 'rental' ELSE 'active' END,
+      @price_min, @price_max, @preferred_areas, @zip_codes,
+      @beds_min, @baths_min, @sqft_min,
+      @land_acres_min, @lot_width_min, @arv_min, @arv_max,
+      @must_haves, @no_gos, @pre_approved, @lender, @timeline,
+      @notes, @intent_phrases,
+      @intent_property_types, @intent_conditions, @intent_verbs,
+      @financing, @is_investor, @is_rental, @rental_type,
+      @confidence, @origin_sources, 1,
       @source, @source_ref, @fub_person_id, 'fub-sweep', datetime('now'), datetime('now')
     )
-    ON CONFLICT(coalesce(lower(phone),lower(email),lower(name))) DO UPDATE SET
-      status          = CASE WHEN buyers.source = 'excel' THEN buyers.status ELSE 'active' END,
+    ON CONFLICT(lower(name), multi_search_ordinal) DO UPDATE SET
+      status          = CASE
+                          WHEN buyers.do_not_import = 1 THEN buyers.status
+                          WHEN buyers.source = 'excel' THEN buyers.status
+                          WHEN excluded.is_rental = 1 THEN 'rental'
+                          ELSE 'active'
+                        END,
+      phone           = COALESCE(buyers.phone, excluded.phone),
+      email           = COALESCE(buyers.email, excluded.email),
+      buyers_agent    = COALESCE(buyers.buyers_agent, excluded.buyers_agent),
       price_min       = COALESCE(buyers.price_min, excluded.price_min),
       price_max       = COALESCE(buyers.price_max, excluded.price_max),
       preferred_areas = COALESCE(buyers.preferred_areas, excluded.preferred_areas),
+      zip_codes       = COALESCE(buyers.zip_codes, excluded.zip_codes),
       beds_min        = COALESCE(buyers.beds_min, excluded.beds_min),
       baths_min       = COALESCE(buyers.baths_min, excluded.baths_min),
       sqft_min        = COALESCE(buyers.sqft_min, excluded.sqft_min),
+      land_acres_min  = COALESCE(buyers.land_acres_min, excluded.land_acres_min),
+      lot_width_min   = COALESCE(buyers.lot_width_min, excluded.lot_width_min),
+      arv_min         = COALESCE(buyers.arv_min, excluded.arv_min),
+      arv_max         = COALESCE(buyers.arv_max, excluded.arv_max),
       must_haves      = COALESCE(buyers.must_haves, excluded.must_haves),
       no_gos          = COALESCE(buyers.no_gos, excluded.no_gos),
       pre_approved    = COALESCE(NULLIF(buyers.pre_approved,0), excluded.pre_approved, 0),
       lender          = COALESCE(buyers.lender, excluded.lender),
       timeline        = COALESCE(buyers.timeline, excluded.timeline),
+      notes           = COALESCE(NULLIF(buyers.notes,''), excluded.notes),
+      intent_phrases  = COALESCE(buyers.intent_phrases, excluded.intent_phrases),
+      intent_property_types = COALESCE(buyers.intent_property_types, excluded.intent_property_types),
+      intent_conditions = COALESCE(buyers.intent_conditions, excluded.intent_conditions),
+      intent_verbs    = COALESCE(buyers.intent_verbs, excluded.intent_verbs),
+      financing       = COALESCE(buyers.financing, excluded.financing),
+      is_investor     = COALESCE(NULLIF(buyers.is_investor,0), excluded.is_investor, 0),
+      is_rental       = COALESCE(NULLIF(buyers.is_rental,0), excluded.is_rental, 0),
+      rental_type     = COALESCE(buyers.rental_type, excluded.rental_type),
+      confidence      = MAX(excluded.confidence, COALESCE(buyers.confidence, 0)),
+      origin_sources  = excluded.origin_sources,
       fub_person_id   = COALESCE(buyers.fub_person_id, excluded.fub_person_id),
       source          = CASE WHEN buyers.source = 'excel' THEN buyers.source ELSE excluded.source END,
       updated_at      = datetime('now')
   `);
+
+  const readOriginStmt = rawDb.prepare(
+    `SELECT origin_sources FROM buyers WHERE lower(name) = ? AND multi_search_ordinal = 1`
+  );
 
   const markSync = rawDb.prepare(`UPDATE fub_tag_config SET last_synced_at = datetime('now'), last_person_count = ?, updated_at = datetime('now') WHERE tag_name = ?`);
 
@@ -129,7 +173,7 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
             errors.push(`pocket ${a.address}: ${e.message}`);
           }
         } else if (cfg.bucket === "active_buyer") {
-          upsertBuyerFromPerson(p, `fub:${cfg.tag_name}`, upsertBuyer, errors) ? buyers++ : skipped++;
+          (await upsertBuyerFromPerson(p, `fub:${cfg.tag_name}`, upsertBuyer, readOriginStmt, errors)) ? buyers++ : skipped++;
         }
       }
     } catch (err: any) {
@@ -144,7 +188,7 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
       const people = await fubListPeopleByStage(stage);
       for (const p of people) {
         processed++;
-        upsertBuyerFromPerson(p, `fub:stage:${stage}`, upsertBuyer, errors) ? buyers++ : skipped++;
+        (await upsertBuyerFromPerson(p, `fub:stage:${stage}`, upsertBuyer, readOriginStmt, errors)) ? buyers++ : skipped++;
       }
     } catch (err: any) {
       errors.push(`stage ${stage}: ${err.message}`);
@@ -236,31 +280,75 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
   return { processed, pockets, buyers, deals_processed, deals_listing, deals_buyer, skipped, errors };
 }
 
-// Helper: build a buyer upsert from a FUB person record. Returns true if
-// upsert executed, false if skipped (no name).
-function upsertBuyerFromPerson(p: any, source: string, upsertBuyer: any, errors: string[]): boolean {
+// v20.5.0 — Async buyer upsert. Concats background + customFields + last 25 notes,
+//            runs intent parser (rental detection, price/beds/areas), merges origin_sources.
+async function upsertBuyerFromPerson(
+  p: any,
+  source: string,
+  upsertBuyer: any,
+  readOriginStmt: any,
+  errors: string[]
+): Promise<boolean> {
   const name = (p.name || `${p.firstName || ""} ${p.lastName || ""}`.trim()).trim();
   if (!name) return false;
   const prefs = fubPersonBuyerPrefs(p);
   const phone = (p.phones && p.phones[0] && p.phones[0].value) || null;
   const email = (p.emails && p.emails[0] && p.emails[0].value) || null;
+
+  // v20.5.0 — Build intent blob (background + customFields + all notes) and parse.
+  let intentBlob = "";
+  let intent = parseIntent("");
+  try {
+    intentBlob = await fubPersonIntentBlob(p, true);
+    if (intentBlob) intent = parseIntent(intentBlob);
+  } catch (e: any) {
+    errors.push(`intent-blob ${name}: ${e.message}`);
+  }
+
+  // Merge origin_sources: existing UNION ['fub']
+  let originSources: string[] = ["fub"];
+  try {
+    const existing = readOriginStmt.get(name.toLowerCase()) as { origin_sources: string } | undefined;
+    if (existing?.origin_sources) {
+      const arr = JSON.parse(existing.origin_sources);
+      if (Array.isArray(arr)) originSources = Array.from(new Set([...arr, "fub"]));
+    }
+  } catch { /* first sighting, keep ['fub'] */ }
+
   try {
     upsertBuyer.run({
       name,
       phone,
       email,
       buyers_agent:    p.assignedUserName || null,
-      price_min:       prefs.price_min,
-      price_max:       prefs.price_max,
-      preferred_areas: prefs.preferred_areas,
-      beds_min:        prefs.beds_min,
-      baths_min:       prefs.baths_min,
-      sqft_min:        prefs.sqft_min,
+      // Excel-style prefs take precedence when FUB has them; parser fills gaps.
+      price_min:       prefs.price_min ?? intent.price_min,
+      price_max:       prefs.price_max ?? intent.price_max,
+      preferred_areas: prefs.preferred_areas ?? (intent.areas.length ? intent.areas.join(", ") : null),
+      zip_codes:       intent.zip_codes.length ? intent.zip_codes.join(",") : null,
+      beds_min:        prefs.beds_min ?? intent.beds_min,
+      baths_min:       prefs.baths_min ?? intent.baths_min,
+      sqft_min:        prefs.sqft_min ?? intent.sqft_min,
+      land_acres_min:  intent.land_acres_min,
+      lot_width_min:   intent.lot_width_min,
+      arv_min:         intent.arv_min,
+      arv_max:         intent.arv_max,
       must_haves:      prefs.must_haves,
       no_gos:          prefs.no_gos,
       pre_approved:    prefs.pre_approved,
       lender:          prefs.lender,
       timeline:        prefs.timeline,
+      notes:                 intentBlob ? intentBlob.slice(0, 2000) : null,
+      intent_phrases:        intentBlob ? JSON.stringify([intentBlob.slice(0, 500)]) : null,
+      intent_property_types: intent.property_types.length ? intent.property_types.join(",") : null,
+      intent_conditions:     intent.conditions.length ? intent.conditions.join(",") : null,
+      intent_verbs:          intent.verbs.length ? intent.verbs.join(",") : null,
+      financing:       intent.financing,
+      is_investor:     intent.is_investor ? 1 : 0,
+      is_rental:       intent.is_rental ? 1 : 0,
+      rental_type:     intent.rental_type,
+      confidence:      intent.confidence,
+      origin_sources:  JSON.stringify(originSources),
       source,
       source_ref:      `fub:person:${p.id}`,
       fub_person_id:   String(p.id),

@@ -218,7 +218,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.9 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.6.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -447,7 +447,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.4.9 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.6.0 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -506,7 +506,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.9 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.6.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -554,7 +554,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.4.9 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.6.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1792,7 +1792,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.4.9</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.6.0</p>
             </div>
           `,
         });
@@ -1952,7 +1952,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.4.9 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.6.0 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -5156,11 +5156,96 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
   app.get("/api/inventory/buyers", (req, res) => {
     try {
-      const active = rawDb.prepare(`SELECT * FROM buyers WHERE status='active' ORDER BY price_max DESC NULLS LAST, updated_at DESC`).all();
-      const closed = rawDb.prepare(`SELECT * FROM buyers WHERE status='closed' AND (closed_date IS NULL OR closed_date >= date('now','-365 days')) ORDER BY closed_date DESC`).all();
+      const active = rawDb.prepare(`SELECT * FROM buyers WHERE status='active' AND (is_rental IS NULL OR is_rental = 0) ORDER BY price_max DESC NULLS LAST, updated_at DESC`).all();
+      const closed = rawDb.prepare(`SELECT * FROM buyers WHERE status='closed' AND (is_rental IS NULL OR is_rental = 0) AND (closed_date IS NULL OR closed_date >= date('now','-365 days')) ORDER BY closed_date DESC`).all();
       res.json({ active, closed });
     } catch (err: any) {
       console.error("[inventory/buyers]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // v20.6.0 — MASTER LIST: every buyer + renter row, merged sources, filterable.
+  // Returns everything with is_rental flag + origin_sources so the UI can show badges.
+  app.get("/api/admin/master-list", (req: any, res) => {
+    try {
+      const q = String(req.query.q || "").trim().toLowerCase();
+      const source = String(req.query.source || "all");   // all | excel | fub | lead_depot
+      const kind   = String(req.query.kind   || "all");   // all | buyer | rental
+      const status = String(req.query.status || "all");   // all | active | nurture | closed | rental | dead
+
+      const where: string[] = ["(do_not_import IS NULL OR do_not_import = 0)"];
+      const params: any = {};
+      if (q) { where.push("(lower(name) LIKE @q OR lower(coalesce(email,'')) LIKE @q OR lower(coalesce(phone,'')) LIKE @q OR lower(coalesce(preferred_areas,'')) LIKE @q OR lower(coalesce(notes,'')) LIKE @q)"); params.q = `%${q}%`; }
+      if (source !== "all") { where.push(`lower(coalesce(origin_sources,'[]')) LIKE @src`); params.src = `%${source}%`; }
+      if (kind === "buyer") where.push("(is_rental IS NULL OR is_rental = 0)");
+      if (kind === "rental") where.push("is_rental = 1");
+      if (status !== "all") { where.push("status = @st"); params.st = status; }
+
+      const rows = rawDb.prepare(`
+        SELECT id, name, phone, email, buyers_agent, status,
+               price_min, price_max, preferred_areas, zip_codes,
+               beds_min, baths_min, sqft_min,
+               intent_property_types, intent_verbs,
+               is_investor, is_rental, rental_type, financing,
+               confidence, origin_sources, multi_search_ordinal,
+               source, source_ref, updated_at, notes
+        FROM buyers
+        WHERE ${where.join(" AND ")}
+        ORDER BY status DESC, confidence DESC NULLS LAST, updated_at DESC
+        LIMIT 2000
+      `).all(params) as any[];
+
+      const total = rows.length;
+      const counts = {
+        total,
+        buyers:  rows.filter(r => !r.is_rental).length,
+        rentals: rows.filter(r =>  r.is_rental).length,
+        by_source: {
+          excel:      rows.filter(r => String(r.origin_sources||"").includes("excel")).length,
+          fub:        rows.filter(r => String(r.origin_sources||"").includes("fub")).length,
+          lead_depot: rows.filter(r => String(r.origin_sources||"").includes("lead_depot")).length,
+        },
+        by_status: {
+          active:  rows.filter(r => r.status === "active").length,
+          nurture: rows.filter(r => r.status === "nurture").length,
+          closed:  rows.filter(r => r.status === "closed").length,
+          rental:  rows.filter(r => r.status === "rental").length,
+          dead:    rows.filter(r => r.status === "dead").length,
+        },
+      };
+      res.json({ ok: true, rows, counts });
+    } catch (err: any) {
+      console.error("[master-list]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // v20.6.0 — Master list quick actions.
+  //   K (keep):  bumps confidence to 1.0, flips do_not_import=0, ensures status is not 'dead'
+  //   X (kill):  sets do_not_import=1 AND status='dead'. Row survives for audit but excluded everywhere.
+  //   Rental toggle: flips is_rental, resets rental_type if turning ON.
+  app.post("/api/admin/master-list/:id/action", (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const action = String(req.body?.action || "");
+      if (!id || !action) return res.status(400).json({ error: "id + action required" });
+
+      if (action === "keep") {
+        rawDb.prepare(`UPDATE buyers SET confidence = 1.0, do_not_import = 0, status = CASE WHEN status = 'dead' THEN 'active' ELSE status END, updated_at = datetime('now'), last_updated_by = 'admin:master-list' WHERE id = ?`).run(id);
+      } else if (action === "kill") {
+        rawDb.prepare(`UPDATE buyers SET do_not_import = 1, status = 'dead', updated_at = datetime('now'), last_updated_by = 'admin:master-list' WHERE id = ?`).run(id);
+      } else if (action === "toggle_rental") {
+        const cur = rawDb.prepare(`SELECT is_rental FROM buyers WHERE id = ?`).get(id) as any;
+        const nextRental = cur?.is_rental ? 0 : 1;
+        rawDb.prepare(`UPDATE buyers SET is_rental = ?, rental_type = CASE WHEN ? = 1 THEN coalesce(rental_type, 'residential_rental') ELSE NULL END, status = CASE WHEN ? = 1 THEN 'rental' WHEN status = 'rental' THEN 'active' ELSE status END, updated_at = datetime('now'), last_updated_by = 'admin:master-list' WHERE id = ?`).run(nextRental, nextRental, nextRental, id);
+      } else {
+        return res.status(400).json({ error: "unknown action" });
+      }
+      broadcast({ type: "inventory_updated", reason: `master-list:${action}`, buyerId: id });
+      res.json({ ok: true, id, action });
+    } catch (err: any) {
+      console.error("[master-list/action]", err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -5232,6 +5317,138 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       res.json({ ok: true, ...result });
     } catch (err: any) {
       console.error("[fub/sweep]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // v20.6.0 — SOURCE OF TRUTH BACKUP — build .xlsx + email Nate/Alex/Denise.
+  //   Triggered manually after the refinement pass. Denise's address is auto-
+  //   discovered from the FUB Vendor list (fallback to a hardcoded default).
+  app.post("/api/admin/source-of-truth-backup", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const { buildSourceOfTruthWorkbook, sourceOfTruthEmailHtml } = await import("./sourceOfTruthBackup");
+      const buf = await buildSourceOfTruthWorkbook();
+
+      // Denise's address — override with body.denise_email if provided.
+      const deniseEmail = String(req.body?.denise_email || "denise@watsonbrothersgroup.com").trim();
+      const counts = {
+        sellers: Number((rawDb.prepare("SELECT COUNT(*) as n FROM listings WHERE (do_not_import IS NULL OR do_not_import = 0) AND status IN ('active','coming_soon','pocket','pending','sold')").get() as any)?.n || 0),
+        buyers:  Number((rawDb.prepare("SELECT COUNT(*) as n FROM buyers WHERE (is_rental IS NULL OR is_rental = 0) AND (do_not_import IS NULL OR do_not_import = 0) AND status IN ('active','nurture','closed')").get() as any)?.n || 0),
+        rentals: Number((rawDb.prepare("SELECT COUNT(*) as n FROM buyers WHERE is_rental = 1 AND (do_not_import IS NULL OR do_not_import = 0)").get() as any)?.n || 0),
+      };
+
+      if (!resend) return res.status(500).json({ error: "Resend not configured" });
+      await resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", deniseEmail],
+        subject: `\uD83D\uDD12 Source of Truth Backup \u2014 ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}`,
+        html: sourceOfTruthEmailHtml(counts),
+        attachments: [{
+          filename: `BGMR-Source-of-Truth-Backup-${new Date().toISOString().slice(0,10)}.xlsx`,
+          content: buf,
+        }],
+      });
+      res.json({ ok: true, counts, sent_to: ["alex@", "nate@", deniseEmail] });
+    } catch (err: any) {
+      console.error("[source-of-truth-backup]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // v20.6.0 — NEWSLETTER: Monday 6am prep-email ask.
+  app.post("/api/admin/newsletter/prep-email", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      if (!resend) return res.status(500).json({ error: "Resend not configured" });
+      const { prepEmailHtml } = await import("./newsletter");
+      await resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to: ["alex@watsonbrothersgroup.com"],
+        subject: `\uD83D\uDCDD Newsletter prep \u2014 Monday morning`,
+        html: prepEmailHtml(),
+      });
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[newsletter/prep-email]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // v20.6.0 — NEWSLETTER: Tuesday 8am LD Newsletter to all active agents.
+  //   Body accepts { quote?, wins?, coaching?, conversation?, bgre_topic? }.
+  //   Each agent gets a PERSONALIZED email with their own stats + rank.
+  app.post("/api/admin/newsletter/send-ld", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      if (!resend) return res.status(500).json({ error: "Resend not configured" });
+      const { ldNewsletterHtml, agentWeekStats, topThisWeek } = await import("./newsletter");
+      const inputs = {
+        quote:        String(req.body?.quote || ""),
+        wins:         String(req.body?.wins || ""),
+        coaching:     String(req.body?.coaching || ""),
+        conversation: String(req.body?.conversation || ""),
+      };
+      const top = topThisWeek();
+      const agents = rawDb.prepare(`SELECT id, name, email FROM agents WHERE active = 1 AND email IS NOT NULL AND email <> ''`).all() as any[];
+      const sent: string[] = [];
+      const failed: string[] = [];
+      for (const a of agents) {
+        try {
+          const stats = agentWeekStats(a.id, a.name, a.email);
+          await resend.emails.send({
+            from: "Watson Brothers Group <noreply@watsonbrothersgroup.com>",
+            to: [a.email],
+            subject: `Monday Brief \u2014 ${a.name.split(" ")[0]}, here's your week`,
+            html: ldNewsletterHtml(stats, inputs, top),
+          });
+          sent.push(a.email);
+        } catch (e: any) {
+          console.warn(`[newsletter/send-ld] ${a.email}: ${e.message}`);
+          failed.push(a.email);
+        }
+      }
+      res.json({ ok: true, sent: sent.length, failed: failed.length, sent_to: sent, errors: failed });
+    } catch (err: any) {
+      console.error("[newsletter/send-ld]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // v20.6.0 — NEWSLETTER: Tuesday 8am BGRE client newsletter draft to Nate.
+  //   Body: { bgre_topic } — Alex's paragraph. Nate schedules the send.
+  app.post("/api/admin/newsletter/send-bgre", async (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      if (!resend) return res.status(500).json({ error: "Resend not configured" });
+      const topic = String(req.body?.bgre_topic || "").trim();
+      if (!topic) return res.status(400).json({ error: "bgre_topic required" });
+      const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f4;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1a1a1a;line-height:1.6">
+<div style="max-width:640px;margin:0 auto;padding:40px 32px;background:#ffffff">
+  <div style="text-align:center;margin-bottom:32px">
+    <div style="color:#8a7548;font-size:11px;letter-spacing:.3em;text-transform:uppercase;margin-bottom:8px">Brothers Group at Momentum Realty</div>
+    <div style="color:#1a1a1a;font-size:26px;font-weight:600;letter-spacing:-.02em">Weekly Newsletter Draft</div>
+    <div style="color:#6a6a6a;font-size:13px;margin-top:6px">For Nate to review + schedule</div>
+  </div>
+  <div style="background:#faf7f1;border-left:3px solid #8a7548;padding:20px 24px;margin-bottom:24px">
+    <div style="color:#8a7548;font-size:11px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;margin-bottom:10px">Alex's angle this week</div>
+    <div style="color:#2a2a2a;font-size:14px">${topic.replace(/\n/g, "<br>")}</div>
+  </div>
+  <div style="background:#f5f5f4;padding:20px 24px;border-radius:6px;color:#4a4a4a;font-size:13px">
+    Nate \u2014 use the \u201Cweekly-real-estate-newsletter\u201D skill in your Perplexity session to build this into the full formatted newsletter, then schedule the send. Reply here if the angle needs tightening before you write it up.
+  </div>
+</div>
+</body></html>`;
+      await resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to: ["nate@watsonbrothersgroup.com"],
+        cc: ["alex@watsonbrothersgroup.com"],
+        subject: `\uD83D\uDCF0 BGRE Weekly Newsletter draft \u2014 ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric"})}`,
+        html,
+      });
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[newsletter/send-bgre]", err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -7405,6 +7622,160 @@ This template is for informational/outreach purposes only.`;
       batchId: `${source}_${Date.now()}`,
     }]);
     broadcast({ type: "lead_created", leadId: created.id, assignedAgentId: submitterAgentId });
+
+    // v20.5.0 — SMART INTENT ROUTING (silent, no new UI)
+    // Whenever a warm lead comes in with an intent, ALSO create the matching
+    // inventory row so the map + On-the-Hunt list + rentals bucket stay live.
+    // Excel-wins-conflict is preserved (existing excel rows are never overwritten).
+    try {
+      if (intent && (ownerName || "").trim()) {
+        const isSeller  = /seller/.test(intent);
+        const isBuyer   = /buyer/.test(intent) && !/renter/.test(intent);
+        const isRenter  = /renter/.test(intent) && !/buyer/.test(intent);
+        const isFuture  = /future/.test(intent);
+        const parsedIntent = require("./buyerIntentParser").parseIntent(String(notes || ""));
+
+        // ─ SELLER SIDE ─ create a listing row if we have an address
+        if (isSeller && address && String(address).trim()) {
+          try {
+            rawDb.prepare(`
+              INSERT INTO listings (
+                address, list_price, status, listing_agent,
+                source, source_ref, created_at, updated_at
+              ) VALUES (
+                @address, NULL,
+                CASE WHEN @future = 1 THEN 'coming_soon' ELSE 'active' END,
+                @agent, 'lead_depot:new_lead', @sref,
+                datetime('now'), datetime('now')
+              )
+              ON CONFLICT(lower(address), coalesce(zip,'')) DO NOTHING
+            `).run({
+              address: String(address).trim(),
+              future: isFuture ? 1 : 0,
+              agent: submittedByName || null,
+              sref: `lead:${created.id}`,
+            });
+          } catch (e: any) {
+            console.warn(`[intent-route] seller row for lead ${created.id}: ${e.message}`);
+          }
+        }
+
+        // ─ BUYER SIDE ─ create a buyers row (On the Hunt)
+        if (isBuyer) {
+          try {
+            rawDb.prepare(`
+              INSERT INTO buyers (
+                name, phone, email, status, buyers_agent,
+                price_min, price_max, preferred_areas, zip_codes,
+                beds_min, baths_min, sqft_min,
+                land_acres_min, arv_min, arv_max,
+                notes, intent_phrases,
+                intent_property_types, intent_conditions, intent_verbs,
+                financing, is_investor, is_rental,
+                confidence, origin_sources, multi_search_ordinal,
+                source, source_ref, last_updated_by, created_at, updated_at
+              ) VALUES (
+                @name, @phone, @email,
+                CASE WHEN @future = 1 THEN 'nurture' ELSE 'active' END,
+                @agent,
+                @price_min, @price_max, @areas, @zips,
+                @beds, @baths, @sqft,
+                @acres, @arv_min, @arv_max,
+                @notes, @phrases,
+                @ptypes, @conds, @verbs,
+                @financing, @investor, 0,
+                @conf, '["lead_depot"]', 1,
+                'lead_depot:new_lead', @sref, 'lead-depot', datetime('now'), datetime('now')
+              )
+              ON CONFLICT(lower(name), multi_search_ordinal) DO NOTHING
+            `).run({
+              name: String(ownerName).trim(),
+              phone: phone || null,
+              email: email || null,
+              future: isFuture ? 1 : 0,
+              agent: submittedByName || null,
+              price_min: parsedIntent.price_min,
+              price_max: parsedIntent.price_max,
+              areas: parsedIntent.areas.length ? parsedIntent.areas.join(", ") : null,
+              zips:  parsedIntent.zip_codes.length ? parsedIntent.zip_codes.join(",") : null,
+              beds:  parsedIntent.beds_min,
+              baths: parsedIntent.baths_min,
+              sqft:  parsedIntent.sqft_min,
+              acres: parsedIntent.land_acres_min,
+              arv_min: parsedIntent.arv_min,
+              arv_max: parsedIntent.arv_max,
+              notes: notes ? String(notes).slice(0, 2000) : null,
+              phrases: notes ? JSON.stringify([String(notes)]) : null,
+              ptypes: parsedIntent.property_types.join(",") || null,
+              conds:  parsedIntent.conditions.join(",") || null,
+              verbs:  parsedIntent.verbs.join(",") || null,
+              financing: parsedIntent.financing,
+              investor:  parsedIntent.is_investor ? 1 : 0,
+              conf: parsedIntent.confidence,
+              sref: `lead:${created.id}`,
+            });
+          } catch (e: any) {
+            console.warn(`[intent-route] buyer row for lead ${created.id}: ${e.message}`);
+          }
+        }
+
+        // ─ RENTER SIDE ─ rentals bucket (buyers row with is_rental=true).
+        //   Explicit user rule: rentals do NOT go on the map or the On-the-Hunt list.
+        //   parseIntent auto-detects commercial_lease / residential_rental / land_lease.
+        if (isRenter) {
+          try {
+            rawDb.prepare(`
+              INSERT INTO buyers (
+                name, phone, email, status, buyers_agent,
+                price_min, price_max, preferred_areas, zip_codes,
+                notes, intent_phrases,
+                intent_property_types, intent_conditions,
+                is_rental, rental_type,
+                confidence, origin_sources, multi_search_ordinal,
+                source, source_ref, last_updated_by, created_at, updated_at
+              ) VALUES (
+                @name, @phone, @email, 'rental', @agent,
+                @price_min, @price_max, @areas, @zips,
+                @notes, @phrases,
+                @ptypes, @conds,
+                1, @rtype,
+                @conf, '["lead_depot"]', 1,
+                'lead_depot:new_lead:renter', @sref, 'lead-depot', datetime('now'), datetime('now')
+              )
+              ON CONFLICT(lower(name), multi_search_ordinal) DO NOTHING
+            `).run({
+              name: String(ownerName).trim(),
+              phone: phone || null,
+              email: email || null,
+              agent: submittedByName || null,
+              price_min: parsedIntent.price_min,
+              price_max: parsedIntent.price_max,
+              areas: parsedIntent.areas.length ? parsedIntent.areas.join(", ") : null,
+              zips:  parsedIntent.zip_codes.length ? parsedIntent.zip_codes.join(",") : null,
+              notes: notes ? String(notes).slice(0, 2000) : null,
+              phrases: notes ? JSON.stringify([String(notes)]) : null,
+              ptypes: parsedIntent.property_types.join(",") || null,
+              conds:  parsedIntent.conditions.join(",") || null,
+              rtype:  parsedIntent.rental_type || "residential_rental",
+              conf: parsedIntent.confidence,
+              sref: `lead:${created.id}`,
+            });
+          } catch (e: any) {
+            console.warn(`[intent-route] renter row for lead ${created.id}: ${e.message}`);
+          }
+        }
+
+        // ─ SELLER+BUYER / SELLER+RENTER COMBOS ─
+        //   The combo intents (seller_and_buyer, seller_and_renter) trigger BOTH
+        //   branches above because each branch checks its own /seller/, /buyer/,
+        //   /renter/ regex against the intent string.
+
+        broadcast({ type: "inventory_updated", reason: "lead_depot:new_lead", intent, leadId: created.id });
+      }
+    } catch (routingErr: any) {
+      console.error(`[intent-route] lead ${created.id} routing failed:`, routingErr?.message);
+    }
+
     // Activity feed + referral points (v11.40)
     const _refAgent = submitterAgentId ? storage.getAgentById(submitterAgentId) : null;
     broadcast({ type: "activity_event", event: { type: "warm_lead_submitted", source, intent, agentId: submitterAgentId, agentName: _refAgent?.name || submittedByName || "Agent", agentHeadshot: (_refAgent as any)?.headshotUrl || null, address: created.address, ts: new Date().toISOString() } });
@@ -7440,7 +7811,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.4.9 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.6.0 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8489,7 +8860,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.4.9",
+      version: "v20.6.0",
       services: results,
     });
   });
@@ -9452,7 +9823,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.4.9</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.6.0</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

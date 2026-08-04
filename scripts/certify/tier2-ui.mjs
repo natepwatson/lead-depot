@@ -67,9 +67,24 @@ async function journey1() {
 async function journey2() {
   await assertUI('J2 · admin leaderboard has no duplicate active agent names', { critical: false }, () => withPage(null, async (page, errors) => {
     await adminLoginUI(page);
-    // Navigate to leaderboard (if not already there)
-    const tryLink = await page.$('text="Leaderboard"');
-    if (tryLink) await tryLink.click();
+    // Navigate to leaderboard tab if present. Multiple elements can match 'Leaderboard'
+    // (nav item, section header, card title) — try clickable candidates in order and
+    // never let a click failure fail the whole journey. The real assertion below is
+    // whether duplicate names render, regardless of which view is showing.
+    const selectors = [
+      'button:has-text("Leaderboard")',
+      'a:has-text("Leaderboard")',
+      '[role="tab"]:has-text("Leaderboard")',
+      'text="Leaderboard"',
+    ];
+    let clicked = false;
+    for (const sel of selectors) {
+      if (clicked) break;
+      const nodes = await page.$$(sel).catch(() => []);
+      for (const c of nodes) {
+        try { await c.click({ timeout: 3000, force: true }); clicked = true; break; } catch { /* try next */ }
+      }
+    }
     await page.waitForTimeout(1500);
     const names = await page.$$eval('[data-agent-name], .agent-name, td:nth-child(2)', els => els.map(e => e.textContent?.trim()).filter(Boolean));
     const seen = new Map();

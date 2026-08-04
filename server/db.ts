@@ -1280,7 +1280,51 @@ rawDb.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )
 `);
-console.log("[db] v20.6.5 newsletter_inputs table ready");
+console.log("[db] v20.6.6 newsletter_inputs table ready");
+
+// ─── v20.6.6 one-shot buyer master-list cleanup ────────────────────────────
+// Aug 4 workbook upload created 5 bad rows in `buyers`:
+//   1. One row with name literally '[object Object]' (parser stringified an object)
+//   2. Three rows with price_min > price_max (parser confused min vs max
+//      when the intent phrase said "under 300k", "or reno", or gave a range
+//      in reverse order)
+//   3. Jared Price has investor stored as text 'Yes' instead of int 1
+// All WHERE clauses are idempotent — running twice is a no-op.
+try {
+  const delObj = rawDb.prepare(`DELETE FROM buyers WHERE name = '[object Object]'`).run();
+  if (delObj.changes > 0) console.log(`[db] v20.6.6 cleanup: deleted ${delObj.changes} '[object Object]' buyer row(s)`);
+  const swapPrices = rawDb.prepare(`
+    UPDATE buyers
+       SET price_min = price_max,
+           price_max = price_min,
+           updated_at = datetime('now'),
+           last_updated_by = 'v20.6.6-cleanup'
+     WHERE price_min IS NOT NULL AND price_max IS NOT NULL AND price_min > price_max
+  `).run();
+  if (swapPrices.changes > 0) console.log(`[db] v20.6.6 cleanup: swapped inverted price ranges on ${swapPrices.changes} buyer row(s)`);
+  // Only touch rows where investor is stored as a truthy text value (Jared Price = 'Yes').
+  // Do NOT touch NULL rows — those are the non-investor default.
+  const fixInvestor = rawDb.prepare(`
+    UPDATE buyers
+       SET is_investor = 1,
+           updated_at = datetime('now'),
+           last_updated_by = 'v20.6.6-cleanup'
+     WHERE typeof(is_investor) = 'text'
+       AND lower(cast(is_investor as text)) IN ('yes','y','true','1')
+  `).run();
+  const zeroInvestor = rawDb.prepare(`
+    UPDATE buyers
+       SET is_investor = 0,
+           updated_at = datetime('now'),
+           last_updated_by = 'v20.6.6-cleanup'
+     WHERE typeof(is_investor) = 'text'
+       AND lower(cast(is_investor as text)) IN ('no','n','false','0','')
+  `).run();
+  if (zeroInvestor.changes > 0) console.log(`[db] v20.6.6 cleanup: normalized text "No" is_investor → 0 on ${zeroInvestor.changes} row(s)`);
+  if (fixInvestor.changes > 0) console.log(`[db] v20.6.6 cleanup: normalized is_investor on ${fixInvestor.changes} buyer row(s)`);
+} catch (e) {
+  console.error("[db] v20.6.6 cleanup failed (non-fatal):", (e as any)?.message || e);
+}
 
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");

@@ -73,6 +73,12 @@ async function buildAll() {
     console.log("copied public/join-fast-track.html → dist/public/join-fast-track.html");
   }
 
+  // apply.html — v19.7 token-based candidate application page (served at /join/:token)
+  if (existsSync("public/apply.html")) {
+    await copyFile("public/apply.html", "dist/public/apply.html");
+    console.log("copied public/apply.html → dist/public/apply.html");
+  }
+
   // agent headshots — slug-named jpg files served at /headshots/
   const headshotSrc = "public/headshots";
   const headshotDst = "dist/public/headshots";

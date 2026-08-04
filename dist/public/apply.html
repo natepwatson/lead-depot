@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Apply — Brothers Group Real Estate at Momentum Realty</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/icon-192x192.png" />
+<meta name="theme-color" content="#080808" />
+<style>
+  :root { --bg:#080808; --panel:#111110; --text:#f4f2ee; --muted:#a8a196; --gold:#c8aa5a; --gold-dim:rgba(200,170,90,0.4); --border:rgba(255,255,255,0.08); }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; min-height:100vh; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 40px 22px 80px; }
+  .brand { text-align:center; margin-bottom: 32px; }
+  .brand-mark { font-family: "Cormorant Garamond", "Times New Roman", serif; font-size: 30px; letter-spacing:.02em; color:var(--gold); font-weight:500; }
+  .brand-sub { font-size:11px; letter-spacing:.24em; text-transform:uppercase; color:var(--muted); margin-top:6px; }
+  h1 { font-family:"Cormorant Garamond", serif; font-size:34px; font-weight:500; letter-spacing:-.01em; margin: 20px 0 8px; text-align:center; }
+  .hello { text-align:center; color:var(--muted); font-size:14px; line-height:1.6; margin-bottom: 36px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius: 14px; padding: 28px 22px; margin-bottom: 20px; }
+  .field { margin-bottom: 18px; }
+  label { display:block; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom: 7px; font-weight:600; }
+  input, select, textarea { width:100%; padding: 12px 14px; background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius:10px; color:var(--text); font-size: 15px; font-family:inherit; -webkit-appearance:none; appearance:none; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color: var(--gold-dim); background: rgba(0,0,0,0.6); }
+  select { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 20px) 50%, calc(100% - 15px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 32px; }
+  textarea { min-height: 90px; resize: vertical; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap: 12px; }
+  @media (max-width: 520px) { .row { grid-template-columns:1fr; } }
+  .btn { width:100%; padding: 16px; background: linear-gradient(135deg, #c8aa5a 0%, #a68941 100%); border:none; border-radius: 10px; color: #1a1610; font-size: 14px; font-weight: 700; letter-spacing:.14em; text-transform:uppercase; cursor:pointer; margin-top: 8px; }
+  .btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .success { text-align:center; padding: 60px 20px; }
+  .success .check { width:70px; height:70px; margin: 0 auto 20px; border-radius: 50%; background: rgba(200,170,90,0.12); display:flex; align-items:center; justify-content:center; }
+  .success h2 { font-family:"Cormorant Garamond", serif; font-size: 30px; font-weight:500; margin: 0 0 12px; }
+  .success p { color: var(--muted); font-size: 15px; line-height:1.65; max-width: 380px; margin: 0 auto; }
+  .rec-badge { display:inline-block; padding: 4px 12px; border-radius: 20px; font-size: 11px; letter-spacing:.12em; font-weight:700; margin-top: 20px; text-transform:uppercase; background: rgba(200,170,90,0.14); color: var(--gold); }
+  .error { color: #f87171; text-align:center; padding: 40px 20px; }
+  .section-title { font-family:"Cormorant Garamond", serif; font-size: 22px; font-weight:500; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .loading { text-align:center; color: var(--muted); padding: 60px 20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="brand-mark">Brothers Group</div>
+    <div class="brand-sub">Real Estate · Momentum Realty</div>
+  </div>
+
+  <div id="loading" class="loading">Loading your application…</div>
+
+  <div id="error" style="display:none" class="card error"></div>
+
+  <div id="form-wrap" style="display:none">
+    <h1>Welcome, <span id="candidate-name">friend</span></h1>
+    <p class="hello">You've been invited to join our team. Tell us about yourself — this takes about 3 minutes. We'll be in touch within one business day.</p>
+
+    <form id="joinForm">
+      <div class="card">
+        <h3 class="section-title">About You</h3>
+        <div class="row">
+          <div class="field">
+            <label>Phone</label>
+            <input type="tel" id="phone" required placeholder="(904) 555-0100" />
+          </div>
+          <div class="field">
+            <label>Email</label>
+            <input type="email" id="email" required placeholder="you@email.com" />
+          </div>
+        </div>
+        <div class="field">
+          <label>City / Where you're based</label>
+          <input type="text" id="city" placeholder="Jacksonville, FL" />
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="section-title">License &amp; Experience</h3>
+        <div class="field">
+          <label>License Status *</label>
+          <select id="licenseStatus" required>
+            <option value="">Select…</option>
+            <option value="active">Active Florida license</option>
+            <option value="pending">In course / Pending</option>
+            <option value="inactive">Inactive / Lapsed</option>
+            <option value="none">Not licensed yet</option>
+          </select>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Years in real estate</label>
+            <select id="yearsExperience">
+              <option value="0">Less than 1 year</option>
+              <option value="1">1 – 2 years</option>
+              <option value="3">3 – 5 years</option>
+              <option value="6">6 – 10 years</option>
+              <option value="10">10+ years</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Full-time or part-time? *</label>
+            <select id="fullTime" required>
+              <option value="">Select…</option>
+              <option value="yes">Full-time</option>
+              <option value="no">Part-time</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Current brokerage (if any)</label>
+          <input type="text" id="currentBrokerage" placeholder="e.g. Keller Williams, independent" />
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="section-title">Fit &amp; Goals</h3>
+        <div class="field">
+          <label>Why are you considering a move? *</label>
+          <textarea id="whyMove" required placeholder="What's driving this conversation?"></textarea>
+        </div>
+        <div class="field">
+          <label>What's your income goal in the next 12 months? *</label>
+          <select id="incomeGoal" required>
+            <option value="">Select…</option>
+            <option value="under-50k">Under $50k</option>
+            <option value="50-100k">$50k – $100k</option>
+            <option value="100-200k">$100k – $200k</option>
+            <option value="200k+">$200k+</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Anything else we should know?</label>
+          <textarea id="notes" placeholder="Optional"></textarea>
+        </div>
+      </div>
+
+      <button type="submit" class="btn" id="submitBtn">Submit Application</button>
+    </form>
+  </div>
+
+  <div id="success" style="display:none" class="success card">
+    <div class="check">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#c8aa5a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h2>Application received.</h2>
+    <p>Thanks for taking the time. Alex will reach out within one business day to start the conversation.</p>
+  </div>
+</div>
+
+<script>
+(function() {
+  const m = location.pathname.match(/\/join\/([a-f0-9]+)/i);
+  const token = m ? m[1] : null;
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => { $(id).style.display = 'block'; };
+  const hide = (id) => { $(id).style.display = 'none'; };
+
+  if (!token) {
+    hide('loading');
+    $('error').textContent = 'Missing invite token. Please use the full link you were sent.';
+    show('error');
+    return;
+  }
+
+  fetch('/api/candidates/token/' + token, { credentials: 'omit' })
+    .then(r => r.json().then(d => ({ ok: r.ok, status: r.status, data: d })))
+    .then(({ ok, status, data }) => {
+      hide('loading');
+      if (!ok) {
+        if (status === 409) {
+          $('error').innerHTML = 'You\'ve already submitted this application. If you meant to update something, please reach out to Alex directly.';
+        } else {
+          $('error').textContent = data.error || 'This invite link is not valid.';
+        }
+        show('error');
+        return;
+      }
+      $('candidate-name').textContent = data.name.split(/\s+/)[0];
+      show('form-wrap');
+    })
+    .catch(() => {
+      hide('loading');
+      $('error').textContent = 'Could not load your application. Please try again.';
+      show('error');
+    });
+
+  $('joinForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const btn = $('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+
+    const answers = {
+      phone: $('phone').value.trim(),
+      email: $('email').value.trim(),
+      city: $('city').value.trim(),
+      licenseStatus: $('licenseStatus').value,
+      yearsExperience: $('yearsExperience').value,
+      fullTime: $('fullTime').value,
+      currentBrokerage: $('currentBrokerage').value.trim(),
+      whyMove: $('whyMove').value.trim(),
+      incomeGoal: $('incomeGoal').value,
+      notes: $('notes').value.trim(),
+    };
+
+    fetch('/api/candidates/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, answers }),
+      credentials: 'omit',
+    })
+    .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+    .then(({ ok, data }) => {
+      if (!ok) {
+        btn.disabled = false;
+        btn.textContent = 'Submit Application';
+        alert(data.error || 'Submit failed. Please try again.');
+        return;
+      }
+      hide('form-wrap');
+      show('success');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.textContent = 'Submit Application';
+      alert('Network error. Please try again.');
+    });
+  });
+})();
+</script>
+</body>
+</html>

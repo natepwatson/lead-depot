@@ -27,6 +27,7 @@ import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
 import { computeCallHeat } from "@/lib/callHeat";
+import { startPrimeNotifier, requestPrimeNotificationPermission } from "@/lib/primeNotifier";
 import type { Lead as LeadRow } from "@shared/schema";
 import { enqueueAndSendTap, subscribeQueueDepth } from "@/lib/tapQueue";  // v16.7
 
@@ -2200,6 +2201,10 @@ function LeadCard({ lead }: { lead: Lead }) {
             </div>
           );
         })()}
+
+        {/* v19.0 — Zillow Intel (public scrape, 24h cache). Renders inline if scrape succeeds.
+            Silently omitted when Zillow blocks or the address doesn't resolve. */}
+        {lead.address && <ZillowIntelPanel address={lead.address} city={lead.city} state={lead.state} zip={lead.zip} />}
       </div>
 
       <GoldDivider />
@@ -4184,6 +4189,72 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
 // Nav shrank from 5 tabs to 4 (Dashboard / Dial / Refer / Profile).
 // v14.68 — RESTORED (no 60-day filter). See MyLeadsTab component just below.
 
+// v19.0 — ZillowIntelPanel: lazy-loads /api/zillow/intel when a lead detail
+// opens. Renders nothing until we have data. If Zillow blocks or the address
+// doesn't resolve, silently omit. 24h server-side cache keeps this cheap.
+function ZillowIntelPanel({ address, city, state, zip }: { address: string; city?: string | null; state?: string | null; zip?: string | null }) {
+  const [state_, setState] = useState<any>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const qs = new URLSearchParams({ address, city: city || "", state: state || "", zip: zip || "" });
+    fetch(`/api/zillow/intel?${qs}`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (!cancelled) setState(j); })
+      .catch(() => { if (!cancelled) setState(null); });
+    return () => { cancelled = true; };
+  }, [address, city, state, zip]);
+
+  if (!state_ || !state_.hit) return null;
+
+  return (
+    <div style={{
+      marginTop: 12, padding: "12px 14px",
+      background: "rgba(147,197,253,0.05)",
+      border: "1px solid rgba(147,197,253,0.18)",
+      borderRadius: 8,
+    }}>
+      <div style={{
+        fontSize: 9, letterSpacing: "0.22em", textTransform: "uppercase",
+        color: "rgba(147,197,253,0.7)", fontWeight: 700, marginBottom: 8,
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+      }}>
+        <span>Zillow Intel</span>
+        {state_.zillowUrl && (
+          <a href={state_.zillowUrl} target="_blank" rel="noopener noreferrer"
+            style={{ fontSize: 9, color: "#7db3ff", textDecoration: "none", letterSpacing: "0.12em" }}>
+            OPEN ↗
+          </a>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        {state_.photoUrl && (
+          <img src={state_.photoUrl} alt="Property"
+            style={{ width: 88, height: 66, objectFit: "cover", borderRadius: 6, border: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }} />
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px", flex: 1, alignItems: "center" }}>
+          {state_.price && (
+            <div style={{ fontSize: 13, color: "#c8aa5a", fontWeight: 700, gridColumn: "1 / -1" }}>{state_.price}</div>
+          )}
+          {state_.beds && (
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>{state_.beds} bd</div>
+          )}
+          {state_.baths && (
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}>{state_.baths} ba</div>
+          )}
+          {state_.sqft && (
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", gridColumn: "1 / -1" }}>{state_.sqft} sqft</div>
+          )}
+        </div>
+      </div>
+      {state_.cached && (
+        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 8, letterSpacing: "0.08em" }}>
+          cached · {new Date(state_.fetchedAt).toLocaleDateString()}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface PipelineLead {
   id: number;
   owner_name?: string | null;
@@ -4312,7 +4383,14 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
   // v14.80 — Agent Pipeline redesign: tiles now filter the list below instead of
   // just displaying counts. "all" (default) shows every owned pipeline lead.
   const [pipelineFilter, setPipelineFilter] = useState<"all" | "appts" | "kit" | "network">("all");
+  // v19.0 — Pipeline view toggle: List (default, phone-friendly) or Kanban (6 stages).
+  const [pipelineView, setPipelineView] = useState<"list" | "kanban">(() => {
+    try { return (window.localStorage.getItem("ld_pipeline_view_v1") as any) || "list"; } catch { return "list"; }
+  });
+  useEffect(() => { try { window.localStorage.setItem("ld_pipeline_view_v1", pipelineView); } catch {} }, [pipelineView]);
   const counts = data?.counts || { appts: 0, kit: 0, network: 0, total: 0 };
+  const kanban = data?.kanban || { lead: [], contacted: [], nurture: [], hot: [], apptSet: [], clientActive: [] };
+  const kanbanCounts = data?.kanbanCounts || { lead: 0, contacted: 0, nurture: 0, hot: 0, apptSet: 0, clientActive: 0 };
   const appts: PipelineLead[] = data?.appts || [];
   const kit: PipelineLead[]   = data?.kit || [];
   const network: PipelineLead[] = data?.network || [];
@@ -4345,6 +4423,32 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
           MY PIPELINE — every deal I've moved forward. Nothing expires.
         </p>
       </div>
+
+      {/* v19.0 — List / Kanban toggle */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, padding: 3, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.15)", borderRadius: 8, width: "fit-content" }}>
+        {([{ k: "list", label: "LIST" }, { k: "kanban", label: "KANBAN" }] as const).map(o => (
+          <button key={o.k} data-testid={`pipeline-view-${o.k}`} onClick={() => setPipelineView(o.k as any)}
+            style={{
+              padding: "7px 14px", borderRadius: 6, border: "none", cursor: "pointer",
+              background: pipelineView === o.k ? "rgba(200,170,90,0.15)" : "transparent",
+              color: pipelineView === o.k ? "#c8aa5a" : "rgba(255,255,255,0.55)",
+              fontSize: 11, fontWeight: 700, letterSpacing: "0.12em",
+              transition: "all 0.15s",
+            }}>{o.label}</button>
+        ))}
+      </div>
+
+      {pipelineView === "kanban" && (
+        <KanbanBoard
+          isLoading={isLoading}
+          isError={isError}
+          kanban={kanban}
+          kanbanCounts={kanbanCounts}
+          onOpenLead={onOpenLead}
+        />
+      )}
+
+      {pipelineView === "list" && <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 22 }}>
         {TILES.map(t => {
           const active = pipelineFilter === t.key;
@@ -4411,10 +4515,72 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
           </div>
         </section>
       )}
+      </>}
     </div>
   );
 }
 
+// v19.0 — KanbanBoard: 6-column horizontally-scrollable board.
+// Columns: Lead / Contacted / Nurture / Hot / Appt Set / Client Active.
+interface KanbanBoardProps {
+  isLoading: boolean;
+  isError: boolean;
+  kanban: { lead: any[]; contacted: any[]; nurture: any[]; hot: any[]; apptSet: any[]; clientActive: any[] };
+  kanbanCounts: { lead: number; contacted: number; nurture: number; hot: number; apptSet: number; clientActive: number };
+  onOpenLead?: (leadId: number) => void;
+}
+function KanbanBoard({ isLoading, isError, kanban, kanbanCounts, onOpenLead }: KanbanBoardProps) {
+  if (isLoading) return <div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Loading your pipeline…</div>;
+  if (isError) return <div style={{ padding: 40, textAlign: "center", color: "rgb(252,165,165)", fontSize: 13 }}>Failed to load pipeline. Pull down to refresh.</div>;
+
+  const COLUMNS: Array<{ key: keyof KanbanBoardProps["kanban"]; label: string; color: string; bg: string }> = [
+    { key: "lead",         label: "LEAD",          color: "#8a8a8a", bg: "rgba(255,255,255,0.04)" },
+    { key: "contacted",    label: "CONTACTED",     color: "#7db3ff", bg: "rgba(125,179,255,0.06)" },
+    { key: "nurture",      label: "NURTURE",       color: "#c8aa5a", bg: "rgba(200,170,90,0.06)" },
+    { key: "hot",          label: "HOT",           color: "#f97316", bg: "rgba(249,115,22,0.06)" },
+    { key: "apptSet",      label: "APPT SET",      color: "#10b981", bg: "rgba(16,185,129,0.08)" },
+    { key: "clientActive", label: "CLIENT ACTIVE", color: "#8b7cff", bg: "rgba(139,124,255,0.08)" },
+  ];
+
+  return (
+    <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 20, marginLeft: -18, marginRight: -18, paddingLeft: 18, paddingRight: 18, WebkitOverflowScrolling: "touch" }}>
+      {COLUMNS.map(col => {
+        const rows = kanban[col.key] as any[];
+        const count = (kanbanCounts as any)[col.key] || 0;
+        return (
+          <div key={col.key} style={{ flex: "0 0 260px", background: col.bg, border: `1px solid ${col.color}22`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8, minHeight: 240 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 4px", marginBottom: 4 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", color: col.color }}>{col.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: col.color, background: `${col.color}18`, borderRadius: 999, padding: "2px 8px" }}>{count}</span>
+            </div>
+            {rows.length === 0 && (
+              <div style={{ padding: "18px 6px", textAlign: "center", fontSize: 11, color: "rgba(255,255,255,0.3)", fontStyle: "italic" }}>Empty</div>
+            )}
+            {rows.map(l => (
+              <button key={l.id} onClick={() => onOpenLead?.(l.id)} data-testid={`kanban-card-${l.id}`}
+                style={{
+                  textAlign: "left", background: "rgba(0,0,0,0.35)", border: `1px solid ${col.color}22`, borderRadius: 8,
+                  padding: "10px 10px", cursor: "pointer", transition: "all 0.15s", color: "#fff",
+                }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {l.ownerName || `${l.firstName || ""} ${l.lastName || ""}`.trim() || "—"}
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {l.address || l.city || "—"}
+                </div>
+                {(l.appt_date || l.intention) && (
+                  <div style={{ fontSize: 10, color: col.color, marginTop: 6, letterSpacing: "0.03em" }}>
+                    {l.appt_date ? `📅 ${l.appt_date}${l.appt_time ? ` · ${l.appt_time}` : ""}` : l.intention}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ─── Challenges Tab (v18.3) ─────────────────────────────────────────────────
 // Replaces the old Leaderboard bottom-nav slot. Home tab keeps the leaderboard
@@ -5109,6 +5275,12 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   const qc = useQueryClient();
   const { toast } = useToast(); // v15.11.17 — used by CLOSED_STATUSES redirect notice
 
+  // v19.0 — Prime Time notifier boot. Idempotent; only fires when permission is granted.
+  useEffect(() => { startPrimeNotifier(); }, []);
+  const [primePerm, setPrimePerm] = useState<NotificationPermission>(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "denied"
+  );
+
   // v15.3 — REAL dialing-now indicator. Replaces v14.9 vibe count that showed
   // "6 dialing now" 24/7 based on active_agents_count + random bump.
   // Source of truth: /api/agents/live-count returns COUNT(DISTINCT agent_id) with
@@ -5375,7 +5547,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v18.5</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v19.0</span>
             </div>
           </div>
         </div>

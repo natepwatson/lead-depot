@@ -1837,7 +1837,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.6.0
+              v20.6.1
             </p>
           </div>
         </div>
@@ -1935,6 +1935,7 @@ export default function AdminDashboard({
               { value: "dbhealth",    icon: Database,    label: "DB Health" },
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "masterlist",  icon: ClipboardList, label: "Master List" },
+              { value: "newsletter",  icon: Mail,         label: "Newsletter" },
               { value: "openhouses",  icon: CalendarDays, label: "Open Houses" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
@@ -2679,6 +2680,11 @@ export default function AdminDashboard({
           {/* v20.6.0 — MASTER LIST: every buyer + renter, merged sources, K/X + rental toggle. */}
           <TabsContent value="masterlist" className="mt-5">
             <MasterListPanel />
+          </TabsContent>
+
+          {/* v20.6.1 — Newsletter Inputs panel: 5 buckets for Tuesday sends. */}
+          <TabsContent value="newsletter" className="mt-5">
+            <NewsletterInputsPanel />
           </TabsContent>
 
           {/* v20.4.9 — Open Houses admin tab: Denise's Tuesday schedule form. */}
@@ -4539,6 +4545,107 @@ function MasterListPanel() {
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// v20.6.1 — Newsletter Inputs admin panel. Alex fills these fields during the
+// week; Monday 6am cron sends a heads-up email pointing here; Tuesday 8am
+// cron reads this row and injects into the LD + BGRE newsletters.
+function NewsletterInputsPanel() {
+  const [quote, setQuote] = React.useState("");
+  const [wins, setWins] = React.useState("");
+  const [coaching, setCoaching] = React.useState("");
+  const [conversation, setConversation] = React.useState("");
+  const [bgreTopic, setBgreTopic] = React.useState("");
+  const [weekOf, setWeekOf] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+
+  React.useEffect(() => {
+    fetch("/api/admin/newsletter/inputs", { credentials: "include" })
+      .then(r => r.json())
+      .then(j => {
+        if (j.ok) {
+          setQuote(j.quote || "");
+          setWins(j.wins || "");
+          setCoaching(j.coaching || "");
+          setConversation(j.conversation || "");
+          setBgreTopic(j.bgre_topic || "");
+          setWeekOf(j.week_of || "");
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  async function save() {
+    setSaving(true); setSaved(false);
+    try {
+      const r = await fetch("/api/admin/newsletter/inputs", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quote, wins, coaching, conversation, bgre_topic: bgreTopic }),
+      });
+      const j = await r.json();
+      if (j.ok) { setSaved(true); setTimeout(() => setSaved(false), 2400); }
+    } catch {} finally { setSaving(false); }
+  }
+
+  const label: React.CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#8a7548", marginBottom: 6 };
+  const hint: React.CSSProperties = { fontSize: 12, color: "#7a7a7a", marginBottom: 8, lineHeight: 1.5 };
+  const ta: React.CSSProperties = { width: "100%", background: "rgba(0,0,0,0.35)", border: "1px solid rgba(200,170,90,0.15)", borderRadius: 6, padding: "10px 12px", color: "#f0f0f0", fontSize: 13, fontFamily: "inherit", lineHeight: 1.5, resize: "vertical", minHeight: 70 };
+
+  return (
+    <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(200,170,90,0.12)", borderRadius: 10, padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, borderBottom: "1px solid rgba(200,170,90,0.1)", paddingBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#f0f0f0", letterSpacing: -0.2 }}>Newsletter Inputs</div>
+          <div style={{ fontSize: 12, color: "#7a7a7a", marginTop: 3 }}>Fill any/all before Tuesday 8am. Empty fields skip cleanly. Week of {weekOf || "—"}.</div>
+        </div>
+        <button onClick={save} disabled={saving} style={{ padding: "9px 18px", background: saved ? "#3a5f3a" : "#8a7548", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", cursor: saving ? "wait" : "pointer", opacity: saving ? 0.6 : 1 }}>
+          {saving ? "Saving…" : saved ? "Saved ✓" : "Save"}
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gap: 20 }}>
+        <div>
+          <div style={label}>Quote / scripture / wisdom of the week</div>
+          <div style={hint}>One line that sets the tone. Attributed if you have the source.</div>
+          <textarea style={ta} value={quote} onChange={e => setQuote(e.target.value)} placeholder='e.g. “Discipline is doing what you hate to do but nonetheless doing it like you loved it.” — Mike Tyson' />
+        </div>
+
+        <div>
+          <div style={label}>Big wins &amp; shoutouts</div>
+          <div style={hint}>Deals closed, listings signed, notable agent moments. Bullet-style is fine.</div>
+          <textarea style={{ ...ta, minHeight: 110 }} value={wins} onChange={e => setWins(e.target.value)} placeholder='e.g. — Sarah closed the Amelia Island property…— Mike signed 3 new listings this week…' />
+        </div>
+
+        <div>
+          <div style={label}>This week&apos;s coaching focus</div>
+          <div style={hint}>The one skill or habit to double down on this week.</div>
+          <textarea style={ta} value={coaching} onChange={e => setCoaching(e.target.value)} placeholder='e.g. Stop pitching in the first 30 seconds. Ask 3 open-ended questions before you say anything about you or the market.' />
+        </div>
+
+        <div>
+          <div style={label}>Conversation starter of the week</div>
+          <div style={hint}>Something to use on every call this week: rate/homeprice relationship, the window is always open, etc.</div>
+          <textarea style={ta} value={conversation} onChange={e => setConversation(e.target.value)} placeholder='e.g. Ask: “If you knew rates would drop 1% next spring, would you rather list now or wait?” Then listen.' />
+        </div>
+
+        <div style={{ borderTop: "1px dashed rgba(200,170,90,0.2)", paddingTop: 18 }}>
+          <div style={label}>BGRE client newsletter angle</div>
+          <div style={hint}>Alex’s angle for the weekly client email. Nate reads this Tuesday 8am and writes/schedules the send. Leave blank to skip the BGRE send this week.</div>
+          <textarea style={{ ...ta, minHeight: 140 }} value={bgreTopic} onChange={e => setBgreTopic(e.target.value)} placeholder='e.g. This week: the mortgage rate lock myth. Rates below 6% aren’t coming back. Buyers are winning right now because inventory is up, sellers are negotiating, and…' />
+        </div>
+      </div>
+
+      <div style={{ marginTop: 20, padding: 14, background: "rgba(0,0,0,0.25)", borderRadius: 6, border: "1px solid rgba(200,170,90,0.08)", fontSize: 12, color: "#9a9a9a", lineHeight: 1.6 }}>
+        <div style={{ color: "#8a7548", fontWeight: 700, marginBottom: 6, letterSpacing: 0.3 }}>How this works</div>
+        <div>• Monday 6am ET — you get a heads-up email reminding you to fill anything you want in the newsletter.</div>
+        <div>• Tuesday 8am ET — the LD newsletter fires to every active agent (personalized stats + your inputs above).</div>
+        <div>• Tuesday 8am ET — if BGRE angle is filled, Nate gets the client newsletter draft. Empty = no send.</div>
+        <div>• Anything left blank just skips that section — no wasted sends, no broken emails.</div>
       </div>
     </div>
   );

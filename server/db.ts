@@ -1260,6 +1260,24 @@ console.log("[db] v20.5.0 buyer master list schema ready");
 
 console.log("[db] v20.4.9 open_houses + listings tables ready");
 
+// ─── v20.6.1 — newsletter_inputs table ─────────────────────────────────────
+// Persists the 5 manual buckets Alex fills in during the week. Monday 6am
+// heads-up email points users to a Newsletter Inputs admin panel that
+// writes here; Tuesday 8am sends read this row and inject into the emails.
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS newsletter_inputs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    week_of TEXT UNIQUE NOT NULL,
+    quote TEXT,
+    wins TEXT,
+    coaching TEXT,
+    conversation TEXT,
+    bgre_topic TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+console.log("[db] v20.6.1 newsletter_inputs table ready");
+
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");
 console.log("[db] v15.5 onboarding candidate schema ready (candidates + onboarding_checklist + 9 agents cols)");

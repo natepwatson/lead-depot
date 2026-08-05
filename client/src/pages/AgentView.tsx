@@ -3863,7 +3863,7 @@ function CallHeatMeter() {
   );
 }
 
-// v20.7.3 — ActiveChallengesCard: renders the agent's pinned challenges under
+// v20.7.4 — ActiveChallengesCard: renders the agent's pinned challenges under
 // the Home leaderboard. 3 daily + 2 weekly slots. Empty slots are tappable
 // call-to-actions that route to the Challenges tab. Progress bars auto-update
 // via the challenges_updated broadcast (see routes.ts). Auto-cleared on
@@ -3990,7 +3990,7 @@ function ActiveChallengesCard() {
 // segmented toggle at the very top. Team Map is a zero-PII recruiting surface
 // (see /api/team-map/pins). Toggle state is local to the tab so it resets on
 // leave/return, which is fine — board is the default landing.
-// v20.7.3 — ActiveChallengesCard renders below the leaderboard on board view.
+// v20.7.4 — ActiveChallengesCard renders below the leaderboard on board view.
 function HomeShell({ mode = "seller" }: { mode?: "seller" } = {}) {
   const [view, setView] = useState<"board" | "map">("board");
   return (
@@ -6049,7 +6049,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.3</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.4</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6912,7 +6912,7 @@ function LeadGenSheet(props: {
   //   there's ~18px of clean space at every join. No shoulder-kissing anywhere,
   //   including the bottom corners which used to be the worst offenders.
   //
-  // v20.7.3 — Split arc: 5 lead-gen bubbles ON the arc (Direct Mail · Open House ·
+  // v20.7.4 — Split arc: 5 lead-gen bubbles ON the arc (Direct Mail · Open House ·
   // DIAL · Social Post · Door Knock), plus 2 smaller "agent task" bubbles nested
   // BELOW the arc's underside as a centered shelf row (Network Lead · Refer Agent).
   // Alex's ask: Network + Refer aren't first-party prospecting — they're agent
@@ -6921,7 +6921,7 @@ function LeadGenSheet(props: {
   //
   // Arc reading left→right: Direct Mail · Open House · DIAL · Social Post · Door Knock.
   //
-  // v20.7.3 — Since the arc now has 5 items instead of 7, we can widen the
+  // v20.7.4 — Since the arc now has 5 items instead of 7, we can widen the
   // between-bubble step and slightly LOWER the whole arc anchor point (more
   // vertical breathing room up top). Sweep stays around 160° for a proper fan.
   if (view === "root") {
@@ -6931,20 +6931,20 @@ function LeadGenSheet(props: {
     const BUBBLE_SIZE = vw < 360 ? 56 : vw < 400 ? 60 : 64;
     const HERO_SIZE = BUBBLE_SIZE + 22;
     const SHELF_SIZE = Math.round(BUBBLE_SIZE * 0.78); // ~50px on 393px iPhones
-    // v20.7.3 — labels are now full words ("Direct Mail", "Open House", "Door Knock",
+    // v20.7.4 — labels are now full words ("Direct Mail", "Open House", "Door Knock",
     // "Social Post", "Network Lead", "Refer Agent"). Widest is "Direct Mail" / "Social Post"
     // at ~72px @ 11px semibold. Bump LABEL_HALF 34 → 42.
     const LABEL_HALF = 42;
     const EDGE_MARGIN = 10;
     const MAX_RADIUS = (vw / 2) - (BUBBLE_SIZE / 2) - LABEL_HALF - EDGE_MARGIN;
     const vh = typeof window !== "undefined" ? window.innerHeight : 780;
-    // v20.7.3 — Reserve extra vertical room under the arc for the 2-bubble shelf.
+    // v20.7.4 — Reserve extra vertical room under the arc for the 2-bubble shelf.
     // Shelf needs ~SHELF_SIZE + label + gap = ~90px. Bump VERTICAL_CAP subtract to 300.
     const VERTICAL_CAP = vh - 300;
     const ARC_RADIUS = Math.max(160, Math.min(260, MAX_RADIUS, VERTICAL_CAP));
     const HERO_LIFT = 20;
 
-    // v20.7.3 — 5 arc bubbles across ~160°. Center = 90° (Dial hero), step = 30°.
+    // v20.7.4 — 5 arc bubbles across ~160°. Center = 90° (Dial hero), step = 30°.
     // Angles: 150 / 120 / 90 / 60 / 30. Symmetric around DIAL.
     const bubbles: Array<{
       key: string; label: string; icon: React.ReactNode;
@@ -6957,7 +6957,7 @@ function LeadGenSheet(props: {
       { key: "knock",  label: "Door Knock",  icon: <DoorOpen size={20} />, angleDeg: 30,  onClick: () => setView("door-knock" as any) },
     ];
 
-    // v20.7.3 — Shelf bubbles (Network Lead, Refer Agent) rendered separately
+    // v20.7.4 — Shelf bubbles (Network Lead, Refer Agent) rendered separately
     // below the arc. Not part of the polar-arc math — they sit on a horizontal
     // baseline centered under the FAB, equally-spaced from screen bottom as they
     // are from the arc's underside.
@@ -7154,7 +7154,7 @@ function LeadGenSheet(props: {
           })}
         </div>
 
-        {/* v20.7.3 — Shelf row: 2 smaller "agent task" bubbles (Network Lead,
+        {/* v20.7.4 — Shelf row: 2 smaller "agent task" bubbles (Network Lead,
             Refer Agent) tucked under the arc's underside, centered horizontally.
             Positioned so vertical gap from screen bottom equals gap from shelf-
             top to arc-bottom. FAB center sits at bottom=(52 + safe-area). The

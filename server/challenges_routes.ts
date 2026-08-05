@@ -124,7 +124,7 @@ export function checkAndAwardAutoDetect(agentId: number, periodKey: string, cade
           INSERT INTO agent_points (agent_id, points, reason, scope, created_at)
           VALUES (?, ?, ?, 'seller', datetime('now'))
         `).run(agentId, ch.points, `challenge:${ch.key}`);
-        // v20.7.3 — unpin from active-challenges (Option C: auto-clear slot).
+        // v20.7.4 — unpin from active-challenges (Option C: auto-clear slot).
         try {
           rawDb.prepare(
             `DELETE FROM challenge_accepts WHERE agent_id = ? AND challenge_key = ? AND period_key = ?`
@@ -192,7 +192,7 @@ export function registerChallengeRoutes(app: Express) {
     });
   });
 
-  // v20.7.3 — GET /api/challenges/active. Returns the agent's pinned challenges
+  // v20.7.4 — GET /api/challenges/active. Returns the agent's pinned challenges
   // for the current daily + weekly period, with progress + threshold, so the
   // Home tab card can render the 3+2 slot grid without pulling the full 62-row
   // catalog. Also auto-runs detection so completed pins don't linger on the card.
@@ -258,7 +258,7 @@ export function registerChallengeRoutes(app: Express) {
     });
   });
 
-  // POST /api/challenges/:key/accept. v20.7.3 enforces slot caps:
+  // POST /api/challenges/:key/accept. v20.7.4 enforces slot caps:
   // max 3 daily pins per period + max 2 weekly pins per period. Already-completed
   // challenges cannot be re-pinned.
   app.post("/api/challenges/:key/accept", (req: Request, res: Response) => {
@@ -269,7 +269,7 @@ export function registerChallengeRoutes(app: Express) {
     if (!ch) return res.status(404).json({ error: "unknown challenge" });
     const periodKey = ch.cadence === "daily" ? currentDailyKey() : currentWeeklyKey();
 
-    // v20.7.3 — reject if already completed this period.
+    // v20.7.4 — reject if already completed this period.
     const existing: any = rawDb.prepare(
       `SELECT status FROM challenge_completions WHERE agent_id = ? AND challenge_key = ? AND period_key = ?`
     ).get(agentId, key, periodKey);
@@ -277,7 +277,7 @@ export function registerChallengeRoutes(app: Express) {
       return res.status(409).json({ error: "already completed for this period" });
     }
 
-    // v20.7.3 — slot cap: 3 daily / 2 weekly. Idempotent for the same key.
+    // v20.7.4 — slot cap: 3 daily / 2 weekly. Idempotent for the same key.
     const alreadyPinned: any = rawDb.prepare(
       `SELECT id FROM challenge_accepts WHERE agent_id = ? AND challenge_key = ? AND period_key = ?`
     ).get(agentId, key, periodKey);
@@ -302,7 +302,7 @@ export function registerChallengeRoutes(app: Express) {
     res.json({ ok: true, key, periodKey });
   });
 
-  // v20.7.3 — DELETE /api/challenges/:key/accept. Agent can unpin a challenge
+  // v20.7.4 — DELETE /api/challenges/:key/accept. Agent can unpin a challenge
   // to free a slot for something else (as long as it's not already completed).
   app.delete("/api/challenges/:key/accept", (req: Request, res: Response) => {
     if (!requireSession(req, res)) return;

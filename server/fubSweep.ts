@@ -340,85 +340,146 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
     }
   }
 
-  // ─── PHASE 3: DEALS SWEEP (v20.6.8 — supplemental price/agent data) ──────
-  // Deals still ride along to fill in list_price on listings we already have
-  // via stage sweep. No longer the primary listing source.
+  // ─── PHASE 3: DEALS SWEEP (v20.7.4 — DEALS ARE NOW AUTHORITATIVE) ────────
+  //
+  // Ground truth from /api/admin/fub/deals-diagnostic on 8/4/26:
+  //   • 6 real deal stages: Listed(14), Pending(6), Closed(67),
+  //     Interested(29), Offering(2), Nurture(51).
+  //   • deal.type is EMPTY on all 169 deals → can't tell seller vs buyer from
+  //     the deal record alone.
+  //   • deal.address is NULL on the samples → address lives on the linked
+  //     Person, not the deal.
+  //
+  // Strategy per Alex 8/4/26:
+  //   • Build a seller-people index from the Phase 1 seller tags (Pocket
+  //     Listing / seller / etc). Any deal whose peopleIds intersects with a
+  //     seller-tagged person is a SELLER-SIDE deal → goes to listings table.
+  //     Everything else is buyer-side → goes to buyers table.
+  //   • Stage → LD status mapping (deals override person-tag/stage bucketing):
+  //       Listed    → status="active"    (seller, on-MLS)
+  //       Pending   → status="pending"   (seller) OR active buyer
+  //       Closed    → status="sold"      (seller) OR closed buyer
+  //       Offering  → active buyer (someone we're writing offers for)
+  //       Interested→ active buyer
+  //       Nurture   → SKIP (long-tail, not inventory)
+  //
+  // The join uses fubListPeopleByTag results already fetched in Phase 1 — no
+  // extra FUB API roundtrips per deal.
+
+  // Build seller-person-id index from Phase 1 tag results. Re-fetching by tag
+  // is cheap because fub.ts caches within a single sweep and the SELLER_TAG_MAP
+  // is small.
+  const sellerPersonIndex = new Map<string, any>(); // fubPersonId → person
+  try {
+    for (const tagName of Object.keys(SELLER_TAG_MAP)) {
+      const people = await fubListPeopleByTag(tagName);
+      for (const p of people) sellerPersonIndex.set(String(p.id), p);
+    }
+    // Also add anyone matched to a seller STAGE (Phase 1.5 secondary).
+    for (const stageName of Object.keys(SELLER_STAGE_MAP)) {
+      const people = await fubListPeopleByStage(stageName);
+      for (const p of people) sellerPersonIndex.set(String(p.id), p);
+    }
+  } catch (err: any) {
+    errors.push(`seller-person index build: ${err.message}`);
+  }
+
+  // Deal stage → LD listing status (seller side). Missing = skip for listings.
+  const DEAL_STAGE_SELLER_STATUS: Record<string, "active" | "pending" | "sold"> = {
+    "Listed":  "active",
+    "Pending": "pending",
+    "Closed":  "sold",
+  };
+
   try {
     const deals = await fubListDeals();
     for (const d of deals) {
       deals_processed++;
-      const st = String(d.status || d.stage || "").toLowerCase();
-      if (/closed|won|lost|cancelled|canceled|dead/.test(st)) continue;
+      const stage = String(d.stage || "").trim();
 
-      const dealType = String(d.type || "").toLowerCase();
+      // Nurture is long-tail; not inventory. Skip.
+      if (stage.toLowerCase() === "nurture") continue;
 
-      // LISTING-SIDE DEAL → listings table (supplemental)
-      if (dealType.includes("listing") && d.address) {
+      // Route: does this deal touch a seller-tagged person?
+      const personIds = (d.peopleIds || []).map(String);
+      const sellerPerson = personIds.map(id => sellerPersonIndex.get(id)).find(Boolean);
+
+      // ─── SELLER-SIDE DEAL → listings table ────────────────────────────────
+      if (sellerPerson && DEAL_STAGE_SELLER_STATUS[stage]) {
+        const ldStatus = DEAL_STAGE_SELLER_STATUS[stage];
+        // Address always comes from the linked seller PERSON (deals don't
+        // carry one). Fall back to the deal-embedded address if the person
+        // has no address (unusual but possible).
+        const personAddr = fubPersonAddress(sellerPerson);
+        const address = personAddr.address || d.address || null;
+        if (!address) { skipped++; continue; }
         try {
           upsertListing.run({
-            address:       d.address,
-            city:          d.city || null,
-            state:         d.state || null,
-            zip:           d.zip || null,
+            address:       address,
+            city:          personAddr.city  || d.city  || null,
+            state:         personAddr.state || d.state || null,
+            zip:           personAddr.zip   || d.zip   || null,
             list_price:    d.price || null,
-            // v20.6.8 — Don't override stage-derived status. Only fill if the
-            // listing didn't exist yet, in which case the ON CONFLICT will
-            // set it to "active" because the deal implies an active listing.
-            status:        "active",
-            listing_agent: d.assignedUserName || null,
-            source:        "fub:deal:listing",
+            status:        ldStatus,
+            listing_agent: d.assignedUserName || sellerPerson.assignedUserName || null,
+            source:        `fub:deal:${stage.toLowerCase()}`,
             source_ref:    `fub:deal:${d.id}`,
           });
           deals_listing++;
         } catch (e: any) {
-          errors.push(`deal-listing ${d.id}: ${e.message}`);
+          errors.push(`deal-listing ${d.id} (${stage}): ${e.message}`);
         }
+        continue;
       }
-      else if (dealType.includes("buyer") || dealType.includes("interested") || (!dealType && d.peopleIds?.length)) {
-        const personId = d.peopleIds?.[0];
-        if (!personId) { continue; }
-        try {
-          const name = d.name || `FUB Deal ${d.id}`;
-          // v20.6.9 — Fix: match the real UNIQUE index on buyers table which is
-          // idx_buyers_name_ordinal ON buyers(lower(name), multi_search_ordinal).
-          // The prior v20.6.8 ON CONFLICT clause referenced a coalesce expression
-          // that no index exists on, causing every deal-buyer insert to throw
-          // "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint".
-          rawDb.prepare(`
-            INSERT INTO buyers (
-              name, phone, email, buyers_agent, status,
-              price_min, price_max, preferred_areas,
-              multi_search_ordinal,
-              source, source_ref, fub_person_id, last_updated_by, notes,
-              created_at, updated_at
-            ) VALUES (
-              @name, NULL, NULL, @agent, 'active',
-              NULL, @price, @area,
-              1,
-              'fub:deal:buyer', @sref, @fub_pid, 'fub-sweep', @notes,
-              datetime('now'), datetime('now')
-            )
-            ON CONFLICT(lower(name), multi_search_ordinal) DO UPDATE SET
-              -- v20.6.8: FUB wins, period.
-              status     = 'active',
-              price_max  = COALESCE(excluded.price_max, buyers.price_max),
-              preferred_areas = COALESCE(excluded.preferred_areas, buyers.preferred_areas),
-              notes      = COALESCE(NULLIF(excluded.notes,''), buyers.notes),
-              source     = excluded.source,
-              updated_at = datetime('now')
-          `).run({
-            name,
-            agent:  d.assignedUserName || null,
-            price:  d.price || null,
-            area:   d.city || null,
-            sref:   `fub:deal:${d.id}`,
-            fub_pid: String(personId),
-            notes:  d.address ? `Target: ${d.address}` : null,
-          });
-          deals_buyer++;
-        } catch (e: any) {
-          errors.push(`deal-buyer ${d.id}: ${e.message}`);
-        }
+
+      // ─── BUYER-SIDE DEAL → buyers table ───────────────────────────────────
+      // Any active-flow stage (Interested, Offering, Pending w/o seller person)
+      // becomes an active buyer. Closed → closed buyer. Nurture already
+      // skipped above.
+      const isBuyerActive = /^(Interested|Offering|Pending)$/i.test(stage);
+      const isBuyerClosed = /^Closed$/i.test(stage);
+      if (!isBuyerActive && !isBuyerClosed) continue;
+
+      const personId = personIds[0];
+      if (!personId) { skipped++; continue; }
+
+      try {
+        const name = d.name || `FUB Deal ${d.id}`;
+        const buyerStatus = isBuyerClosed ? "closed" : "active";
+        rawDb.prepare(`
+          INSERT INTO buyers (
+            name, phone, email, buyers_agent, status,
+            price_min, price_max, preferred_areas,
+            multi_search_ordinal,
+            source, source_ref, fub_person_id, last_updated_by, notes,
+            created_at, updated_at
+          ) VALUES (
+            @name, NULL, NULL, @agent, @status,
+            NULL, @price, @area,
+            1,
+            'fub:deal:buyer', @sref, @fub_pid, 'fub-sweep', @notes,
+            datetime('now'), datetime('now')
+          )
+          ON CONFLICT(lower(name), multi_search_ordinal) DO UPDATE SET
+            status     = excluded.status,
+            price_max  = COALESCE(excluded.price_max, buyers.price_max),
+            preferred_areas = COALESCE(excluded.preferred_areas, buyers.preferred_areas),
+            notes      = COALESCE(NULLIF(excluded.notes,''), buyers.notes),
+            source     = excluded.source,
+            updated_at = datetime('now')
+        `).run({
+          name,
+          agent:  d.assignedUserName || null,
+          status: buyerStatus,
+          price:  d.price || null,
+          area:   d.city || null,
+          sref:   `fub:deal:${d.id}`,
+          fub_pid: String(personId),
+          notes:  d.address ? `Target: ${d.address}` : null,
+        });
+        deals_buyer++;
+      } catch (e: any) {
+        errors.push(`deal-buyer ${d.id} (${stage}): ${e.message}`);
       }
     }
   } catch (err: any) {

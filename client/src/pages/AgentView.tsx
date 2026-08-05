@@ -7077,7 +7077,10 @@ function LeadGenSheet(props: {
                   "--arc-dx": `${dx}px`,
                   // @ts-ignore CSS custom property
                   "--arc-dy": `${dy}px`,
-                  display: "flex", flexDirection: "column", alignItems: "center",
+                  // v20.7.8 — arc labels sit ABOVE the bubble (column-reverse) so
+                  // the entire below-arc region is free for the 2 shelf bubbles.
+                  // Shelf bubbles keep their bottom-labels (they stay column).
+                  display: "flex", flexDirection: "column-reverse", alignItems: "center",
                   transformOrigin: "center center",
                 } as React.CSSProperties}
               >
@@ -7132,13 +7135,11 @@ function LeadGenSheet(props: {
                     {b.icon}
                   </span>
                 </button>
-                {/* Label floats BELOW the bubble so the circle stays perfect.
-                    v20.4.2.1 — label fades AFTER the bubble arrives at its destination
-                    (delay = bubble delay + full bubble flight time). */}
-                {/* v20.4.6 — label legibility pass: bigger, mixed case, less letter-spacing,
-                    fuller opacity. Nowrap kept but multi-word labels have breathing room. */}
+                {/* v20.7.8 — Label floats ABOVE the bubble (column-reverse container)
+                    so the space UNDER the arc is fully available for the shelf.
+                    Nothing in the arc row can now overlap the shelf row. */}
                 <span className="arc-label" style={{
-                  marginTop: 8,
+                  marginBottom: 8,
                   fontSize: b.hero ? 12 : 11,
                   letterSpacing: "0.03em",
                   fontWeight: b.hero ? 700 : 600,

@@ -7139,15 +7139,17 @@ function LeadGenSheet(props: {
                     so the space UNDER the arc is fully available for the shelf.
                     Nothing in the arc row can now overlap the shelf row. */}
                 <span className="arc-label" style={{
-                  marginBottom: 8,
+                  /* v20.7.10 — Bumped marginBottom 8 → 14 so the pill has a
+                     clear gap between it and the bubble rim. At angle 150°/30°
+                     (Direct Mail / Door Knock), the label was sitting on top of
+                     the bubble edge. Also enlarged pill padding for breathing room. */
+                  marginBottom: 14,
                   fontSize: b.hero ? 12 : 11,
                   letterSpacing: "0.03em",
                   fontWeight: b.hero ? 700 : 600,
                   color: b.hero ? "#fde68a" : "#fff5e0",
-                  /* v20.6.8 — shortened labels (Mail/Network/OH/Dial/Social/Refer/Knock)
-                     fit inside a tighter pill. Smaller font, tighter padding. */
                   background: "linear-gradient(180deg, rgba(6,6,6,0.72) 0%, rgba(6,6,6,0.86) 100%)",
-                  padding: "2px 7px",
+                  padding: "3px 9px",
                   borderRadius: 999,
                   textShadow: "0 1px 2px rgba(0,0,0,0.9)",
                   whiteSpace: "nowrap",
@@ -7270,13 +7272,15 @@ function LeadGenSheet(props: {
                   </span>
                 </button>
                 <span className="arc-label" style={{
-                  marginTop: 7,
+                  /* v20.7.10 — Same breathing room fix as arc labels: bigger gap
+                     from the bubble rim + fatter pill padding. */
+                  marginTop: 12,
                   fontSize: 10,
                   letterSpacing: "0.03em",
                   fontWeight: 600,
                   color: "#fff5e0",
                   background: "linear-gradient(180deg, rgba(6,6,6,0.72) 0%, rgba(6,6,6,0.86) 100%)",
-                  padding: "2px 7px",
+                  padding: "3px 9px",
                   borderRadius: 999,
                   textShadow: "0 1px 2px rgba(0,0,0,0.9)",
                   whiteSpace: "nowrap",

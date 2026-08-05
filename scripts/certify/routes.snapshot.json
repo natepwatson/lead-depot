@@ -23,6 +23,7 @@
   "GET /api/admin/diversity/history",
   "GET /api/admin/diversity/preview",
   "GET /api/admin/fub-seats",
+  "GET /api/admin/fub/deals-diagnostic",
   "GET /api/admin/fub/tags",
   "GET /api/admin/holdouts",
   "GET /api/admin/kpi-ratios",

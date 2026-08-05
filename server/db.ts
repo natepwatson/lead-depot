@@ -225,7 +225,7 @@ rawDb.exec(`
   )
 `);
 
-// v20.7.2 — Active-challenge slots are managed via the existing
+// v20.7.3 — Active-challenge slots are managed via the existing
 // `challenge_accepts` table (created in ensureChallengeSchema in challenges.ts).
 // Slot caps (3 daily + 2 weekly) are enforced in the accept endpoint. No new
 // table needed — challenge_accepts is already period-scoped so it auto-resets.

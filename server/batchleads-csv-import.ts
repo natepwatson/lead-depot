@@ -107,6 +107,68 @@ function truthy(v: any): boolean {
   return s === "yes" || s === "y" || s === "true" || s === "1" || s === "do not call" || s === "dnc";
 }
 
+// v20.7.0 — Excel serial date normalizer.
+//
+// XLSX/CSV pipelines sometimes leak raw Excel date serials as numeric strings
+// like "46191.208333333336" — these are days since 1899-12-30. Any date-shaped
+// value >= 25569 (= 1970-01-01) is safe to convert. Anything else falls back
+// to `new Date(v)` and finally the raw string.
+//
+// Returns ISO date shape "YYYY-MM-DD" when it can, otherwise the trimmed input.
+export function normalizeDate(v: any): string | null {
+  if (v === null || v === undefined) return null;
+  const raw = String(v).trim();
+  if (!raw) return null;
+  // Excel serial: pure numeric with fractional day component OR integer > 25569
+  const asNum = Number(raw);
+  if (Number.isFinite(asNum) && asNum >= 25569 && asNum < 60000) {
+    // Excel's epoch is 1899-12-30 (Lotus 1-2-3 leap year bug preserved).
+    const ms = Math.round((asNum - 25569) * 86400 * 1000);
+    const d = new Date(ms);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  // Fallback: JS Date parser handles "2026-07-10", "07/10/2026", ISO datetime.
+  const d = new Date(raw);
+  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return raw;
+}
+
+// v20.7.0 — Owner-name normalizer for cross-property linking.
+//
+// Two owners with the SAME normalized key = same person (even if one row says
+// "John Smith Jr" and another says "JOHN SMITH LLC" and a third says "Smith,
+// John"). Powers the "Owner of N properties" badge on the LeadCard.
+//
+// Rules:
+//   - Lowercase; strip punctuation to spaces; collapse whitespace
+//   - Strip business/trust suffixes (LLC, INC, TRUST, ESTATE, PROPERTIES, LP, LLLP, HOLDINGS, GROUP, CO, CORP)
+//   - Strip name suffixes (JR, SR, II, III, IV, V, MD, DDS, ESQ)
+//   - Convert "LAST, FIRST" → "FIRST LAST" before returning
+//   - Empty / unknown / '[object Object]' → null (never key on these)
+export function normalizeOwnerName(name: any): string | null {
+  if (name === null || name === undefined) return null;
+  let s = String(name).trim();
+  if (!s || /^\s*(unknown|n\/?a|none|null|undefined|\[object object\])\s*$/i.test(s)) return null;
+  // "LAST, FIRST" swap (only when a single comma splits into two non-empty tokens)
+  const commaParts = s.split(",").map((x) => x.trim()).filter(Boolean);
+  if (commaParts.length === 2 && !/\d/.test(commaParts[0]) && !/\d/.test(commaParts[1])) {
+    s = `${commaParts[1]} ${commaParts[0]}`;
+  }
+  s = s.toLowerCase()
+       .replace(/[^a-z0-9\s]/g, " ")
+       .replace(/\s+/g, " ")
+       .trim();
+  // Suffix stripping — walk tokens and drop matches
+  const DROP = new Set([
+    "llc", "inc", "corp", "co", "trust", "trustee", "estate", "holdings",
+    "properties", "property", "group", "lp", "lllp", "pa", "pllc",
+    "jr", "sr", "ii", "iii", "iv", "v", "md", "dds", "esq",
+  ]);
+  const tokens = s.split(" ").filter((t) => t && !DROP.has(t));
+  const key = tokens.join(" ").trim();
+  return key.length >= 2 ? key : null;
+}
+
 // Zip → County map for NE FL (Nassau/Duval/St. Johns).
 const NEFL_ZIP_TO_COUNTY: Record<string, string> = {};
 for (const z of ["32009", "32011", "32034", "32035", "32041", "32046", "32097"]) NEFL_ZIP_TO_COUNTY[z] = "Nassau";
@@ -424,7 +486,9 @@ function parseLandVoiceExpiredRow(r: any): ImportRow | null {
   const mlsNumber = String(r["MLSNumber"] || "").trim();
   const mlsStatus = String(r["Status"] || "").trim();     // Withdrawn, Expired, etc.
   const daysOnMarket = toNum(r["DOM"]);
-  const statusDate = String(r["StatusDate"] || "").trim();
+  // v20.7.0 — normalizeDate rescues raw Excel serials (e.g. "46191.20833")
+  // that used to leak through into the LISTING INTEL panel unchanged.
+  const statusDate = normalizeDate(r["StatusDate"]);
   const listAgent = String(r["ListAgent"] || "").trim();
   const listAgentPhone = normalizePhone(r["ListAgentPhone"]);
   const listOffice = String(r["ListOffice"] || "").trim();
@@ -843,12 +907,12 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
 
   const insertStmt = rawDb.prepare(`
     INSERT OR IGNORE INTO leads (
-      owner_name, address, city, state, zip, county,
+      owner_name, owner_name_key, address, city, state, zip, county,
       phone, phones, phone_states, email,
       lead_type, status, score,
       list_price, assessed_value, last_sale_price, lot_size_acres, year_purchased,
       source, batch_id, extra_data, uploaded_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
 
   // v14.76 — UPDATE statement used on duplicate hit. We merge fresh CSV intel
@@ -873,7 +937,8 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
        SET phones = ?, phone_states = ?, phone = ?,
            list_price = COALESCE(?, list_price),
            extra_data = ?,
-           owner_name = COALESCE(NULLIF(?, ''), owner_name)
+           owner_name = COALESCE(NULLIF(?, ''), owner_name),
+           owner_name_key = COALESCE(NULLIF(?, ''), owner_name_key)
      WHERE id = ?
   `);
 
@@ -1004,6 +1069,9 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
           continue;
         }
 
+        // v20.7.0 — owner_name_key is populated whenever we're allowed to write
+        // owner_name. On owner mismatch we keep both existing values.
+        const mergedOwnerKey = ownerMismatch ? "" : (normalizeOwnerName(r.ownerName) || "");
         updateStmt.run(
           JSON.stringify(mergedPhones),
           JSON.stringify(existingStates),
@@ -1013,6 +1081,7 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
           // v20.6.9 — On owner mismatch, keep existing owner. Admin resolves
           // via /api/admin/leads/:id/merge-review after checking tax record.
           ownerMismatch ? "" : (r.ownerName || ""),
+          mergedOwnerKey,
           matchId,
         );
         merged++;
@@ -1029,8 +1098,10 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
       const sourceTag = r.extra?.source === "landvoice-expired" ? "landvoice_expired"
         : r.extra?.source === "landvoice-listing" ? "landvoice_listing"
         : "batchleads_csv";
+      // v20.7.0 — populate owner_name_key on insert (backfill fills legacy rows separately).
+      const ownerKey = normalizeOwnerName(r.ownerName);
       const result = insertStmt.run(
-        r.ownerName, r.address, r.city, r.state, r.zip, r.county,
+        r.ownerName, ownerKey, r.address, r.city, r.state, r.zip, r.county,
         r.phone, JSON.stringify(r.allPhones), JSON.stringify(r.phoneStates), r.email,
         r.leadType, r.score,
         r.listPrice, r.assessedValue, r.lastSalePrice, r.lotSizeAcres, r.yearPurchased,

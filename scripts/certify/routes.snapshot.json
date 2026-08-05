@@ -129,6 +129,7 @@
   "POST /api/admin/leaderboard-reset",
   "POST /api/admin/leads/:id/clear-cooldown",
   "POST /api/admin/leads/:id/manual-appt",
+  "POST /api/admin/leads/re-normalize",
   "POST /api/admin/listings",
   "POST /api/admin/listings/bulk",
   "POST /api/admin/listings/geocode",

@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { EXPIRED_SCRIPT_V14_16 } from "./expired-script";
+import { normalizeOwnerName, normalizeDate } from "./batchleads-csv-import";
 
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
 const BetterSQLite3 = require("better-sqlite3");
@@ -1356,6 +1357,67 @@ try {
   if (fixInvestor.changes > 0) console.log(`[db] v20.6.8 cleanup: normalized is_investor on ${fixInvestor.changes} buyer row(s)`);
 } catch (e) {
   console.error("[db] v20.6.8 cleanup failed (non-fatal):", (e as any)?.message || e);
+}
+
+// ─── v20.7.0 — owner_name_key column + one-shot re-normalize backfill ────────
+//
+// Powers the "Owner of N properties" badge on the LeadCard. We add a
+// non-null-by-default column that indexes to the normalized owner-name key,
+// backfill every existing row exactly once (guarded by schema_flags), and
+// keep it populated on every subsequent insert/merge in batchleads-csv-import.
+try {
+  const leadColsV2070 = rawDb.prepare("PRAGMA table_info(leads)").all().map((c: any) => c.name);
+  if (!leadColsV2070.includes("owner_name_key")) {
+    rawDb.prepare("ALTER TABLE leads ADD COLUMN owner_name_key TEXT").run();
+    console.log("[db] v20.7.0 added leads.owner_name_key column");
+  }
+  rawDb.prepare("CREATE INDEX IF NOT EXISTS idx_leads_owner_name_key ON leads(owner_name_key)").run();
+
+  // Schema-flags: one-time gate for the backfill so it doesn't re-run every boot.
+  rawDb.prepare(`
+    CREATE TABLE IF NOT EXISTS schema_flags (
+      flag TEXT PRIMARY KEY,
+      set_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+  const alreadyBackfilled = rawDb.prepare("SELECT 1 FROM schema_flags WHERE flag = 'v20_7_0_owner_key_backfill'").get();
+  if (!alreadyBackfilled) {
+    console.log("[db] v20.7.0 owner-key backfill starting...");
+    const backfillStart = Date.now();
+    const rows = rawDb.prepare("SELECT id, owner_name, extra_data FROM leads WHERE owner_name_key IS NULL").all() as any[];
+    const updateKey = rawDb.prepare("UPDATE leads SET owner_name_key = ? WHERE id = ?");
+    const updateExtra = rawDb.prepare("UPDATE leads SET extra_data = ? WHERE id = ?");
+    let keyed = 0;
+    let dateFixed = 0;
+    const tx = rawDb.transaction(() => {
+      for (const r of rows) {
+        const key = normalizeOwnerName(r.owner_name);
+        if (key) { updateKey.run(key, r.id); keyed++; }
+        // Also rescue Excel serial dates that leaked into statusDate.
+        try {
+          const extra = JSON.parse(r.extra_data || "{}");
+          if (extra && typeof extra.statusDate === "string") {
+            const asNum = Number(extra.statusDate);
+            if (Number.isFinite(asNum) && asNum > 25569 && asNum < 60000) {
+              const fixed = normalizeDate(extra.statusDate);
+              if (fixed && fixed !== extra.statusDate) {
+                extra.statusDate = fixed;
+                updateExtra.run(JSON.stringify(extra), r.id);
+                dateFixed++;
+              }
+            }
+          }
+        } catch {}
+      }
+      rawDb.prepare("INSERT INTO schema_flags(flag) VALUES ('v20_7_0_owner_key_backfill')").run();
+    });
+    tx();
+    console.log(`[db] v20.7.0 backfill complete: keyed=${keyed}/${rows.length}, statusDate rescued=${dateFixed}, took ${Date.now() - backfillStart}ms`);
+  } else {
+    console.log("[db] v20.7.0 owner-key backfill already ran, skipping");
+  }
+} catch (err: any) {
+  console.error("[db] v20.7.0 backfill failed (non-fatal):", err?.message || err);
 }
 
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");

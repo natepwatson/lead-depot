@@ -2090,116 +2090,249 @@ function LeadCard({ lead }: { lead: Lead }) {
           </p>
         )}
 
-        {/* v14.74 — LANDVOICE INTEL PANEL. Shows MLS pitch context, DOM,
-            status, list agent, remarks, mailing-address flag, and per-phone
-            owner + DNC badges. Rendered only when the CSV import provided
-            these fields (LandVoice Expired / Listing / BatchLeads). */}
-        {(extra.mlsNumber || extra.mlsStatus || extra.daysOnMarket != null || extra.listAgent || extra.ownerMailing || extra.remarks) && (() => {
+        {/* v20.7.0 — ADAPTIVE INTEL PANEL. Every lead card now surfaces four
+            sub-rows in priority order: Owner Intel, Financial Intel, Property
+            / MLS Intel, and the Source Provenance strip. Empty fields HIDE
+            silently (no "N/A" placeholders). This replaces the v14.74 static
+            LANDVOICE INTEL PANEL. See references/BUGLIST.md v20.7.0 entry. */}
+        {(() => {
+          // ----- Data extraction (defensive; any field may be missing) -----
+          const relatedCount = Number((lead as any).relatedPropertyCount || 0);
           const propCity = (lead.city || "").trim().toLowerCase();
           const mailCity = (extra.ownerMailing?.city || "").trim().toLowerCase();
           const mailState = (extra.ownerMailing?.state || "").trim().toUpperCase();
           const outOfArea = mailCity && propCity && mailCity !== propCity;
           const outOfState = mailState && mailState !== "FL";
           const investorFlag = outOfState || outOfArea;
+
+          // Owner-name shape hints (LLC / TRUST / ESTATE)
+          const rawOwner = String(lead.ownerName || "").trim();
+          const upperOwner = rawOwner.toUpperCase();
+          const isLLC = /\b(LLC|INC|CORP|HOLDINGS|PROPERTIES|GROUP|LP|LLLP|PA|PLLC)\b/.test(upperOwner);
+          const isTrust = /\b(TRUST|TRUSTEE|ESTATE)\b/.test(upperOwner);
+
+          // Financial calculations
+          const listPrice = Number(lead.listPrice || 0);
+          const assessed = Number(lead.assessedValue || 0);
+          const lastSale = Number(lead.lastSalePrice || 0);
+          const equityDollars = listPrice > 0 && lastSale > 0 ? listPrice - lastSale : null;
+          const equityPct = equityDollars != null && listPrice > 0
+            ? Math.round((equityDollars / listPrice) * 100)
+            : null;
+
+          // Source provenance
+          const sourceRaw = String((lead as any).source || "").toLowerCase();
+          const sourceLabel =
+            sourceRaw.includes("landvoice_expired") ? { text: "LANDVOICE · EXPIRED", color: "#fcd34d" } :
+            sourceRaw.includes("landvoice_listing") ? { text: "LANDVOICE · LISTING", color: "#fcd34d" } :
+            sourceRaw.includes("landvoice")         ? { text: "LANDVOICE", color: "#fcd34d" } :
+            sourceRaw.includes("batchleads")        ? { text: "BATCHLEADS", color: "#93c5fd" } :
+            sourceRaw.includes("fub")               ? { text: "FOLLOW UP BOSS", color: "#86efac" } :
+            sourceRaw.includes("network")           ? { text: "NETWORK REFERRAL", color: "#c4b5fd" } :
+            sourceRaw.includes("open_house")        ? { text: "OPEN HOUSE", color: "#f0abfc" } :
+            sourceRaw.includes("door_knock")        ? { text: "DOOR KNOCK", color: "#f0abfc" } :
+            sourceRaw.includes("direct_mail")       ? { text: "DIRECT MAIL", color: "#f0abfc" } :
+            sourceRaw.includes("csv_upload")        ? { text: "MANUAL UPLOAD", color: "rgba(255,255,255,0.55)" } :
+            null;
+          const mergeReview = extra.mergeReview;
+
+          // Excel-serial-safe date formatter (belt for a suspenders already
+          // installed in the parser — legacy rows may still carry raw serials).
+          const fmtDate = (v: any): string => {
+            if (v == null || v === "") return "";
+            const s = String(v).trim();
+            const asNum = Number(s);
+            if (Number.isFinite(asNum) && asNum > 25569 && asNum < 60000) {
+              const ms = Math.round((asNum - 25569) * 86400 * 1000);
+              const d = new Date(ms);
+              if (!isNaN(d.getTime())) return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+            }
+            const d = new Date(s);
+            if (!isNaN(d.getTime())) return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+            return s;
+          };
+          const fmtMoney = (n: number) => "$" + Math.round(n).toLocaleString();
+
+          // ----- Row-presence gates -----
+          const hasOwner = relatedCount > 0 || isLLC || isTrust || investorFlag || (extra.ownerMailing && (extra.ownerMailing.street || extra.ownerMailing.city)) || extra.ownerOccupied === true || extra.ownerIsAgent;
+          const hasFinancial = listPrice > 0 || assessed > 0 || lastSale > 0 || equityPct != null;
+          const hasProperty = extra.mlsNumber || extra.mlsStatus || extra.daysOnMarket != null || extra.listAgent || extra.beds != null || extra.yearBuilt || extra.remarks || extra.statusDate;
+          const hasSource = sourceLabel || mergeReview;
+
+          if (!hasOwner && !hasFinancial && !hasProperty && !hasSource) return null;
+
+          // ----- Row builders -----
+          const RowLabel = ({ children }: { children: React.ReactNode }) => (
+            <div style={{
+              fontSize: 9, letterSpacing: "0.22em", textTransform: "uppercase",
+              color: "rgba(147,197,253,0.7)", fontWeight: 700, marginBottom: 6,
+            }}>{children}</div>
+          );
+          const cellStyle: React.CSSProperties = { fontSize: 12, color: "rgba(255,255,255,0.55)" };
+          const valStyle: React.CSSProperties = { color: "rgba(255,255,255,0.85)", fontWeight: 600 };
+
           return (
             <div style={{
               marginBottom: 12, padding: "12px 14px",
               background: "rgba(147,197,253,0.06)",
               border: "1px solid rgba(147,197,253,0.22)",
               borderRadius: 8,
+              display: "flex", flexDirection: "column", gap: 12,
             }}>
-              <div style={{
-                fontSize: 9, letterSpacing: "0.22em", textTransform: "uppercase",
-                color: "rgba(147,197,253,0.7)", fontWeight: 700, marginBottom: 8,
-              }}>Listing Intel</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px" }}>
-                {extra.mlsNumber && (
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
-                    MLS <span style={{ color: "rgba(255,255,255,0.85)", fontWeight: 600 }}>#{extra.mlsNumber}</span>
+              {/* ── OWNER INTEL ── */}
+              {hasOwner && (
+                <div>
+                  <RowLabel>Owner Intel</RowLabel>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {relatedCount > 0 && (
+                      <div style={{
+                        padding: "6px 10px", borderRadius: 6,
+                        background: "rgba(252,211,77,0.12)", border: "1px solid rgba(252,211,77,0.4)",
+                        fontSize: 12, color: "#fcd34d", fontWeight: 700, letterSpacing: "0.02em",
+                      }}>
+                        🏘 Owner of {relatedCount + 1} propert{relatedCount + 1 === 1 ? "y" : "ies"} in the database
+                      </div>
+                    )}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px" }}>
+                      {isLLC && (
+                        <div style={{ ...cellStyle }}>
+                          Entity <span style={{ color: "#c4b5fd", fontWeight: 600 }}>LLC / business</span>
+                        </div>
+                      )}
+                      {isTrust && (
+                        <div style={{ ...cellStyle }}>
+                          Entity <span style={{ color: "#c4b5fd", fontWeight: 600 }}>Trust / estate</span>
+                        </div>
+                      )}
+                      {extra.ownerOccupied === true && (
+                        <div style={{ fontSize: 11, color: "#86efac", fontWeight: 600 }}>✓ Owner-occupied</div>
+                      )}
+                      {extra.ownerIsAgent && (
+                        <div style={{ fontSize: 11, color: "#fca5a5", fontWeight: 600, gridColumn: "1 / -1" }}>⚠️ Owner is a licensed agent</div>
+                      )}
+                    </div>
+                    {extra.ownerMailing && (extra.ownerMailing.street || extra.ownerMailing.city) && (
+                      <div style={{ ...cellStyle, marginTop: 2 }}>
+                        Mailing <span style={valStyle}>{[extra.ownerMailing.street, extra.ownerMailing.city, extra.ownerMailing.state, extra.ownerMailing.zip].filter(Boolean).join(", ")}</span>
+                      </div>
+                    )}
+                    {investorFlag && (
+                      <div style={{
+                        padding: "6px 10px", borderRadius: 6,
+                        background: "rgba(196,181,253,0.08)", border: "1px solid rgba(196,181,253,0.3)",
+                        fontSize: 11, color: "#c4b5fd", fontWeight: 600,
+                      }}>
+                        🏠 {outOfState ? `Out-of-state investor (${mailState})` : `Owner lives in ${extra.ownerMailing?.city}`}
+                      </div>
+                    )}
                   </div>
-                )}
-                {extra.mlsStatus && (
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
-                    Status <span style={{ color: "#fca5a5", fontWeight: 600 }}>{extra.mlsStatus}</span>
+                </div>
+              )}
+
+              {/* ── FINANCIAL INTEL ── */}
+              {hasFinancial && (
+                <div>
+                  <RowLabel>Financial Intel</RowLabel>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px" }}>
+                    {listPrice > 0 && (
+                      <div style={cellStyle}>List <span style={{ color: "#fcd34d", fontWeight: 600 }}>{fmtMoney(listPrice)}</span></div>
+                    )}
+                    {assessed > 0 && (
+                      <div style={cellStyle}>AVM <span style={valStyle}>{fmtMoney(assessed)}</span></div>
+                    )}
+                    {lastSale > 0 && (
+                      <div style={cellStyle}>Last sale <span style={valStyle}>{fmtMoney(lastSale)}</span></div>
+                    )}
+                    {equityPct != null && (
+                      <div style={cellStyle}>
+                        Equity <span style={{ color: equityPct >= 50 ? "#86efac" : equityPct >= 20 ? "#fcd34d" : "#fca5a5", fontWeight: 700 }}>
+                          {equityPct >= 0 ? "+" : ""}{equityPct}%
+                        </span>
+                      </div>
+                    )}
+                    {extra.yearPurchased && (
+                      <div style={cellStyle}>Purchased <span style={valStyle}>{extra.yearPurchased}</span></div>
+                    )}
                   </div>
-                )}
-                {/* v15.11.45 — When the listing came off the market. LandVoice exports
-                    call this "StatusDate"; we surface it as "Expired" or "Removed"
-                    based on mlsStatus so the agent has a fresh talking point. */}
-                {extra.statusDate && (
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
-                    {String(extra.mlsStatus || "").toLowerCase().includes("withdraw") ? "Removed" :
-                     String(extra.mlsStatus || "").toLowerCase().includes("cancel")   ? "Cancelled" :
-                     "Expired"}
-                    {" "}
-                    <span style={{ color: "#fca5a5", fontWeight: 600 }}>
-                      {(() => {
-                        const raw = String(extra.statusDate).trim();
-                        // Try a few common shapes: "2026-07-10", "07/10/2026", ISO datetime.
-                        const d = new Date(raw);
-                        if (!isNaN(d.getTime())) {
-                          return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-                        }
-                        return raw;
-                      })()}
-                    </span>
+                </div>
+              )}
+
+              {/* ── PROPERTY / MLS INTEL ── */}
+              {hasProperty && (
+                <div>
+                  <RowLabel>Property / MLS</RowLabel>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px" }}>
+                    {extra.mlsNumber && (
+                      <div style={cellStyle}>MLS <span style={valStyle}>#{extra.mlsNumber}</span></div>
+                    )}
+                    {extra.mlsStatus && (
+                      <div style={cellStyle}>Status <span style={{ color: "#fca5a5", fontWeight: 600 }}>{extra.mlsStatus}</span></div>
+                    )}
+                    {extra.statusDate && (
+                      <div style={cellStyle}>
+                        {String(extra.mlsStatus || "").toLowerCase().includes("withdraw") ? "Removed" :
+                         String(extra.mlsStatus || "").toLowerCase().includes("cancel") ? "Cancelled" : "Expired"}{" "}
+                        <span style={{ color: "#fca5a5", fontWeight: 600 }}>{fmtDate(extra.statusDate)}</span>
+                      </div>
+                    )}
+                    {extra.daysOnMarket != null && (
+                      <div style={cellStyle}>DOM <span style={valStyle}>{extra.daysOnMarket} days</span></div>
+                    )}
+                    {extra.beds != null && extra.baths != null && (
+                      <div style={cellStyle}>
+                        <span style={valStyle}>{extra.beds}bd / {extra.baths}ba{extra.sqft ? ` · ${extra.sqft.toLocaleString()} sf` : ""}</span>
+                      </div>
+                    )}
+                    {extra.yearBuilt && (
+                      <div style={cellStyle}>Built <span style={valStyle}>{extra.yearBuilt}</span></div>
+                    )}
+                    {extra.listAgent && (
+                      <div style={{ ...cellStyle, gridColumn: "1 / -1" }}>
+                        Prev agent <span style={valStyle}>{extra.listAgent}</span>
+                        {extra.listOffice && <span style={{ color: "rgba(255,255,255,0.55)" }}> · {extra.listOffice}</span>}
+                      </div>
+                    )}
+                    {extra.relisted && (
+                      <div style={{ fontSize: 11, color: "#fcd34d", gridColumn: "1 / -1", fontWeight: 600 }}>⚠️ Previously relisted — check for competing listings</div>
+                    )}
                   </div>
-                )}
-                {extra.daysOnMarket != null && (
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
-                    DOM <span style={{ color: "rgba(255,255,255,0.85)", fontWeight: 600 }}>{extra.daysOnMarket} days</span>
-                  </div>
-                )}
-                {extra.beds != null && extra.baths != null && (
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
-                    <span style={{ color: "rgba(255,255,255,0.85)" }}>{extra.beds}bd / {extra.baths}ba{extra.sqft ? ` · ${extra.sqft.toLocaleString()} sf` : ""}</span>
-                  </div>
-                )}
-                {extra.yearBuilt && (
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
-                    Built <span style={{ color: "rgba(255,255,255,0.85)" }}>{extra.yearBuilt}</span>
-                  </div>
-                )}
-                {extra.listAgent && (
-                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", gridColumn: "1 / -1" }}>
-                    Prev agent <span style={{ color: "rgba(255,255,255,0.85)" }}>{extra.listAgent}</span>
-                    {extra.listOffice && <span style={{ color: "rgba(255,255,255,0.55)" }}> · {extra.listOffice}</span>}
-                  </div>
-                )}
-                {extra.relisted && (
-                  <div style={{ fontSize: 11, color: "#fcd34d", gridColumn: "1 / -1" }}>
-                    ⚠️ Previously relisted — check for competing listings
-                  </div>
-                )}
-                {extra.ownerIsAgent && (
-                  <div style={{ fontSize: 11, color: "#fca5a5", gridColumn: "1 / -1" }}>
-                    ⚠️ Owner is a licensed agent — approach as peer
-                  </div>
-                )}
-                {investorFlag && (
-                  <div style={{
-                    gridColumn: "1 / -1", marginTop: 4,
-                    padding: "6px 10px", borderRadius: 6,
-                    background: "rgba(196,181,253,0.08)", border: "1px solid rgba(196,181,253,0.3)",
-                    fontSize: 11, color: "#c4b5fd", fontWeight: 600,
-                  }}>
-                    🏠 {outOfState ? `Out-of-state investor (${mailState})` : `Owner lives in ${extra.ownerMailing.city}`}
-                  </div>
-                )}
-                {extra.ownerOccupied === true && (
-                  <div style={{ fontSize: 11, color: "#86efac", gridColumn: "1 / -1" }}>
-                    ✓ Owner-occupied
-                  </div>
-                )}
-              </div>
-              {extra.remarks && (
+                  {extra.remarks && (
+                    <div style={{
+                      marginTop: 10, paddingTop: 10,
+                      borderTop: "1px solid rgba(147,197,253,0.15)",
+                      fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.5,
+                      fontStyle: "italic",
+                    }}>
+                      “{extra.remarks.length > 220 ? extra.remarks.slice(0, 220) + "…" : extra.remarks}”
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── SOURCE PROVENANCE STRIP ── */}
+              {hasSource && (
                 <div style={{
-                  marginTop: 10, paddingTop: 10,
-                  borderTop: "1px solid rgba(147,197,253,0.15)",
-                  fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.5,
-                  fontStyle: "italic",
+                  display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                  paddingTop: 8, borderTop: "1px solid rgba(147,197,253,0.15)",
                 }}>
-                  “{extra.remarks.length > 220 ? extra.remarks.slice(0, 220) + "…" : extra.remarks}”
+                  {sourceLabel && (
+                    <span style={{
+                      padding: "3px 8px", borderRadius: 4,
+                      fontSize: 9, letterSpacing: "0.16em", fontWeight: 700,
+                      background: "rgba(147,197,253,0.08)",
+                      border: `1px solid ${sourceLabel.color}44`,
+                      color: sourceLabel.color,
+                    }}>{sourceLabel.text}</span>
+                  )}
+                  {mergeReview && !mergeReview.resolved && (
+                    <span style={{
+                      padding: "3px 8px", borderRadius: 4,
+                      fontSize: 9, letterSpacing: "0.16em", fontWeight: 700,
+                      background: "rgba(252,165,165,0.10)",
+                      border: "1px solid rgba(252,165,165,0.4)",
+                      color: "#fca5a5",
+                    }}>⚠ MERGE REVIEW</span>
+                  )}
                 </div>
               )}
             </div>
@@ -5787,7 +5920,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.6.9</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.0</span>
             </div>
           </div>
           {onBackToAdmin && (

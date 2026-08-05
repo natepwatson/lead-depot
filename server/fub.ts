@@ -245,11 +245,15 @@ function buildTags(
   // v15.3 — Intent tags per INTENT_SPEC Q5 (plain English, no prefix).
   // v17.2 — Renter + Sell-and-Rent added.
   // These sit alongside intention-derived tags so FUB smart lists can key off intent alone.
+  // v20.7.9 — Combos now emit BOTH single-side tags in addition to the combo
+  // marker so FUB smart lists that filter by `Seller` or `Buyer` alone still
+  // catch combo leads (the person.type field can only hold one value, so
+  // buyer-side automations that key off type==Buyer used to miss combos).
   if (intent === "sell_only")     tags.push("Seller");
   if (intent === "buy_only")      tags.push("Buyer");
-  if (intent === "sell_and_buy")  tags.push("Buy&Sell");
+  if (intent === "sell_and_buy") { tags.push("Seller"); tags.push("Buyer"); tags.push("Buy&Sell"); }
   if (intent === "rent_only")     tags.push("Renter");
-  if (intent === "sell_and_rent") tags.push("Sell&Rent");
+  if (intent === "sell_and_rent") { tags.push("Seller"); tags.push("Renter"); tags.push("Sell&Rent"); }
 
   // Lead type → FUB source-style tag
   // v17.2 — absentee retired; open_house / door_knock / direct_mail added as warm sources.
@@ -535,23 +539,53 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
   const pushOutcomes = ["contacted_appointment", "keep_in_touch"];
   if (!pushOutcomes.includes(outcome)) return;
 
-  // v15.11.8 — Derive Buyer vs Seller from the intention string. The KIT modal
-  // joins multiple intentions with " + " so we match keywords.
+  // v20.7.9 — Multi-side detection (Buyer / Seller / Renter). The intention
+  // string joins labels with " + " (e.g. "Sell Now + Rental Later"). Use the
+  // full intention text PLUS the mapped `effectiveIntent` (sell_only/buy_only/
+  // rent_only/sell_and_buy/sell_and_rent) for a belt-and-braces check.
+  //
+  // FIX: prior versions only matched /\bbuy\b/ and /\bsell\b/, so a pure
+  // renter ("Rental Now") defaulted to kitSide="seller" — pushing them to the
+  // Sellers pipeline with the seller Action Plan, and dropping the rental
+  // side entirely on sell_and_rent combos.
   const intentionLower = (intention || "").toLowerCase();
-  const isBuyer = /\bbuy\b/.test(intentionLower);
-  const isSeller = /\bsell\b/.test(intentionLower);
-  const kitSide: "seller" | "buyer" | "both" =
-    isBuyer && isSeller ? "both" : isBuyer ? "buyer" : "seller";
+  const effIntent = (payload as any)?._effectiveIntent as string | undefined; // set below after `effectiveIntent`
+  // We can't use effectiveIntent here because it's declared later in the
+  // function — instead we inline the same detection off the raw intent/lpmamab.
+  const rawEff = (lpmamab as any)?.intent || (lead as any).intent || "";
+  const isBuyer  = /\bbuy\b/.test(intentionLower)  || /buy_only|sell_and_buy/.test(String(rawEff));
+  const isSeller = /\bsell\b/.test(intentionLower) || /sell_only|sell_and_buy|sell_and_rent/.test(String(rawEff));
+  const isRenter = /\brent(al)?\b|\blandlord\b/.test(intentionLower) || /rent_only|sell_and_rent/.test(String(rawEff));
+
+  // Sides is a Set of independent tags — a lead can be any combination.
+  const sidesSet = new Set<"seller" | "buyer" | "renter">();
+  if (isSeller) sidesSet.add("seller");
+  if (isBuyer)  sidesSet.add("buyer");
+  if (isRenter) sidesSet.add("renter");
+  if (sidesSet.size === 0) sidesSet.add("seller"); // safety default preserves old behavior
+
+  // kitSide is retained for backward-compat with the Action Plan map. Order of
+  // precedence for the "one string" label: multi (both/mixed) → seller → buyer → renter.
+  const isMulti = sidesSet.size > 1;
+  const kitSide: "seller" | "buyer" | "renter" | "both" =
+    isMulti ? "both"
+    : sidesSet.has("seller") ? "seller"
+    : sidesSet.has("buyer")  ? "buyer"
+    : "renter";
 
   // v15.11.8 — Outcome → FUB action plan + tag mapping (locked by Alex 2026-07-12).
+  // v20.7.9 — Renter Action Plan not yet defined by Alex; falls through to KIT
+  // plan 48 with a distinct tag until Alex provides a renter plan ID.
   const ACTION_PLAN_MAP: Record<string, { planId: number; tag: string }> = {
-    // Appointments — 3 flavors depending on intention
+    // Appointments — flavors depending on intention
     "contacted_appointment:seller": { planId: 78, tag: "LeadDepot:ApptListing" },
     "contacted_appointment:buyer":  { planId: 79, tag: "LeadDepot:ApptBuyer" },
+    "contacted_appointment:renter": { planId: 79, tag: "LeadDepot:ApptRenter" }, // reuse buyer plan (rental agent workflow closest to buyer)
     "contacted_appointment:both":   { planId: 80, tag: "LeadDepot:ApptBoth" },
-    // KIT — both sides use the same nurture plan (id=48), tag distinguishes
+    // KIT — all sides use the same nurture plan (id=48), tag distinguishes
     "keep_in_touch:seller":         { planId: 48, tag: "LeadDepot:KIT-Seller" },
     "keep_in_touch:buyer":          { planId: 48, tag: "LeadDepot:KIT-Buyer" },
+    "keep_in_touch:renter":         { planId: 48, tag: "LeadDepot:KIT-Renter" },
     "keep_in_touch:both":           { planId: 48, tag: "LeadDepot:KIT-Both" },
   };
   const planMapping = ACTION_PLAN_MAP[`${outcome}:${kitSide}`];
@@ -762,12 +796,19 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
     const closeDate = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
     const ownerName = (lead.ownerName || "Unknown").trim();
-    const sides: Array<{ side: "sell" | "buy"; pipelineId: number; stageId: number; nameSuffix: string }> = [];
-    if (kitSide === "seller" || kitSide === "both") {
+    // v20.7.9 — Per-side deal creation using the sidesSet. Renter path currently
+    // reuses the Buyers pipeline with a "Rental" tag on the deal until Alex
+    // creates a real Renters pipeline in FUB and provides the IDs. This keeps
+    // rental deals visible in the FUB pipeline instead of being silently dropped.
+    const sides: Array<{ side: "sell" | "buy" | "rent"; pipelineId: number; stageId: number; nameSuffix: string; extraTag?: string }> = [];
+    if (sidesSet.has("seller")) {
       sides.push({ side: "sell", pipelineId: SELLERS_PIPELINE_ID, stageId: SELLERS_STAGE_INTERESTED, nameSuffix: "Sell Side" });
     }
-    if (kitSide === "buyer" || kitSide === "both") {
+    if (sidesSet.has("buyer")) {
       sides.push({ side: "buy",  pipelineId: BUYERS_PIPELINE_ID,  stageId: BUYERS_STAGE_INTERESTED,  nameSuffix: "Buy Side" });
+    }
+    if (sidesSet.has("renter")) {
+      sides.push({ side: "rent", pipelineId: BUYERS_PIPELINE_ID,  stageId: BUYERS_STAGE_INTERESTED,  nameSuffix: "Rental Side", extraTag: "Rental" });
     }
 
     for (const s of sides) {
@@ -834,6 +875,91 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
     console.log(`[FUB] LPMAMAB note posted to contact ${personId}`);
   } else {
     console.error("[FUB] Failed to post note:", noteResult.data);
+  }
+}
+
+// ─── COLD OUTCOME SYNC-BACK — keeps FUB record fresh after LD state changes ────────
+// v20.7.9 — Prior to this, once a lead was pushed to FUB via KIT/Appt, any
+// subsequent cold outcome (Recycle / Not Interested / Wrong # / No Answer /
+// Nice Not Interested) never touched FUB. The record sat in Nurture or Hot
+// Prospect stage with an Action Plan running forever, even after the lead was
+// dead. This helper looks up the FUB person by phone (only if they already
+// exist — no new records created) and appends a status note. On terminal
+// outcomes (not_interested, wrong_number) it also moves the stage to Unresponsive.
+// This is idempotent — if the person doesn't exist in FUB, it's a no-op.
+export async function pushColdOutcomeToFub(opts: {
+  phone?: string;
+  ownerName?: string;
+  outcome: string; // recycled | contacted_not_interested | wrong_number | no_answer | nice_not_interested
+  agentName?: string;
+  notes?: string;
+}): Promise<void> {
+  if (!FUB_API_KEY) return;
+  const { phone, outcome, agentName, notes, ownerName } = opts;
+  if (!phone) return; // Nothing to match on.
+
+  // Only sync-back on outcomes that meaningfully change lead state.
+  const COLD_OUTCOMES = new Set([
+    "recycled",
+    "contacted_not_interested",
+    "wrong_number",
+    "nice_not_interested",
+    "disconnected",
+  ]);
+  if (!COLD_OUTCOMES.has(outcome)) return;
+
+  try {
+    // Look up person by phone (only match — don't create).
+    const cleanedPhone = String(phone).replace(/\D/g, "");
+    if (cleanedPhone.length < 10) return;
+    const last10 = cleanedPhone.slice(-10);
+
+    const searchRes = await fubRequest("GET", `/people?phone=${encodeURIComponent(last10)}&limit=5`);
+    if (!searchRes.ok || !searchRes.data) return;
+    const people = (searchRes.data as any)?.people || [];
+    if (!Array.isArray(people) || people.length === 0) {
+      console.log(`[FUB cold-sync] No FUB person for phone ${last10} — skipping (not previously KIT/Appt'd)`);
+      return;
+    }
+
+    const person = people[0];
+    const personId = person.id;
+
+    // Compose the note body.
+    const outcomeLabels: Record<string, string> = {
+      recycled:                 "Recycled to shared pool",
+      contacted_not_interested: "Not Interested (dead)",
+      wrong_number:             "Wrong # (data cleanup)",
+      nice_not_interested:      "Nice Not Interested (soft decline, 180d nurture)",
+      disconnected:             "Disconnected number",
+    };
+    const label = outcomeLabels[outcome] || outcome;
+    const noteBody = `[Lead Depot Sync] ${label}${agentName ? ` by ${agentName}` : ""}${notes ? ` — ${notes}` : ""}${ownerName ? ` (${ownerName})` : ""} at ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} EDT`;
+    const noteRes = await fubRequest("POST", "/notes", {
+      personId,
+      body: noteBody,
+      isHtml: false,
+    });
+    if (noteRes.ok) {
+      console.log(`[FUB cold-sync] Note posted to person ${personId} (${label})`);
+    } else {
+      console.error(`[FUB cold-sync] Failed to post note:`, noteRes.status, noteRes.data);
+    }
+
+    // For terminal outcomes, also move stage to Unresponsive (blank-slate).
+    const TERMINAL = new Set(["contacted_not_interested", "wrong_number", "disconnected"]);
+    if (TERMINAL.has(outcome)) {
+      const stageRes = await fubRequest("PUT", `/people/${personId}`, {
+        stage: "Unresponsive",
+      });
+      if (stageRes.ok) {
+        console.log(`[FUB cold-sync] Person ${personId} stage → Unresponsive`);
+      } else {
+        console.error(`[FUB cold-sync] Failed to update stage:`, stageRes.status, stageRes.data);
+      }
+    }
+  } catch (err: any) {
+    console.error(`[FUB cold-sync] Error:`, err?.message || err);
   }
 }
 

@@ -6,7 +6,7 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD, fubListTags } from "./fub";
+import { pushOutcomeToFub, pushColdOutcomeToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD, fubListTags } from "./fub";
 import { runFubInventorySweep } from "./fubSweep";
 import { parseWeeklyWorkbook } from "./workbookParser";
 import { enrichAddress, lookupCityState } from "./zipToCity";
@@ -141,6 +141,7 @@ function awardPoints(
     disconnected:               1,   // Data cleanup.
     left_voicemail:             6,   // v15.11.41 — Owner - No Answer: confirmed owner + recycle + boost. 6 pts.
     agent_referral_approved:  100,   // v19.6 — Referred agent got hired. Big deal.
+    agent_invite_sent:         50,   // v20.7.9 — Immediate credit when an agent sends an invite (before candidate submits or gets approved).
     // Any other outcome falls back to base dial (1).
   };
   const basePoints = pts[outcome] ?? 1;
@@ -149,7 +150,7 @@ function awardPoints(
   // work happens whenever the agent shows up and admin approval can be delayed
   // hours or days, so multiplying by tier-at-approval is arbitrary and gameable.
   // Award the flat rate and short-circuit.
-  const FLAT_OUTCOMES = new Set(["open_house_log", "open_house_lead", "oh_knock_route", "direct_mail", "door_knock", "social_post", "network_referral", "agent_referral_approved"]);
+  const FLAT_OUTCOMES = new Set(["open_house_log", "open_house_lead", "oh_knock_route", "direct_mail", "door_knock", "social_post", "network_referral", "agent_referral_approved", "agent_invite_sent"]);
   if (FLAT_OUTCOMES.has(outcome)) {
     if (basePoints === 0) return;
     rawDb.prepare(
@@ -233,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.9 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -462,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.8 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.9 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -521,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.9 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -569,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.8 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.9 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1807,7 +1808,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.8</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.9</p>
             </div>
           `,
         });
@@ -1967,7 +1968,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.8 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.9 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3830,8 +3831,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // v14.18 — 3×3 outcome grid additions: `listed`, `disconnected`, `left_voicemail`,
     // plus `email_sent_value` for the Stage-2 value email (v14.18). Every route below
     // handles its own exhaustion — no code path can leave a lead in a stuck state.
+    // v20.7.9 — `callback_requested` REMOVED from acceptance. Callback was retired
+    // in v14.14 and replaced by Recycle. The endpoint used to accept it (and treat
+    // it as recycled) for stale clients, but 18+ months later that path is dead.
+    // Historical DB records with status='callback_requested' still render in the
+    // admin UI (label fallbacks retained) — only fresh submissions are blocked.
     const VALID_OUTCOMES = [
-      "no_answer", "contacted_appointment", "keep_in_touch", "callback_requested",
+      "no_answer", "contacted_appointment", "keep_in_touch",
       "contacted_not_interested", "wrong_number", "network_referral",
       "recycled", "listed", "disconnected", "left_voicemail",
       // v16.7 — Lead Gen hub outcomes
@@ -3899,9 +3905,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         console.error("[v15.4 phone_attempt_outcomes] Contact-resolve failed:", err);
       }
 
-    } else if (outcome === "recycled" || outcome === "callback_requested") {
+    } else if (outcome === "recycled") {
       // v14.14 — Callback retired. Recycle is the successor: one-tap unassign to pool.
-      // v14.45 — `callback_requested` still accepted for stale clients but treated as recycled.
+      // v20.7.9 — `callback_requested` acceptance dropped from VALID_OUTCOMES above.
       //          NETWORK ORPHAN FIX: Network leads have no shared pool (TYPE_ORDER excludes
       //          "network"), so recycling would strand them. Instead, restore assignment to
       //          the original submitter (uploaded_by) — they stay owned by the referrer.
@@ -4533,6 +4539,18 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         intention:        intention        || undefined,
       }).catch(err => console.error("[FUB] pushOutcomeToFub failed:", err));
     }
+
+    // v20.7.9 — Cold-outcome sync-back. If this outcome is Recycle / Not Interested /
+    // Wrong # / Nice Not Interested / Disconnected AND the lead already exists in FUB
+    // (was previously KIT'd or Appt'd), append a status note and move terminal stages
+    // to Unresponsive. No-op if lead was never in FUB. Fire-and-forget.
+    pushColdOutcomeToFub({
+      phone:     lead.phone || undefined,
+      ownerName: lead.ownerName || undefined,
+      outcome,
+      agentName: fubAgent?.name || undefined,
+      notes:     notes || undefined,
+    }).catch(err => console.error("[FUB] pushColdOutcomeToFub failed:", err));
 
     // Award points for this outcome (v11.40)
     awardPoints(agentId, outcome, leadId);
@@ -8129,7 +8147,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.8 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.9 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -9178,7 +9196,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.8",
+      version: "v20.7.9",
       services: results,
     });
   });
@@ -9291,6 +9309,10 @@ This template is for informational/outreach purposes only.`;
         }).catch(err => console.error("[candidate invite notify]", err));
       }
       broadcast({ type: "activity_event", event: { type: "candidate_invited", candidateId: Number(info.lastInsertRowid), name, agentId: authed.id, agentName: authed.name, ts: now } });
+      // v20.7.9 — Immediate +50 to the inviting agent so recruiting shows up on the leaderboard
+      // the moment they send the invite (not later when the candidate applies/gets approved).
+      // The +100 `agent_referral_approved` still fires on approval as an additional bonus.
+      try { awardPoints(authed.id, "agent_invite_sent", undefined, "recruiting"); } catch {}
       res.json({ ok: true, candidateId: Number(info.lastInsertRowid), inviteUrl });
     } catch (err: any) {
       console.error("[candidate invite]", err);
@@ -10141,7 +10163,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.8</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.9</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

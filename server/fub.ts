@@ -963,6 +963,144 @@ export async function pushColdOutcomeToFub(opts: {
   }
 }
 
+// ─── INGEST-TIME FUB PUSH — warm-lead capture goes to FUB immediately ────────
+// v20.7.11 — Whenever a warm lead is captured (Network Referral, Open House Lead,
+// Door Knock Lead, Direct Mail Lead, Add Lead, external API ingest), push a
+// lightweight FUB record with the right intent tags + "New Referral" tag +
+// Nurture stage. NO Action Plan is installed — the agent's first-touch KIT/Appt
+// still owns Action Plan installation. This ensures FUB has the person from day
+// one so smart lists and reporting are complete.
+//
+// Idempotent — if the phone already exists in FUB, no-op (returns silently).
+export async function pushIngestToFub(opts: {
+  ownerName: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  agentId?: number | null;
+  agentName?: string;
+  source: string;         // network | open_house | door_knock | direct_mail | social_post | api_ingest | csv_upload
+  intent?: string | null; // buyer | seller | renter | seller_and_buyer | seller_and_renter | future_*
+  notes?: string;
+}): Promise<void> {
+  if (!FUB_API_KEY) return;
+  const { ownerName, phone, email, address, agentId, agentName, source, intent, notes } = opts;
+  if (!ownerName || !phone) return;
+
+  try {
+    // Idempotency check — skip if person already in FUB.
+    const cleaned = String(phone).replace(/\D/g, "");
+    if (cleaned.length < 10) return;
+    const last10 = cleaned.slice(-10);
+    const searchRes = await fubRequest("GET", `/people?phone=${encodeURIComponent(last10)}&limit=1`);
+    if (searchRes.ok) {
+      const people = (searchRes.data as any)?.people || [];
+      if (Array.isArray(people) && people.length > 0) {
+        console.log(`[FUB ingest] Person exists for ${last10} — skipping ingest push (id=${people[0].id})`);
+        return;
+      }
+    }
+
+    // Map LD intent → buildTags-style intent so tags come out right.
+    // (buildTags is scoped to the KIT/Appt flow; we replicate the intent → tag
+    //  logic here so ingest tags stay identical to what KIT/Appt would emit.)
+    const intentMap: Record<string, string> = {
+      buyer: "buy_only",
+      seller: "sell_only",
+      renter: "rent_only",
+      seller_and_buyer: "sell_and_buy",
+      seller_and_renter: "sell_and_rent",
+      future_buyer: "buy_only",
+      future_seller: "sell_only",
+      future_renter: "rent_only",
+      future_seller_and_buyer: "sell_and_buy",
+      future_seller_and_renter: "sell_and_rent",
+    };
+    const mappedIntent = intent ? (intentMap[intent] || "") : "";
+
+    // Build tags (compact, no Action Plan tags — those come at KIT/Appt).
+    const tags: string[] = ["LeadDepot", "New Referral"];
+    // Intent tags (mirror buildTags exactly for single/combo coverage)
+    if (mappedIntent === "sell_only")     tags.push("Seller");
+    if (mappedIntent === "buy_only")      tags.push("Buyer");
+    if (mappedIntent === "sell_and_buy") { tags.push("Seller"); tags.push("Buyer"); tags.push("Buy&Sell"); }
+    if (mappedIntent === "rent_only")     tags.push("Renter");
+    if (mappedIntent === "sell_and_rent") { tags.push("Seller"); tags.push("Renter"); tags.push("Sell&Rent"); }
+    // Future-* leads get an additional tag so nurture cadence differs
+    if (intent && /^future_/.test(intent)) tags.push("Future Lead");
+
+    // Source tag
+    const sourceTagMap: Record<string, string> = {
+      network: "Source:Network Referral",
+      open_house: "Source:Open House",
+      door_knock: "Source:Door Knock",
+      direct_mail: "Source:Direct Mail",
+      social_post: "Source:Social Post",
+      api_ingest: "Source:External API",
+      csv_upload: "Source:CSV Upload",
+    };
+    if (sourceTagMap[source]) tags.push(sourceTagMap[source]);
+
+    // Split name
+    const nameParts = String(ownerName).trim().split(/\s+/);
+    const firstName = nameParts[0] || ownerName;
+    const lastName  = nameParts.slice(1).join(" ") || "";
+
+    // Assign to the submitting agent if we have a mapping; otherwise leave unassigned.
+    // FUB user mapping: Nate=1, Alex=2, Denise=16 (leaders). Other agents fall back
+    // to name-lookup (best-effort — skip assignment if no FUB user found).
+    const FUB_USER_MAP: Record<string, number> = {
+      "Nate Watson": 1, "Nate": 1,
+      "Alex Watson": 2, "Alex": 2,
+      "Denise": 16,
+    };
+    const assignedFubUserId = agentName ? FUB_USER_MAP[agentName] : undefined;
+
+    // Person payload
+    const personPayload: any = {
+      firstName,
+      lastName,
+      emails: email ? [{ value: email, type: "work" }] : [],
+      phones: [{ value: phone, type: "mobile" }],
+      addresses: address ? [{ street: address, type: "home" }] : [],
+      source: "Lead Depot",
+      sourceUrl: "https://depot.watsonbrothersgroup.com",
+      stage: "Nurture",
+      tags,
+      collaboratorIds: [1, 2, 16], // Nate, Alex, Denise — leaders always cc'd
+    };
+    if (assignedFubUserId) personPayload.assignedUserId = assignedFubUserId;
+    // person.type per intent (mirror KIT logic)
+    if (mappedIntent === "sell_only" || mappedIntent === "sell_and_buy" || mappedIntent === "sell_and_rent") personPayload.type = "Seller";
+    else if (mappedIntent === "buy_only") personPayload.type = "Buyer";
+    else if (mappedIntent === "rent_only") personPayload.type = "Renter";
+
+    // POST /people (creates the person; Action Plans handled at first KIT/Appt)
+    const createRes = await fubRequest("POST", "/people", personPayload);
+    if (!createRes.ok) {
+      console.error(`[FUB ingest] Failed to create person for ${firstName} ${lastName}:`, createRes.status, createRes.data);
+      return;
+    }
+    const personId = (createRes.data as any)?.id;
+    if (!personId) {
+      console.error(`[FUB ingest] Created person response missing id:`, createRes.data);
+      return;
+    }
+
+    // Attach a note describing the ingest.
+    const noteBody = `[Lead Depot Ingest] Source: ${source.replace(/_/g, " ")}${agentName ? ` by ${agentName}` : ""}${address ? ` at ${address}` : ""}${notes ? `\n\nNotes: ${notes.slice(0, 500)}` : ""}`;
+    await fubRequest("POST", "/notes", {
+      personId,
+      body: noteBody,
+      isHtml: false,
+    });
+
+    console.log(`[FUB ingest] Created person ${personId} for ${firstName} ${lastName} (source=${source}, intent=${intent || "?"})`);
+  } catch (err: any) {
+    console.error(`[FUB ingest] Error:`, err?.message || err);
+  }
+}
+
 // ─── AGENT RECRUITING — PUSH ON FORM SUBMIT ──────────────────────────────────
 export interface AgentRecruitPayload {
   firstName: string;

@@ -3863,10 +3863,134 @@ function CallHeatMeter() {
   );
 }
 
+// v20.7.1 — ActiveChallengesCard: renders the agent's pinned challenges under
+// the Home leaderboard. 3 daily + 2 weekly slots. Empty slots are tappable
+// call-to-actions that route to the Challenges tab. Progress bars auto-update
+// via the challenges_updated broadcast (see routes.ts). Auto-cleared on
+// completion — the server drops the accept row when the challenge finishes.
+type ActiveSlot = {
+  key: string; cadence: "daily" | "weekly"; leg: string; tier: 1|2|3;
+  points: number; label: string; detail: string; gated: boolean;
+  progress: number; threshold: number | null;
+};
+type ActiveChallengesResponse = {
+  dailyKey: string; weeklyKey: string;
+  dailySlots:  { max: number; filled: ActiveSlot[] };
+  weeklySlots: { max: number; filled: ActiveSlot[] };
+};
+
+function ActiveChallengesCard() {
+  const { data } = useQuery<ActiveChallengesResponse>({
+    queryKey: ["/api/challenges/active"],
+    queryFn: () => apiRequest("GET", "/api/challenges/active").then(r => r.json()),
+    refetchInterval: 30_000,
+  });
+
+  const goToChallenges = () => {
+    try { (window as any).location.hash = "challenges"; } catch {}
+  };
+
+  const renderSlot = (slot: ActiveSlot | null, cadence: "daily" | "weekly", idx: number) => {
+    if (!slot) {
+      // Empty slot — tap to activate
+      return (
+        <button
+          key={`empty-${cadence}-${idx}`}
+          onClick={goToChallenges}
+          style={{
+            width: "100%", padding: 14, textAlign: "left",
+            background: "rgba(255,255,255,0.02)",
+            border: "1px dashed rgba(200,170,90,0.25)",
+            borderRadius: 12, color: "rgba(200,170,90,0.70)",
+            fontSize: 13, fontWeight: 600, letterSpacing: "0.04em",
+            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          }}>
+          <span style={{ fontSize: 15 }}>+</span>
+          <span>Tap to activate a challenge</span>
+        </button>
+      );
+    }
+    const tier = TIER_STYLES[slot.tier];
+    const pct = slot.threshold ? Math.min(100, Math.round((slot.progress / slot.threshold) * 100)) : 0;
+    return (
+      <button
+        key={slot.key}
+        onClick={goToChallenges}
+        style={{
+          width: "100%", padding: 14, textAlign: "left",
+          background: tier.bg,
+          border: `1px solid ${tier.border}`,
+          borderRadius: 12, cursor: "pointer", display: "block",
+        }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.14em", color: tier.chipText, textShadow: "0 1px 3px rgba(0,0,0,0.85)" }}>
+            {tier.label} · {slot.leg.replace("_", " ").toUpperCase()}
+          </span>
+          <span style={{
+            fontSize: 11, fontWeight: 800, color: "#ffffff",
+            background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.15)",
+            padding: "2px 8px", borderRadius: 999,
+            textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+          }}>+{slot.points} pts</span>
+        </div>
+        <p style={{ fontSize: 14.5, fontWeight: 700, color: "#ffffff", marginBottom: 8, lineHeight: 1.3, textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>
+          {slot.label}
+        </p>
+        {slot.threshold != null && (
+          <div>
+            <div style={{ height: 5, borderRadius: 3, background: "rgba(255,255,255,0.10)", overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.35) inset" }}>
+              <div style={{
+                height: "100%", width: `${pct}%`,
+                background: tier.ring, transition: "width 400ms ease",
+                boxShadow: `0 0 6px ${tier.ring}55`,
+              }}/>
+            </div>
+            <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.85)", marginTop: 4, letterSpacing: "0.04em", fontWeight: 700, textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}>
+              {slot.progress} / {slot.threshold} · {pct}%
+            </p>
+          </div>
+        )}
+      </button>
+    );
+  };
+
+  const dailySlots: (ActiveSlot | null)[] = [];
+  for (let i = 0; i < 3; i++) dailySlots.push(data?.dailySlots.filled[i] ?? null);
+  const weeklySlots: (ActiveSlot | null)[] = [];
+  for (let i = 0; i < 2; i++) weeklySlots.push(data?.weeklySlots.filled[i] ?? null);
+
+  return (
+    <div style={{ padding: "20px 20px 8px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+        <p style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 22, fontWeight: 500, color: "#fff", lineHeight: 1 }}>
+          Active Challenges
+        </p>
+        <button onClick={goToChallenges} style={{
+          background: "transparent", border: "none", color: "#c8aa5a",
+          fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", cursor: "pointer", textTransform: "uppercase",
+        }}>View all →</button>
+      </div>
+      <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.45)", letterSpacing: "0.06em", marginBottom: 12, textTransform: "uppercase" }}>
+        Today · {dailySlots.filter(s => s).length} of 3 active
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+        {dailySlots.map((s, i) => renderSlot(s, "daily", i))}
+      </div>
+      <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.45)", letterSpacing: "0.06em", marginBottom: 12, textTransform: "uppercase" }}>
+        This Week · {weeklySlots.filter(s => s).length} of 2 active
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {weeklySlots.map((s, i) => renderSlot(s, "weekly", i))}
+      </div>
+    </div>
+  );
+}
+
 // v19.5 — HomeShell wraps LeaderboardTab with a small "Board ↔ Team Map"
 // segmented toggle at the very top. Team Map is a zero-PII recruiting surface
 // (see /api/team-map/pins). Toggle state is local to the tab so it resets on
 // leave/return, which is fine — board is the default landing.
+// v20.7.1 — ActiveChallengesCard renders below the leaderboard on board view.
 function HomeShell({ mode = "seller" }: { mode?: "seller" } = {}) {
   const [view, setView] = useState<"board" | "map">("board");
   return (
@@ -3895,7 +4019,12 @@ function HomeShell({ mode = "seller" }: { mode?: "seller" } = {}) {
           })}
         </div>
       </div>
-      {view === "board" ? <LeaderboardTab mode={mode} /> : <TeamMap />}
+      {view === "board" ? (
+        <>
+          <LeaderboardTab mode={mode} />
+          <ActiveChallengesCard />
+        </>
+      ) : <TeamMap />}
     </div>
   );
 }
@@ -5920,7 +6049,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.1</span>
             </div>
           </div>
           {onBackToAdmin && (

@@ -103,6 +103,7 @@
   "PATCH /api/leads/:id",
   "PATCH /api/scripts/:type",
   "POST /api/admin/agents/:id/admin-set-email",
+  "POST /api/admin/agents/:id/credit-dials",
   "POST /api/admin/agents/:id/force-reset",
   "POST /api/admin/agents/:id/reset-password",
   "POST /api/admin/agents/:id/reset-skips",

@@ -60,7 +60,7 @@ function computeProgressForAgent(agentId: number, periodKey: string, cadence: "d
     agg = rawDb.prepare(`
       SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN outcome IN ('no_answer','contacted_appointment','contacted_not_interested','keep_in_touch','wrong_number','disconnected','left_voicemail','nice_not_interested','listed','recycled') THEN 1 ELSE 0 END) as dials,
+        SUM(CASE WHEN outcome IN ('no_answer','contacted_appointment','contacted_not_interested','keep_in_touch','wrong_number','disconnected','left_voicemail','nice_not_interested','listed','recycled','retired_no_answer','manual_credit') THEN 1 ELSE 0 END) as dials,
         SUM(CASE WHEN outcome = 'contacted_appointment' THEN 1 ELSE 0 END) as appts,
         SUM(CASE WHEN outcome = 'keep_in_touch' THEN 1 ELSE 0 END) as kits,
         SUM(CASE WHEN outcome = 'network_referral' THEN 1 ELSE 0 END) as refs,
@@ -97,7 +97,7 @@ function computeProgressForAgent(agentId: number, periodKey: string, cadence: "d
   return progress;
 }
 
-function checkAndAwardAutoDetect(agentId: number, periodKey: string, cadence: "daily" | "weekly"): number {
+export function checkAndAwardAutoDetect(agentId: number, periodKey: string, cadence: "daily" | "weekly"): number {
   let awarded = 0;
   const progress = computeProgressForAgent(agentId, periodKey, cadence);
   const existing = getCompletionMap(agentId, periodKey);
@@ -124,6 +124,12 @@ function checkAndAwardAutoDetect(agentId: number, periodKey: string, cadence: "d
           INSERT INTO agent_points (agent_id, points, reason, scope, created_at)
           VALUES (?, ?, ?, 'seller', datetime('now'))
         `).run(agentId, ch.points, `challenge:${ch.key}`);
+        // v20.7.1 — unpin from active-challenges (Option C: auto-clear slot).
+        try {
+          rawDb.prepare(
+            `DELETE FROM challenge_accepts WHERE agent_id = ? AND challenge_key = ? AND period_key = ?`
+          ).run(agentId, ch.key, periodKey);
+        } catch {}
         awarded++;
       } catch {
         // UNIQUE violation — already awarded this tick.
@@ -186,7 +192,75 @@ export function registerChallengeRoutes(app: Express) {
     });
   });
 
-  // POST /api/challenges/:key/accept
+  // v20.7.1 — GET /api/challenges/active. Returns the agent's pinned challenges
+  // for the current daily + weekly period, with progress + threshold, so the
+  // Home tab card can render the 3+2 slot grid without pulling the full 62-row
+  // catalog. Also auto-runs detection so completed pins don't linger on the card.
+  app.get("/api/challenges/active", (req: Request, res: Response) => {
+    if (!requireSession(req, res)) return;
+    const agentId = (req as any).currentAgent!.id;
+    const dailyKey = currentDailyKey();
+    const weeklyKey = currentWeeklyKey();
+
+    try { checkAndAwardAutoDetect(agentId, dailyKey,  "daily"); } catch {}
+    try { checkAndAwardAutoDetect(agentId, weeklyKey, "weekly"); } catch {}
+
+    const dailyAccepts  = getAcceptedSet(agentId, dailyKey);
+    const weeklyAccepts = getAcceptedSet(agentId, weeklyKey);
+    const dailyCompletions  = getCompletionMap(agentId, dailyKey);
+    const weeklyCompletions = getCompletionMap(agentId, weeklyKey);
+    const dailyProgress  = computeProgressForAgent(agentId, dailyKey, "daily");
+    const weeklyProgress = computeProgressForAgent(agentId, weeklyKey, "weekly");
+
+    // Auto-clear rule: if a pin is already completed for this period, drop the
+    // accept so the slot frees immediately (Alex's Option C: no lingering trophy).
+    const dropStmt = rawDb.prepare(`DELETE FROM challenge_accepts WHERE agent_id = ? AND challenge_key = ? AND period_key = ?`);
+    for (const k of Array.from(dailyAccepts)) {
+      const c = dailyCompletions[k];
+      if (c && (c.status === "complete" || c.status === "approved")) {
+        try { dropStmt.run(agentId, k, dailyKey); } catch {}
+        dailyAccepts.delete(k);
+      }
+    }
+    for (const k of Array.from(weeklyAccepts)) {
+      const c = weeklyCompletions[k];
+      if (c && (c.status === "complete" || c.status === "approved")) {
+        try { dropStmt.run(agentId, k, weeklyKey); } catch {}
+        weeklyAccepts.delete(k);
+      }
+    }
+
+    const shape = (k: string, cadence: "daily" | "weekly") => {
+      const ch = CHALLENGE_MAP[k];
+      if (!ch) return null;
+      const progressMap = cadence === "daily" ? dailyProgress : weeklyProgress;
+      const progress = progressMap[k] ?? 0;
+      const threshold = ch.autoDetect?.match(/:(\d+)/)?.[1];
+      return {
+        key: ch.key,
+        cadence: ch.cadence,
+        leg: ch.leg,
+        tier: ch.tier,
+        points: ch.points,
+        label: ch.label,
+        detail: ch.detail,
+        gated: ch.gated,
+        progress,
+        threshold: threshold ? Number(threshold) : null,
+      };
+    };
+
+    res.json({
+      dailyKey,
+      weeklyKey,
+      dailySlots:  { max: 3, filled: Array.from(dailyAccepts).map(k => shape(k, "daily")).filter(Boolean) },
+      weeklySlots: { max: 2, filled: Array.from(weeklyAccepts).map(k => shape(k, "weekly")).filter(Boolean) },
+    });
+  });
+
+  // POST /api/challenges/:key/accept. v20.7.1 enforces slot caps:
+  // max 3 daily pins per period + max 2 weekly pins per period. Already-completed
+  // challenges cannot be re-pinned.
   app.post("/api/challenges/:key/accept", (req: Request, res: Response) => {
     if (!requireSession(req, res)) return;
     const agentId = (req as any).currentAgent!.id;
@@ -194,6 +268,31 @@ export function registerChallengeRoutes(app: Express) {
     const ch = CHALLENGE_MAP[key];
     if (!ch) return res.status(404).json({ error: "unknown challenge" });
     const periodKey = ch.cadence === "daily" ? currentDailyKey() : currentWeeklyKey();
+
+    // v20.7.1 — reject if already completed this period.
+    const existing: any = rawDb.prepare(
+      `SELECT status FROM challenge_completions WHERE agent_id = ? AND challenge_key = ? AND period_key = ?`
+    ).get(agentId, key, periodKey);
+    if (existing && (existing.status === "complete" || existing.status === "approved")) {
+      return res.status(409).json({ error: "already completed for this period" });
+    }
+
+    // v20.7.1 — slot cap: 3 daily / 2 weekly. Idempotent for the same key.
+    const alreadyPinned: any = rawDb.prepare(
+      `SELECT id FROM challenge_accepts WHERE agent_id = ? AND challenge_key = ? AND period_key = ?`
+    ).get(agentId, key, periodKey);
+    if (!alreadyPinned) {
+      const currentCount: any = rawDb.prepare(`
+        SELECT COUNT(*) as n FROM challenge_accepts ca
+        JOIN (SELECT ? as pk) p ON 1=1
+        WHERE ca.agent_id = ? AND ca.period_key = p.pk
+      `).get(periodKey, agentId);
+      const cap = ch.cadence === "daily" ? 3 : 2;
+      if ((currentCount?.n ?? 0) >= cap) {
+        return res.status(409).json({ error: `slot limit reached (${cap} ${ch.cadence})`, cap, cadence: ch.cadence });
+      }
+    }
+
     try {
       rawDb.prepare(`
         INSERT INTO challenge_accepts (agent_id, challenge_key, period_key)
@@ -201,6 +300,23 @@ export function registerChallengeRoutes(app: Express) {
       `).run(agentId, key, periodKey);
     } catch { /* idempotent */ }
     res.json({ ok: true, key, periodKey });
+  });
+
+  // v20.7.1 — DELETE /api/challenges/:key/accept. Agent can unpin a challenge
+  // to free a slot for something else (as long as it's not already completed).
+  app.delete("/api/challenges/:key/accept", (req: Request, res: Response) => {
+    if (!requireSession(req, res)) return;
+    const agentId = (req as any).currentAgent!.id;
+    const key = String(req.params.key);
+    const ch = CHALLENGE_MAP[key];
+    if (!ch) return res.status(404).json({ error: "unknown challenge" });
+    const periodKey = ch.cadence === "daily" ? currentDailyKey() : currentWeeklyKey();
+    try {
+      rawDb.prepare(
+        `DELETE FROM challenge_accepts WHERE agent_id = ? AND challenge_key = ? AND period_key = ?`
+      ).run(agentId, key, periodKey);
+    } catch {}
+    res.json({ ok: true, key, periodKey, unpinned: true });
   });
 
   // POST /api/challenges/:key/claim — gated challenges only

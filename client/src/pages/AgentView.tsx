@@ -7035,6 +7035,16 @@ function LeadGenSheet(props: {
             const dx = Math.cos(rad) * ARC_RADIUS;
             const dy = -Math.sin(rad) * ARC_RADIUS - (b.hero ? HERO_LIFT : 0);
             const size = b.hero ? HERO_SIZE : BUBBLE_SIZE;
+            // v20.7.12 — Push the label RADIALLY OUTWARD from the FAB center
+            // along the SAME angle as its bubble. This gives each label its own
+            // angular column so adjacent labels can't collide. Radial distance
+            // beyond the bubble center = (bubble radius) + LABEL_GAP. Then apply
+            // as an ADDITIONAL translate on the label span so it sits along the
+            // ray from center through the bubble.
+            const LABEL_GAP = 14; // gap between bubble rim and label pill
+            const labelDist = (size / 2) + LABEL_GAP;
+            const labelDx = Math.cos(rad) * labelDist;
+            const labelDy = -Math.sin(rad) * labelDist;
             // v20.4.2.1 — sequential LEFT→RIGHT stagger by index.
             // idx 0 (Social, leftmost) fires first, idx 6 (Refer, rightmost) last.
             // 42ms between each = ~294ms total spread = fast but rhythmic.
@@ -7077,10 +7087,10 @@ function LeadGenSheet(props: {
                   "--arc-dx": `${dx}px`,
                   // @ts-ignore CSS custom property
                   "--arc-dy": `${dy}px`,
-                  // v20.7.8 — arc labels sit ABOVE the bubble (column-reverse) so
-                  // the entire below-arc region is free for the 2 shelf bubbles.
-                  // Shelf bubbles keep their bottom-labels (they stay column).
-                  display: "flex", flexDirection: "column-reverse", alignItems: "center",
+                  // v20.7.12 — Arc bubble container: button in flow, label is
+                  // absolute-positioned (see below) via its own polar transform,
+                  // so no flex direction needed. Container size = button size.
+                  display: "flex", alignItems: "center", justifyContent: "center",
                   transformOrigin: "center center",
                 } as React.CSSProperties}
               >
@@ -7138,24 +7148,35 @@ function LeadGenSheet(props: {
                 {/* v20.7.8 — Label floats ABOVE the bubble (column-reverse container)
                     so the space UNDER the arc is fully available for the shelf.
                     Nothing in the arc row can now overlap the shelf row. */}
-                <span className="arc-label" style={{
-                  /* v20.7.10 — Bumped marginBottom 8 → 14 so the pill has a
-                     clear gap between it and the bubble rim. At angle 150°/30°
-                     (Direct Mail / Door Knock), the label was sitting on top of
-                     the bubble edge. Also enlarged pill padding for breathing room. */
-                  marginBottom: 14,
-                  fontSize: b.hero ? 12 : 11,
-                  letterSpacing: "0.03em",
-                  fontWeight: b.hero ? 700 : 600,
-                  color: b.hero ? "#fde68a" : "#fff5e0",
-                  background: "linear-gradient(180deg, rgba(6,6,6,0.72) 0%, rgba(6,6,6,0.86) 100%)",
-                  padding: "3px 9px",
-                  borderRadius: 999,
-                  textShadow: "0 1px 2px rgba(0,0,0,0.9)",
-                  whiteSpace: "nowrap",
+                {/* v20.7.12 — Radially-positioned label wrapper. The wrapper
+                    holds the position transform (bubble center + outward vector
+                    along the same polar ray). The inner <span> keeps the
+                    fade-in class animation. Each label sits in its OWN angular
+                    column and can't collide with a neighbor's label. */}
+                <div style={{
+                  position: "absolute",
+                  left: "50%",
+                  top: "50%",
+                  transform: `translate(-50%, -50%) translate(${labelDx}px, ${labelDy}px)`,
                   pointerEvents: "none",
-                  animationDelay: `${delay + 380}ms`,
-                }}>{b.label}</span>
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}>
+                  <span className="arc-label" style={{
+                    fontSize: b.hero ? 12 : 11,
+                    letterSpacing: "0.03em",
+                    fontWeight: b.hero ? 700 : 600,
+                    color: b.hero ? "#fde68a" : "#fff5e0",
+                    background: "linear-gradient(180deg, rgba(6,6,6,0.72) 0%, rgba(6,6,6,0.86) 100%)",
+                    padding: "3px 9px",
+                    borderRadius: 999,
+                    textShadow: "0 1px 2px rgba(0,0,0,0.9)",
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
+                    animationDelay: `${delay + 380}ms`,
+                  }}>{b.label}</span>
+                </div>
               </div>
             );
           })}

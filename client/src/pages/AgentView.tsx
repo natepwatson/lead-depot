@@ -3863,7 +3863,7 @@ function CallHeatMeter() {
   );
 }
 
-// v20.7.1 — ActiveChallengesCard: renders the agent's pinned challenges under
+// v20.7.2 — ActiveChallengesCard: renders the agent's pinned challenges under
 // the Home leaderboard. 3 daily + 2 weekly slots. Empty slots are tappable
 // call-to-actions that route to the Challenges tab. Progress bars auto-update
 // via the challenges_updated broadcast (see routes.ts). Auto-cleared on
@@ -3990,7 +3990,7 @@ function ActiveChallengesCard() {
 // segmented toggle at the very top. Team Map is a zero-PII recruiting surface
 // (see /api/team-map/pins). Toggle state is local to the tab so it resets on
 // leave/return, which is fine — board is the default landing.
-// v20.7.1 — ActiveChallengesCard renders below the leaderboard on board view.
+// v20.7.2 — ActiveChallengesCard renders below the leaderboard on board view.
 function HomeShell({ mode = "seller" }: { mode?: "seller" } = {}) {
   const [view, setView] = useState<"board" | "map">("board");
   return (
@@ -6049,7 +6049,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.1</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.2</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6912,51 +6912,60 @@ function LeadGenSheet(props: {
   //   there's ~18px of clean space at every join. No shoulder-kissing anywhere,
   //   including the bottom corners which used to be the worst offenders.
   //
-  // v20.4.2 — Access-priority arc ordering per Alex's spec:
-  //   TOP (hero, most-accessible crown): DIAL
-  //   Middle-upper (next-most-accessible): Open House (left), Social (right)
-  //   Middle-lower: Network (left), Agent Referral (right)
-  //   Bottom (least-accessible, hardest to hit from the thumb): Direct Mail (left), Door Knock (right)
+  // v20.7.2 — Split arc: 5 lead-gen bubbles ON the arc (Direct Mail · Open House ·
+  // DIAL · Social Post · Door Knock), plus 2 smaller "agent task" bubbles nested
+  // BELOW the arc's underside as a centered shelf row (Network Lead · Refer Agent).
+  // Alex's ask: Network + Refer aren't first-party prospecting — they're agent
+  // tasks. Pull them out of the main arc, shrink them, tuck them under the shelter
+  // of the arc. Same fly-out animation for continuity.
   //
-  //   Reading left-to-right along the arc:
-  //     Direct Mail · Network · Open House · DIAL · Social · Agent Referral · Door Knock
-  //   The sequential L→R stagger means Direct Mail flies out first (bottom-left),
-  //   sweeps up and around, and Door Knock lands last (bottom-right) — a natural
-  //   rolling reveal from one corner to the other.
+  // Arc reading left→right: Direct Mail · Open House · DIAL · Social Post · Door Knock.
+  //
+  // v20.7.2 — Since the arc now has 5 items instead of 7, we can widen the
+  // between-bubble step and slightly LOWER the whole arc anchor point (more
+  // vertical breathing room up top). Sweep stays around 160° for a proper fan.
   if (view === "root") {
-    // v20.4.9 — viewport-adaptive arc. The old fixed radius (202) + 68px bubbles pushed
-    // the outermost bubbles ~40px offscreen on 393px iPhones, and labels ran further.
-    // Compute a safe radius: center - bubble/2 - label_half - edge_margin.
-    // Also narrow the sweep from 180° to 160° (100°–80°) so end bubbles arc IN slightly
-    // rather than sitting flat on the horizon line where they clip against the screen edge.
+    // Viewport-adaptive sizing. Arc bubbles same size as before; shelf bubbles
+    // 12px smaller (roughly 80% of arc bubble diameter).
     const vw = typeof window !== "undefined" ? window.innerWidth : 393;
     const BUBBLE_SIZE = vw < 360 ? 56 : vw < 400 ? 60 : 64;
     const HERO_SIZE = BUBBLE_SIZE + 22;
-    // v20.6.8 — Shortened labels (Mail/Network/OH/Dial/Social/Refer/Knock) all fit in ~48px,
-    // so we drop LABEL_HALF from 62 → 34 and let the radius grow. That gives us a much
-    // more circular sweep instead of a shallow arc. Also raised MAX_RADIUS ceiling 210 → 260.
-    const LABEL_HALF = 34; // widest is "Network" at ~48px @ 11px semibold
+    const SHELF_SIZE = Math.round(BUBBLE_SIZE * 0.78); // ~50px on 393px iPhones
+    // v20.7.2 — labels are now full words ("Direct Mail", "Open House", "Door Knock",
+    // "Social Post", "Network Lead", "Refer Agent"). Widest is "Direct Mail" / "Social Post"
+    // at ~72px @ 11px semibold. Bump LABEL_HALF 34 → 42.
+    const LABEL_HALF = 42;
     const EDGE_MARGIN = 10;
     const MAX_RADIUS = (vw / 2) - (BUBBLE_SIZE / 2) - LABEL_HALF - EDGE_MARGIN;
-    // We also need to keep bubbles above the fold: cap by vertical space too.
     const vh = typeof window !== "undefined" ? window.innerHeight : 780;
-    const VERTICAL_CAP = vh - 220; // trimmed 20px (labels are shorter, need less breathing room)
+    // v20.7.2 — Reserve extra vertical room under the arc for the 2-bubble shelf.
+    // Shelf needs ~SHELF_SIZE + label + gap = ~90px. Bump VERTICAL_CAP subtract to 300.
+    const VERTICAL_CAP = vh - 300;
     const ARC_RADIUS = Math.max(160, Math.min(260, MAX_RADIUS, VERTICAL_CAP));
     const HERO_LIFT = 20;
-    // Narrower 160° sweep: 100° (leftmost) → 80° (rightmost) covers 20° span per bubble step * 6 gaps.
-    // Actually keep 30° stepping but rotate the whole sweep inward by 10° on each side: 170° → 10°.
+
+    // v20.7.2 — 5 arc bubbles across ~160°. Center = 90° (Dial hero), step = 30°.
+    // Angles: 150 / 120 / 90 / 60 / 30. Symmetric around DIAL.
     const bubbles: Array<{
       key: string; label: string; icon: React.ReactNode;
       angleDeg: number; hero?: boolean; onClick: () => void;
     }> = [
-      // v20.6.8 — Short labels so each fits within ~60px LABEL_HALF budget. Widest is now "Network" (~48px @ 11px semibold).
-      { key: "mail",    label: "Mail",    icon: <Mail size={20} />,     angleDeg: 170, onClick: () => setView("direct-mail" as any) },
-      { key: "network", label: "Network", icon: <Users size={20} />,    angleDeg: 143, onClick: () => setView("network-referral") },
-      { key: "oh",      label: "OH",      icon: <Home size={20} />,     angleDeg: 116, onClick: () => setView("open-house") },
-      { key: "dial",    label: "Dial",    icon: <Phone size={28} />,    angleDeg: 90,  hero: true, onClick: goToDial },
-      { key: "social",  label: "Social",  icon: <Share2 size={20} />,   angleDeg: 64,  onClick: () => setView("social" as any) },
-      { key: "refer",   label: "Refer",   icon: <Send size={20} />,     angleDeg: 37,  onClick: () => setView("refer-agent" as any) },
-      { key: "knock",   label: "Knock",   icon: <DoorOpen size={20} />, angleDeg: 10,  onClick: () => setView("door-knock" as any) },
+      { key: "mail",   label: "Direct Mail", icon: <Mail size={20} />,     angleDeg: 150, onClick: () => setView("direct-mail" as any) },
+      { key: "oh",     label: "Open House",  icon: <Home size={20} />,     angleDeg: 120, onClick: () => setView("open-house") },
+      { key: "dial",   label: "Dial",        icon: <Phone size={28} />,    angleDeg: 90,  hero: true, onClick: goToDial },
+      { key: "social", label: "Social Post", icon: <Share2 size={20} />,   angleDeg: 60,  onClick: () => setView("social" as any) },
+      { key: "knock",  label: "Door Knock",  icon: <DoorOpen size={20} />, angleDeg: 30,  onClick: () => setView("door-knock" as any) },
+    ];
+
+    // v20.7.2 — Shelf bubbles (Network Lead, Refer Agent) rendered separately
+    // below the arc. Not part of the polar-arc math — they sit on a horizontal
+    // baseline centered under the FAB, equally-spaced from screen bottom as they
+    // are from the arc's underside.
+    const shelfBubbles: Array<{
+      key: string; label: string; icon: React.ReactNode; onClick: () => void;
+    }> = [
+      { key: "network", label: "Network Lead", icon: <Users size={18} />, onClick: () => setView("network-referral") },
+      { key: "refer",   label: "Refer Agent",  icon: <Send size={18} />,  onClick: () => setView("refer-agent" as any) },
     ];
     // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
     // Anchor the arc's origin over the FAB center.
@@ -7132,6 +7141,125 @@ function LeadGenSheet(props: {
                   color: b.hero ? "#fde68a" : "#fff5e0",
                   /* v20.6.8 — shortened labels (Mail/Network/OH/Dial/Social/Refer/Knock)
                      fit inside a tighter pill. Smaller font, tighter padding. */
+                  background: "linear-gradient(180deg, rgba(6,6,6,0.72) 0%, rgba(6,6,6,0.86) 100%)",
+                  padding: "2px 7px",
+                  borderRadius: 999,
+                  textShadow: "0 1px 2px rgba(0,0,0,0.9)",
+                  whiteSpace: "nowrap",
+                  pointerEvents: "none",
+                  animationDelay: `${delay + 380}ms`,
+                }}>{b.label}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* v20.7.2 — Shelf row: 2 smaller "agent task" bubbles (Network Lead,
+            Refer Agent) tucked under the arc's underside, centered horizontally.
+            Positioned so vertical gap from screen bottom equals gap from shelf-
+            top to arc-bottom. FAB center sits at bottom=(52 + safe-area). The
+            arc's LOWEST bubble edge is at height (52 + ARC_RADIUS*sin(min_angle)
+            - BUBBLE_SIZE/2). For 30° min-angle: 52 + R*0.5 - 32. The shelf sits
+            in the empty vertical space between that lowest arc point and screen
+            bottom, biased slightly toward the arc so it feels sheltered.
+
+            Practically: FAB bottom edge ~= 22px + safe-area. We put the shelf
+            bubble CENTERS at bottom = ~120px (safe-area applied), which gives
+            equal spacing above and below the shelf when the arc's bottom is
+            around 210px up. */}
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "absolute",
+            left: 0, right: 0,
+            bottom: `calc(118px + env(safe-area-inset-bottom, 0px))`,
+            display: "flex",
+            justifyContent: "center",
+            gap: 28,
+            pointerEvents: "none",
+          }}
+        >
+          {shelfBubbles.map((b, idx) => {
+            // Reuse the same fly-out animation; delay staggers AFTER the main
+            // arc bubbles land so shelf reads as a secondary tier. Main arc
+            // finishes ~ (4 * 42ms delay) + 620ms flight = ~790ms. Shelf starts
+            // around 220ms in so it feels like part of the same motion.
+            const delay = 220 + (idx * 60);
+            return (
+              <div
+                key={b.key}
+                className="arc-bubble"
+                style={{
+                  pointerEvents: "auto",
+                  animationDelay: `${delay}ms`,
+                  // Shelf bubbles fly UP+OUT from FAB origin. dx = idx-based
+                  // offset (-1 for left, +1 for right), dy = negative (rise up).
+                  // These CSS vars feed the shared arcBubbleFly keyframe.
+                  // @ts-ignore CSS custom property
+                  "--arc-dx": `${(idx === 0 ? -1 : 1) * ((SHELF_SIZE / 2) + 14)}px`,
+                  // @ts-ignore CSS custom property
+                  "--arc-dy": `0px`,
+                  display: "flex", flexDirection: "column", alignItems: "center",
+                  transformOrigin: "center center",
+                } as React.CSSProperties}
+              >
+                <button
+                  onClick={b.onClick}
+                  aria-label={b.label}
+                  className="arc-glass"
+                  style={{
+                    position: "relative",
+                    width: SHELF_SIZE, height: SHELF_SIZE,
+                    borderRadius: "50%",
+                    border: "1px solid rgba(220,185,115,0.42)",
+                    background: "radial-gradient(circle at 50% 22%, rgba(255,235,175,0.30) 0%, rgba(230,195,105,0.18) 40%, rgba(190,155,75,0.13) 78%, rgba(140,110,50,0.14) 100%)",
+                    backdropFilter: "blur(28px) saturate(200%) brightness(1.06)",
+                    WebkitBackdropFilter: "blur(28px) saturate(200%) brightness(1.06)",
+                    boxShadow: [
+                      "0 10px 30px rgba(140,105,45,0.38)",
+                      "0 3px 10px rgba(0,0,0,0.32)",
+                      "0 0 0 0.5px rgba(255,220,140,0.28) inset",
+                      "0 2px 0 rgba(255,235,180,0.42) inset",
+                      "0 -6px 14px rgba(60,40,10,0.30) inset",
+                    ].join(", "),
+                    cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#fff",
+                    padding: 0,
+                    transition: "transform 180ms cubic-bezier(0.16,1,0.3,1)",
+                  }}
+                >
+                  <span aria-hidden="true" style={{
+                    position: "absolute",
+                    top: 3, left: "14%", right: "14%", height: "38%",
+                    borderRadius: "50% / 100% 100% 0 0",
+                    background: "linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.08) 55%, rgba(255,255,255,0) 100%)",
+                    pointerEvents: "none",
+                    filter: "blur(0.5px)",
+                  }} />
+                  <span aria-hidden="true" style={{
+                    position: "absolute",
+                    top: "14%", left: "32%",
+                    width: "14%", height: "9%",
+                    borderRadius: "50%",
+                    background: "rgba(255,255,255,0.72)",
+                    filter: "blur(1.5px)",
+                    pointerEvents: "none",
+                  }} />
+                  <span style={{
+                    position: "relative", zIndex: 1,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.65))",
+                  }}>
+                    {b.icon}
+                  </span>
+                </button>
+                <span className="arc-label" style={{
+                  marginTop: 7,
+                  fontSize: 10,
+                  letterSpacing: "0.03em",
+                  fontWeight: 600,
+                  color: "#fff5e0",
                   background: "linear-gradient(180deg, rgba(6,6,6,0.72) 0%, rgba(6,6,6,0.86) 100%)",
                   padding: "2px 7px",
                   borderRadius: 999,

@@ -110,12 +110,12 @@ export function agentWeekStats(agentId: number, agentName: string, agentEmail: s
     SELECT ap.agent_id, coalesce(SUM(ap.points),0) as pts
     FROM agent_points ap
     JOIN agents a ON a.id = ap.agent_id
-    WHERE ap.created_at >= datetime('now','-7 days') AND a.active = 1
+    WHERE ap.created_at >= datetime('now','-7 days') AND a.is_active = 1
     GROUP BY ap.agent_id
     ORDER BY pts DESC
   `).all() as any[];
   const rank = leaderboard.findIndex(r => r.agent_id === agentId);
-  const totalAgents = (rawDb.prepare(`SELECT COUNT(*) as n FROM agents WHERE active = 1`).get() as any)?.n || 0;
+  const totalAgents = (rawDb.prepare(`SELECT COUNT(*) as n FROM agents WHERE is_active = 1`).get() as any)?.n || 0;
 
   return {
     agentId, name: agentName, email: agentEmail,
@@ -157,7 +157,7 @@ export function topThisWeek(): Array<{ agentId: number; name: string; points: nu
     SELECT ap.agent_id as agentId, a.name, coalesce(SUM(ap.points),0) as points
     FROM agent_points ap
     JOIN agents a ON a.id = ap.agent_id
-    WHERE ap.created_at >= datetime('now','-7 days') AND a.active = 1
+    WHERE ap.created_at >= datetime('now','-7 days') AND a.is_active = 1
     GROUP BY ap.agent_id, a.name
     ORDER BY points DESC
     LIMIT 3

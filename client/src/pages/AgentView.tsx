@@ -7154,54 +7154,54 @@ function LeadGenSheet(props: {
           })}
         </div>
 
-        {/* v20.7.5 — Shelf row: 2 smaller "agent task" bubbles (Network Lead,
-            Refer Agent) tucked under the arc's underside, centered horizontally.
+        {/* v20.7.6 — Shelf row: 2 smaller "agent task" bubbles (Network Lead,
+            Refer Agent). Per Alex 8/5/26: sit UNDER the 5-bubble arc, INSIDE
+            the triangle formed by (Direct Mail left, Dial top, Door Knock right).
+            Dial vertically bisects the shelf gap; each shelf bubble is closer
+            to its neighbor than to the screen edge; shelf bubble tops slightly
+            elevated compared to the outer arc bubbles' bottoms.
 
-            BUG FIXED (v20.7.5): at bottom=118px the shelf sat almost directly
-            under Open House (120°) and Social Post (60°) — the two arc bubbles
-            that hang the LOWEST labels of the whole fan (their labels dangled
-            to ~height 134-144 from screen bottom). With the shelf's top edge
-            at ~141.5, those labels visually collided with the Network Lead /
-            Refer Agent bubbles rendered on top of them (shelf div paints after
-            the arc div), producing the overlapping/cut-off text seen on device.
-
-            Fix: drop the shelf anchor to 80px. Worst case (smallest ARC_RADIUS
-            = 160, on the narrowest supported viewport) this still leaves >28px
-            of clear vertical gap between the lowest arc label and the shelf's
-            top edge — comfortably non-overlapping on every screen size, since
-            larger ARC_RADIUS on bigger phones only increases the gap further. */}
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: "absolute",
-            left: 0, right: 0,
-            bottom: `calc(80px + env(safe-area-inset-bottom, 0px))`,
-            display: "flex",
-            justifyContent: "center",
-            gap: 28,
-            pointerEvents: "none",
-          }}
-        >
+            Strategy: place them on the SAME polar coordinate system as the arc
+            (anchor over the FAB center). That guarantees they scale with the
+            arc on every viewport. Use small angles (110° left, 70° right) at
+            a reduced radius so they sit between FAB and lowest arc bubbles. */}
+        <div style={{
+          position: "absolute",
+          left: "50%",
+          bottom: `calc(52px + env(safe-area-inset-bottom, 0px))`,
+          width: 0, height: 0,
+          pointerEvents: "none",
+        }} onClick={(e) => e.stopPropagation()}>
           {shelfBubbles.map((b, idx) => {
-            // Reuse the same fly-out animation; delay staggers AFTER the main
-            // arc bubbles land so shelf reads as a secondary tier. Main arc
-            // finishes ~ (4 * 42ms delay) + 620ms flight = ~790ms. Shelf starts
-            // around 220ms in so it feels like part of the same motion.
+            // Polar placement: angle ~110° (left) / 70° (right), radius scaled
+            // down from ARC_RADIUS so shelf tucks INSIDE the triangle.
+            // At angle 110°: dx ≈ -0.34*R, dy ≈ -0.94*R
+            // At angle 30° (Door Knock outer): dx ≈ +0.87*R, dy ≈ -0.50*R
+            // With SHELF_RADIUS = 0.62 * ARC_RADIUS, shelf bubble centers land
+            // at ~0.58*ARC_RADIUS above the FAB, which is between the outer
+            // arc bubbles' Y (-0.50*R) and Dial's Y (-R at 90°). Their X is
+            // ~0.21*ARC_RADIUS, so |dx_shelf| < |dx_arc_outer| — inside the triangle.
+            const SHELF_RADIUS = ARC_RADIUS * 0.62;
+            const shelfAngle = idx === 0 ? 110 : 70;
+            const rad = (shelfAngle * Math.PI) / 180;
+            const dx = Math.cos(rad) * SHELF_RADIUS;
+            const dy = -Math.sin(rad) * SHELF_RADIUS;
+            // Delay after arc lands; feels like same motion but secondary.
             const delay = 220 + (idx * 60);
             return (
               <div
                 key={b.key}
                 className="arc-bubble"
                 style={{
+                  position: "absolute",
+                  left: "0px",
+                  top: "0px",
                   pointerEvents: "auto",
                   animationDelay: `${delay}ms`,
-                  // Shelf bubbles fly UP+OUT from FAB origin. dx = idx-based
-                  // offset (-1 for left, +1 for right), dy = negative (rise up).
-                  // These CSS vars feed the shared arcBubbleFly keyframe.
                   // @ts-ignore CSS custom property
-                  "--arc-dx": `${(idx === 0 ? -1 : 1) * ((SHELF_SIZE / 2) + 14)}px`,
+                  "--arc-dx": `${dx}px`,
                   // @ts-ignore CSS custom property
-                  "--arc-dy": `0px`,
+                  "--arc-dy": `${dy}px`,
                   display: "flex", flexDirection: "column", alignItems: "center",
                   transformOrigin: "center center",
                 } as React.CSSProperties}

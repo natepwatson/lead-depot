@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import coachingTips from "../data/coaching-tips.json";
+import { pickLeadGenQuote, type MotivationalQuote } from "@/lib/leadgen-quotes";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -5517,6 +5518,9 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   // instead of navigating straight to Dial. Chooser has 4 tiles; Dial tile sets
   // tab="leads" and closes chooser. Other tiles open sub-sheets or forms.
   const [leadGenOpen, setLeadGenOpen] = useState(false);
+  // v20.6.9 — motivational quote frozen at the moment Lead Gen opens so it
+  // doesn't reshuffle mid-render. Refreshed each open. See leadgen-quotes.ts.
+  const [leadGenQuote, setLeadGenQuote] = useState<MotivationalQuote | null>(null);
   const [leadGenView, setLeadGenView] = useState<
     "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral"
     | "door-knock" | "door-knock-lead" | "direct-mail" | "direct-mail-lead"
@@ -5783,7 +5787,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.6.8</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.6.9</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6337,7 +6341,12 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             <button key={n.id} onClick={() => {
               // v16.7 — Middle button opens the Lead Gen chooser instead of
               // going straight to Dial. Dial is one of the tiles inside.
-              if (isDial) { setLeadGenView("root"); setLeadGenOpen(true); return; }
+              if (isDial) {
+                setLeadGenView("root");
+                setLeadGenQuote(pickLeadGenQuote());   // v20.6.9
+                setLeadGenOpen(true);
+                return;
+              }
               setTab(n.id);
             }} style={{
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
@@ -6435,6 +6444,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
         <LeadGenSheet
           view={leadGenView}
           setView={setLeadGenView}
+          motivationalQuote={leadGenQuote}
           close={() => { setLeadGenOpen(false); setLeadGenView("root"); }}
           goToDial={() => { setLeadGenOpen(false); setLeadGenView("root"); setTab("leads"); }}
           user={user}
@@ -6523,8 +6533,12 @@ function LeadGenSheet(props: {
   goToDial: () => void;
   user: any;
   toast: any;
+  // v20.6.9 — curated motivational quote to display on the arc backdrop when
+  // Lead Gen opens. Powerful, not theatrical: quiet fade-in ~180ms after the
+  // backdrop takes over, centered editorial serif type, no bounce/shimmer.
+  motivationalQuote?: MotivationalQuote | null;
 }) {
-  const { view, setView, close, goToDial, user, toast } = props;
+  const { view, setView, close, goToDial, user, toast, motivationalQuote } = props;
 
   // Lock body scroll while sheet is open
   useEffect(() => {
@@ -6694,6 +6708,12 @@ function LeadGenSheet(props: {
       <div style={arcBackdrop} onClick={close}>
         <style>{`
           @keyframes arcBackdropFade { from { opacity: 0 } to { opacity: 1 } }
+          /* v20.6.9 — motivational quote fade-in. Quiet: no translate, no scale,
+             no bounce. Just presence. */
+          @keyframes leadgenQuoteIn {
+            0%   { opacity: 0; transform: translateY(4px); }
+            100% { opacity: 1; transform: translateY(0);   }
+          }
           /* v20.4.2.1 — bubbles FLY OUT from FAB origin to their polar destination.
              --arc-dx / --arc-dy carry the final polar offset; keyframe drives the
              translate + scale together for a proper spring pop. */
@@ -6874,6 +6894,50 @@ function LeadGenSheet(props: {
             What are you doing?
           </p>
         </div>
+
+        {/* v20.6.9 — Motivational quote. Sits in the vertical whitespace above
+            the arc bubbles, below the top hint. Powerful, not theatrical:
+            editorial serif, quiet 500ms fade-in delayed 180ms after backdrop,
+            no shimmer, no bounce, no gold gradient. Just presence. */}
+        {motivationalQuote && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute",
+              top: `calc(60px + env(safe-area-inset-top, 0px))`,
+              left: 0, right: 0, bottom: "46vh",
+              display: "flex", flexDirection: "column", justifyContent: "center",
+              padding: "0 32px",
+              pointerEvents: "none",
+              animation: "leadgenQuoteIn 700ms cubic-bezier(0.16,1,0.3,1) 180ms both",
+              textAlign: "center",
+            }}
+          >
+            <p style={{
+              margin: 0,
+              fontFamily: "'Cormorant Garamond', 'Georgia', serif",
+              fontSize: "clamp(19px, 5.4vw, 26px)",
+              lineHeight: 1.32,
+              fontWeight: 500,
+              fontStyle: "italic",
+              color: "rgba(255,255,255,0.92)",
+              letterSpacing: "0.005em",
+              textShadow: "0 1px 20px rgba(0,0,0,0.6)",
+            }}>
+              &ldquo;{motivationalQuote.text}&rdquo;
+            </p>
+            <p style={{
+              margin: "14px 0 0",
+              fontSize: 10,
+              letterSpacing: "0.24em",
+              textTransform: "uppercase",
+              color: "rgba(200,170,90,0.72)",
+              fontWeight: 700,
+            }}>
+              &mdash; {motivationalQuote.author}
+            </p>
+          </div>
+        )}
       </div>
     );
   }

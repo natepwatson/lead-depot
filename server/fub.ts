@@ -696,6 +696,29 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
     }
   }
 
+  // v20.6.9 — Send Accolades Email task for Denise on every KIT + Appt Set.
+  // Fires inside the pushOutcomes gate (KIT + Appt only), so we don't need
+  // to re-check outcome. Task is due today (FUB accepts YYYY-MM-DD).
+  // Assigned to Denise (userId=16).
+  try {
+    const dueDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD in UTC
+    const taskPayload: any = {
+      personId,
+      name: "Send accolades email",
+      type: "Email",
+      dueDate,
+      assignedUserId: DENISE_FUB_USER_ID,
+    };
+    const taskRes = await fubRequest("POST", `/tasks`, taskPayload);
+    if (taskRes.ok) {
+      console.log(`[FUB] 'Send accolades email' task created for Denise (person ${personId}, outcome=${outcome})`);
+    } else {
+      console.warn(`[FUB] Send accolades task POST returned ${taskRes.status}:`, taskRes.data);
+    }
+  } catch (err) {
+    console.warn("[FUB] Send accolades task failed (non-fatal):", err);
+  }
+
   // v15.11.9 — For Appt Set: create a real FUB /appointments object AND create
   // one or two /deals rows (Sell side, Buy side, or both) based on intention.
   if (outcome === "contacted_appointment" && apptDate && apptTime) {

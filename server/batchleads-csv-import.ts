@@ -1,6 +1,16 @@
-// v14.74 — Unified LandVoice + BatchLeads CSV/XLSX parser.
+// v20.6.9 — Universal ingestion pipeline.
 //
-// Supports three LandVoice export shapes plus the legacy BatchLeads xlsx:
+// Every uploaded CSV/XLSX row — regardless of source — is normalized into the
+// canonical ImportRow shape below and then merged into the leads table. The
+// FULL original row is preserved on extra.raw so future field-mapper upgrades
+// can retroactively surface columns without a re-upload (the /api/admin/leads
+// /re-normalize endpoint walks this and upgrades legacy leads on deploy).
+//
+// Supports three LandVoice export shapes, the legacy BatchLeads xlsx, and
+// falls back to a generic best-effort parser for anything else — so no upload
+// is ever silently dropped.
+//
+// Known formats:
 //   1. LandVoice SkipTraced listing / Custom Uploads listing
 //        Address, City, State, Zip, First Name, Last Name, Primary Phone,
 //        Secondary Phone, Email, Price, Beds, Baths, Square Footage,
@@ -112,7 +122,7 @@ function inferCountyFromZip(zip: string): string | null {
 // FORMAT DETECTION
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type CsvFormat = "landvoice-listing" | "landvoice-expired" | "batchleads" | "unknown";
+export type CsvFormat = "landvoice-listing" | "landvoice-expired" | "batchleads" | "generic" | "unknown";
 
 export function detectFormat(sampleRow: any): CsvFormat {
   if (!sampleRow || typeof sampleRow !== "object") return "unknown";
@@ -124,8 +134,80 @@ export function detectFormat(sampleRow: any): CsvFormat {
   // Listing/SkipTraced export: has LandvoiceContact1Phone or LandvoiceOwnerFirstName.
   if (keys.some(k => k.startsWith("LandvoiceContact") || k.startsWith("LandvoiceOwner"))) return "landvoice-listing";
   if (keys.includes("Batchrank Score Category") || keys.includes("Property Address")) return "batchleads";
+  // v20.6.9 — Generic fallback: any row with SOME phone-ish + name-ish column
+  // still ingests. We map best-effort and preserve the full raw row so nothing
+  // is dropped.
+  const hasNameish = keys.some(k => /name|owner/i.test(k));
+  const hasPhoneish = keys.some(k => /phone|mobile|cell/i.test(k));
+  const hasAddrish = keys.some(k => /address|property/i.test(k));
+  if (hasNameish && hasPhoneish && hasAddrish) return "generic";
   return "unknown";
 }
+
+// v20.6.9 — Canonical column-name mapper. Any CSV row (regardless of source)
+// is scanned for these keys — first non-empty match wins. Used by parseGenericRow
+// and by the re-normalize backfill sweep. Order matters: more specific first.
+const CANONICAL_FIELD_MAP: Record<string, string[]> = {
+  ownerFirstName: ["OwnerFirstName", "First Name", "first_name", "firstName"],
+  ownerLastName:  ["OwnerLastName", "Last Name", "last_name", "lastName"],
+  ownerFullName:  ["Owner Name", "OwnerName", "Full Name", "ownerName", "name"],
+  propAddress:    ["Property Address", "PropertyStreet", "Address", "address", "property_address"],
+  propCity:       ["Property City", "PropertyCity", "City", "city"],
+  propState:      ["Property State", "PropertyState", "State", "state"],
+  propZip:        ["Property Zip", "PropertyZip", "Zip", "Postal Code", "zip", "postal_code"],
+  propCounty:     ["Property County", "PropertyCounty", "County", "county"],
+  primaryPhone:   ["Primary Phone", "OwnerPhone", "Phone", "Phone Number", "phone", "Mobile", "Cell"],
+  secondaryPhone: ["Secondary Phone", "Phone 2", "Phone2"],
+  email:          ["Email", "OwnerEmail", "email"],
+  listPrice:      ["Price", "List Price", "Mls Listing Amount", "listPrice"],
+  parcelId:       ["Parcel Number", "TaxId", "Parcel ID", "APN", "parcelId", "parcel_id"],
+  mlsNumber:      ["MLSNumber", "MLS #", "MLS Number", "mlsNumber"],
+  beds:           ["Bedrooms", "Beds", "Bedroom Count", "beds"],
+  baths:          ["Bathrooms", "Baths", "Bathroom Count", "baths"],
+  sqft:           ["SquareFeet", "Square Footage", "Total Building Area Square Feet", "sqft"],
+  yearBuilt:      ["YearBuilt", "Year Built", "yearBuilt"],
+  lotSizeAcres:   ["Acreage", "Lot Size Acres", "lot_size_acres"],
+};
+
+function pickFirst(row: any, keys: string[]): any {
+  for (const k of keys) {
+    if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== "") return row[k];
+  }
+  return "";
+}
+
+// v20.6.9 — Which columns we know how to map. Used to compute UNKNOWN columns
+// so admin sees what we're not surfacing.
+function knownColumnSet(): Set<string> {
+  const out = new Set<string>();
+  for (const arr of Object.values(CANONICAL_FIELD_MAP)) for (const k of arr) out.add(k.toLowerCase());
+  // Landvoice-specific columns we handle in dedicated parsers:
+  for (const k of [
+    "LandvoiceID", "Date", "Status", "OwnerOccupied", "OwnerStreet", "OwnerCity", "OwnerState",
+    "OwnerZip", "MlsOwnerInfo", "MlsOwnerPhone", "OwnerHouseNumber", "OwnerStreetName",
+    "PropertyHouseNumber", "PropertyStreetName", "PropertyUnitNumber", "OwnerAgent", "Relisted",
+    "Remarks", "DOM", "StatusDate", "ListAgent", "ListAgentPhone", "ListOffice", "OwnerPhoneDNC",
+    "OwnerMiddleName", "MlsOwnerFirstName", "MlsOwnerLastName",
+    "Notes", "Tags", "Type", "List",
+    "Batchrank Score Category", "Estimated Value", "Total Assessed Value", "Last Sale Price",
+    "Last Sale Date", "Lot Size Square Feet", "Mls Status", "Mls Listing Amount",
+  ]) out.add(k.toLowerCase());
+  for (let i = 1; i <= 4; i++) {
+    for (const suf of ["", "FirstName", "MiddleName", "LastName", "Phone", "DNC"]) {
+      out.add(`landvoicecontact${i}${suf}`.toLowerCase());
+      out.add(`contact${i}${suf}`.toLowerCase());
+    }
+    out.add(`phone${i}`.toLowerCase());
+    out.add(`dnc${i}`.toLowerCase());
+    out.add(`phone ${i}`.toLowerCase());
+    out.add(`phone ${i} dnc`.toLowerCase());
+  }
+  for (const suf of ["FirstName", "MiddleName", "LastName", "Street", "City", "State", "Zip", "Email", "XProfile", "LinkedinProfile", "Notes", "Tags"]) {
+    out.add(`landvoiceowner${suf}`.toLowerCase());
+  }
+  return out;
+}
+const KNOWN_COLUMNS = knownColumnSet();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LANDVOICE LISTING / SKIP-TRACED
@@ -217,6 +299,8 @@ function parseLandVoiceListingRow(r: any): ImportRow | null {
     notes: String(r["LandvoiceNotes"] || "").trim() || null,
     tags: String(r["LandvoiceTags"] || "").trim() || null,
     phoneMeta: phones,
+    // v20.6.9 — Full raw row preserved for future re-normalize sweeps.
+    raw: r,
   };
 
   const county = inferCountyFromZip(propZip);
@@ -352,6 +436,8 @@ function parseLandVoiceExpiredRow(r: any): ImportRow | null {
 
   const extra: Record<string, any> = {
     source: "landvoice-expired",
+    // v20.6.9 — Full raw row preserved for future re-normalize sweeps.
+    raw: r,
     mlsNumber: mlsNumber || null,
     mlsStatus: mlsStatus || null,
     daysOnMarket,
@@ -521,7 +607,111 @@ function parseBatchLeadsRow(r: any): ImportRow | null {
       beds: toNum(r["Bedroom Count"]),
       baths: toNum(r["Bathroom Count"]),
       sqft: toNum(r["Total Building Area Square Feet"]),
+      // v20.6.9 — Full raw row preserved for future re-normalize sweeps.
+      raw: r,
     },
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// v20.6.9 — GENERIC FALLBACK PARSER. Any CSV format we haven't seen before
+// still lands in the leads table. Best-effort canonical mapping via
+// CANONICAL_FIELD_MAP; unmapped columns are preserved on extra.raw so a future
+// parser upgrade can surface them via /api/admin/leads/re-normalize.
+// ──────────────────────────────────────────────────────────────────────────
+
+export function parseGenericRow(r: any): ImportRow | null {
+  const first = String(pickFirst(r, CANONICAL_FIELD_MAP.ownerFirstName) || "").trim();
+  const last  = String(pickFirst(r, CANONICAL_FIELD_MAP.ownerLastName) || "").trim();
+  const full  = String(pickFirst(r, CANONICAL_FIELD_MAP.ownerFullName) || "").trim();
+  const ownerName = full || [first, last].filter(Boolean).join(" ").trim() || "Unknown";
+
+  const address = String(pickFirst(r, CANONICAL_FIELD_MAP.propAddress) || "").trim();
+  if (!address) return null;
+
+  const city  = String(pickFirst(r, CANONICAL_FIELD_MAP.propCity) || "").trim();
+  const state = String(pickFirst(r, CANONICAL_FIELD_MAP.propState) || "FL").trim();
+  const zip   = String(pickFirst(r, CANONICAL_FIELD_MAP.propZip) || "").split("-")[0].trim();
+  const email = String(pickFirst(r, CANONICAL_FIELD_MAP.email) || "").trim();
+
+  // Gather every phone-ish column value.
+  const phones: PhoneMeta[] = [];
+  const primary = normalizePhone(pickFirst(r, CANONICAL_FIELD_MAP.primaryPhone));
+  if (primary) phones.push({ number: primary, dnc: false, rank: 1, role: "primary", personName: ownerName !== "Unknown" ? ownerName : undefined });
+  const secondary = normalizePhone(pickFirst(r, CANONICAL_FIELD_MAP.secondaryPhone));
+  if (secondary && !phones.some(p => p.number === secondary)) {
+    phones.push({ number: secondary, dnc: false, rank: 2, role: "secondary" });
+  }
+  // Sweep for any other Phone-shaped column values.
+  let rank = phones.length + 1;
+  for (const k of Object.keys(r)) {
+    if (!/phone|mobile|cell/i.test(k)) continue;
+    if (CANONICAL_FIELD_MAP.primaryPhone.includes(k) || CANONICAL_FIELD_MAP.secondaryPhone.includes(k)) continue;
+    const p = normalizePhone(r[k]);
+    if (!p || phones.some(x => x.number === p)) continue;
+    // Try to find a paired DNC column: same base name + "DNC" or " DNC".
+    const dncKey1 = `${k} DNC`;
+    const dncKey2 = `${k}DNC`;
+    const dnc = truthy(r[dncKey1]) || truthy(r[dncKey2]);
+    phones.push({ number: p, dnc, rank: rank++, role: k });
+  }
+  const primaryPhone = phones.find(p => !p.dnc);
+  if (!primaryPhone) return null;
+
+  const county = inferCountyFromZip(zip);
+  const listPrice    = toNum(pickFirst(r, CANONICAL_FIELD_MAP.listPrice));
+  const beds         = toNum(pickFirst(r, CANONICAL_FIELD_MAP.beds));
+  const baths        = toNum(pickFirst(r, CANONICAL_FIELD_MAP.baths));
+  const sqft         = toNum(pickFirst(r, CANONICAL_FIELD_MAP.sqft));
+  const yearBuilt    = toNum(pickFirst(r, CANONICAL_FIELD_MAP.yearBuilt));
+  const lotSizeAcres = toNum(pickFirst(r, CANONICAL_FIELD_MAP.lotSizeAcres));
+  const parcelId     = String(pickFirst(r, CANONICAL_FIELD_MAP.parcelId) || "").trim();
+  const mlsNumber    = String(pickFirst(r, CANONICAL_FIELD_MAP.mlsNumber) || "").trim();
+
+  const extra: Record<string, any> = {
+    source: "generic",
+    parcelId: parcelId || null,
+    mlsNumber: mlsNumber || null,
+    beds, baths, sqft, yearBuilt, lotSizeAcres,
+    listPrice,
+    phoneMeta: phones,
+    raw: r,
+  };
+
+  const unified = computeUnifiedScore({
+    phoneCount: phones.length,
+    hasEmail: !!email,
+    listPrice,
+    assessedValue: null,
+    yearPurchased: null,
+    lotSizeAcres,
+    sourceRating: null,
+    leadType: "expired",
+  });
+
+  const allPhones = phones.map(p => p.number);
+  const phoneStates: Record<string, string> = {};
+  for (const p of phones) phoneStates[p.number] = p.dnc ? "struck" : "untried";
+
+  return {
+    ownerName,
+    address,
+    city,
+    state,
+    zip,
+    county,
+    email,
+    phone: primaryPhone.number,
+    allPhones,
+    phoneStates,
+    leadType: "expired",
+    score: unified.score,
+    listPrice,
+    lastSalePrice: null,
+    assessedValue: null,
+    lotSizeAcres,
+    yearPurchased: null,
+    extra,
   };
 }
 
@@ -529,21 +719,42 @@ function parseBatchLeadsRow(r: any): ImportRow | null {
 // PUBLIC ENTRYPOINT
 // ─────────────────────────────────────────────────────────────────────────────
 
+// v20.6.9 — Result shape now includes format detected + unknown-column report.
+export interface ParseResult {
+  rows: ImportRow[];
+  format: CsvFormat;
+  unknownColumns: string[];
+  rowCount: number;
+}
+
 export function parseBatchLeadsFile(buffer: Buffer): ImportRow[] {
+  // Legacy signature kept for existing callers. Returns just the rows.
+  return parseBatchLeadsFileWithReport(buffer).rows;
+}
+
+export function parseBatchLeadsFileWithReport(buffer: Buffer): ParseResult {
   const wb = XLSX.read(buffer, { type: "buffer" });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
-  if (rows.length === 0) return [];
+  if (rows.length === 0) return { rows: [], format: "unknown", unknownColumns: [], rowCount: 0 };
 
   const format = detectFormat(rows[0]);
   console.log(`[Import] Detected format: ${format} (${rows.length} rows)`);
 
   const out: ImportRow[] = [];
-  let parser: (r: any) => ImportRow | null;
+  let parser: ((r: any) => ImportRow | null) | null = null;
   if (format === "landvoice-listing") parser = parseLandVoiceListingRow;
   else if (format === "landvoice-expired") parser = parseLandVoiceExpiredRow;
   else if (format === "batchleads") parser = parseBatchLeadsRow;
-  else return [];
+  else if (format === "generic") parser = parseGenericRow;
+
+  // Compute unknown columns — columns present in the file we don't have a canonical mapping for.
+  const seenColumns = new Set<string>();
+  for (const r of rows.slice(0, 5)) for (const k of Object.keys(r)) seenColumns.add(k);
+  const unknownColumns: string[] = [];
+  for (const c of seenColumns) if (!KNOWN_COLUMNS.has(c.toLowerCase())) unknownColumns.push(c);
+
+  if (!parser) return { rows: [], format, unknownColumns, rowCount: rows.length };
 
   for (const r of rows) {
     try {
@@ -553,7 +764,7 @@ export function parseBatchLeadsFile(buffer: Buffer): ImportRow[] {
       console.warn(`[Import] Skipping row due to parse error: ${err?.message || err}`);
     }
   }
-  return out;
+  return { rows: out, format, unknownColumns, rowCount: rows.length };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -702,6 +913,20 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
         `).get(matchId) as any;
         if (!existingRow) { skippedIdentical++; continue; }
 
+        // v20.6.9 — Owner-mismatch check. If existing lead has a real owner name
+        // AND the incoming owner name differs meaningfully, flag the lead for
+        // admin review (extra_data.mergeReview) but still merge phone data —
+        // property may have changed hands, and admin should confirm via the
+        // county tax record. We do NOT auto-replace the owner name in this
+        // case; the UPDATE's COALESCE(NULLIF(...)) below preserves the DB name.
+        const existingOwner = String(existingRow.owner_name || "").trim().toLowerCase();
+        const incomingOwner = String(r.ownerName || "").trim().toLowerCase();
+        const ownerMismatch = existingOwner && incomingOwner &&
+                              existingOwner !== "unknown" && incomingOwner !== "unknown" &&
+                              existingOwner !== incomingOwner &&
+                              // Loose: don't flag if one is a prefix of the other (e.g. Smith vs Smith Jr).
+                              !existingOwner.includes(incomingOwner) && !incomingOwner.includes(existingOwner);
+
         let existingPhonesArr: string[] = [];
         try { existingPhonesArr = JSON.parse(existingRow.phones || "[]"); } catch {}
         let existingStates: Record<string, string> = {};
@@ -752,8 +977,20 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
         // Track merge history for debugging.
         mergedExtra.mergeHistory = [
           ...(existingExtra.mergeHistory || []),
-          { at: new Date().toISOString(), source: r.extra?.source || "unknown", addedPhones: addedPhoneCount, batchId },
+          { at: new Date().toISOString(), source: r.extra?.source || "unknown", addedPhones: addedPhoneCount, batchId, ownerMismatch: ownerMismatch || undefined },
         ].slice(-5);   // keep last 5 merges max
+        if (ownerMismatch) {
+          mergedExtra.mergeReview = {
+            reason: "owner_name_mismatch",
+            existing: existingRow.owner_name,
+            incoming: r.ownerName,
+            flaggedAt: new Date().toISOString(),
+            resolved: false,
+            note: "Property may have changed hands. Verify via county tax record.",
+          };
+        }
+        // Preserve incoming raw row so re-normalize can rehydrate later.
+        if (r.extra?.raw) mergedExtra.raw = r.extra.raw;
 
         // Detect "nothing new": no added phones AND no MLS field changed.
         let mlsChanged = false;
@@ -773,7 +1010,9 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
           newPrimary,
           r.listPrice ?? null,
           JSON.stringify(mergedExtra),
-          r.ownerName || "",
+          // v20.6.9 — On owner mismatch, keep existing owner. Admin resolves
+          // via /api/admin/leads/:id/merge-review after checking tax record.
+          ownerMismatch ? "" : (r.ownerName || ""),
           matchId,
         );
         merged++;

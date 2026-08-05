@@ -1257,7 +1257,39 @@ addColumnIfMissing("listings", "origin_sources",  "TEXT");
 rawDb.exec(`DROP INDEX IF EXISTS idx_buyers_dedupe`);
 // UNIQUE on (lower(name), multi_search_ordinal) so ON CONFLICT works. Same person
 // with the same ordinal (default 1) dedupes; a second search creates ordinal=2.
-rawDb.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_buyers_name_ordinal ON buyers(lower(name), multi_search_ordinal)`).run();
+// v20.6.9 — Force-drop first. On prod, an older non-expression variant of
+// this index may already exist under the same name, in which case CREATE ...
+// IF NOT EXISTS no-ops and the sweep's ON CONFLICT clause fails with "does
+// not match any PRIMARY KEY or UNIQUE constraint" for every deal-buyer row.
+// Dropping first guarantees the expression-based index gets built fresh.
+try {
+  rawDb.exec(`DROP INDEX IF EXISTS idx_buyers_name_ordinal`);
+  // Guard against duplicate (lower(name), multi_search_ordinal) rows that
+  // could prevent the UNIQUE index from creating. Keep the MAX(id) survivor
+  // per group; delete the rest.
+  rawDb.exec(`
+    DELETE FROM buyers
+     WHERE id IN (
+       SELECT b.id FROM buyers b
+       JOIN (
+         SELECT lower(name) AS n, multi_search_ordinal AS o, MAX(id) AS keep_id, COUNT(*) AS c
+           FROM buyers
+          GROUP BY lower(name), multi_search_ordinal
+         HAVING c > 1
+       ) dup ON lower(b.name) = dup.n AND b.multi_search_ordinal = dup.o
+       WHERE b.id <> dup.keep_id
+     )
+  `);
+  rawDb.prepare(`CREATE UNIQUE INDEX idx_buyers_name_ordinal ON buyers(lower(name), multi_search_ordinal)`).run();
+} catch (err: any) {
+  console.error("[db] v20.6.9 idx_buyers_name_ordinal rebuild failed:", err.message);
+  // Fall back to non-unique so at least the table stays usable
+  try {
+    rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_buyers_name_ordinal ON buyers(lower(name), multi_search_ordinal)`).run();
+  } catch (e: any) {
+    console.error("[db] fallback index create also failed:", e.message);
+  }
+}
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_buyers_do_not_import ON buyers(do_not_import) WHERE do_not_import = 1`).run();
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_buyers_origin ON buyers(source)`).run();
 console.log("[db] v20.5.0 buyer master list schema ready");

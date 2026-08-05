@@ -29,15 +29,48 @@ import { parseIntent } from "./buyerIntentParser";
 // v20.6.8 — Locked buyer stages (unchanged from v20.4.9).
 const ACTIVE_BUYER_STAGES = ["Active Client"];
 
-// v20.6.8 — Locked seller stage → LD listing bucket. This is the authoritative
-// mapping. Denise moves the SELLER PERSON through these 4 stages in FUB and
-// LD mirrors it. Case-insensitive match on stage name.
+// v20.6.9 — Reality-check: Denise doesn't use FUB "stages" for listings. She
+// uses TAGS. So the seller-side authoritative signal is TAG membership, not
+// stage. Alex's rule 8/4/26: "Stage: then deals. It has to be either buyer
+// or seller." Interpretation: use tags/stages to CLASSIFY the person as
+// buyer or seller, then use deals to fill in property address/price.
+//
+// Seller-classifying tags → LD listing status bucket.
+// v20.6.9 — FUB tag lookup via the /people?tags= endpoint is case-sensitive on
+// the URL param. Keys here are the EXACT casing Denise uses in FUB (audited
+// via /api/admin/fub/tags on 8/4/26). If a variant appears with different
+// casing, add a new key rather than lowercasing — FUB won't return people if
+// the case doesn't match.
+const SELLER_TAG_MAP: Record<string, "pocket" | "coming_soon" | "active" | "sold"> = {
+  // POCKET listings — Denise's two live tags for these
+  "Pocket Listing":     "pocket",
+  "pocket-listing":     "pocket",
+  "Off Market Listing": "pocket",
+  // COMING SOON — no live tag today, leave the mapping in case Denise adds
+  "Coming Soon":        "coming_soon",
+  "coming-soon":        "coming_soon",
+  // ACTIVE listing — no live tag today; comes from the Deals phase
+  "Active Listing":     "active",
+  "active-listing":     "active",
+  "Listed":             "active",
+  // SOLD — no live tag today; comes from closed deals
+  "Closed - Sold":      "sold",
+  "closed-sold":        "sold",
+  "Sold":               "sold",
+  // Generic seller — Denise's "seller" tag classifies the person; deals will
+  // upgrade the bucket to "active" if a listing deal exists. Default to
+  // "pocket" (safest — doesn't imply MLS live).
+  "seller":             "pocket",
+};
+
+// v20.6.9 — Kept for backward compat but no longer primary; some seller
+// people may have moved to a stage rather than a tag.
 const SELLER_STAGE_MAP: Record<string, "pocket" | "coming_soon" | "active" | "sold"> = {
   "pocket":           "pocket",
   "pocket listing":   "pocket",
   "coming soon":      "coming_soon",
   "active listing":   "active",
-  "listed":           "active",           // legacy alias
+  "listed":           "active",
   "closed - sold":    "sold",
   "closed sold":      "sold",
   "sold":             "sold",
@@ -228,13 +261,16 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
     }
   }
 
-  // ─── PHASE 1.5: SELLER STAGE SWEEP (v20.6.8, primary listings source) ────
-  // For each mapped seller stage, pull all people at that stage and upsert
-  // to listings with the mapped status. This is the new source of truth.
-  for (const [stageName, ldStatus] of Object.entries(SELLER_STAGE_MAP)) {
-    // Skip duplicate keys (multiple FUB names → same LD bucket handled via UPSERT).
+  // ─── PHASE 1.5: SELLER CLASSIFICATION SWEEP (v20.6.9) ────────────────────
+  // Primary listings source. Pulls people classified as sellers via TAGS
+  // (real Denise workflow) OR STAGES (fallback for anyone Denise moved
+  // through a stage). Upserts to listings with the mapped LD status. The
+  // deals phase then enriches list_price on the same address.
+  //
+  // TAG phase
+  for (const [tagName, ldStatus] of Object.entries(SELLER_TAG_MAP)) {
     try {
-      const people = await fubListPeopleByStage(stageName);
+      const people = await fubListPeopleByTag(tagName);
       for (const p of people) {
         processed++;
         const a = fubPersonAddress(p);
@@ -248,7 +284,37 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
             list_price:    null,          // list_price still comes from Deals phase
             status:        ldStatus,
             listing_agent: p.assignedUserName || null,
-            source:        `fub:stage:${stageName}`,
+            source:        `fub:seller-tag:${tagName}`,
+            source_ref:    `fub:person:${p.id}`,
+          });
+          seller_stages++;
+        } catch (e: any) {
+          errors.push(`seller-tag ${tagName} ${a.address}: ${e.message}`);
+        }
+      }
+    } catch (err: any) {
+      errors.push(`seller-tag ${tagName}: ${err.message}`);
+    }
+  }
+
+  // STAGE phase (kept as safety net for people Denise moved to a stage)
+  for (const [stageName, ldStatus] of Object.entries(SELLER_STAGE_MAP)) {
+    try {
+      const people = await fubListPeopleByStage(stageName);
+      for (const p of people) {
+        processed++;
+        const a = fubPersonAddress(p);
+        if (!a.address) { skipped++; continue; }
+        try {
+          upsertListing.run({
+            address:       a.address,
+            city:          a.city,
+            state:         a.state,
+            zip:           a.zip,
+            list_price:    null,
+            status:        ldStatus,
+            listing_agent: p.assignedUserName || null,
+            source:        `fub:seller-stage:${stageName}`,
             source_ref:    `fub:person:${p.id}`,
           });
           seller_stages++;
@@ -313,19 +379,26 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
         if (!personId) { continue; }
         try {
           const name = d.name || `FUB Deal ${d.id}`;
+          // v20.6.9 — Fix: match the real UNIQUE index on buyers table which is
+          // idx_buyers_name_ordinal ON buyers(lower(name), multi_search_ordinal).
+          // The prior v20.6.8 ON CONFLICT clause referenced a coalesce expression
+          // that no index exists on, causing every deal-buyer insert to throw
+          // "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint".
           rawDb.prepare(`
             INSERT INTO buyers (
               name, phone, email, buyers_agent, status,
               price_min, price_max, preferred_areas,
+              multi_search_ordinal,
               source, source_ref, fub_person_id, last_updated_by, notes,
               created_at, updated_at
             ) VALUES (
               @name, NULL, NULL, @agent, 'active',
               NULL, @price, @area,
+              1,
               'fub:deal:buyer', @sref, @fub_pid, 'fub-sweep', @notes,
               datetime('now'), datetime('now')
             )
-            ON CONFLICT(coalesce(lower(phone),lower(email),lower(name))) DO UPDATE SET
+            ON CONFLICT(lower(name), multi_search_ordinal) DO UPDATE SET
               -- v20.6.8: FUB wins, period.
               status     = 'active',
               price_max  = COALESCE(excluded.price_max, buyers.price_max),

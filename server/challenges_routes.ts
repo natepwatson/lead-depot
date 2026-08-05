@@ -60,7 +60,7 @@ function computeProgressForAgent(agentId: number, periodKey: string, cadence: "d
     agg = rawDb.prepare(`
       SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN outcome IN ('no_answer','contacted_appointment','contacted_not_interested','keep_in_touch','wrong_number','listed','recycled') THEN 1 ELSE 0 END) as dials,
+        SUM(CASE WHEN outcome IN ('no_answer','contacted_appointment','contacted_not_interested','keep_in_touch','wrong_number','disconnected','left_voicemail','nice_not_interested','listed','recycled') THEN 1 ELSE 0 END) as dials,
         SUM(CASE WHEN outcome = 'contacted_appointment' THEN 1 ELSE 0 END) as appts,
         SUM(CASE WHEN outcome = 'keep_in_touch' THEN 1 ELSE 0 END) as kits,
         SUM(CASE WHEN outcome = 'network_referral' THEN 1 ELSE 0 END) as refs,

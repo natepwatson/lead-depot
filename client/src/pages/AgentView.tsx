@@ -7154,25 +7154,28 @@ function LeadGenSheet(props: {
           })}
         </div>
 
-        {/* v20.7.4 — Shelf row: 2 smaller "agent task" bubbles (Network Lead,
+        {/* v20.7.5 — Shelf row: 2 smaller "agent task" bubbles (Network Lead,
             Refer Agent) tucked under the arc's underside, centered horizontally.
-            Positioned so vertical gap from screen bottom equals gap from shelf-
-            top to arc-bottom. FAB center sits at bottom=(52 + safe-area). The
-            arc's LOWEST bubble edge is at height (52 + ARC_RADIUS*sin(min_angle)
-            - BUBBLE_SIZE/2). For 30° min-angle: 52 + R*0.5 - 32. The shelf sits
-            in the empty vertical space between that lowest arc point and screen
-            bottom, biased slightly toward the arc so it feels sheltered.
 
-            Practically: FAB bottom edge ~= 22px + safe-area. We put the shelf
-            bubble CENTERS at bottom = ~120px (safe-area applied), which gives
-            equal spacing above and below the shelf when the arc's bottom is
-            around 210px up. */}
+            BUG FIXED (v20.7.5): at bottom=118px the shelf sat almost directly
+            under Open House (120°) and Social Post (60°) — the two arc bubbles
+            that hang the LOWEST labels of the whole fan (their labels dangled
+            to ~height 134-144 from screen bottom). With the shelf's top edge
+            at ~141.5, those labels visually collided with the Network Lead /
+            Refer Agent bubbles rendered on top of them (shelf div paints after
+            the arc div), producing the overlapping/cut-off text seen on device.
+
+            Fix: drop the shelf anchor to 80px. Worst case (smallest ARC_RADIUS
+            = 160, on the narrowest supported viewport) this still leaves >28px
+            of clear vertical gap between the lowest arc label and the shelf's
+            top edge — comfortably non-overlapping on every screen size, since
+            larger ARC_RADIUS on bigger phones only increases the gap further. */}
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
             position: "absolute",
             left: 0, right: 0,
-            bottom: `calc(118px + env(safe-area-inset-bottom, 0px))`,
+            bottom: `calc(80px + env(safe-area-inset-bottom, 0px))`,
             display: "flex",
             justifyContent: "center",
             gap: 28,

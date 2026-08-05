@@ -6953,7 +6953,7 @@ function LeadGenSheet(props: {
       { key: "mail",   label: "Direct Mail", icon: <Mail size={20} />,     angleDeg: 150, onClick: () => setView("direct-mail" as any) },
       { key: "oh",     label: "Open House",  icon: <Home size={20} />,     angleDeg: 120, onClick: () => setView("open-house") },
       { key: "dial",   label: "Dial",        icon: <Phone size={28} />,    angleDeg: 90,  hero: true, onClick: goToDial },
-      { key: "social", label: "Social Post", icon: <Share2 size={20} />,   angleDeg: 60,  onClick: () => setView("social" as any) },
+      { key: "social", label: "Social", icon: <Share2 size={20} />,   angleDeg: 60,  onClick: () => setView("social" as any) },
       { key: "knock",  label: "Door Knock",  icon: <DoorOpen size={20} />, angleDeg: 30,  onClick: () => setView("door-knock" as any) },
     ];
 
@@ -6964,8 +6964,12 @@ function LeadGenSheet(props: {
     const shelfBubbles: Array<{
       key: string; label: string; icon: React.ReactNode; onClick: () => void;
     }> = [
-      { key: "network", label: "Network Lead", icon: <Users size={18} />, onClick: () => setView("network-referral") },
-      { key: "refer",   label: "Refer Agent",  icon: <Send size={18} />,  onClick: () => setView("refer-agent" as any) },
+      // v20.7.7 — renamed per Alex: "Add Lead" (LEFT, was Network Lead — same
+      // route/view) and "Agent Invite" (RIGHT, was Refer Agent). Also "Social"
+      // (was Social Post) on the arc. Shorter labels prevent horizontal pill
+      // overlap with Open House / Direct Mail labels in the same Y band.
+      { key: "network", label: "Add Lead",     icon: <Users size={18} />, onClick: () => setView("network-referral") },
+      { key: "refer",   label: "Agent Invite", icon: <Send size={18} />,  onClick: () => setView("refer-agent" as any) },
     ];
     // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
     // Anchor the arc's origin over the FAB center.
@@ -7173,16 +7177,23 @@ function LeadGenSheet(props: {
           pointerEvents: "none",
         }} onClick={(e) => e.stopPropagation()}>
           {shelfBubbles.map((b, idx) => {
-            // Polar placement: angle ~110° (left) / 70° (right), radius scaled
-            // down from ARC_RADIUS so shelf tucks INSIDE the triangle.
-            // At angle 110°: dx ≈ -0.34*R, dy ≈ -0.94*R
-            // At angle 30° (Door Knock outer): dx ≈ +0.87*R, dy ≈ -0.50*R
-            // With SHELF_RADIUS = 0.62 * ARC_RADIUS, shelf bubble centers land
-            // at ~0.58*ARC_RADIUS above the FAB, which is between the outer
-            // arc bubbles' Y (-0.50*R) and Dial's Y (-R at 90°). Their X is
-            // ~0.21*ARC_RADIUS, so |dx_shelf| < |dx_arc_outer| — inside the triangle.
-            const SHELF_RADIUS = ARC_RADIUS * 0.62;
-            const shelfAngle = idx === 0 ? 110 : 70;
+            // v20.7.7 label-clearance pass. Previous angles 110°/70° at 0.62*R
+            // put shelf bubbles at approximately the same Y as Open House (120°)
+            // and Social Post (60°), so their labels collided with each other's
+            // pills — Network Lead ran over Open House's label, Refer Agent over
+            // Social Post's. Solution: wider angles (130° / 50°) at smaller
+            // radius (0.55*R) — moves shelf bubbles CLOSER to the FAB (lower Y)
+            // AND farther horizontally inside the arc, opening ~28px of vertical
+            // gap under the flanking arc-bubble labels.
+            //
+            // At 130° / 0.55*R (assume ARC_RADIUS=220):
+            //   dx = cos(130°)*121 ≈ -78, dy = -sin(130°)*121 ≈ -93
+            // Outer arc at 30°/150° / R=220:
+            //   dx = ±cos(30°)*220 ≈ ±191, dy = -sin(30°)*220 ≈ -110
+            // Shelf sits 17px BELOW outer arc's Y (closer to FAB) and 113px
+            // horizontally INSIDE — comfortably inside the triangle silhouette.
+            const SHELF_RADIUS = ARC_RADIUS * 0.55;
+            const shelfAngle = idx === 0 ? 130 : 50;
             const rad = (shelfAngle * Math.PI) / 180;
             const dx = Math.cos(rad) * SHELF_RADIUS;
             const dy = -Math.sin(rad) * SHELF_RADIUS;

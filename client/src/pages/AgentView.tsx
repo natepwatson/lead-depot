@@ -7032,19 +7032,14 @@ function LeadGenSheet(props: {
         }} onClick={e => e.stopPropagation()}>
           {bubbles.map((b, idx) => {
             const rad = (b.angleDeg * Math.PI) / 180;
+            // v20.7.13 — All arc bubbles at original positions. Labels sit
+            // directly above each bubble at a fixed gap from the rim.
             const dx = Math.cos(rad) * ARC_RADIUS;
             const dy = -Math.sin(rad) * ARC_RADIUS - (b.hero ? HERO_LIFT : 0);
             const size = b.hero ? HERO_SIZE : BUBBLE_SIZE;
-            // v20.7.12 — Push the label RADIALLY OUTWARD from the FAB center
-            // along the SAME angle as its bubble. This gives each label its own
-            // angular column so adjacent labels can't collide. Radial distance
-            // beyond the bubble center = (bubble radius) + LABEL_GAP. Then apply
-            // as an ADDITIONAL translate on the label span so it sits along the
-            // ray from center through the bubble.
-            const LABEL_GAP = 14; // gap between bubble rim and label pill
-            const labelDist = (size / 2) + LABEL_GAP;
-            const labelDx = Math.cos(rad) * labelDist;
-            const labelDy = -Math.sin(rad) * labelDist;
+            const LABEL_GAP = 12; // px gap between bubble rim and label
+            const labelDx = 0;
+            const labelDy = -(size / 2) - LABEL_GAP;
             // v20.4.2.1 — sequential LEFT→RIGHT stagger by index.
             // idx 0 (Social, leftmost) fires first, idx 6 (Refer, rightmost) last.
             // 42ms between each = ~294ms total spread = fast but rhythmic.
@@ -7148,11 +7143,10 @@ function LeadGenSheet(props: {
                 {/* v20.7.8 — Label floats ABOVE the bubble (column-reverse container)
                     so the space UNDER the arc is fully available for the shelf.
                     Nothing in the arc row can now overlap the shelf row. */}
-                {/* v20.7.12 — Radially-positioned label wrapper. The wrapper
-                    holds the position transform (bubble center + outward vector
-                    along the same polar ray). The inner <span> keeps the
-                    fade-in class animation. Each label sits in its OWN angular
-                    column and can't collide with a neighbor's label. */}
+                {/* v20.7.13 — Label sits directly above the bubble. Wrapper is
+                    absolute-positioned at (0, -bubble_radius-12) relative to the
+                    bubble center. Bubbles at 150°/30° use a smaller radius so
+                    their labels don't get clipped by the viewport edge. */}
                 <div style={{
                   position: "absolute",
                   left: "50%",
@@ -7216,7 +7210,11 @@ function LeadGenSheet(props: {
             //   dx = ±cos(30°)*220 ≈ ±191, dy = -sin(30°)*220 ≈ -110
             // Shelf sits 17px BELOW outer arc's Y (closer to FAB) and 113px
             // horizontally INSIDE — comfortably inside the triangle silhouette.
-            const SHELF_RADIUS = ARC_RADIUS * 0.55;
+            // v20.7.13 — shelf bubbles (Add Lead / Agent Invite) pulled INWARD
+            // from 0.55R to 0.48R so both bubbles + their labels sit farther
+            // from the screen edge on narrow iPhones. Also increases the visual
+            // gap between shelf and the outer arc bubbles above them.
+            const SHELF_RADIUS = ARC_RADIUS * 0.48;
             const shelfAngle = idx === 0 ? 130 : 50;
             const rad = (shelfAngle * Math.PI) / 180;
             const dx = Math.cos(rad) * SHELF_RADIUS;

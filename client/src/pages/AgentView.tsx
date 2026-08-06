@@ -7555,8 +7555,8 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
   const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 6 * 1024 * 1024) {
-      toast({ title: "Photo too large", description: "Try a smaller image (< 6MB).", variant: "destructive" });
+    if (f.size > 25 * 1024 * 1024) {
+      toast({ title: "Photo too large", description: "Try a smaller image (< 25MB).", variant: "destructive" });
       return;
     }
     // Downscale to ~1024px longest edge to keep payload small
@@ -7861,8 +7861,8 @@ function DirectMailLogForm(props: { user: any; toast: any; onDone: () => void })
   const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 6 * 1024 * 1024) {
-      toast({ title: "Photo too large", description: "Try a smaller image (< 6MB).", variant: "destructive" });
+    if (f.size > 25 * 1024 * 1024) {
+      toast({ title: "Photo too large", description: "Try a smaller image (< 25MB).", variant: "destructive" });
       return;
     }
     const img = new Image();
@@ -7992,7 +7992,7 @@ function OpenHouseKnockRouteForm(props: { user: any; toast: any; onDone: () => v
   const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 6 * 1024 * 1024) { toast({ title: "Photo too large", variant: "destructive" }); return; }
+    if (f.size > 25 * 1024 * 1024) { toast({ title: "Photo too large", variant: "destructive" }); return; }
     const img = new Image();
     const reader = new FileReader();
     reader.onload = () => {
@@ -8232,7 +8232,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 6 * 1024 * 1024) { toast({ title: "Photo too large", variant: "destructive" }); return; }
+    if (f.size > 25 * 1024 * 1024) { toast({ title: "Photo too large", variant: "destructive" }); return; }
     const img = new Image();
     const reader = new FileReader();
     reader.onload = () => {

@@ -1838,7 +1838,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.7.14
+              v20.7.15
             </p>
           </div>
         </div>
@@ -3686,13 +3686,36 @@ function ApprovalsPanel() {
                   : "1px solid rgba(255,255,255,0.06)",
               }}>
                 <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-                  {/* Selfie thumbnail */}
-                  {p.photoDataUrl && (
-                    <img src={p.photoDataUrl} alt="Evidence" style={{
-                      width: 96, height: 96, objectFit: "cover", borderRadius: 8,
-                      border: "1px solid rgba(200,170,90,0.28)", flexShrink: 0,
-                    }} />
-                  )}
+                  {/* Evidence thumbnails. v20.7.15 — social_post can have 1-3 screenshots
+                      (one per platform) in p.photoDataUrls; other kinds use single p.photoDataUrl. */}
+                  {(() => {
+                    const urls: string[] = Array.isArray(p.photoDataUrls) && p.photoDataUrls.length > 0
+                      ? p.photoDataUrls
+                      : (p.photoDataUrl ? [p.photoDataUrl] : []);
+                    const plats: string[] = Array.isArray(p.platforms) ? p.platforms : [];
+                    if (urls.length === 0) return null;
+                    return (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0 }}>
+                        {urls.map((u, i) => (
+                          <div key={i} style={{ position: "relative" }}>
+                            <img src={u} alt={plats[i] ? `${plats[i]} evidence` : "Evidence"} style={{
+                              width: 96, height: 96, objectFit: "cover", borderRadius: 8,
+                              border: "1px solid rgba(200,170,90,0.28)",
+                            }} />
+                            {plats[i] && (
+                              <span style={{
+                                position: "absolute", bottom: 4, left: 4,
+                                padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700,
+                                letterSpacing: "0.08em", textTransform: "uppercase",
+                                background: "rgba(0,0,0,0.7)", color: "#fde047",
+                                border: "1px solid rgba(200,170,90,0.4)",
+                              }}>{plats[i]}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                   <div style={{ flex: 1, minWidth: 220 }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
                       <span style={{

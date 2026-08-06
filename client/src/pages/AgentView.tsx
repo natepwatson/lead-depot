@@ -8219,20 +8219,48 @@ function ReferAnAgentForm(props: { user: any; toast: any; onDone: () => void }) 
   );
 }
 
-// 15 pts flat, 1/day ET cap. Kind = "social_post". Screenshot + platform + link.
+// v20.7.15 — Multi-platform cross-post. 10 pts per platform (1-3 platforms
+// selected). Requires one screenshot per selected platform (proves it went
+// live on each). 2 submissions per agent per ET day. Kind = "social_post".
+type SocialPlatformId = "instagram" | "facebook" | "tiktok" | "youtube" | "linkedin" | "x";
 function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const { user, toast, onDone } = props;
-  const [platform, setPlatform] = useState<"instagram" | "facebook" | "tiktok" | "youtube" | "linkedin" | "x">("instagram");
+  const MAX_PLATFORMS = 3;
+  const PTS_PER_PLATFORM = 10;
+  const [selected, setSelected] = useState<SocialPlatformId[]>(["instagram"]);
   const [postUrl, setPostUrl] = useState("");
   const [caption, setCaption] = useState("");
-  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  // Map of platform → downscaled dataUrl. Independent per platform.
+  const [photos, setPhotos] = useState<Partial<Record<SocialPlatformId, string>>>({});
   const [submitting, setSubmitting] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
 
-  const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    if (f.size > 25 * 1024 * 1024) { toast({ title: "Photo too large", variant: "destructive" }); return; }
+  const platforms: Array<{ id: SocialPlatformId; label: string }> = [
+    { id: "instagram", label: "Instagram" },
+    { id: "facebook", label: "Facebook" },
+    { id: "tiktok", label: "TikTok" },
+    { id: "youtube", label: "YouTube" },
+    { id: "linkedin", label: "LinkedIn" },
+    { id: "x", label: "X / Twitter" },
+  ];
+
+  const togglePlatform = (id: SocialPlatformId) => {
+    setSelected(prev => {
+      if (prev.includes(id)) {
+        // Deselect: also drop that platform's photo
+        setPhotos(pp => { const copy = { ...pp }; delete copy[id]; return copy; });
+        return prev.filter(p => p !== id);
+      }
+      if (prev.length >= MAX_PLATFORMS) {
+        toast({ title: `Max ${MAX_PLATFORMS} platforms per post`, description: "Deselect one to add another.", variant: "destructive" });
+        return prev;
+      }
+      return [...prev, id];
+    });
+  };
+
+  const onPickPhotoFor = (platformId: SocialPlatformId, file: File | null) => {
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) { toast({ title: "Photo too large", description: "< 25MB please.", variant: "destructive" }); return; }
     const img = new Image();
     const reader = new FileReader();
     reader.onload = () => {
@@ -8244,32 +8272,43 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
         canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext("2d");
         if (ctx) ctx.drawImage(img, 0, 0, width, height);
-        setPhotoDataUrl(canvas.toDataURL("image/jpeg", 0.82));
+        setPhotos(prev => ({ ...prev, [platformId]: canvas.toDataURL("image/jpeg", 0.82) }));
       };
       img.src = String(reader.result || "");
     };
-    reader.readAsDataURL(f);
+    reader.readAsDataURL(file);
   };
 
+  const pointsPreview = selected.length * PTS_PER_PLATFORM;
+
   const submit = async () => {
-    if (!photoDataUrl) { toast({ title: "Screenshot required", description: "Attach a screenshot of the post.", variant: "destructive" }); return; }
+    if (selected.length === 0) { toast({ title: "Pick at least 1 platform", variant: "destructive" }); return; }
+    const missing = selected.filter(id => !photos[id]);
+    if (missing.length > 0) {
+      const labels = missing.map(m => platforms.find(p => p.id === m)?.label || m).join(", ");
+      toast({ title: "Screenshots required", description: `Missing: ${labels}`, variant: "destructive" });
+      return;
+    }
     if (!postUrl.trim() && !caption.trim()) { toast({ title: "Add a link or caption", variant: "destructive" }); return; }
     setSubmitting(true);
     try {
+      const platformsPayload = selected.slice();
+      const photoDataUrls = platformsPayload.map(id => photos[id] as string);
       const r = await apiRequest("POST", "/api/lead-gen/social-post", {
         agentId: user?.id,
-        platform,
+        platforms: platformsPayload,
+        photoDataUrls,
         postUrl: postUrl.trim() || null,
         caption: caption.trim() || null,
-        photoDataUrl,
         timestamp: new Date().toISOString(),
       });
       const data = await r.json();
       if (r.ok && data.submitted) {
-        toast({ title: "Submitted for approval", description: "+15 pts pending Nate's review." });
+        toast({
+          title: "Submitted for approval",
+          description: `+${data.pointsPotential || pointsPreview} pts pending Nate's review.`,
+        });
         onDone();
-      } else if (r.status === 409) {
-        toast({ title: "Already logged today", description: "One social post per day. Come back tomorrow.", variant: "destructive" });
       } else {
         toast({ title: "Failed to submit", description: data.error || "Unknown error", variant: "destructive" });
       }
@@ -8285,62 +8324,72 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   };
   const labelStyle: React.CSSProperties = { display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 };
 
-  const platforms: Array<{ id: typeof platform; label: string }> = [
-    { id: "instagram", label: "Instagram" },
-    { id: "facebook", label: "Facebook" },
-    { id: "tiktok", label: "TikTok" },
-    { id: "youtube", label: "YouTube" },
-    { id: "linkedin", label: "LinkedIn" },
-    { id: "x", label: "X / Twitter" },
-  ];
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ padding: "12px 14px", background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.18)", borderRadius: 10 }}>
         <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.75)", lineHeight: 1.55 }}>
-          Post about real estate — tag <strong>@watsonbrothersgroup</strong> or the brand. 15 pts flat, one per day.
+          Post about real estate — tag <strong>@watsonbrothersgroup</strong> or the brand. <strong>{PTS_PER_PLATFORM} pts per platform</strong>, up to {MAX_PLATFORMS} platforms per post, 2 posts per day.
         </p>
       </div>
 
       <div>
-        <label style={labelStyle}>Screenshot of the post *</label>
-        <input ref={fileRef} type="file" accept="image/*" onChange={onPickPhoto} style={{ display: "none" }} />
-        {photoDataUrl ? (
-          <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(200,170,90,0.28)" }}>
-            <img src={photoDataUrl} alt="Post screenshot" style={{ width: "100%", display: "block", maxHeight: 400, objectFit: "cover" }} />
-            <button onClick={() => { setPhotoDataUrl(null); if (fileRef.current) fileRef.current.value = ""; }} style={{
-              position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)",
-              borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#fff", fontSize: 11, fontWeight: 600,
-              display: "flex", alignItems: "center", gap: 4,
-            }}><X size={12} /> Replace</button>
-          </div>
-        ) : (
-          <button onClick={() => fileRef.current?.click()} style={{
-            width: "100%", padding: "24px 14px", background: "rgba(200,170,90,0.05)",
-            border: "1px dashed rgba(200,170,90,0.4)", borderRadius: 12, cursor: "pointer",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 8, color: "#c8aa5a",
-          }}>
-            <Instagram size={28} />
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Tap to attach screenshot</span>
-            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Show the caption, hashtags, or brand tag</span>
-          </button>
-        )}
+        <label style={labelStyle}>Platforms * (up to {MAX_PLATFORMS})</label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+          {platforms.map(p => {
+            const isOn = selected.includes(p.id);
+            return (
+              <button key={p.id} type="button" onClick={() => togglePlatform(p.id)} style={{
+                padding: "10px 8px", borderRadius: 8,
+                background: isOn ? "rgba(200,170,90,0.18)" : "rgba(255,255,255,0.04)",
+                border: isOn ? "1px solid rgba(200,170,90,0.55)" : "1px solid rgba(255,255,255,0.08)",
+                color: isOn ? "#fde047" : "rgba(255,255,255,0.65)",
+                fontSize: 12, fontWeight: 600, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}>
+                {isOn && <span style={{ fontSize: 11 }}>✓</span>}
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+        <p style={{ margin: "6px 0 0", fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+          {selected.length}/{MAX_PLATFORMS} selected · <strong style={{ color: "#fde047" }}>+{pointsPreview} pts</strong> on approval
+        </p>
       </div>
 
-      <div>
-        <label style={labelStyle}>Platform *</label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-          {platforms.map(p => (
-            <button key={p.id} type="button" onClick={() => setPlatform(p.id)} style={{
-              padding: "10px 8px", borderRadius: 8,
-              background: platform === p.id ? "rgba(200,170,90,0.18)" : "rgba(255,255,255,0.04)",
-              border: platform === p.id ? "1px solid rgba(200,170,90,0.55)" : "1px solid rgba(255,255,255,0.08)",
-              color: platform === p.id ? "#fde047" : "rgba(255,255,255,0.65)",
-              fontSize: 12, fontWeight: 600, cursor: "pointer",
-            }}>{p.label}</button>
-          ))}
-        </div>
-      </div>
+      {selected.map(pid => {
+        const label = platforms.find(p => p.id === pid)?.label || pid;
+        const dataUrl = photos[pid];
+        return (
+          <div key={pid}>
+            <label style={labelStyle}>{label} screenshot *</label>
+            {dataUrl ? (
+              <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(200,170,90,0.28)" }}>
+                <img src={dataUrl} alt={`${label} screenshot`} style={{ width: "100%", display: "block", maxHeight: 400, objectFit: "cover" }} />
+                <button onClick={() => setPhotos(prev => { const c = { ...prev }; delete c[pid]; return c; })} style={{
+                  position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)",
+                  borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#fff", fontSize: 11, fontWeight: 600,
+                  display: "flex", alignItems: "center", gap: 4,
+                }}><X size={12} /> Replace</button>
+              </div>
+            ) : (
+              <label style={{
+                width: "100%", padding: "20px 14px", background: "rgba(200,170,90,0.05)",
+                border: "1px dashed rgba(200,170,90,0.4)", borderRadius: 12, cursor: "pointer",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 6, color: "#c8aa5a",
+              }}>
+                <Instagram size={22} />
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Tap to attach {label} screenshot</span>
+                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Show the caption or brand tag</span>
+                <input
+                  type="file" accept="image/*" style={{ display: "none" }}
+                  onChange={e => onPickPhotoFor(pid, e.target.files?.[0] || null)}
+                />
+              </label>
+            )}
+          </div>
+        );
+      })}
 
       <div>
         <label style={labelStyle}>Post link (optional)</label>
@@ -8359,7 +8408,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
         fontSize: 15, fontWeight: 700, letterSpacing: "0.02em", color: "#080808",
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
       }}>
-        <Send size={14} /> {submitting ? "Submitting…" : "Submit for +15 pts approval"}
+        <Send size={14} /> {submitting ? "Submitting…" : `Submit for +${pointsPreview} pts approval`}
       </button>
     </div>
   );

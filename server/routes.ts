@@ -132,7 +132,7 @@ function awardPoints(
     oh_knock_route:            40,   // v17.6 — OH knock route piggyback, bumped 15→40 (SetRep evidence, real effort during OH).
     direct_mail:                1,   // v20.4.4 — Direct Mail: 1 point per mailer approved (was 3).
     door_knock:                 2,   // v17.6 — Base per-door value. Actual session points_potential = doors × 2 (25+ doors min).
-    social_post:               10,   // v20.4.4 — FB/IG post: 10 points (was 15). Still 1/day cap enforced upstream.
+    social_post:               10,   // v20.7.15 — BASE per-platform. Actual points_potential = 10 × platforms.length (1-3). 2/day cap enforced upstream.
     contacted_not_interested:   5,   // Real contact, worth something.
     listed:                     3,   // Rare informational outcome.
     recycled:                   2,   // Re-queue, minor effort.
@@ -234,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.14 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.15 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -463,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.14 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.15 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -522,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.14 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.15 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -570,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.14 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.15 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1808,7 +1808,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.14</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.15</p>
             </div>
           `,
         });
@@ -1968,7 +1968,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.14 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.15 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -8162,7 +8162,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.14 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.15 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8407,19 +8407,60 @@ This template is for informational/outreach purposes only.`;
   });
 
   // ─── v17.6 SOCIAL POST → APPROVAL QUEUE ─────────────────────
-  // Real-estate post on Facebook / Instagram / LinkedIn. Must tag Watson Brothers
-  // Group OR Momentum Realty and be a valid RE post (education, listing,
-  // just-sold, market update, local hotspot, OH promotion, behind-the-scenes).
-  // 15 pts flat per approved post. 1 pending+approved per agent per ET day.
+  // v20.7.15 — Real-estate cross-post on Facebook / Instagram / TikTok / YouTube /
+  // LinkedIn / X. Must tag Watson Brothers Group OR Momentum Realty and be a
+  // valid RE post (education, listing, just-sold, market update, local hotspot,
+  // OH promotion, behind-the-scenes).
+  //
+  // NEW MECHANICS (v20.7.15):
+  //   • Multi-platform per submission: 1-3 platforms per post
+  //   • Points = 10 × platforms.length (10 / 20 / 30)
+  //   • ONE screenshot REQUIRED per selected platform (proves cross-post)
+  //   • Daily cap: 2 submissions per agent per ET day (up from 1)
+  //   • Max possible per day: 2 × 30 = 60 pts
+  //
+  // Backward-compatible: still accepts legacy { platform, photoDataUrl } single-field.
+  const SOCIAL_PER_PLATFORM = 10;
+  const SOCIAL_MAX_PLATFORMS = 3;
+  const SOCIAL_DAILY_CAP = 2;
+
   app.post("/api/lead-gen/social-post", (req, res) => {
-    const { agentId, platform, postUrl, category, notes, photoDataUrl, timestamp } = req.body;
+    const {
+      agentId, platform, platforms, postUrl, category, notes,
+      photoDataUrl, photoDataUrls, timestamp,
+    } = req.body;
     const submitterId = agentId ? parseInt(String(agentId)) : null;
     if (!submitterId) return res.status(400).json({ error: "agentId required" });
-    if (!photoDataUrl) return res.status(400).json({ error: "Screenshot required" });
-    const cleanPlatform = platform ? String(platform).trim().slice(0, 40) : "";
+
+    // Normalize to arrays (accept legacy single-field format for old builds)
+    let platArr: string[] = Array.isArray(platforms)
+      ? platforms.map((p: any) => String(p).trim().toLowerCase()).filter(Boolean)
+      : (platform ? [String(platform).trim().toLowerCase()] : []);
+    let photoArr: string[] = Array.isArray(photoDataUrls)
+      ? photoDataUrls.filter((p: any) => typeof p === "string" && p.length > 0)
+      : (photoDataUrl ? [String(photoDataUrl)] : []);
+
+    // Dedup + cap platforms to 3
+    platArr = Array.from(new Set(platArr)).slice(0, SOCIAL_MAX_PLATFORMS);
+
+    if (platArr.length === 0) {
+      return res.status(400).json({ error: "Pick at least 1 platform" });
+    }
+    if (platArr.length > SOCIAL_MAX_PLATFORMS) {
+      return res.status(400).json({ error: `Max ${SOCIAL_MAX_PLATFORMS} platforms per post` });
+    }
+    if (photoArr.length !== platArr.length) {
+      return res.status(400).json({
+        error: `Need one screenshot per platform (${platArr.length} platforms, ${photoArr.length} screenshots)`,
+      });
+    }
+
+    // Hard-cap each screenshot payload to protect body-parser (~4MB per)
+    photoArr = photoArr.map(p => String(p).slice(0, 4_000_000));
+
     const cleanCategory = category ? String(category).trim().slice(0, 40) : "";
 
-    // 1/day cap per agent, ET date. Count pending + approved.
+    // Daily cap: SOCIAL_DAILY_CAP submissions per agent, ET date. Count pending + approved.
     const etDate = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }))
       .toISOString().slice(0, 10);
     const capRow = rawDb.prepare(`
@@ -8427,25 +8468,32 @@ This template is for informational/outreach purposes only.`;
       WHERE kind = 'social_post' AND agent_id = ? AND status IN ('pending','approved')
         AND substr(submitted_at, 1, 10) = ?
     `).get(submitterId, etDate) as any;
-    if ((capRow?.n || 0) >= 1) {
-      return res.status(400).json({ error: "You already have a social post submitted today (1/day max)" });
+    if ((capRow?.n || 0) >= SOCIAL_DAILY_CAP) {
+      return res.status(400).json({
+        error: `Daily cap reached (${SOCIAL_DAILY_CAP} social posts per day)`,
+      });
     }
+
+    const pointsPotential = SOCIAL_PER_PLATFORM * platArr.length;
 
     const now = new Date().toISOString();
     const submitter = storage.getAgentById(submitterId);
     const payloadObj = {
-      platform: cleanPlatform,
+      platform: platArr[0], // legacy single-field mirror (admin card fallback)
+      platforms: platArr,
       category: cleanCategory,
       postUrl: postUrl ? String(postUrl).trim().slice(0, 500) : "",
       notes: notes ? String(notes).trim().slice(0, 2000) : "",
       capturedAt: timestamp || now,
-      photoDataUrl: String(photoDataUrl).slice(0, 4_000_000),
+      photoDataUrl: photoArr[0], // legacy single-field mirror
+      photoDataUrls: photoArr,
+      pointsPerPlatform: SOCIAL_PER_PLATFORM,
     };
     const info = rawDb.prepare(`
       INSERT INTO approval_requests
         (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
-      VALUES ('social_post', ?, ?, 'pending', 15, ?, ?)
-    `).run(submitterId, submitter?.name || "Agent", JSON.stringify(payloadObj), now);
+      VALUES ('social_post', ?, ?, 'pending', ?, ?, ?)
+    `).run(submitterId, submitter?.name || "Agent", pointsPotential, JSON.stringify(payloadObj), now);
     const requestId = Number(info.lastInsertRowid);
 
     broadcast({
@@ -8457,12 +8505,17 @@ This template is for informational/outreach purposes only.`;
         agentId: submitterId,
         agentName: submitter?.name || "Agent",
         agentHeadshot: (submitter as any)?.headshotUrl || null,
-        platform: cleanPlatform,
+        platform: platArr.join(", "),
+        platforms: platArr,
+        pointsPotential,
         ts: now,
       },
     });
 
-    res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: 15 });
+    res.json({
+      submitted: true, requestId, pendingApproval: true,
+      pointsPotential, platforms: platArr,
+    });
   });
 
   // ─── v17.6 OH KNOCK ROUTE → APPROVAL QUEUE ──────────────────
@@ -9211,7 +9264,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.14",
+      version: "v20.7.15",
       services: results,
     });
   });
@@ -10178,7 +10231,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.14</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.15</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

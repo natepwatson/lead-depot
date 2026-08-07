@@ -811,7 +811,55 @@ export async function pushOutcomeToFub(payload: FubOutcomePayload): Promise<void
       sides.push({ side: "rent", pipelineId: BUYERS_PIPELINE_ID,  stageId: BUYERS_STAGE_INTERESTED,  nameSuffix: "Rental Side", extraTag: "Rental" });
     }
 
+    // v20.7.18 — DEAL-LEVEL DEDUP. Before creating any deal, query FUB for
+    // existing open deals on this person in the same pipeline. Alex's rule:
+    // never a duplicate lead, but a same person buying a SECOND property is
+    // legitimate and should create a new deal. So the dedup key is:
+    //   (personId, pipelineId, address in name/description)
+    // If we find an open deal on this pipeline whose name/description already
+    // references THIS same subject address, skip creation. If they're at a
+    // different address (new property), create the new deal.
+    // Stages considered "open" for dedup purposes: everything except Won/Lost.
+    //
+    // Address normalization: strip case, collapse whitespace, trim commas.
+    const normalizeAddr = (s?: string): string => (s || "").toLowerCase().replace(/\s+/g, " ").replace(/,+/g, ",").trim();
+    const subjectAddrNorm = normalizeAddr(addressStr || undefined);
+
+    // One lookup per pipeline is enough (Sellers and Buyers may share deals list).
+    // FUB's /deals accepts ?personId=&pipelineId=&limit=; we only need open deals.
+    const openDealsByPipeline: Record<number, any[]> = {};
     for (const s of sides) {
+      if (openDealsByPipeline[s.pipelineId]) continue;
+      const dealSearch = await fubRequest("GET", `/deals?personId=${personId}&pipelineId=${s.pipelineId}&limit=50`);
+      const rows = Array.isArray(dealSearch.data?.deals) ? dealSearch.data.deals : [];
+      // Filter out closed/won/lost deals — those don't block a fresh deal.
+      // FUB deal status field is `status` with values: Open / Won / Lost (typical).
+      // Some tenants use `stageName` including "Won" / "Lost" tokens. Guard both.
+      openDealsByPipeline[s.pipelineId] = rows.filter((d: any) => {
+        const status = String(d?.status || "").toLowerCase();
+        const stageName = String(d?.stageName || "").toLowerCase();
+        if (status === "won" || status === "lost" || status === "closed") return false;
+        if (stageName.includes("won") || stageName.includes("lost") || stageName.includes("closed")) return false;
+        return true;
+      });
+    }
+
+    for (const s of sides) {
+      // Dedup check: does an open deal for this pipeline already reference this address?
+      const existingOpen = (openDealsByPipeline[s.pipelineId] || []).filter((d: any) => {
+        // Match by address token in name OR description. If subject address is
+        // empty, fall back to "any open deal on this pipeline for this person"
+        // (better to skip than to spawn a fresh deal every retry).
+        if (!subjectAddrNorm) return true;
+        const hay = `${d?.name || ""} ${d?.description || ""}`.toLowerCase();
+        return hay.includes(subjectAddrNorm);
+      });
+      if (existingOpen.length > 0) {
+        const first = existingOpen[0];
+        console.log(`[FUB] Deal dedup: person ${personId} already has open ${s.side} deal id=${first.id} name='${first.name}' matching address='${subjectAddrNorm || "(none)"}' — skipping create`);
+        continue;
+      }
+
       const dealPayload: any = {
         name: `${ownerName} — ${s.nameSuffix}`,
         stageId: s.stageId,

@@ -4634,6 +4634,9 @@ interface PipelineLead {
   appt_time?: string | null;
   intention?: string | null;
   stage?: string | null;
+  // v20.7.18 — flagged true when Appt Set came from a KIT convert tap.
+  // Surfaces a small gold pill on the Appt Set pipeline card.
+  converted_from_kit?: boolean;
 }
 
 function PipelineCard({ lead, kind, onOpen, onConvertKit }: { lead: PipelineLead; kind: "appt" | "kit" | "network"; onOpen?: (leadId: number) => void; onConvertKit?: (lead: PipelineLead) => void }) {
@@ -4680,6 +4683,18 @@ function PipelineCard({ lead, kind, onOpen, onConvertKit }: { lead: PipelineLead
         <div style={{ fontSize: 10, color: "rgba(16,185,129,0.9)", marginTop: 4 }}>
           Appointment: <b style={{ color: "#10b981" }}>{apptWhen}</b>
         </div>
+      )}
+      {/* v20.7.18 — "Converted from KIT" pill so Alex/agents can see this Appt
+          Set didn't come from a cold dial — it was a warmed KIT nurtured up. */}
+      {kind === "appt" && lead.converted_from_kit && (
+        <div style={{
+          marginTop: 6, display: "inline-flex", alignSelf: "flex-start",
+          fontSize: 9, fontWeight: 700, letterSpacing: "0.10em",
+          color: "#c8aa5a", padding: "3px 8px",
+          background: "rgba(200,170,90,0.12)",
+          border: "1px solid rgba(200,170,90,0.35)",
+          borderRadius: 999, textTransform: "uppercase",
+        }}>→ Converted from KIT</div>
       )}
       {kind === "kit" && (lead.intention || lead.follow_up_timing) && (
         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>
@@ -4942,14 +4957,26 @@ function KitConvertModal({ kitLead, onClose }: { kitLead: PipelineLead; onClose:
         stage: data.stage,
         intention: data.intention,
         clientTapId,
+        convertedFromKit: true,
       });
       return res.json();
     },
-    onSuccess: () => {
-      toast({
-        title: "KIT converted to Appt — +60 pts",
-        description: `${kitLead.owner_name || kitLead.ownerName || "Lead"} moved from Keep in Touch to Appt Set.`,
-      });
+    onSuccess: (result: any) => {
+      // v20.7.18 — server can return {replayed:true} when the lead was already
+      // an Appt Set (idempotent guard). Show a soft message, do NOT claim +60
+      // was awarded a second time, still invalidate queries so the KIT card
+      // disappears from the pipeline.
+      if (result?.replayed) {
+        toast({
+          title: "Already an Appt Set",
+          description: result.message || "This lead was already converted — no changes made.",
+        });
+      } else {
+        toast({
+          title: "KIT converted to Appt — +60 pts",
+          description: `${kitLead.owner_name || kitLead.ownerName || "Lead"} moved from Keep in Touch to Appt Set.`,
+        });
+      }
       qc.invalidateQueries({ queryKey: [`/api/leads/my-pipeline`] });
       qc.invalidateQueries({ queryKey: [`/api/agents`] });
       qc.invalidateQueries({ queryKey: [`/api/leaderboard`] });
@@ -6160,7 +6187,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.17</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.18</span>
             </div>
           </div>
           {onBackToAdmin && (

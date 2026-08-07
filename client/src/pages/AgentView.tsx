@@ -4402,7 +4402,16 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                        weight/color the row already uses, line 2 is the last name(s)
                        in a muted tone so the eye still lands on the first-name pill
                        first. Row auto-grows for a two-line label. */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* v20.7.28 — name column widened + guaranteed minWidth so the metric
+                       cluster (which flexes on 1 1 auto) can no longer squeeze the
+                       name to a single character. Previously two flex:1 siblings both
+                       claimed the row width; the metric side won every phone-width
+                       shrink because its inner cells set flexShrink:0. Result: the
+                       name text ellipsed to “B” and “S” on 375px viewports. Now:
+                       name gets a hard 92px floor, and if the row still runs out of
+                       horizontal room, the whole thing scrolls sideways in the metric
+                       block (unchanged) — not the name. */}
+                  <div style={{ flex: "1 1 auto", minWidth: 92 }}>
                     {(() => {
                       const parts = (s.agent.name || "").trim().split(/\s+/);
                       const first = parts[0] || s.agent.name;
@@ -4458,7 +4467,11 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                       </div>
                     );
                     return (
-                      <div style={{ display: "flex", alignItems: "center", flex: "1 1 auto", minWidth: 0, gap: 6 }}>
+                      // v20.7.28 — metric block no longer flex:1. It now shrinks to its
+                      // content and (if the phone is really narrow) can scroll horizontally
+                      // via overflowX auto. This yields the name its 92px min without any
+                      // wrestling match between the two flex:1 siblings.
+                      <div style={{ display: "flex", alignItems: "center", flex: "0 1 auto", minWidth: 0, gap: 6, overflowX: "auto", scrollbarWidth: "none" }}>
                         {/* STICKY LEFT: PTS · APPT */}
                         <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, paddingRight: 6, borderRight: "1px solid rgba(255,255,255,0.08)" }}>
                           {stickyCell(w.points ?? 0, "PTS", true, "#c8aa5a")}
@@ -6147,7 +6160,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.27</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.28</span>
             </div>
           </div>
           {onBackToAdmin && (

@@ -234,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.24 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.25 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -463,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.24 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.25 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -522,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.24 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.25 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -570,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.24 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.25 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1808,7 +1808,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.24</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.25</p>
             </div>
           `,
         });
@@ -1968,7 +1968,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.24 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.25 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -8267,7 +8267,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.24 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.25 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -9369,7 +9369,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.24",
+      version: "v20.7.25",
       services: results,
     });
   });
@@ -10016,15 +10016,30 @@ This template is for informational/outreach purposes only.`;
   // Idempotent by (agent_id, lead_id, reason) match — safe to re-run.
   app.post("/api/admin/backfill-appt-points", async (_req: any, res: any) => {
     try {
-      // Phase A: seed lead 5213 (Jose Ramos) into contacted_appointment for Bronson
-      // if it's still sitting as keep_in_touch. Idempotent — skips if already flipped.
+      // Phase A: ensure lead 5213 (Jose Ramos) also has a lead_activity row with
+      // outcome='contacted_appointment' for agent 3 (Bronson). The leaderboard's
+      // appts counters (today/week/month/allTime) all read from lead_activity, not
+      // agent_points, so missing this row is why Ramos's conversion doesn't tick
+      // the appts column on Bronson's leaderboard. Idempotent by NOT EXISTS.
+      // Also flip the lead row itself from keep_in_touch → contacted_appointment
+      // if not already flipped.
       let leadFlipped = false;
+      let ramosActivityInserted = false;
       const ramos = rawDb.prepare(`SELECT id, status, assigned_agent_id FROM leads WHERE id = 5213`).get() as any;
       if (ramos && ramos.status === "keep_in_touch") {
         rawDb.prepare(
           `UPDATE leads SET status = 'contacted_appointment', assigned_agent_id = 3 WHERE id = 5213`
         ).run();
         leadFlipped = true;
+      }
+      const ramosExisting = rawDb.prepare(
+        `SELECT id FROM lead_activity WHERE lead_id = 5213 AND agent_id = 3 AND outcome = 'contacted_appointment'`
+      ).get();
+      if (!ramosExisting) {
+        rawDb.prepare(
+          `INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at) VALUES (5213, 3, 'contacted_appointment', 'v20.7.25 backfill: retroactive Ramos conversion', NULL, ?)`
+        ).run(new Date().toISOString());
+        ramosActivityInserted = true;
       }
 
       // Phase B: find every contacted_appointment lead that has an assigned agent
@@ -10064,6 +10079,7 @@ This template is for informational/outreach purposes only.`;
       res.json({
         ok: true,
         leadRamosFlipped: leadFlipped,
+        ramosActivityInserted,
         candidatesFound: candidates.length,
         pointsRowsInserted: inserted.length,
         details: inserted,
@@ -10411,7 +10427,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.24</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.25</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

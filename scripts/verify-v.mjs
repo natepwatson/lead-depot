@@ -1,0 +1,16 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch();
+const ctx = await b.newContext();
+const p = await ctx.newPage();
+await p.goto('https://depot.watsonbrothersgroup.com/', { waitUntil: 'networkidle' });
+await p.locator('input[type=email]').fill('nate@watsonbrothersgroup.com');
+await p.locator('input[type=password]').fill('TopProducer2026');
+await p.locator('button[type=submit]').click();
+await p.waitForTimeout(6000);
+const html = await p.content();
+console.log('v20.7.16 present:', html.includes('v20.7.16'));
+console.log('v20.7.15 present:', html.includes('v20.7.15'));
+const m = html.match(/v20\.7\.\d+/g);
+console.log('matches:', [...new Set(m || [])]);
+console.log('len:', html.length);
+await b.close();

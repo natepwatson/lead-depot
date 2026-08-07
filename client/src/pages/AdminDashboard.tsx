@@ -1838,7 +1838,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.7.16
+              v20.7.17
             </p>
           </div>
         </div>
@@ -3686,7 +3686,7 @@ function ApprovalsPanel() {
                   : "1px solid rgba(255,255,255,0.06)",
               }}>
                 <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-                  {/* Evidence thumbnails. v20.7.16 — social_post can have 1-3 screenshots
+                  {/* Evidence thumbnails. v20.7.17 — social_post can have 1-3 screenshots
                       (one per platform) in p.photoDataUrls; other kinds use single p.photoDataUrl. */}
                   {(() => {
                     const urls: string[] = Array.isArray(p.photoDataUrls) && p.photoDataUrls.length > 0

@@ -4404,64 +4404,45 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                       {s.agent.name}{isMe ? " (you)" : ""}
                     </p>
                   </div>
-                  {/* v20.4.9 — STICKY (PTS · APPT only) + SWIPE RAIL (KIT · REFS · DIALS · OH · DM · DK · FB/IG).
-                       Per Alex: only PTS and APPT stay pinned; everything else slides.
-                       Swipe rail flexes to fill remaining space so it can scroll all the way to the last column
-                       without snap-back or cutoff. */}
+                  {/* v20.7.20 — SLIMMED LEADERBOARD. DM (Direct Mail) + DK (Door Knock)
+                       columns removed per Alex — points/system still intact server-side
+                       and admin approval flow still works, just off the roster view.
+                       Remaining columns: PTS · APPT (sticky) + KIT · REFS · DIALS · OH · FB/IG (5).
+                       With DM/DK removed the row fits inside a 360px phone viewport, so
+                       the horizontal scroll rail is gone — the tail flex box just lays out
+                       inline. Cell widths tightened (minWidth 26, gap 5) to reserve room. */}
                   {(() => {
                     const w = pickWin(s);
                     const stickyCell = (val: number, label: string, big: boolean, color: string) => (
-                      <div style={{ textAlign: "right", minWidth: big ? 42 : 32, flexShrink: 0 }}>
+                      <div style={{ textAlign: "right", minWidth: big ? 40 : 30, flexShrink: 0 }}>
                         <p style={big
                           ? { fontSize: 20, fontWeight: 700, color, lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif", background: "rgba(200,170,90,0.12)", borderRadius: 8, padding: "2px 6px", display: "inline-block" }
                           : { fontSize: 16, fontWeight: 700, color, lineHeight: 1, fontFamily: "'Cormorant Garamond','Georgia',serif" }
                         }>{val}</p>
-                        <p style={{ fontSize: 9, color: color === "#c8aa5a" ? "rgba(200,170,90,0.7)" : "rgba(255,255,255,0.4)", letterSpacing: "0.14em", marginTop: 4, fontWeight: 700 }}>{label}</p>
+                        <p style={{ fontSize: 9, color: color === "#c8aa5a" ? "rgba(200,170,90,0.7)" : "rgba(255,255,255,0.4)", letterSpacing: "0.10em", marginTop: 4, fontWeight: 700 }}>{label}</p>
                       </div>
                     );
-                    const swipeCell = (val: number, label: string, color: string) => (
-                      <div style={{ textAlign: "right", minWidth: 32, flexShrink: 0 }}>
-                        <p style={{ fontSize: 15, fontWeight: 600, color, lineHeight: 1 }}>{val}</p>
-                        <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.1em", marginTop: 4 }}>{label}</p>
+                    const tailCell = (val: number, label: string, color: string) => (
+                      <div style={{ textAlign: "right", minWidth: 26, flexShrink: 0 }}>
+                        <p style={{ fontSize: 14, fontWeight: 600, color, lineHeight: 1 }}>{val}</p>
+                        <p style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", letterSpacing: "0.08em", marginTop: 4 }}>{label}</p>
                       </div>
                     );
                     return (
-                      <div style={{ display: "flex", alignItems: "center", flex: "1 1 auto", minWidth: 0, position: "relative" }}>
-                        {/* STICKY LEFT: PTS · APPT only */}
-                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0, paddingRight: 8, borderRight: "1px solid rgba(255,255,255,0.08)" }}>
+                      <div style={{ display: "flex", alignItems: "center", flex: "1 1 auto", minWidth: 0, gap: 6 }}>
+                        {/* STICKY LEFT: PTS · APPT */}
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, paddingRight: 6, borderRight: "1px solid rgba(255,255,255,0.08)" }}>
                           {stickyCell(w.points ?? 0, "PTS", true, "#c8aa5a")}
                           {stickyCell(w.appts ?? 0, "APPT", false, "#c8aa5a")}
                         </div>
-                        {/* SWIPE RAIL: KIT · REFS · DIALS · OH · DM · DK · FB/IG (horizontal scroll on phone).
-                            v20.4.9 — flex:1 min-width:0 lets the rail take remaining width so scroll can
-                            reach the last column. All rails sync-scroll together via registerRail. */}
-                        <div
-                          className="lb-swipe-rail"
-                          ref={registerRail}
-                          onScroll={handleRailScroll}
-                          style={{
-                            display: "flex", gap: 8, alignItems: "center",
-                            overflowX: "auto", overflowY: "hidden",
-                            paddingLeft: 8, paddingRight: 4,
-                            flex: "1 1 0", minWidth: 0,
-                            scrollSnapType: "x proximity",
-                            WebkitOverflowScrolling: "touch",
-                            scrollbarWidth: "none",
-                          }}
-                          onWheel={(e) => {
-                            // Convert vertical wheel to horizontal for desktop testing.
-                            if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-                              e.currentTarget.scrollLeft += e.deltaY;
-                            }
-                          }}
-                        >
-                          {swipeCell(w.kit ?? 0, "KIT", "rgba(249,168,212,0.85)")}
-                          {swipeCell(w.refs ?? 0, "REFS", "#fde68a")}
-                          {swipeCell(w.dials ?? 0, "DIALS", "rgba(255,255,255,0.7)")}
-                          {swipeCell(w.oh ?? 0, "OH", "rgba(134,239,172,0.85)")}
-                          {swipeCell(w.dm ?? 0, "DM", "rgba(147,197,253,0.85)")}
-                          {swipeCell(w.dk ?? 0, "DK", "rgba(253,186,116,0.85)")}
-                          {swipeCell(w.social ?? 0, "FB/IG", "rgba(216,180,254,0.85)")}
+                        {/* TAIL: KIT · REFS · DIALS · OH · FB/IG — no horizontal scroll,
+                            flex-fills the remaining row width. */}
+                        <div style={{ display: "flex", gap: 5, alignItems: "center", flex: "1 1 auto", justifyContent: "space-between", paddingLeft: 4 }}>
+                          {tailCell(w.kit ?? 0, "KIT", "rgba(249,168,212,0.85)")}
+                          {tailCell(w.refs ?? 0, "REFS", "#fde68a")}
+                          {tailCell(w.dials ?? 0, "DIALS", "rgba(255,255,255,0.7)")}
+                          {tailCell(w.oh ?? 0, "OH", "rgba(134,239,172,0.85)")}
+                          {tailCell(w.social ?? 0, "FB/IG", "rgba(216,180,254,0.85)")}
                         </div>
                       </div>
                     );
@@ -4634,7 +4615,7 @@ interface PipelineLead {
   appt_time?: string | null;
   intention?: string | null;
   stage?: string | null;
-  // v20.7.19 — flagged true when Appt Set came from a KIT convert tap.
+  // v20.7.20 — flagged true when Appt Set came from a KIT convert tap.
   // Surfaces a small gold pill on the Appt Set pipeline card.
   converted_from_kit?: boolean;
 }
@@ -4684,7 +4665,7 @@ function PipelineCard({ lead, kind, onOpen, onConvertKit }: { lead: PipelineLead
           Appointment: <b style={{ color: "#10b981" }}>{apptWhen}</b>
         </div>
       )}
-      {/* v20.7.19 — "Converted from KIT" pill so Alex/agents can see this Appt
+      {/* v20.7.20 — "Converted from KIT" pill so Alex/agents can see this Appt
           Set didn't come from a cold dial — it was a warmed KIT nurtured up. */}
       {kind === "appt" && lead.converted_from_kit && (
         <div style={{
@@ -4820,29 +4801,10 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
         </p>
       </div>
 
-      {/* v19.5 — List / Kanban toggle */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, padding: 3, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.15)", borderRadius: 8, width: "fit-content" }}>
-        {([{ k: "list", label: "LIST" }, { k: "kanban", label: "KANBAN" }] as const).map(o => (
-          <button key={o.k} data-testid={`pipeline-view-${o.k}`} onClick={() => setPipelineView(o.k as any)}
-            style={{
-              padding: "7px 14px", borderRadius: 6, border: "none", cursor: "pointer",
-              background: pipelineView === o.k ? "rgba(200,170,90,0.15)" : "transparent",
-              color: pipelineView === o.k ? "#c8aa5a" : "rgba(255,255,255,0.55)",
-              fontSize: 11, fontWeight: 700, letterSpacing: "0.12em",
-              transition: "all 0.15s",
-            }}>{o.label}</button>
-        ))}
-      </div>
-
-      {pipelineView === "kanban" && (
-        <KanbanBoard
-          isLoading={isLoading}
-          isError={isError}
-          kanban={kanban}
-          kanbanCounts={kanbanCounts}
-          onOpenLead={onOpenLead}
-        />
-      )}
+      {/* v20.7.20 — Kanban view removed per Alex. Pipeline is list-only now.
+          The KanbanBoard component + pipelineView state are still declared
+          above (harmless) so the LIST branch below still opens cleanly, but
+          the toggle UI + kanban branch are gone. */}
 
       {pipelineView === "list" && <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 22 }}>
@@ -4962,7 +4924,7 @@ function KitConvertModal({ kitLead, onClose }: { kitLead: PipelineLead; onClose:
       return res.json();
     },
     onSuccess: (result: any) => {
-      // v20.7.19 — server can return {replayed:true} when the lead was already
+      // v20.7.20 — server can return {replayed:true} when the lead was already
       // an Appt Set (idempotent guard). Show a soft message, do NOT claim +60
       // was awarded a second time, still invalidate queries so the KIT card
       // disappears from the pipeline.
@@ -5204,28 +5166,20 @@ function BuyerCard({ row }: { row: BuyerRow }) {
 }
 
 function InventoryTab() {
-  const [subtab, setSubtab] = useState<"sellers" | "buyers">("sellers");
-  const [sellerFilter, setSellerFilter] = useState<"live" | "coming_soon" | "pocket" | "sold">("live");
+  // v20.7.20 — Sellers sub-tab REMOVED per Alex (listings feed not reliable
+  // enough to surface here). Inventory now shows Buyers only. The sellers
+  // React Query + SellerCard component + /api/inventory/sellers endpoint are
+  // left in place server-side so we can restore this view later without a
+  // data-layer rebuild.
   const [buyerFilter, setBuyerFilter] = useState<"active" | "closed">("active");
 
-  const sellersQ = useQuery<{ active:SellerRow[]; coming_soon:SellerRow[]; pocket:SellerRow[]; sold:SellerRow[] }>({
-    queryKey: ["/api/inventory/sellers"],
-    queryFn: () => fetch("/api/inventory/sellers", { credentials: "include" }).then(r => r.json()),
-    refetchInterval: 60_000,
-  });
   const buyersQ = useQuery<{ active:BuyerRow[]; closed:BuyerRow[] }>({
     queryKey: ["/api/inventory/buyers"],
     queryFn: () => fetch("/api/inventory/buyers", { credentials: "include" }).then(r => r.json()),
     refetchInterval: 60_000,
   });
 
-  const sellerRows = subtab === "sellers" ? (
-    sellerFilter === "live"        ? sellersQ.data?.active :
-    sellerFilter === "coming_soon" ? sellersQ.data?.coming_soon :
-    sellerFilter === "pocket"      ? sellersQ.data?.pocket :
-                                     sellersQ.data?.sold
-  ) : [];
-  const buyerRows = subtab === "buyers" ? (buyerFilter === "active" ? buyersQ.data?.active : buyersQ.data?.closed) : [];
+  const buyerRows = buyerFilter === "active" ? buyersQ.data?.active : buyersQ.data?.closed;
 
   const chipStyle = (active: boolean): React.CSSProperties => ({
     padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, letterSpacing: 0.3,
@@ -5237,34 +5191,13 @@ function InventoryTab() {
 
   return (
     <div style={{ padding: "12px 16px 100px" }}>
-      <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-        <button onClick={() => setSubtab("sellers")} style={chipStyle(subtab === "sellers")}>🏠 Sellers</button>
-        <button onClick={() => setSubtab("buyers")}  style={chipStyle(subtab === "buyers")}>👥 Buyers</button>
+      <div style={{ display:"flex", gap:6, marginBottom:12 }}>
+        <button onClick={() => setBuyerFilter("active")} style={chipStyle(buyerFilter==="active")}>On the Hunt ({buyersQ.data?.active?.length ?? 0})</button>
+        <button onClick={() => setBuyerFilter("closed")} style={chipStyle(buyerFilter==="closed")}>Closed this year ({buyersQ.data?.closed?.length ?? 0})</button>
       </div>
-
-      {subtab === "sellers" ? (
-        <>
-          <div style={{ display:"flex", gap:6, marginBottom:12, overflowX:"auto", paddingBottom:2 }}>
-            <button onClick={() => setSellerFilter("live")}        style={chipStyle(sellerFilter==="live")}>Live ({sellersQ.data?.active?.length ?? 0})</button>
-            <button onClick={() => setSellerFilter("coming_soon")} style={chipStyle(sellerFilter==="coming_soon")}>Coming Soon ({sellersQ.data?.coming_soon?.length ?? 0})</button>
-            <button onClick={() => setSellerFilter("pocket")}      style={chipStyle(sellerFilter==="pocket")}>Pocket ({sellersQ.data?.pocket?.length ?? 0})</button>
-            <button onClick={() => setSellerFilter("sold")}        style={chipStyle(sellerFilter==="sold")}>Sold ({sellersQ.data?.sold?.length ?? 0})</button>
-          </div>
-          {sellersQ.isLoading ? <Skeleton className="h-40 w-full" /> :
-           sellerRows && sellerRows.length ? sellerRows.map(r => <SellerCard key={r.id} row={r} />) :
-           <div style={{ padding:24, textAlign:"center", color:"#6b7280", fontSize:13 }}>No listings in this bucket yet.</div>}
-        </>
-      ) : (
-        <>
-          <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-            <button onClick={() => setBuyerFilter("active")} style={chipStyle(buyerFilter==="active")}>On the Hunt ({buyersQ.data?.active?.length ?? 0})</button>
-            <button onClick={() => setBuyerFilter("closed")} style={chipStyle(buyerFilter==="closed")}>Closed this year ({buyersQ.data?.closed?.length ?? 0})</button>
-          </div>
-          {buyersQ.isLoading ? <Skeleton className="h-40 w-full" /> :
-           buyerRows && buyerRows.length ? buyerRows.map(r => <BuyerCard key={r.id} row={r} />) :
-           <div style={{ padding:24, textAlign:"center", color:"#6b7280", fontSize:13 }}>No buyers on the hunt yet.</div>}
-        </>
-      )}
+      {buyersQ.isLoading ? <Skeleton className="h-40 w-full" /> :
+       buyerRows && buyerRows.length ? buyerRows.map(r => <BuyerCard key={r.id} row={r} />) :
+       <div style={{ padding:24, textAlign:"center", color:"#6b7280", fontSize:13 }}>No buyers on the hunt yet.</div>}
     </div>
   );
 }
@@ -6187,7 +6120,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.19</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.20</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6222,7 +6155,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           {/* v15.3 — REAL dialing-now pill. Green + pulse when ≥ 1 agent has
               logged a call outcome in the last 10 min; gray + static when quiet.
               Tap-hold title shows "last activity Xm ago" so Alex can sanity-check.
-              v20.7.19 — for admin users the pill is rendered on the LEFT cluster
+              v20.7.20 — for admin users the pill is rendered on the LEFT cluster
               instead (see block above). This right-side branch stays for regular
               agents, whose left block has no back button and can't absorb it. */}
           {!isAdmin && mode === "seller" && (() => {

@@ -324,13 +324,11 @@ export default function TeamMap() {
       // No hover binding on mobile — click/tap opens popup naturally.
       marker;
     }
-    // v20.4.9 — Listings layer (muted gold home icons).
-    for (const l of listings) {
-      if (l.lat == null || l.lng == null) continue;
-      L.marker([l.lat, l.lng], { icon: makeListingPin(L, l.status), zIndexOffset: 200 })
-        .bindPopup(listingPopupHTML(l), { className: "team-map-popup", maxWidth: 260, autoPan: true })
-        .addTo(layerRef.current);
-    }
+    // v20.7.20 — Listings layer HIDDEN on map per Alex (not working reliably
+    // and the pins added noise without value). The `listings` state + fetch
+    // still run so admin-side tooling and popups can be revived later without
+    // re-plumbing the data path — we simply skip rendering the markers.
+    // (No marker.addTo calls for listings.)
     // v20.4.9 — Open House layer (bright pulsing gold flags).
     for (const oh of openHouses) {
       if (oh.lat == null || oh.lng == null) continue;

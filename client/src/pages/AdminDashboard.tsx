@@ -129,6 +129,53 @@ function StatCard({ label, value, sub, accent }: { label: string; value: number 
 // is live, muted gray + "Quiet" copy when nobody has logged an outcome in the
 // last 10 minutes. Alex asked for desktop visibility — the phone-side pill in
 // AgentView never made it to the admin console.
+//
+// v20.7.23 — LiveOnAirChip: compact 34px-tall toolbar variant that just shows
+// the count with the same green pulse dot as the full widget. Used in the admin
+// header row where the full widget would break the layout. Clicking it toggles
+// the full drawer below (setLiveOnAirOpen). Same data source — shares the
+// react-query cache with LiveOnAirWidget so no double-polling.
+function LiveOnAirChip({ onClick }: { onClick?: () => void }) {
+  const { data } = useQuery<{ agents: any[]; count: number; windowMinutes: number }>({
+    queryKey: ["/api/agents/live-agents"],
+    queryFn: () => apiRequest("GET", "/api/agents/live-agents").then(r => r.json()),
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
+    staleTime: 5000,
+  });
+  const count = data?.count || 0;
+  const isLive = count > 0;
+  return (
+    <button
+      onClick={onClick}
+      title={isLive ? `${count} agent${count === 1 ? "" : "s"} dialing now (last 10 min)` : "Nobody dialing (last 10 min)"}
+      style={{
+        display: "flex", alignItems: "center", gap: 6,
+        height: 34, padding: "0 10px", borderRadius: 8,
+        background: isLive ? "rgba(34,197,94,0.10)" : "rgba(255,255,255,0.04)",
+        border: `1px solid ${isLive ? "rgba(34,197,94,0.30)" : "rgba(255,255,255,0.10)"}`,
+        cursor: onClick ? "pointer" : "default",
+        flexShrink: 0, whiteSpace: "nowrap",
+      }}
+    >
+      <span style={{
+        width: 7, height: 7, borderRadius: "50%",
+        background: isLive ? "#4ade80" : "rgba(255,255,255,0.25)",
+        boxShadow: isLive ? "0 0 6px rgba(74,222,128,0.7)" : "none",
+        animation: isLive ? "livePulseChip 1.8s ease-in-out infinite" : "none",
+        flexShrink: 0,
+      }} />
+      <span style={{
+        fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
+        color: isLive ? "rgba(134,239,172,0.95)" : "rgba(255,255,255,0.45)",
+      }}>
+        {isLive ? `${count} On Air` : "Quiet"}
+      </span>
+      <style>{`@keyframes livePulseChip { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.2); } }`}</style>
+    </button>
+  );
+}
+
 function LiveOnAirWidget() {
   const { data } = useQuery<{ agents: Array<{ id: number; name: string; headshotUrl: string | null; dials: number; lastActivityAt: string }>; count: number; windowMinutes: number }>({
     queryKey: ["/api/agents/live-agents"],
@@ -1838,13 +1885,25 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.7.22
+              v20.7.23
             </p>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {/* v20.7.23 — flexWrap on the toolbar so the sign-out button never falls
+             off screen on narrower viewports. Previously the row was a single-line
+             flex with health → live chip → feed → Work My Leads → Who called me? →
+             Sign Out, and on 1024–768px widths (iPad landscape, small laptops) the
+             sign-out button pushed past the viewport. Wrapping lets it drop to a
+             second row instead of vanishing. justifyContent flex-end keeps the
+             wrapped items right-aligned to match the container. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {/* Connectivity Health Widget */}
           <HealthWidget />
+          {/* v20.7.23 — Restored the live dialers indicator in the admin header.
+               The full LiveOnAirWidget panel is defined but never rendered anywhere;
+               the toolbar chip variant surfaces the count + pulse in the header where
+               Alex expects it. */}
+          <LiveOnAirChip />
           {/* Activity Feed toggle */}
           <button
             onClick={() => setFeedOpen(o => !o)}

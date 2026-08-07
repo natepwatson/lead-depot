@@ -112,6 +112,7 @@
   "POST /api/admin/agents/merge",
   "POST /api/admin/approvals/:id/approve",
   "POST /api/admin/approvals/:id/reject",
+  "POST /api/admin/backfill-appt-points",
   "POST /api/admin/backfill-scores",
   "POST /api/admin/backup-now",
   "POST /api/admin/candidates/:id/approve",

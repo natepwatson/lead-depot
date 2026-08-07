@@ -4395,14 +4395,43 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                       }}>{initials}</div>
                     );
                   })()}
+                  {/* v20.7.23 — Full agent name on the leaderboard row. Previous
+                       version truncated to a single line with ellipsis, which chopped
+                       longer names like "Bronson Sarmento" or "Gabriel Duran" on
+                       narrow phones. Now: line 1 is the first name in the emphasis
+                       weight/color the row already uses, line 2 is the last name(s)
+                       in a muted tone so the eye still lands on the first-name pill
+                       first. Row auto-grows for a two-line label. */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{
-                      fontSize: 14, fontWeight: isMe ? 700 : 500,
-                      color: isMe ? "#c8aa5a" : "#fff",
-                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                    }}>
-                      {s.agent.name}{isMe ? " (you)" : ""}
-                    </p>
+                    {(() => {
+                      const parts = (s.agent.name || "").trim().split(/\s+/);
+                      const first = parts[0] || s.agent.name;
+                      const rest  = parts.slice(1).join(" ");
+                      return (
+                        <>
+                          <p style={{
+                            fontSize: 14, fontWeight: isMe ? 700 : 600,
+                            color: isMe ? "#c8aa5a" : "#fff",
+                            lineHeight: 1.15,
+                            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                          }}>
+                            {first}{isMe ? " (you)" : ""}
+                          </p>
+                          {rest && (
+                            <p style={{
+                              fontSize: 11, fontWeight: 400,
+                              color: isMe ? "rgba(200,170,90,0.72)" : "rgba(255,255,255,0.55)",
+                              lineHeight: 1.1,
+                              marginTop: 2,
+                              letterSpacing: "0.03em",
+                              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                            }}>
+                              {rest}
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                   {/* v20.7.20 — SLIMMED LEADERBOARD. DM (Direct Mail) + DK (Door Knock)
                        columns removed per Alex — points/system still intact server-side
@@ -6118,7 +6147,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.22</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.23</span>
             </div>
           </div>
           {onBackToAdmin && (

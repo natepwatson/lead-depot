@@ -234,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.20 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.21 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -463,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.20 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.21 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -522,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.20 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.21 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -570,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.20 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.21 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1808,7 +1808,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.20</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.21</p>
             </div>
           `,
         });
@@ -1968,7 +1968,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.20 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.21 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -7634,6 +7634,39 @@ This template is for informational/outreach purposes only.`;
     const ptsTodayMap = ptsBucket(todayStartAg);
     const ptsWeekMap  = ptsBucket(weekStartAg);
     const ptsMonthMap = ptsBucket(monthStartAg);
+
+    // v20.7.21 — mirror admin bucketByReason (matches both `reason=<X>` and
+    // `reason=approval:<X>`) so OH / DM / DK / social show up on the AGENT
+    // leaderboard too. Prior version omitted these entirely; every agent's
+    // FB/IG, OH, DM, DK columns silently rendered 0.
+    const bucketByReasonAg = (reason: string, floorISO: string | null): Record<number, number> => {
+      const approvalReason = `approval:${reason}`;
+      const sql = floorISO
+        ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason IN (?, ?) AND created_at >= ? GROUP BY agent_id`
+        : `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason IN (?, ?) GROUP BY agent_id`;
+      const rows: any[] = floorISO
+        ? rawDb.prepare(sql).all(reason, approvalReason, floorISO)
+        : rawDb.prepare(sql).all(reason, approvalReason);
+      const m: Record<number, number> = {};
+      for (const r of rows) m[r.agent_id] = r.cnt;
+      return m;
+    };
+    const ohTodayMapA = bucketByReasonAg("open_house_log", todayStartAg);
+    const ohWeekMapA  = bucketByReasonAg("open_house_log", weekStartAg);
+    const ohMonthMapA = bucketByReasonAg("open_house_log", monthStartAg);
+    const ohAllMapA   = bucketByReasonAg("open_house_log", null);
+    const dmTodayMapA = bucketByReasonAg("direct_mail", todayStartAg);
+    const dmWeekMapA  = bucketByReasonAg("direct_mail", weekStartAg);
+    const dmMonthMapA = bucketByReasonAg("direct_mail", monthStartAg);
+    const dmAllMapA   = bucketByReasonAg("direct_mail", null);
+    const dkTodayMapA = bucketByReasonAg("door_knock", todayStartAg);
+    const dkWeekMapA  = bucketByReasonAg("door_knock", weekStartAg);
+    const dkMonthMapA = bucketByReasonAg("door_knock", monthStartAg);
+    const dkAllMapA   = bucketByReasonAg("door_knock", null);
+    const socTodayMapA = bucketByReasonAg("social_post", todayStartAg);
+    const socWeekMapA  = bucketByReasonAg("social_post", weekStartAg);
+    const socMonthMapA = bucketByReasonAg("social_post", monthStartAg);
+    const socAllMapA   = bucketByReasonAg("social_post", null);
     const ptsAllRows: any[] = rawDb.prepare(`SELECT agent_id, SUM(points) as total FROM agent_points WHERE scope = 'seller' GROUP BY agent_id`).all() as any[];
     const ptsAllMap: Record<number, number> = {};
     for (const p of ptsAllRows) ptsAllMap[p.agent_id] = p.total || 0;
@@ -7677,7 +7710,9 @@ This template is for informational/outreach purposes only.`;
 
     // v18.3 — unified window shape matching /api/admin/leaderboard exactly.
     // Fields: dials, appts, kit, emails, noAnswer, convRate, referrals, points.
-    const win = (r: any, p: "today" | "week" | "month", agentId: number, refMap: Record<number, number>, ptsMap: Record<number, number>) => {
+    // v20.7.21 — now also emits oh/dm/dk/social so every lead-gen activity
+    // renders on the agent-side leaderboard.
+    const win = (r: any, p: "today" | "week" | "month", agentId: number, refMap: Record<number, number>, ptsMap: Record<number, number>, ohMap: Record<number, number>, dmMap: Record<number, number>, dkMap: Record<number, number>, socMap: Record<number, number>) => {
       const total    = r[`${p}_total`]    || 0;
       const emails   = r[`${p}_emails`]   || 0;
       const appts    = r[`${p}_appts`]    || 0;
@@ -7698,6 +7733,11 @@ This template is for informational/outreach purposes only.`;
         referrals: refMap[agentId] || 0,
         // Back-compat aliases so existing UI code that reads `refs` still works.
         refs:      refMap[agentId] || 0,
+        // v20.7.21 — lead-gen columns (parity with admin).
+        oh:        ohMap[agentId]  || 0,
+        dm:        dmMap[agentId]  || 0,
+        dk:        dkMap[agentId]  || 0,
+        social:    socMap[agentId] || 0,
       };
     };
 
@@ -7733,9 +7773,9 @@ This template is for informational/outreach purposes only.`;
         // v16.7 — per-window blocks powering TODAY/WEEK/MONTH/ALL tabs.
         // v18.3 — window shape now matches /api/admin/leaderboard exactly.
         // Also exposed at top level for admin dashboard compat.
-        today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap),
-        weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap),
-        monthly: win(r, "month", agent.id, refMonthMap, ptsMonthMap),
+        today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap, ohTodayMapA, dmTodayMapA, dkTodayMapA, socTodayMapA),
+        weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap,  ohWeekMapA,  dmWeekMapA,  dkWeekMapA,  socWeekMapA),
+        monthly: win(r, "month", agent.id, refMonthMap, ptsMonthMap, ohMonthMapA, dmMonthMapA, dkMonthMapA, socMonthMapA),
         allTime: (() => {
           const total    = r.total_all   || 0;
           const emails   = r.emails_sent || 0;
@@ -7751,20 +7791,29 @@ This template is for informational/outreach purposes only.`;
             dials, appts, kit, emails, noAnswer, convRate,
             referrals: refAllMap[agent.id] || 0,
             refs:      refAllMap[agent.id] || 0,
+            // v20.7.21 — lead-gen columns (parity with admin).
+            oh:        ohAllMapA[agent.id]  || 0,
+            dm:        dmAllMapA[agent.id]  || 0,
+            dk:        dkAllMapA[agent.id]  || 0,
+            social:    socAllMapA[agent.id] || 0,
           };
         })(),
         // Back-compat: keep the old `windows` block so any old client caching
         // still works during the flip.
         windows: {
-          today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap),
-          weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap),
-          monthly: win(r, "month", agent.id, refMonthMap, ptsMonthMap),
+          today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap, ohTodayMapA, dmTodayMapA, dkTodayMapA, socTodayMapA),
+          weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap,  ohWeekMapA,  dmWeekMapA,  dkWeekMapA,  socWeekMapA),
+          monthly: win(r, "month", agent.id, refMonthMap, ptsMonthMap, ohMonthMapA, dmMonthMapA, dkMonthMapA, socMonthMapA),
           allTime: {
             points: ptsAllMap[agent.id] || 0,
             appts:  r.appts || 0,
             dials:  ((r.total_all || 0) - (r.emails_sent || 0)),
             kit:    r.kit || 0,
             refs:   refAllMap[agent.id] || 0,
+            oh:     ohAllMapA[agent.id]  || 0,
+            dm:     dmAllMapA[agent.id]  || 0,
+            dk:     dkAllMapA[agent.id]  || 0,
+            social: socAllMapA[agent.id] || 0,
           },
         },
       };
@@ -8218,7 +8267,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.20 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.21 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -9320,7 +9369,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.20",
+      version: "v20.7.21",
       services: results,
     });
   });
@@ -10287,7 +10336,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.20</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.21</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

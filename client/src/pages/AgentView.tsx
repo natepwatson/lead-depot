@@ -4636,7 +4636,7 @@ interface PipelineLead {
   stage?: string | null;
 }
 
-function PipelineCard({ lead, kind, onOpen }: { lead: PipelineLead; kind: "appt" | "kit" | "network"; onOpen?: (leadId: number) => void }) {
+function PipelineCard({ lead, kind, onOpen, onConvertKit }: { lead: PipelineLead; kind: "appt" | "kit" | "network"; onOpen?: (leadId: number) => void; onConvertKit?: (lead: PipelineLead) => void }) {
   const accent = kind === "appt" ? "#10b981" : kind === "kit" ? "#c8aa5a" : "#8b7cff";
   const kindLabel = kind === "appt" ? "APPT SET" : kind === "kit" ? "KEEP IN TOUCH" : "MY NETWORK LEAD";
   const name = lead.owner_name || lead.ownerName || "Unknown";
@@ -4686,6 +4686,22 @@ function PipelineCard({ lead, kind, onOpen }: { lead: PipelineLead; kind: "appt"
           {lead.intention && <>Intention: <b style={{ color: "rgba(255,255,255,0.75)" }}>{lead.intention}</b>{lead.follow_up_timing && " · "}</>}
           {lead.follow_up_timing && <>Follow up: <b style={{ color: "rgba(255,255,255,0.75)" }}>{lead.follow_up_timing}</b></>}
         </div>
+      )}
+      {/* v20.7.16 — Convert KIT → Appt. The path of least resistance: the lead
+          is already connected to this agent. One tap opens the full Appt Set
+          modal and awards the standard 60 pts on submit. */}
+      {kind === "kit" && onConvertKit && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onConvertKit(lead); }}
+          data-testid={`convert-kit-${lead.id}`}
+          style={{
+            marginTop: 10, width: "100%", padding: "9px",
+            background: "linear-gradient(135deg,#10b981,#0d9668)",
+            color: "#04120c", border: "none", borderRadius: 8,
+            fontSize: 11, fontWeight: 800, letterSpacing: "0.12em",
+            textTransform: "uppercase", cursor: "pointer",
+          }}
+        >→ Convert to Appt Set (+60 pts)</button>
       )}
     </div>
   );
@@ -4748,6 +4764,11 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
     try { return (window.localStorage.getItem("ld_pipeline_view_v1") as any) || "list"; } catch { return "list"; }
   });
   useEffect(() => { try { window.localStorage.setItem("ld_pipeline_view_v1", pipelineView); } catch {} }, [pipelineView]);
+
+  // v20.7.16 — KIT → Appt convert modal state. `convertLead` holds the KIT
+  // being converted; when non-null the KitConvertModal is shown.
+  const [convertLead, setConvertLead] = useState<PipelineLead | null>(null);
+
   const counts = data?.counts || { appts: 0, kit: 0, network: 0, total: 0 };
   const kanban = data?.kanban || { lead: [], contacted: [], nurture: [], hot: [], apptSet: [], clientActive: [] };
   const kanbanCounts = data?.kanbanCounts || { lead: 0, contacted: 0, nurture: 0, hot: 0, apptSet: 0, clientActive: 0 };
@@ -4860,7 +4881,7 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
             <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.14em", color: "#c8aa5a", textTransform: "uppercase" }}>Keep In Touch · {kit.length}</h2>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {kit.map(l => <PipelineCard key={l.id} lead={l} kind="kit" onOpen={onOpenLead} />)}
+            {kit.map(l => <PipelineCard key={l.id} lead={l} kind="kit" onOpen={onOpenLead} onConvertKit={setConvertLead} />)}
           </div>
         </section>
       )}
@@ -4876,7 +4897,97 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
         </section>
       )}
       </>}
+
+      {/* v20.7.16 — KIT → Appt Set convert modal. Reuses the standard ApptModal
+          with pre-filled KIT context. On submit, fires /outcome with
+          contacted_appointment (same code path as fresh Appt Set) so FUB plan,
+          alert emails, points, activity, and pipeline transition all happen
+          automatically. */}
+      {convertLead && (
+        <KitConvertModal
+          kitLead={convertLead}
+          onClose={() => setConvertLead(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// v20.7.16 — KitConvertModal: wraps ApptModal for KIT → Appt conversion.
+// Fetches the full Lead row (ApptModal needs the schema-shaped Lead), then
+// forwards the modal's submit payload straight to /api/leads/:id/outcome with
+// outcome='contacted_appointment'. Success invalidates my-pipeline so the KIT
+// card animates out of KIT and into APPTS.
+function KitConvertModal({ kitLead, onClose }: { kitLead: PipelineLead; onClose: () => void }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const agentId = (user as any)?.id;
+  // Fetch full Lead row — ApptModal needs LeadRow shape (email/lead_type/etc.).
+  const { data: fullLead, isLoading } = useQuery<Lead>({
+    queryKey: [`/api/leads/${kitLead.id}`],
+    queryFn: () => apiRequest("GET", `/api/leads/${kitLead.id}`).then(r => r.json()),
+  });
+  const mutation = useMutation({
+    mutationFn: async (data: { apptEmail: string; confirmedAddress: string; apptDate: string; apptTime: string; stage: string; intention: string; }) => {
+      const clientTapId = `kit-convert-${kitLead.id}-${Date.now()}`;
+      const res = await apiRequest("POST", `/api/leads/${kitLead.id}/outcome`, {
+        agentId,
+        outcome: "contacted_appointment",
+        notes: `Converted from KIT to Appt Set. Follow-up scheduled.`,
+        apptEmail: data.apptEmail,
+        confirmedAddress: data.confirmedAddress,
+        apptDate: data.apptDate,
+        apptTime: data.apptTime,
+        stage: data.stage,
+        intention: data.intention,
+        clientTapId,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "KIT converted to Appt — +60 pts",
+        description: `${kitLead.owner_name || kitLead.ownerName || "Lead"} moved from Keep in Touch to Appt Set.`,
+      });
+      qc.invalidateQueries({ queryKey: [`/api/leads/my-pipeline`] });
+      qc.invalidateQueries({ queryKey: [`/api/agents`] });
+      qc.invalidateQueries({ queryKey: [`/api/leaderboard`] });
+      onClose();
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Convert failed",
+        description: String(err?.message || err) || "Try again in a moment.",
+        variant: "destructive",
+      });
+    },
+  });
+  if (isLoading || !fullLead) {
+    return (
+      <div style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 200,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }} onClick={onClose}>
+        <div style={{ color: "#c8aa5a", fontSize: 13, letterSpacing: "0.08em" }}>Loading lead…</div>
+      </div>
+    );
+  }
+  return (
+    <ApptModal
+      lead={fullLead}
+      outcome="contacted_appointment"
+      onClose={onClose}
+      onSubmit={(data) => mutation.mutate({
+        apptEmail: data.apptEmail,
+        confirmedAddress: data.confirmedAddress,
+        apptDate: data.apptDate,
+        apptTime: data.apptTime,
+        stage: data.stage,
+        intention: data.intention,
+      })}
+      isPending={mutation.isPending}
+    />
   );
 }
 

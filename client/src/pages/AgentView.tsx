@@ -4634,7 +4634,7 @@ interface PipelineLead {
   appt_time?: string | null;
   intention?: string | null;
   stage?: string | null;
-  // v20.7.18 — flagged true when Appt Set came from a KIT convert tap.
+  // v20.7.19 — flagged true when Appt Set came from a KIT convert tap.
   // Surfaces a small gold pill on the Appt Set pipeline card.
   converted_from_kit?: boolean;
 }
@@ -4684,7 +4684,7 @@ function PipelineCard({ lead, kind, onOpen, onConvertKit }: { lead: PipelineLead
           Appointment: <b style={{ color: "#10b981" }}>{apptWhen}</b>
         </div>
       )}
-      {/* v20.7.18 — "Converted from KIT" pill so Alex/agents can see this Appt
+      {/* v20.7.19 — "Converted from KIT" pill so Alex/agents can see this Appt
           Set didn't come from a cold dial — it was a warmed KIT nurtured up. */}
       {kind === "appt" && lead.converted_from_kit && (
         <div style={{
@@ -4962,7 +4962,7 @@ function KitConvertModal({ kitLead, onClose }: { kitLead: PipelineLead; onClose:
       return res.json();
     },
     onSuccess: (result: any) => {
-      // v20.7.18 — server can return {replayed:true} when the lead was already
+      // v20.7.19 — server can return {replayed:true} when the lead was already
       // an Appt Set (idempotent guard). Show a soft message, do NOT claim +60
       // was awarded a second time, still invalidate queries so the KIT card
       // disappears from the pipeline.
@@ -6187,7 +6187,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.18</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.19</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6221,8 +6221,11 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* v15.3 — REAL dialing-now pill. Green + pulse when ≥ 1 agent has
               logged a call outcome in the last 10 min; gray + static when quiet.
-              Tap-hold title shows "last activity Xm ago" so Alex can sanity-check. */}
-          {mode === "seller" && (() => {
+              Tap-hold title shows "last activity Xm ago" so Alex can sanity-check.
+              v20.7.19 — for admin users the pill is rendered on the LEFT cluster
+              instead (see block above). This right-side branch stays for regular
+              agents, whose left block has no back button and can't absorb it. */}
+          {!isAdmin && mode === "seller" && (() => {
             // v15.8 — hide the pill entirely when the team is quiet. The green
             // ws-heartbeat dot to the right already signals "connection live";
             // showing a second "Quiet — be the first" pill next to it created a

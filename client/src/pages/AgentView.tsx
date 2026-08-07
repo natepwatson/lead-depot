@@ -4802,11 +4802,10 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
       </div>
 
       {/* v20.7.20 — Kanban view removed per Alex. Pipeline is list-only now.
-          The KanbanBoard component + pipelineView state are still declared
-          above (harmless) so the LIST branch below still opens cleanly, but
-          the toggle UI + kanban branch are gone. */}
-
-      {pipelineView === "list" && <>
+          v20.7.22 — HOTFIX: previous version gated the entire pipeline body on
+          `pipelineView === "list"`. Any user whose localStorage still had
+          "kanban" from before the toggle was removed saw a blank pipeline.
+          Gate removed — pipeline body always renders. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 22 }}>
         {TILES.map(t => {
           const active = pipelineFilter === t.key;
@@ -4873,7 +4872,6 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
           </div>
         </section>
       )}
-      </>}
 
       {/* v20.7.16 — KIT → Appt Set convert modal. Reuses the standard ApptModal
           with pre-filled KIT context. On submit, fires /outcome with
@@ -6120,7 +6118,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.21</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.22</span>
             </div>
           </div>
           {onBackToAdmin && (

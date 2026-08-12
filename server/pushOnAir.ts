@@ -47,25 +47,36 @@ interface PushSubRow {
   auth: string;
 }
 
+// v20.7.29 — Prime Time push notifications DISABLED at Alex's request (2026-08-10).
+// Routes still respond (no 404s from stale client bundles) but the opt-in checkbox
+// is hidden client-side and these endpoints hard-return "push not enabled" state.
+// Existing push_notif_on_air rows in the DB are left alone. To restore: revert this
+// function to the pre-v20.7.29 body AND uncomment startOnAirPushScheduler() in
+// server/routes.ts.
+const PUSH_DISABLED = true;
+
 // Register routes
 export function registerPushRoutes(app: Express) {
   // Public key for the client to subscribe with
   app.get("/api/push/public-key", (_req: Request, res: Response) => {
+    if (PUSH_DISABLED) return res.json({ publicKey: null, enabled: false });
     res.json({ publicKey: VAPID_PUBLIC, enabled: vapidConfigured });
   });
 
-  // Get opt-in state
+  // Get opt-in state — always false while push is disabled
   app.get("/api/agents/:id/push-prefs", (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+    if (PUSH_DISABLED) return res.json({ pushNotifOnAir: false });
     const row = rawDb.prepare("SELECT push_notif_on_air FROM agents WHERE id = ?").get(id) as { push_notif_on_air?: number } | undefined;
     res.json({ pushNotifOnAir: !!row?.push_notif_on_air });
   });
 
-  // Set opt-in state
+  // Set opt-in state — no-op while push is disabled
   app.post("/api/agents/:id/push-prefs", (req: Request, res: Response) => {
     const id = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+    if (PUSH_DISABLED) return res.json({ ok: true, pushNotifOnAir: false, disabled: true });
     const v = req.body?.pushNotifOnAir ? 1 : 0;
     rawDb.prepare("UPDATE agents SET push_notif_on_air = ? WHERE id = ?").run(v, id);
     res.json({ ok: true, pushNotifOnAir: !!v });

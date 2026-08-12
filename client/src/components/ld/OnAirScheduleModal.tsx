@@ -317,30 +317,7 @@ export default function OnAirScheduleModal({ open, onClose, pushOptIn, onToggleP
             </div>
           )}
 
-          {/* Push opt-in */}
-          {pushCapable && (
-            <div style={{
-              padding: "10px 12px",
-              background: "rgba(239,68,68,0.06)",
-              border: "0.5px solid rgba(239,68,68,0.3)",
-              borderRadius: 8,
-              marginBottom: 12,
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-            }}>
-              <input
-                type="checkbox"
-                checked={pushOptIn}
-                onChange={(e) => onTogglePush(e.target.checked)}
-                style={{ width: 18, height: 18, accentColor: "#22c55e", cursor: "pointer", flexShrink: 0 }}
-              />
-              <div style={{ flex: 1, fontSize: 12, lineHeight: 1.5 }}>
-                <div style={{ fontWeight: 600, color: "#f3f3f3", marginBottom: 2 }}>Alert me 15 min before Prime Time</div>
-                <div style={{ color: "rgba(243,243,243,0.6)", fontSize: 11 }}>Buzz + push notification so you're ready to sprint.</div>
-              </div>
-            </div>
-          )}
+          {/* v20.7.29 push opt-in removed. See CHANGES.md v20.7.29 for restore path. */}
 
           {/* v15.11.22 — Multiplier value block */}
           <div style={{

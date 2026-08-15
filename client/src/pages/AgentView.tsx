@@ -3230,7 +3230,7 @@ export function BonusCard() {
           color: "#fff",
           cursor: "pointer",
         }}
-        onClick={() => { try { (window as any).location.hash = "challenges"; } catch {} }}
+        onClick={() => { try { (window as any).__ldSetTab?.("challenges"); } catch {} }}
         role="button"
         tabIndex={0}
       >
@@ -3484,7 +3484,7 @@ export function TeamPotCard() {
             "0 8px 24px -8px rgba(0,0,0,0.9)",
           color: "#fff",
         }}
-        onClick={() => { try { (window as any).location.hash = "leaderboard"; } catch {} }}
+        onClick={() => { try { (window as any).__ldSetTab?.("leaderboard"); } catch {} }}
         role="button"
         tabIndex={0}
       >
@@ -3887,7 +3887,7 @@ function ActiveChallengesCard() {
   });
 
   const goToChallenges = () => {
-    try { (window as any).location.hash = "challenges"; } catch {}
+    try { (window as any).__ldSetTab?.("challenges"); } catch {}
   };
 
   const renderSlot = (slot: ActiveSlot | null, cadence: "daily" | "weekly", idx: number) => {
@@ -4108,6 +4108,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
         dm:       raw.dm || 0,
         dk:       raw.dk || 0,
         social:   raw.social || 0,
+        inv:      raw.inv || 0,
         emails:   raw.emails || 0,
         noAnswer: raw.noAnswer || 0,
         convRate: raw.convRate || 0,
@@ -4120,7 +4121,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
       dials:  s?.totalAttempts || 0,
       kit:    s?.outcomes?.keep_in_touch || 0,
       refs:   s?.refs || 0,
-      oh: 0, dm: 0, dk: 0, social: 0, emails: 0, noAnswer: 0, convRate: 0,
+      oh: 0, dm: 0, dk: 0, social: 0, inv: 0, emails: 0, noAnswer: 0, convRate: 0,
     };
   };
 
@@ -4485,6 +4486,8 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
                           {tailCell(w.dials ?? 0, "DIALS", "rgba(255,255,255,0.7)")}
                           {tailCell(w.oh ?? 0, "OH", "rgba(134,239,172,0.85)")}
                           {tailCell(w.social ?? 0, "FB/IG", "rgba(216,180,254,0.85)")}
+                          {/* v20.7.33 — INV = agent invites sent */}
+                          {tailCell(w.inv ?? 0, "INV", "rgba(56,189,248,0.9)")}
                         </div>
                       </div>
                     );
@@ -4926,6 +4929,131 @@ function MyLeadsTab({ onOpenLead }: { onOpenLead?: (leadId: number) => void }) {
           onClose={() => setConvertLead(null)}
         />
       )}
+
+      {/* v20.7.33 — My Invites section: candidates this agent invited. Sits
+          below their client pipeline on the same tab. Nudge button auto-fires
+          a follow-up email to still-`invited` candidates. */}
+      <MyInvitesSection />
+    </div>
+  );
+}
+
+// v20.7.33 ── My Invites section. Shows every candidate this agent invited,
+// grouped by status (Invited / Submitted / Approved / Declined). One-tap
+// Nudge button on Invited rows auto-sends a follow-up email.
+function MyInvitesSection() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/candidates/mine"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/candidates/mine");
+      if (!r.ok) throw new Error(`load failed: HTTP ${r.status}`);
+      return r.json();
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const nudgeMut = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/candidates/${id}/nudge`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      return j;
+    },
+    onSuccess: () => {
+      toast({ title: "Nudge sent", description: "Auto-email fired to the candidate." });
+      qc.invalidateQueries({ queryKey: ["/api/candidates/mine"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Nudge failed", description: err?.message || "unknown error", variant: "destructive" });
+    },
+  });
+
+  const candidates: any[] = data?.candidates || [];
+  if (isLoading || candidates.length === 0) return null;
+
+  const statusStyle = (status: string): { bg: string; fg: string; border: string; label: string } => {
+    switch (status) {
+      case "invited":   return { bg: "rgba(56,189,248,0.14)",  fg: "#38bdf8", border: "rgba(56,189,248,0.40)",  label: "INVITED"   };
+      case "submitted": return { bg: "rgba(200,170,90,0.16)",  fg: "#c8aa5a", border: "rgba(200,170,90,0.44)",  label: "SUBMITTED" };
+      case "approved":  return { bg: "rgba(74,222,128,0.16)",  fg: "#4ade80", border: "rgba(74,222,128,0.44)",  label: "APPROVED"  };
+      case "declined":  return { bg: "rgba(248,113,113,0.14)", fg: "#f87171", border: "rgba(248,113,113,0.40)", label: "DECLINED"  };
+      default:          return { bg: "rgba(255,255,255,0.05)", fg: "#aaa",    border: "rgba(255,255,255,0.18)", label: status.toUpperCase() };
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 32, padding: "20px 16px", background: "rgba(255,255,255,0.03)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.08)" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12, gap: 8 }}>
+        <h3 style={{
+          fontFamily: "'Cormorant Garamond','Georgia',serif",
+          fontSize: 22, fontWeight: 400, color: "#fff", margin: 0, letterSpacing: "0.01em",
+        }}>My Invites</h3>
+        <span style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", fontWeight: 700 }}>
+          {candidates.length} {candidates.length === 1 ? "agent" : "agents"}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 14, lineHeight: 1.55 }}>
+        Every agent you’ve invited to the team. Nudge the ones who haven’t finished the application yet — one tap fires a follow-up email from you. Rate-limited to once every 24 hours per candidate.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {candidates.map((c) => {
+          const s = statusStyle(c.status);
+          const created = c.created_at ? new Date(c.created_at).toLocaleDateString() : "—";
+          const isInvited = c.status === "invited";
+          const showNudge = isInvited && !!c.email;
+          return (
+            <div key={c.id} style={{
+              padding: 12,
+              borderRadius: 10,
+              background: "rgba(0,0,0,0.24)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2, flexWrap: "wrap" }}>
+                  <strong style={{ color: "#fff", fontSize: 15 }}>{c.name}</strong>
+                  <span style={{
+                    background: s.bg, color: s.fg, border: `1px solid ${s.border}`,
+                    padding: "2px 7px", borderRadius: 5, fontSize: 10, fontWeight: 700,
+                    letterSpacing: ".1em",
+                  }}>{s.label}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
+                  {c.phone ? c.phone : "no phone"}{c.email ? ` · ${c.email}` : ""}
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>
+                  Invited {created}
+                </div>
+              </div>
+              {showNudge && (
+                <button
+                  onClick={() => nudgeMut.mutate(c.id)}
+                  disabled={nudgeMut.isPending}
+                  style={{
+                    padding: "7px 14px", borderRadius: 7,
+                    background: "rgba(56,189,248,0.16)", border: "1px solid rgba(56,189,248,0.5)",
+                    color: "#38bdf8", fontSize: 11, fontWeight: 700, letterSpacing: ".12em",
+                    textTransform: "uppercase", cursor: nudgeMut.isPending ? "wait" : "pointer",
+                    flexShrink: 0,
+                  }}
+                >{nudgeMut.isPending ? "Sending…" : "Nudge"}</button>
+              )}
+              {isInvited && !c.email && (
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontStyle: "italic", flexShrink: 0 }}>
+                  No email — call or text directly
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -5927,6 +6055,14 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
       setTab("leads");
     }
   }, [pendingLeadId, overrideLead?.id]);
+
+  // v20.7.33 — Expose a nav helper so home-page cards (BonusCard, TeamPotCard,
+  // ActiveChallengesCard) can switch tabs without falling into wouter's hash
+  // router (which 404s on bare `#challenges` / `#leaderboard`).
+  useEffect(() => {
+    (window as any).__ldSetTab = (t: Tab) => setTab(t);
+    return () => { try { delete (window as any).__ldSetTab; } catch {} };
+  }, []);
   const clearPendingLead = () => {
     try { sessionStorage.removeItem("pending_lead_jump"); } catch {}
     setPendingLeadId(null);
@@ -6051,7 +6187,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.32</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.33</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -8229,11 +8365,14 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const { user, toast, onDone } = props;
   const MAX_PLATFORMS = 3;
   const PTS_PER_PLATFORM = 10;
+  const PTS_PER_VIDEO_PLATFORM = 80; // v20.7.33 — video content earns dramatically more.
   const [selected, setSelected] = useState<SocialPlatformId[]>(["instagram"]);
   const [postUrl, setPostUrl] = useState("");
   const [caption, setCaption] = useState("");
   // Map of platform → downscaled dataUrl. Independent per platform.
   const [photos, setPhotos] = useState<Partial<Record<SocialPlatformId, string>>>({});
+  // v20.7.33 — per-platform video flag. Video = 80 pts, still = 10 pts.
+  const [videoFlags, setVideoFlags] = useState<Partial<Record<SocialPlatformId, boolean>>>({});
   const [submitting, setSubmitting] = useState(false);
 
   const platforms: Array<{ id: SocialPlatformId; label: string }> = [
@@ -8248,8 +8387,9 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const togglePlatform = (id: SocialPlatformId) => {
     setSelected(prev => {
       if (prev.includes(id)) {
-        // Deselect: also drop that platform's photo
+        // Deselect: also drop that platform's photo + video flag
         setPhotos(pp => { const copy = { ...pp }; delete copy[id]; return copy; });
+        setVideoFlags(vv => { const copy = { ...vv }; delete copy[id]; return copy; });
         return prev.filter(p => p !== id);
       }
       if (prev.length >= MAX_PLATFORMS) {
@@ -8258,6 +8398,10 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
       }
       return [...prev, id];
     });
+  };
+
+  const toggleVideo = (id: SocialPlatformId) => {
+    setVideoFlags(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   const onPickPhotoFor = (platformId: SocialPlatformId, file: File | null) => {
@@ -8281,7 +8425,11 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     reader.readAsDataURL(file);
   };
 
-  const pointsPreview = selected.length * PTS_PER_PLATFORM;
+  // v20.7.33 — per-platform: video = 80 pts, still = 10 pts.
+  const pointsPreview = selected.reduce(
+    (sum, id) => sum + (videoFlags[id] ? PTS_PER_VIDEO_PLATFORM : PTS_PER_PLATFORM),
+    0,
+  );
 
   const submit = async () => {
     if (selected.length === 0) { toast({ title: "Pick at least 1 platform", variant: "destructive" }); return; }
@@ -8296,10 +8444,13 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     try {
       const platformsPayload = selected.slice();
       const photoDataUrls = platformsPayload.map(id => photos[id] as string);
+      // v20.7.33 — send per-platform video flags (parallel array to platforms).
+      const isVideoFlags = platformsPayload.map(id => !!videoFlags[id]);
       const r = await apiRequest("POST", "/api/lead-gen/social-post", {
         agentId: user?.id,
         platforms: platformsPayload,
         photoDataUrls,
+        isVideo: isVideoFlags,
         postUrl: postUrl.trim() || null,
         caption: caption.trim() || null,
         timestamp: new Date().toISOString(),
@@ -8362,9 +8513,37 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
       {selected.map(pid => {
         const label = platforms.find(p => p.id === pid)?.label || pid;
         const dataUrl = photos[pid];
+        const isVideo = !!videoFlags[pid];
         return (
           <div key={pid}>
-            <label style={labelStyle}>{label} screenshot *</label>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>{label} screenshot *</label>
+              {/* v20.7.33 — Video toggle. Video = 80 pts, still = 10 pts. */}
+              <button
+                type="button"
+                onClick={() => toggleVideo(pid)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "4px 10px", borderRadius: 6,
+                  background: isVideo ? "rgba(56,189,248,0.18)" : "rgba(255,255,255,0.04)",
+                  border: isVideo ? "1px solid rgba(56,189,248,0.55)" : "1px solid rgba(255,255,255,0.14)",
+                  color: isVideo ? "#38bdf8" : "rgba(255,255,255,0.55)",
+                  fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+                  cursor: "pointer",
+                }}
+                aria-pressed={isVideo}
+                title="Toggle if this post is a video (Reel, TikTok, Short, etc.) — videos earn +80 pts vs +10 for still photos."
+              >
+                <span style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  width: 14, height: 14, borderRadius: 3,
+                  background: isVideo ? "#38bdf8" : "transparent",
+                  border: isVideo ? "1px solid #38bdf8" : "1px solid rgba(255,255,255,0.4)",
+                  color: "#080808", fontSize: 10, fontWeight: 900,
+                }}>{isVideo ? "✓" : ""}</span>
+                Video (+80 pts)
+              </button>
+            </div>
             {dataUrl ? (
               <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(200,170,90,0.28)" }}>
                 <img src={dataUrl} alt={`${label} screenshot`} style={{ width: "100%", display: "block", maxHeight: 400, objectFit: "cover" }} />

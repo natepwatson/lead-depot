@@ -234,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.32 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.33 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -463,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.32 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.33 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -522,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.32 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.33 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -570,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.32 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.33 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1812,7 +1812,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.32</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.33</p>
             </div>
           `,
         });
@@ -1972,7 +1972,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.32 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.33 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -7243,6 +7243,20 @@ This template is for informational/outreach purposes only.`;
     const socWeekMap  = bucketByReason("social_post", weekStartISO);
     const socMonthMap = bucketByReason("social_post", monthStartISO);
     const socAllMap   = bucketByReason("social_post", null);
+    // v20.7.33 — INV column: agent invites sent (no approval:* twin, invite fires immediately).
+    const invBucket = (floorISO: string | null): Record<number, number> => {
+      const sql = floorISO
+        ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason = 'agent_invite_sent' AND created_at >= ? GROUP BY agent_id`
+        : `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason = 'agent_invite_sent' GROUP BY agent_id`;
+      const rows: any[] = floorISO ? rawDb.prepare(sql).all(floorISO) : rawDb.prepare(sql).all();
+      const m: Record<number, number> = {};
+      for (const r of rows) m[r.agent_id] = r.cnt;
+      return m;
+    };
+    const invTodayMap = invBucket(todayStartISO);
+    const invWeekMap  = invBucket(weekStartISO);
+    const invMonthMap = invBucket(monthStartISO);
+    const invAllMap   = invBucket(null);
 
     // v20.7.27 — POINTS BUCKETS on the admin side. Prior versions only computed
     // a single since-reset total (see ptsMap below, still emitted as the flat
@@ -7308,12 +7322,17 @@ This template is for informational/outreach purposes only.`;
         : period === "week"  ? (socWeekMap[agentId]  || 0)
         : period === "month" ? (socMonthMap[agentId] || 0)
         : (socAllMap[agentId] || 0);
+      // v20.7.33 — INV column.
+      const inv = period === "today" ? (invTodayMap[agentId] || 0)
+        : period === "week"  ? (invWeekMap[agentId]  || 0)
+        : period === "month" ? (invMonthMap[agentId] || 0)
+        : (invAllMap[agentId] || 0);
       // v20.7.27 — points per window (drives monthly-ranked sort + window UI).
       const points = period === "today" ? (ptsTodayMapAdm[agentId] || 0)
         : period === "week"  ? (ptsWeekMapAdm[agentId]  || 0)
         : period === "month" ? (ptsMonthMapAdm[agentId] || 0)
         : (ptsAllMapAdm[agentId] || 0);
-      return { dials, appts, kit, emails, noAnswer, convRate, referrals, oh, dm, dk, social, points };
+      return { dials, appts, kit, emails, noAnswer, convRate, referrals, oh, dm, dk, social, inv, points };
     };
 
     // v15.11.26 — broaden the "green dot" signal. Was: only lead_activity outcomes.
@@ -7727,6 +7746,22 @@ This template is for informational/outreach purposes only.`;
     const socWeekMapA  = bucketByReasonAg("social_post", weekStartAg);
     const socMonthMapA = bucketByReasonAg("social_post", monthStartAg);
     const socAllMapA   = bucketByReasonAg("social_post", null);
+    // v20.7.33 — INV column = agent invites sent. Uses direct reason match
+    // (not bucketByReasonAg's approval pattern) because agent_invite_sent has
+    // no `approval:*` twin — the invite fires immediately.
+    const invBucketAg = (floorISO: string | null): Record<number, number> => {
+      const sql = floorISO
+        ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason = 'agent_invite_sent' AND created_at >= ? GROUP BY agent_id`
+        : `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason = 'agent_invite_sent' GROUP BY agent_id`;
+      const rows: any[] = floorISO ? rawDb.prepare(sql).all(floorISO) : rawDb.prepare(sql).all();
+      const m: Record<number, number> = {};
+      for (const r of rows) m[r.agent_id] = r.cnt;
+      return m;
+    };
+    const invTodayMapA = invBucketAg(todayStartAg);
+    const invWeekMapA  = invBucketAg(weekStartAg);
+    const invMonthMapA = invBucketAg(monthStartAg);
+    const invAllMapA   = invBucketAg(null);
     const ptsAllRows: any[] = rawDb.prepare(`SELECT agent_id, SUM(points) as total FROM agent_points WHERE scope = 'seller' GROUP BY agent_id`).all() as any[];
     const ptsAllMap: Record<number, number> = {};
     for (const p of ptsAllRows) ptsAllMap[p.agent_id] = p.total || 0;
@@ -7772,7 +7807,7 @@ This template is for informational/outreach purposes only.`;
     // Fields: dials, appts, kit, emails, noAnswer, convRate, referrals, points.
     // v20.7.22 — now also emits oh/dm/dk/social so every lead-gen activity
     // renders on the agent-side leaderboard.
-    const win = (r: any, p: "today" | "week" | "month", agentId: number, refMap: Record<number, number>, ptsMap: Record<number, number>, ohMap: Record<number, number>, dmMap: Record<number, number>, dkMap: Record<number, number>, socMap: Record<number, number>) => {
+    const win = (r: any, p: "today" | "week" | "month", agentId: number, refMap: Record<number, number>, ptsMap: Record<number, number>, ohMap: Record<number, number>, dmMap: Record<number, number>, dkMap: Record<number, number>, socMap: Record<number, number>, invMap: Record<number, number>) => {
       const total    = r[`${p}_total`]    || 0;
       const emails   = r[`${p}_emails`]   || 0;
       const appts    = r[`${p}_appts`]    || 0;
@@ -7798,6 +7833,8 @@ This template is for informational/outreach purposes only.`;
         dm:        dmMap[agentId]  || 0,
         dk:        dkMap[agentId]  || 0,
         social:    socMap[agentId] || 0,
+        // v20.7.33 — INV column: agent invites sent.
+        inv:       invMap[agentId] || 0,
       };
     };
 
@@ -7833,9 +7870,9 @@ This template is for informational/outreach purposes only.`;
         // v16.7 — per-window blocks powering TODAY/WEEK/MONTH/ALL tabs.
         // v18.3 — window shape now matches /api/admin/leaderboard exactly.
         // Also exposed at top level for admin dashboard compat.
-        today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap, ohTodayMapA, dmTodayMapA, dkTodayMapA, socTodayMapA),
-        weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap,  ohWeekMapA,  dmWeekMapA,  dkWeekMapA,  socWeekMapA),
-        monthly: win(r, "month", agent.id, refMonthMap, ptsMonthMap, ohMonthMapA, dmMonthMapA, dkMonthMapA, socMonthMapA),
+        today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap, ohTodayMapA, dmTodayMapA, dkTodayMapA, socTodayMapA, invTodayMapA),
+        weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap,  ohWeekMapA,  dmWeekMapA,  dkWeekMapA,  socWeekMapA,  invWeekMapA),
+        monthly: win(r, "month", agent.id, refMonthMap, ptsMonthMap, ohMonthMapA, dmMonthMapA, dkMonthMapA, socMonthMapA, invMonthMapA),
         allTime: (() => {
           const total    = r.total_all   || 0;
           const emails   = r.emails_sent || 0;
@@ -7856,14 +7893,16 @@ This template is for informational/outreach purposes only.`;
             dm:        dmAllMapA[agent.id]  || 0,
             dk:        dkAllMapA[agent.id]  || 0,
             social:    socAllMapA[agent.id] || 0,
+            // v20.7.33 — INV column: agent invites sent.
+            inv:       invAllMapA[agent.id] || 0,
           };
         })(),
         // Back-compat: keep the old `windows` block so any old client caching
         // still works during the flip.
         windows: {
-          today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap, ohTodayMapA, dmTodayMapA, dkTodayMapA, socTodayMapA),
-          weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap,  ohWeekMapA,  dmWeekMapA,  dkWeekMapA,  socWeekMapA),
-          monthly: win(r, "month", agent.id, refMonthMap, ptsMonthMap, ohMonthMapA, dmMonthMapA, dkMonthMapA, socMonthMapA),
+          today:   win(r, "today", agent.id, refTodayMap, ptsTodayMap, ohTodayMapA, dmTodayMapA, dkTodayMapA, socTodayMapA, invTodayMapA),
+          weekly:  win(r, "week",  agent.id, refWeekMap,  ptsWeekMap,  ohWeekMapA,  dmWeekMapA,  dkWeekMapA,  socWeekMapA,  invWeekMapA),
+          monthly: win(r, "month", agent.id, refMonthMap, ptsMonthMap, ohMonthMapA, dmMonthMapA, dkMonthMapA, socMonthMapA, invMonthMapA),
           allTime: {
             points: ptsAllMap[agent.id] || 0,
             appts:  r.appts || 0,
@@ -7874,6 +7913,8 @@ This template is for informational/outreach purposes only.`;
             dm:     dmAllMapA[agent.id]  || 0,
             dk:     dkAllMapA[agent.id]  || 0,
             social: socAllMapA[agent.id] || 0,
+            // v20.7.33 — INV column: agent invites sent.
+            inv:    invAllMapA[agent.id] || 0,
           },
         },
       };
@@ -8308,7 +8349,30 @@ This template is for informational/outreach purposes only.`;
     // Activity feed + referral points (v11.40)
     const _refAgent = submitterAgentId ? storage.getAgentById(submitterAgentId) : null;
     broadcast({ type: "activity_event", event: { type: "warm_lead_submitted", source, intent, agentId: submitterAgentId, agentName: _refAgent?.name || submittedByName || "Agent", agentHeadshot: (_refAgent as any)?.headshotUrl || null, address: created.address, ts: new Date().toISOString() } });
-    awardPoints(submitterAgentId, "network_referral", created.id);
+
+    // v20.7.33 — Award points AND write a lead_activity row matching the warm-
+    // lead source. Prior to this the endpoint always awarded `network_referral`
+    // regardless of source, and NEVER wrote lead_activity, so the OH-Lead /
+    // Door-Knock / Direct-Mail challenges never advanced when an agent captured
+    // a warm lead via those legs. Reason string now matches the source.
+    const outcomeBySource: Record<string, string> = {
+      network:     "network_referral",
+      open_house:  "open_house_lead",
+      door_knock:  "door_knock",
+      direct_mail: "direct_mail",
+    };
+    const activityOutcome = outcomeBySource[source] || "network_referral";
+    if (submitterAgentId) {
+      try {
+        rawDb.prepare(`
+          INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(created.id, submitterAgentId, activityOutcome, `Warm lead captured via ${source}`, now);
+      } catch (err) {
+        console.error("[warm-lead activity insert]", err);
+      }
+    }
+    awardPoints(submitterAgentId, activityOutcome, created.id);
 
     // v20.7.11 — Warm-lead ingest also pushes to FUB immediately (person + tags +
     // Nurture stage, no Action Plan). Idempotent — no-op if phone already in FUB.
@@ -8355,7 +8419,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.32 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.33 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8614,13 +8678,14 @@ This template is for informational/outreach purposes only.`;
   //
   // Backward-compatible: still accepts legacy { platform, photoDataUrl } single-field.
   const SOCIAL_PER_PLATFORM = 10;
+  const SOCIAL_PER_VIDEO_PLATFORM = 80; // v20.7.33 — video content earns dramatically more.
   const SOCIAL_MAX_PLATFORMS = 3;
   const SOCIAL_DAILY_CAP = 2;
 
   app.post("/api/lead-gen/social-post", (req, res) => {
     const {
       agentId, platform, platforms, postUrl, category, notes,
-      photoDataUrl, photoDataUrls, timestamp,
+      photoDataUrl, photoDataUrls, isVideo, timestamp,
     } = req.body;
     const submitterId = agentId ? parseInt(String(agentId)) : null;
     if (!submitterId) return res.status(400).json({ error: "agentId required" });
@@ -8633,8 +8698,21 @@ This template is for informational/outreach purposes only.`;
       ? photoDataUrls.filter((p: any) => typeof p === "string" && p.length > 0)
       : (photoDataUrl ? [String(photoDataUrl)] : []);
 
-    // Dedup + cap platforms to 3
+    // v20.7.33 — normalize per-platform video flags (parallel array to platforms).
+    // Client sends isVideo as a boolean[] aligned to platArr; legacy clients omit it.
+    let videoArr: boolean[] = Array.isArray(isVideo)
+      ? isVideo.map((v: any) => !!v)
+      : [];
+
+    // Dedup + cap platforms to 3 (keep videoArr aligned by same index positions).
+    // We rebuild videoArr after dedup by mapping each unique platform back to its
+    // first-seen index in the incoming platArr.
+    const beforeDedup = platArr.slice();
     platArr = Array.from(new Set(platArr)).slice(0, SOCIAL_MAX_PLATFORMS);
+    videoArr = platArr.map((p) => {
+      const idx = beforeDedup.indexOf(p);
+      return idx >= 0 ? !!videoArr[idx] : false;
+    });
 
     if (platArr.length === 0) {
       return res.status(400).json({ error: "Pick at least 1 platform" });
@@ -8647,6 +8725,9 @@ This template is for informational/outreach purposes only.`;
         error: `Need one screenshot per platform (${platArr.length} platforms, ${photoArr.length} screenshots)`,
       });
     }
+    // Ensure videoArr length matches platArr (default to false when omitted).
+    while (videoArr.length < platArr.length) videoArr.push(false);
+    videoArr = videoArr.slice(0, platArr.length);
 
     // Hard-cap each screenshot payload to protect body-parser (~4MB per)
     photoArr = photoArr.map(p => String(p).slice(0, 4_000_000));
@@ -8667,7 +8748,12 @@ This template is for informational/outreach purposes only.`;
       });
     }
 
-    const pointsPotential = SOCIAL_PER_PLATFORM * platArr.length;
+    // v20.7.33 — per-platform scoring: video = 80 pts, still = 10 pts.
+    const perPlatformPoints = videoArr.map((v) =>
+      v ? SOCIAL_PER_VIDEO_PLATFORM : SOCIAL_PER_PLATFORM
+    );
+    const pointsPotential = perPlatformPoints.reduce((a, b) => a + b, 0);
+    const videoCount = videoArr.filter(Boolean).length;
 
     const now = new Date().toISOString();
     const submitter = storage.getAgentById(submitterId);
@@ -8681,6 +8767,11 @@ This template is for informational/outreach purposes only.`;
       photoDataUrl: photoArr[0], // legacy single-field mirror
       photoDataUrls: photoArr,
       pointsPerPlatform: SOCIAL_PER_PLATFORM,
+      // v20.7.33 — video content: per-platform flags + resolved per-platform points.
+      isVideo: videoArr,
+      perPlatformPoints,
+      pointsPerVideoPlatform: SOCIAL_PER_VIDEO_PLATFORM,
+      videoCount,
     };
     const info = rawDb.prepare(`
       INSERT INTO approval_requests
@@ -8701,6 +8792,9 @@ This template is for informational/outreach purposes only.`;
         platform: platArr.join(", "),
         platforms: platArr,
         pointsPotential,
+        // v20.7.33 — include video counts so the admin queue can badge video posts.
+        isVideo: videoArr,
+        videoCount,
         ts: now,
       },
     });
@@ -8708,6 +8802,7 @@ This template is for informational/outreach purposes only.`;
     res.json({
       submitted: true, requestId, pendingApproval: true,
       pointsPotential, platforms: platArr,
+      isVideo: videoArr, videoCount,
     });
   });
 
@@ -9444,7 +9539,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.32",
+      version: "v20.7.33",
       services: results,
     });
   });
@@ -9548,14 +9643,14 @@ This template is for informational/outreach purposes only.`;
       const scheme = host.includes('localhost') ? 'http' : 'https';
       const inviteUrl = `${scheme}://${host}/join/${token}`;
 
-      // v20.7.32 — Pull inviter's phone so the candidate email is signed correctly.
+      // v20.7.33 — Pull inviter's phone so the candidate email is signed correctly.
       const inviterRow = rawDb.prepare(`SELECT name, email, phone FROM agents WHERE id = ?`).get(authed.id) as any;
       const inviterName  = (inviterRow?.name  || authed.name  || "An agent").trim();
       const inviterEmail = (inviterRow?.email || authed.email || "").trim();
       const inviterPhone = (inviterRow?.phone || "").trim();
       const candFirst    = String(name).trim().split(/\s+/)[0] || "there";
 
-      // v20.7.32 — Auto-send branded invite to the candidate (if email provided).
+      // v20.7.33 — Auto-send branded invite to the candidate (if email provided).
       let emailSent = false;
       if (resend && email) {
         const candidateHtml = `
@@ -9679,6 +9774,118 @@ This template is for informational/outreach purposes only.`;
     }
     broadcast({ type: "activity_event", event: { type: "candidate_submitted", candidateId: row.id, name: row.name, recommendation: rec, score, ts: now } });
     res.json({ ok: true, recommendation: rec, score });
+  });
+
+  // v20.7.33 ── Agent-side: list MY invitees (candidates I invited). Powers the
+  //           My Invites section on the Pipeline tab.
+  app.get("/api/candidates/mine", (req: any, res) => {
+    const authed = req.currentAgent;
+    if (!authed) return res.status(401).json({ error: "Authentication required" });
+    const rows = rawDb.prepare(`
+      SELECT id, name, phone, email, status, invite_token, invited_by_name,
+             created_at, submitted_at, decided_at, recommendation, recommendation_score
+        FROM candidates
+       WHERE invited_by_agent_id = ?
+       ORDER BY created_at DESC
+    `).all(authed.id);
+    res.json({ candidates: rows });
+  });
+
+  // v20.7.33 ── Agent-side: nudge a still-`invited` candidate. Auto-fires a
+  //           pre-written follow-up email from the inviter’s address. Rate-
+  //           limited to 1 nudge every 24h per candidate to avoid spamming.
+  app.post("/api/candidates/:id/nudge", async (req: any, res) => {
+    const authed = req.currentAgent;
+    if (!authed) return res.status(401).json({ error: "Authentication required" });
+    const cid = parseInt(req.params.id);
+    const cand = rawDb.prepare(`SELECT * FROM candidates WHERE id = ?`).get(cid) as any;
+    if (!cand) return res.status(404).json({ error: "candidate not found" });
+    if (cand.invited_by_agent_id !== authed.id) return res.status(403).json({ error: "not your invitee" });
+    if (cand.status !== "invited") return res.status(409).json({ error: `already ${cand.status} — no nudge needed` });
+    if (!cand.email) return res.status(400).json({ error: "no email on file — text or call them directly" });
+    // 24h rate limit — uses agent_audit_log (ts stored as unix ms)
+    const lastNudge = rawDb.prepare(`
+      SELECT MAX(ts) as ts FROM agent_audit_log
+       WHERE event = 'candidate_nudge_sent' AND target_id = ?
+    `).get(cid) as any;
+    if (lastNudge?.ts) {
+      const hoursSince = (Date.now() - Number(lastNudge.ts)) / 3600000;
+      if (hoursSince < 24) {
+        return res.status(429).json({ error: `nudged ${Math.floor(hoursSince)}h ago — wait a day` });
+      }
+    }
+    if (!resend) return res.status(500).json({ error: "email service not configured" });
+
+    const inviterRow = rawDb.prepare(`SELECT name, email, phone FROM agents WHERE id = ?`).get(authed.id) as any;
+    const inviterName  = (inviterRow?.name  || authed.name  || "Your contact at Brothers Group").trim();
+    const inviterEmail = (inviterRow?.email || authed.email || "").trim();
+    const inviterPhone = (inviterRow?.phone || "").trim();
+    const candFirst    = String(cand.name).trim().split(/\s+/)[0] || "there";
+    const host  = req.get('host') || 'depot.watsonbrothersgroup.com';
+    const scheme = host.includes('localhost') ? 'http' : 'https';
+    const inviteUrl = `${scheme}://${host}/join/${cand.invite_token}`;
+
+    const html = `
+<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f4f2ea;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f2ea;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.06);overflow:hidden;">
+        <tr><td style="padding:28px 32px 12px 32px;border-bottom:1px solid #eee;">
+          <div style="font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#a17f2e;font-weight:700;">Brothers Group Real Estate</div>
+          <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#888;font-weight:600;margin-top:4px;">at Momentum Realty</div>
+        </td></tr>
+        <tr><td style="padding:28px 32px 8px 32px;">
+          <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:400;color:#1a1a1a;margin:0 0 16px 0;line-height:1.4;">Hey ${escapeHtml(candFirst)} — just circling back.</h1>
+          <p style="font-size:15px;line-height:1.6;color:#333;margin:0 0 14px 0;">
+            I know life gets busy. I really do think you’d be a great fit on our team, and the application only takes about 3 minutes. Would love to hear from you.
+          </p>
+          <p style="font-size:15px;line-height:1.6;color:#333;margin:0 0 22px 0;">
+            Just fill it out here whenever you’ve got a few minutes — no pressure.
+          </p>
+        </td></tr>
+        <tr><td align="center" style="padding:0 32px 28px 32px;">
+          <a href="${inviteUrl}" style="display:inline-block;background:#0a0a0a;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:14px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;">Finish the application</a>
+          <div style="font-size:12px;color:#888;margin-top:12px;">or paste this link into your browser:<br><span style="color:#555;word-break:break-all;">${inviteUrl}</span></div>
+        </td></tr>
+        <tr><td style="padding:20px 32px 24px 32px;border-top:1px solid #eee;background:#faf8f2;">
+          <div style="font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#a17f2e;font-weight:700;margin-bottom:8px;">Nudge from</div>
+          <div style="font-size:15px;color:#1a1a1a;font-weight:700;">${escapeHtml(inviterName)}</div>
+          ${inviterPhone ? `<div style="font-size:13px;color:#555;margin-top:2px;">${escapeHtml(inviterPhone)}</div>` : ""}
+          ${inviterEmail ? `<div style="font-size:13px;color:#555;margin-top:2px;"><a href="mailto:${escapeHtml(inviterEmail)}" style="color:#a17f2e;text-decoration:none;">${escapeHtml(inviterEmail)}</a></div>` : ""}
+          <div style="font-size:12px;color:#999;margin-top:10px;line-height:1.5;">Reply to this email to reach ${escapeHtml(inviterName.split(/\s+/)[0] || "me")} directly.</div>
+        </td></tr>
+      </table>
+      <div style="font-size:11px;color:#aaa;margin-top:16px;">Brothers Group Real Estate · Momentum Realty · Jacksonville, FL</div>
+    </td></tr>
+  </table>
+</body></html>`;
+    try {
+      const sendResult: any = await resend.emails.send({
+        from: "Brothers Group Real Estate <noreply@watsonbrothersgroup.com>",
+        to:   [String(cand.email).trim()],
+        replyTo: inviterEmail || undefined,
+        subject: `${inviterName} — quick nudge on that Brothers Group invite`,
+        html,
+      });
+      if (sendResult?.error) {
+        console.error("[candidate nudge]", sendResult.error);
+        return res.status(500).json({ error: "email send failed" });
+      }
+      // Log the nudge event so we can rate-limit + audit
+      try {
+        rawDb.prepare(`
+          INSERT INTO agent_audit_log (ts, actor_id, target_id, event, notes)
+          VALUES (?, ?, ?, 'candidate_nudge_sent', 'Auto-nudge email sent to candidate')
+        `).run(Date.now(), authed.id, cid);
+      } catch (err) {
+        console.error("[candidate nudge — agent_audit_log insert]", err);
+      }
+      broadcast({ type: "activity_event", event: { type: "candidate_nudged", candidateId: cid, agentId: authed.id, ts: new Date().toISOString() } });
+      return res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[candidate nudge]", err);
+      return res.status(500).json({ error: err.message || "nudge failed" });
+    }
   });
 
   // ── Admin: list candidates (default: all statuses; ?status= filter)
@@ -10562,7 +10769,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.32</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.33</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

@@ -1425,6 +1425,66 @@ try {
   console.error("[db] v20.7.0 backfill failed (non-fatal):", err?.message || err);
 }
 
+// ─── v20.7.33 — one-shot backfill: warm-lead activity rows ───────────────
+//
+// Prior to v20.7.33, POST /api/leads/network always awarded network_referral
+// and NEVER wrote a lead_activity row. That meant warm leads captured via
+// Open House / Door Knock / Direct Mail didn’t advance the corresponding
+// challenges. v20.7.33 fixes the endpoint going forward AND backfills any
+// warm-lead row that has no matching lead_activity outcome.
+try {
+  rawDb.prepare(`
+    CREATE TABLE IF NOT EXISTS schema_flags (
+      flag TEXT PRIMARY KEY,
+      set_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+  const alreadyBackfilled = rawDb.prepare("SELECT 1 FROM schema_flags WHERE flag = 'v20_7_33_warm_lead_activity_backfill'").get();
+  if (!alreadyBackfilled) {
+    console.log("[db] v20.7.33 warm-lead activity backfill starting...");
+    const started = Date.now();
+    const outcomeBySource: Record<string, string> = {
+      network:     "network_referral",
+      open_house:  "open_house_lead",
+      door_knock:  "door_knock",
+      direct_mail: "direct_mail",
+    };
+    const warmRows = rawDb.prepare(`
+      SELECT id, lead_type, uploaded_by, uploaded_at
+        FROM leads
+       WHERE lead_type IN ('network','open_house','door_knock','direct_mail')
+         AND uploaded_by IS NOT NULL
+    `).all() as any[];
+    const hasActivity = rawDb.prepare(`
+      SELECT 1 FROM lead_activity
+       WHERE lead_id = ? AND outcome = ?
+       LIMIT 1
+    `);
+    const insertActivity = rawDb.prepare(`
+      INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, created_at)
+      VALUES (?, ?, ?, 'v20.7.33 backfill', ?)
+    `);
+    let inserted = 0;
+    const tx = rawDb.transaction(() => {
+      for (const r of warmRows) {
+        const outcome = outcomeBySource[String(r.lead_type)];
+        if (!outcome) continue;
+        const existing = hasActivity.get(r.id, outcome);
+        if (existing) continue;
+        insertActivity.run(r.id, r.uploaded_by, outcome, r.uploaded_at || new Date().toISOString());
+        inserted++;
+      }
+      rawDb.prepare("INSERT INTO schema_flags(flag) VALUES ('v20_7_33_warm_lead_activity_backfill')").run();
+    });
+    tx();
+    console.log(`[db] v20.7.33 backfill complete: inserted=${inserted}/${warmRows.length}, took ${Date.now() - started}ms`);
+  } else {
+    console.log("[db] v20.7.33 warm-lead activity backfill already ran, skipping");
+  }
+} catch (err: any) {
+  console.error("[db] v20.7.33 backfill failed (non-fatal):", err?.message || err);
+}
+
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");
 console.log("[db] v13.8 pool-serving schema ready (lead_locks table + new lead columns)");
 console.log("[db] v15.5 onboarding candidate schema ready (candidates + onboarding_checklist + 9 agents cols)");

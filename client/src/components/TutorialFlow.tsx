@@ -1100,22 +1100,20 @@ function ChapterKIT({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// Chapter 8 (in flow) — The Team Pot + Champion's Bonus (v16.7 ladder)
-// Teaches the pre-committed $250 floor, the 10/20/30 team-appts ladder to
-// $1,000, and the $100–$500 flat Champion's Bonus brackets.
+// Chapter 8 (in flow) — The Team Pot (v20.7.34 ladder)
+// v20.7.34: thresholds halved, floor rebased to $0. Payout stays 70/30 to
+// #1 / #2. Champion's Bonus fully retired.
+//   0 team appts → $0
+//   1 team appt  → $250
+//   5 team appts → $500
+//   10 team appts → $750
+//   15 team appts → $1,000
 // ══════════════════════════════════════════════════════════════════════════
 const POT_TIERS = [
-  { appts: "START",  amount: 250,  label: "Pre-committed floor",                    locked: false },
-  { appts: 10,       amount: 500,  label: "Tier 1 unlock",                          locked: true  },
-  { appts: 20,       amount: 750,  label: "Tier 2 unlock",                          locked: true  },
-  { appts: 30,       amount: 1000, label: "Tier 3 — Champion's Bonus arms",           locked: true  },
-];
-
-const CHAMPION_BRACKETS = [
-  { appts: 15, bonus: 100 },
-  { appts: 20, bonus: 200 },
-  { appts: 25, bonus: 300 },
-  { appts: 30, bonus: 500 },
+  { appts: 1,   amount: 250,  label: "First appointment opens the pot", locked: false },
+  { appts: 5,   amount: 500,  label: "Tier 1 unlock",                   locked: true  },
+  { appts: 10,  amount: 750,  label: "Tier 2 unlock",                   locked: true  },
+  { appts: 15,  amount: 1000, label: "Stretch — full pot",              locked: true  },
 ];
 
 function ChapterTeamPot({ onNext, showSkip, onSkip }: { onNext: () => void; showSkip: boolean; onSkip: () => void }) {
@@ -1141,7 +1139,7 @@ function ChapterTeamPot({ onNext, showSkip, onSkip }: { onNext: () => void; show
         {step === 0 && (
           <div style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", textAlign: "center", lineHeight: 1.6, marginBottom: 6 }}>
-              The pot starts pre-filled at $250 and unlocks as the TEAM stacks appointments this month:
+              The pot starts at $0. The team's first appointment opens it at $250, then it climbs as more get booked this month:
             </p>
             {POT_TIERS.map((t, i) => (
               <div key={i} style={{
@@ -1180,42 +1178,55 @@ function ChapterTeamPot({ onNext, showSkip, onSkip }: { onNext: () => void; show
             <div style={{ textAlign: "center" }}>
               <Award size={32} style={{ color: GOLD, margin: "0 auto 6px" }} />
               <p style={{ fontSize: 16, color: "#fff", fontWeight: 600, marginBottom: 6 }}>
-                The Champion's Bonus
+                Top 2 split the pot
               </p>
               <p style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", lineHeight: 1.6 }}>
-                When the team hits $1,000, the #1 agent gets a flat bonus on top of the pot — based on YOUR personal appointment count.
+                At end of month, the top 2 agents on monthly points split the pot. #1 takes 70%, #2 takes 30%. Everyone else takes home the appointments they set.
               </p>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-              {CHAMPION_BRACKETS.map((b, i) => (
-                <div key={i} style={{
-                  padding: "14px 12px", borderRadius: 10,
-                  background: "rgba(200,170,90,0.08)",
-                  border: "1px solid rgba(200,170,90,0.3)",
-                  textAlign: "center",
-                  animation: `cardSlideIn ${160 + i * 70}ms ease`,
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+              <div style={{
+                padding: "18px 14px", borderRadius: 12,
+                background: "rgba(200,170,90,0.14)",
+                border: "1px solid rgba(200,170,90,0.45)",
+                textAlign: "center",
+              }}>
+                <p style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: GOLD_DIM, marginBottom: 6 }}>
+                  #1 — 70%
+                </p>
+                <p style={{
+                  fontFamily: "'Cormorant Garamond','Georgia',serif",
+                  fontSize: 28, color: GOLD, fontWeight: 600,
                 }}>
-                  <p style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: GOLD_DIM, marginBottom: 4 }}>
-                    {b.appts}+ appts
-                  </p>
-                  <p style={{
-                    fontFamily: "'Cormorant Garamond','Georgia',serif",
-                    fontSize: 26, color: GOLD, fontWeight: 600,
-                  }}>
-                    +${b.bonus}
-                  </p>
-                </div>
-              ))}
+                  Up to $700
+                </p>
+              </div>
+              <div style={{
+                padding: "18px 14px", borderRadius: 12,
+                background: "rgba(200,170,90,0.06)",
+                border: "1px solid rgba(200,170,90,0.25)",
+                textAlign: "center",
+              }}>
+                <p style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: GOLD_DIM, marginBottom: 6 }}>
+                  #2 — 30%
+                </p>
+                <p style={{
+                  fontFamily: "'Cormorant Garamond','Georgia',serif",
+                  fontSize: 28, color: GOLD, fontWeight: 600,
+                }}>
+                  Up to $300
+                </p>
+              </div>
             </div>
-            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", textAlign: "center", lineHeight: 1.5, marginTop: 6 }}>
-              Only pays if the team hits $1,000. Only #1 gets it. Cap: $500.
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", textAlign: "center", lineHeight: 1.5, marginTop: 4 }}>
+              Requires ≥1 monthly appt to be eligible for a split.
             </p>
           </div>
         )}
 
         {step === 2 && (
           <p style={{ fontSize: 14, color: "rgba(255,255,255,0.75)", textAlign: "center", maxWidth: 440, lineHeight: 1.7 }}>
-            Every appointment YOU set moves the team pot forward. Every appointment YOU set puts you closer to the Champion's Bonus. The system is simple: hustle harder, everyone eats.
+            Every appointment YOU set moves the team pot forward and puts you in the running for the split. Top 2 eat.
           </p>
         )}
       </div>

@@ -234,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.33 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.34 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -463,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.33 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.34 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -522,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.33 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.34 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -570,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.33 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.34 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1812,7 +1812,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.33</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.34</p>
             </div>
           `,
         });
@@ -1972,7 +1972,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.33 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.34 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -7243,7 +7243,7 @@ This template is for informational/outreach purposes only.`;
     const socWeekMap  = bucketByReason("social_post", weekStartISO);
     const socMonthMap = bucketByReason("social_post", monthStartISO);
     const socAllMap   = bucketByReason("social_post", null);
-    // v20.7.33 — INV column: agent invites sent (no approval:* twin, invite fires immediately).
+    // v20.7.34 — INV column: agent invites sent (no approval:* twin, invite fires immediately).
     const invBucket = (floorISO: string | null): Record<number, number> => {
       const sql = floorISO
         ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason = 'agent_invite_sent' AND created_at >= ? GROUP BY agent_id`
@@ -7322,7 +7322,7 @@ This template is for informational/outreach purposes only.`;
         : period === "week"  ? (socWeekMap[agentId]  || 0)
         : period === "month" ? (socMonthMap[agentId] || 0)
         : (socAllMap[agentId] || 0);
-      // v20.7.33 — INV column.
+      // v20.7.34 — INV column.
       const inv = period === "today" ? (invTodayMap[agentId] || 0)
         : period === "week"  ? (invWeekMap[agentId]  || 0)
         : period === "month" ? (invMonthMap[agentId] || 0)
@@ -7746,7 +7746,7 @@ This template is for informational/outreach purposes only.`;
     const socWeekMapA  = bucketByReasonAg("social_post", weekStartAg);
     const socMonthMapA = bucketByReasonAg("social_post", monthStartAg);
     const socAllMapA   = bucketByReasonAg("social_post", null);
-    // v20.7.33 — INV column = agent invites sent. Uses direct reason match
+    // v20.7.34 — INV column = agent invites sent. Uses direct reason match
     // (not bucketByReasonAg's approval pattern) because agent_invite_sent has
     // no `approval:*` twin — the invite fires immediately.
     const invBucketAg = (floorISO: string | null): Record<number, number> => {
@@ -7833,7 +7833,7 @@ This template is for informational/outreach purposes only.`;
         dm:        dmMap[agentId]  || 0,
         dk:        dkMap[agentId]  || 0,
         social:    socMap[agentId] || 0,
-        // v20.7.33 — INV column: agent invites sent.
+        // v20.7.34 — INV column: agent invites sent.
         inv:       invMap[agentId] || 0,
       };
     };
@@ -7893,7 +7893,7 @@ This template is for informational/outreach purposes only.`;
             dm:        dmAllMapA[agent.id]  || 0,
             dk:        dkAllMapA[agent.id]  || 0,
             social:    socAllMapA[agent.id] || 0,
-            // v20.7.33 — INV column: agent invites sent.
+            // v20.7.34 — INV column: agent invites sent.
             inv:       invAllMapA[agent.id] || 0,
           };
         })(),
@@ -7913,7 +7913,7 @@ This template is for informational/outreach purposes only.`;
             dm:     dmAllMapA[agent.id]  || 0,
             dk:     dkAllMapA[agent.id]  || 0,
             social: socAllMapA[agent.id] || 0,
-            // v20.7.33 — INV column: agent invites sent.
+            // v20.7.34 — INV column: agent invites sent.
             inv:    invAllMapA[agent.id] || 0,
           },
         },
@@ -7947,29 +7947,21 @@ This template is for informational/outreach purposes only.`;
   // v16.7 — Ladder rescale. $250 is a pre-committed floor from day 1 (no
   // threshold), then real unlocks at 10/20/30 team appts.
   //   Floor: $250 (0 appts, pre-committed)
-  //   10 team appts → $500
-  //   20 team appts → $750
-  //   30 team appts → $1000 (Champion Bonus arms here)
-  // Tier 1 in the ladder array is the pre-committed floor at 0 appts so the
-  // loop naturally treats it as "already reached" and reports the next real
-  // unlock threshold as apptsToNext.
+  //   1 team appt  → $250
+  //   5 team appts → $500
+  //   10 team appts → $750
+  //   15 team appts → $1000 (stretch)
+  // v20.7.34 — Thresholds halved and floor rebased to $0. Payout split
+  // (70/30 to #1 / #2) unchanged from v16.7. Champion's Bonus fully retired
+  // (was already dormant since v20.4.2 — now the constants are gone too).
   const TEAM_POT_LADDER = [
-    { tier: 1, appts: 0,  pot: 250 },
-    { tier: 2, appts: 10, pot: 500 },
-    { tier: 3, appts: 20, pot: 750 },
+    { tier: 0, appts: 0,  pot: 0   },
+    { tier: 1, appts: 1,  pot: 250 },
+    { tier: 2, appts: 5,  pot: 500 },
+    { tier: 3, appts: 10, pot: 750 },
   ];
-  const TEAM_POT_STRETCH = { tier: 4, appts: 30, pot: 1000 };
+  const TEAM_POT_STRETCH = { tier: 4, appts: 15, pot: 1000 };
   const TEAM_POT_PAYOUT = { first: 0.70, second: 0.30 };
-  // v16.7 — Champion's Bonus. Only pays out if the team reaches the $1000
-  // tier (30 team appts). Sized by the champion's INDIVIDUAL appointment count
-  // for the month. Flat brackets, hard cap $500. Champion only — second place
-  // gets their standard 30% pot share with no bonus.
-  const CHAMPION_BONUS_BRACKETS = [
-    { appts: 30, bonus: 500 },  // hard cap
-    { appts: 25, bonus: 300 },
-    { appts: 20, bonus: 200 },
-    { appts: 15, bonus: 100 },
-  ];
 
   // Compute the first millisecond of the current month in America/New_York
   // (the leaderboard clock the whole team lives on) and the last millisecond.
@@ -8055,12 +8047,12 @@ This template is for informational/outreach purposes only.`;
     // to show the dollar amount or the mystery placeholder.
     const fullLadder = [...TEAM_POT_LADDER, TEAM_POT_STRETCH];
 
-    // v16.7 — Month starts with the tier-1 amount ($250) pre-committed as the
-    // initial incentive. First appointment doesn't unlock the pot; it's already open.
-    let currentPot = TEAM_POT_LADDER[0].pot;
+    // v20.7.34 — Month starts at $0. Team must book its first appointment to
+    // unlock the $250 tier. The array's tier-0 row is a zero-value floor so
+    // the walk starts before any real threshold.
+    let currentPot = TEAM_POT_LADDER[0].pot; // 0
     let currentTier: any = TEAM_POT_LADDER[0];
     let nextTier: any = null;
-    // Skip tier 1 in the loop — it's the pre-committed floor.
     for (let i = 1; i < fullLadder.length; i++) {
       const step = fullLadder[i];
       if (teamAppts >= step.appts) {
@@ -8085,8 +8077,9 @@ This template is for informational/outreach purposes only.`;
     const firstPayout = Math.round(currentPot * TEAM_POT_PAYOUT.first);
     const secondPayout = Math.round(currentPot * TEAM_POT_PAYOUT.second);
 
-    // v20.4.2 — Champion's Bonus RETIRED. Bonus recognition now flows through
-    // the Challenges system. Server no longer computes a champion bonus.
+    // v20.7.34 — Champion's Bonus fully deleted. Winner-take-all now IS the
+    // reward. teamReachedStretch kept for legacy clients that read it, but no
+    // dollar bonus is computed anywhere on the server.
     const teamReachedStretch = teamAppts >= TEAM_POT_STRETCH.appts;
 
     res.json({
@@ -8350,7 +8343,7 @@ This template is for informational/outreach purposes only.`;
     const _refAgent = submitterAgentId ? storage.getAgentById(submitterAgentId) : null;
     broadcast({ type: "activity_event", event: { type: "warm_lead_submitted", source, intent, agentId: submitterAgentId, agentName: _refAgent?.name || submittedByName || "Agent", agentHeadshot: (_refAgent as any)?.headshotUrl || null, address: created.address, ts: new Date().toISOString() } });
 
-    // v20.7.33 — Award points AND write a lead_activity row matching the warm-
+    // v20.7.34 — Award points AND write a lead_activity row matching the warm-
     // lead source. Prior to this the endpoint always awarded `network_referral`
     // regardless of source, and NEVER wrote lead_activity, so the OH-Lead /
     // Door-Knock / Direct-Mail challenges never advanced when an agent captured
@@ -8419,7 +8412,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.33 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.34 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8678,7 +8671,7 @@ This template is for informational/outreach purposes only.`;
   //
   // Backward-compatible: still accepts legacy { platform, photoDataUrl } single-field.
   const SOCIAL_PER_PLATFORM = 10;
-  const SOCIAL_PER_VIDEO_PLATFORM = 80; // v20.7.33 — video content earns dramatically more.
+  const SOCIAL_PER_VIDEO_PLATFORM = 80; // v20.7.34 — video content earns dramatically more.
   const SOCIAL_MAX_PLATFORMS = 3;
   const SOCIAL_DAILY_CAP = 2;
 
@@ -8698,7 +8691,7 @@ This template is for informational/outreach purposes only.`;
       ? photoDataUrls.filter((p: any) => typeof p === "string" && p.length > 0)
       : (photoDataUrl ? [String(photoDataUrl)] : []);
 
-    // v20.7.33 — normalize per-platform video flags (parallel array to platforms).
+    // v20.7.34 — normalize per-platform video flags (parallel array to platforms).
     // Client sends isVideo as a boolean[] aligned to platArr; legacy clients omit it.
     let videoArr: boolean[] = Array.isArray(isVideo)
       ? isVideo.map((v: any) => !!v)
@@ -8748,7 +8741,7 @@ This template is for informational/outreach purposes only.`;
       });
     }
 
-    // v20.7.33 — per-platform scoring: video = 80 pts, still = 10 pts.
+    // v20.7.34 — per-platform scoring: video = 80 pts, still = 10 pts.
     const perPlatformPoints = videoArr.map((v) =>
       v ? SOCIAL_PER_VIDEO_PLATFORM : SOCIAL_PER_PLATFORM
     );
@@ -8767,7 +8760,7 @@ This template is for informational/outreach purposes only.`;
       photoDataUrl: photoArr[0], // legacy single-field mirror
       photoDataUrls: photoArr,
       pointsPerPlatform: SOCIAL_PER_PLATFORM,
-      // v20.7.33 — video content: per-platform flags + resolved per-platform points.
+      // v20.7.34 — video content: per-platform flags + resolved per-platform points.
       isVideo: videoArr,
       perPlatformPoints,
       pointsPerVideoPlatform: SOCIAL_PER_VIDEO_PLATFORM,
@@ -8792,7 +8785,7 @@ This template is for informational/outreach purposes only.`;
         platform: platArr.join(", "),
         platforms: platArr,
         pointsPotential,
-        // v20.7.33 — include video counts so the admin queue can badge video posts.
+        // v20.7.34 — include video counts so the admin queue can badge video posts.
         isVideo: videoArr,
         videoCount,
         ts: now,
@@ -9539,7 +9532,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.33",
+      version: "v20.7.34",
       services: results,
     });
   });
@@ -9643,14 +9636,14 @@ This template is for informational/outreach purposes only.`;
       const scheme = host.includes('localhost') ? 'http' : 'https';
       const inviteUrl = `${scheme}://${host}/join/${token}`;
 
-      // v20.7.33 — Pull inviter's phone so the candidate email is signed correctly.
+      // v20.7.34 — Pull inviter's phone so the candidate email is signed correctly.
       const inviterRow = rawDb.prepare(`SELECT name, email, phone FROM agents WHERE id = ?`).get(authed.id) as any;
       const inviterName  = (inviterRow?.name  || authed.name  || "An agent").trim();
       const inviterEmail = (inviterRow?.email || authed.email || "").trim();
       const inviterPhone = (inviterRow?.phone || "").trim();
       const candFirst    = String(name).trim().split(/\s+/)[0] || "there";
 
-      // v20.7.33 — Auto-send branded invite to the candidate (if email provided).
+      // v20.7.34 — Auto-send branded invite to the candidate (if email provided).
       let emailSent = false;
       if (resend && email) {
         const candidateHtml = `
@@ -9776,7 +9769,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true, recommendation: rec, score });
   });
 
-  // v20.7.33 ── Agent-side: list MY invitees (candidates I invited). Powers the
+  // v20.7.34 ── Agent-side: list MY invitees (candidates I invited). Powers the
   //           My Invites section on the Pipeline tab.
   app.get("/api/candidates/mine", (req: any, res) => {
     const authed = req.currentAgent;
@@ -9791,7 +9784,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ candidates: rows });
   });
 
-  // v20.7.33 ── Agent-side: nudge a still-`invited` candidate. Auto-fires a
+  // v20.7.34 ── Agent-side: nudge a still-`invited` candidate. Auto-fires a
   //           pre-written follow-up email from the inviter’s address. Rate-
   //           limited to 1 nudge every 24h per candidate to avoid spamming.
   app.post("/api/candidates/:id/nudge", async (req: any, res) => {
@@ -10769,7 +10762,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.33</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.34</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

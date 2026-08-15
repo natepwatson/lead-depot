@@ -1885,7 +1885,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.7.29
+              v20.7.30
             </p>
           </div>
         </div>
@@ -3680,6 +3680,7 @@ function ApprovalsPanel() {
     : k === "oh_knock_route" ? "OH Knock Route"
     : k === "direct_mail" ? "Direct Mail"
     : k === "door_knock" ? "Door Knocking"
+    : k === "social_post" ? "Social Post"
     : k;
 
   const fmtDate = (iso: string | null) => {
@@ -3782,6 +3783,14 @@ function ApprovalsPanel() {
                         letterSpacing: "0.1em", textTransform: "uppercase",
                         background: "rgba(200,170,90,0.15)", color: "#c8aa5a",
                       }}>{kindLabel(item.kind)}</span>
+                      {item.kind === "social_post" && p.isVideo && (
+                        <span style={{
+                          padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+                          letterSpacing: "0.1em", textTransform: "uppercase",
+                          background: "rgba(253,224,71,0.18)", color: "#fde047",
+                          border: "1px solid rgba(253,224,71,0.45)",
+                        }}>Video +80</span>
+                      )}
                       <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{item.agentName}</span>
                       <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>· {fmtDate(item.submittedAt)}</span>
                       {item.status !== "pending" && (
@@ -3793,7 +3802,17 @@ function ApprovalsPanel() {
                         }}>{item.status}</span>
                       )}
                     </div>
-                    <p style={{ margin: "0 0 8px", fontSize: 13, color: "rgba(255,255,255,0.85)" }}>{p.address || "—"}</p>
+                    <p style={{ margin: "0 0 8px", fontSize: 13, color: "rgba(255,255,255,0.85)" }}>
+                      {item.kind === "social_post"
+                        ? (Array.isArray(p.platforms) && p.platforms.length ? p.platforms.join(" · ") : (p.platform || "Social"))
+                        : (p.address || "—")}
+                    </p>
+                    {item.kind === "social_post" && (p.notes || p.postUrl) && (
+                      <div style={{ margin: "0 0 8px", fontSize: 12, color: "rgba(255,255,255,0.65)", lineHeight: 1.5 }}>
+                        {p.notes && <div>{p.notes}</div>}
+                        {p.postUrl && <div style={{ marginTop: 4, wordBreak: "break-all" }}>{p.postUrl}</div>}
+                      </div>
+                    )}
                     {(r.attendees != null || r.notes || r.issues || r.recommendations) && (
                       <div style={{
                         marginTop: 8, padding: "10px 12px", borderRadius: 8,

@@ -17,7 +17,7 @@ import {
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
   Home, Voicemail, Layers, Calendar, FileText,
   Camera, DoorOpen, Zap, X, ArrowLeft, Plus,
-  Share2, Instagram, Target, Shield, Package,
+  Share2, Instagram, Target, Shield, Package, Video,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import TeamMap from "./TeamMap";
@@ -6160,7 +6160,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.29</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.30</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -8333,17 +8333,20 @@ function ReferAnAgentForm(props: { user: any; toast: any; onDone: () => void }) 
   );
 }
 
-// v20.7.15 — Multi-platform cross-post. 10 pts per platform (1-3 platforms
-// selected). Requires one screenshot per selected platform (proves it went
-// live on each). 2 submissions per agent per ET day. Kind = "social_post".
-type SocialPlatformId = "instagram" | "facebook" | "tiktok" | "youtube" | "linkedin" | "x";
+// v20.7.30 — One submission = one unique piece of content.
+// 10 pts per platform (1-3 platforms). Screenshot required per platform.
+// 3 unique pieces per agent per ET day. Video checkbox: +80 per piece
+// (not per platform). Kind = "social_post". BeReal replaced LinkedIn.
+type SocialPlatformId = "instagram" | "facebook" | "tiktok" | "youtube" | "bereal" | "x";
 function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const { user, toast, onDone } = props;
   const MAX_PLATFORMS = 3;
   const PTS_PER_PLATFORM = 10;
+  const VIDEO_BONUS = 80;
   const [selected, setSelected] = useState<SocialPlatformId[]>(["instagram"]);
   const [postUrl, setPostUrl] = useState("");
   const [caption, setCaption] = useState("");
+  const [isVideo, setIsVideo] = useState(false);
   // Map of platform → downscaled dataUrl. Independent per platform.
   const [photos, setPhotos] = useState<Partial<Record<SocialPlatformId, string>>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -8353,7 +8356,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     { id: "facebook", label: "Facebook" },
     { id: "tiktok", label: "TikTok" },
     { id: "youtube", label: "YouTube" },
-    { id: "linkedin", label: "LinkedIn" },
+    { id: "bereal", label: "BeReal" },
     { id: "x", label: "X / Twitter" },
   ];
 
@@ -8393,7 +8396,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     reader.readAsDataURL(file);
   };
 
-  const pointsPreview = selected.length * PTS_PER_PLATFORM;
+  const pointsPreview = selected.length * PTS_PER_PLATFORM + (isVideo ? VIDEO_BONUS : 0);
 
   const submit = async () => {
     if (selected.length === 0) { toast({ title: "Pick at least 1 platform", variant: "destructive" }); return; }
@@ -8414,6 +8417,8 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
         photoDataUrls,
         postUrl: postUrl.trim() || null,
         caption: caption.trim() || null,
+        notes: caption.trim() || null,
+        isVideo,
         timestamp: new Date().toISOString(),
       });
       const data = await r.json();
@@ -8442,7 +8447,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ padding: "12px 14px", background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.18)", borderRadius: 10 }}>
         <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.75)", lineHeight: 1.55 }}>
-          Post about real estate — tag <strong>@watsonbrothersgroup</strong> or the brand. <strong>{PTS_PER_PLATFORM} pts per platform</strong>, up to {MAX_PLATFORMS} platforms per post, 2 posts per day.
+          One unique piece of content = one log. Share it on up to {MAX_PLATFORMS} platforms ({PTS_PER_PLATFORM} pts each). 3 unique pieces per day. Video? Check the box — +{VIDEO_BONUS} pts per piece, still upload a screenshot.
         </p>
       </div>
 
@@ -8467,9 +8472,30 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
           })}
         </div>
         <p style={{ margin: "6px 0 0", fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
-          {selected.length}/{MAX_PLATFORMS} selected · <strong style={{ color: "#fde047" }}>+{pointsPreview} pts</strong> on approval
+          {selected.length}/{MAX_PLATFORMS} platforms · <strong style={{ color: "#fde047" }}>+{pointsPreview} pts</strong> on approval{isVideo ? " (includes +80 video)" : ""}
         </p>
       </div>
+
+      <button type="button" onClick={() => setIsVideo(v => !v)} style={{
+        width: "100%", padding: "14px 16px", borderRadius: 10, cursor: "pointer",
+        background: isVideo ? "rgba(200,170,90,0.18)" : "rgba(255,255,255,0.04)",
+        border: isVideo ? "1.5px solid rgba(200,170,90,0.7)" : "1.5px dashed rgba(200,170,90,0.45)",
+        color: isVideo ? "#fde047" : "rgba(255,255,255,0.8)",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, textAlign: "left",
+      }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, fontWeight: 700 }}>
+          <span style={{
+            width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+            border: isVideo ? "1.5px solid #fde047" : "1.5px solid rgba(255,255,255,0.35)",
+            background: isVideo ? "#fde047" : "transparent",
+            color: "#080808", display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 14, fontWeight: 800,
+          }}>{isVideo ? "✓" : ""}</span>
+          <Video size={16} />
+          This is a video
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.04em" }}>+{VIDEO_BONUS} pts</span>
+      </button>
 
       {selected.map(pid => {
         const label = platforms.find(p => p.id === pid)?.label || pid;

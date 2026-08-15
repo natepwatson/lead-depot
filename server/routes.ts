@@ -132,7 +132,7 @@ function awardPoints(
     oh_knock_route:            40,   // v17.6 — OH knock route piggyback, bumped 15→40 (SetRep evidence, real effort during OH).
     direct_mail:                1,   // v20.4.4 — Direct Mail: 1 point per mailer approved (was 3).
     door_knock:                 2,   // v17.6 — Base per-door value. Actual session points_potential = doors × 2 (25+ doors min).
-    social_post:               10,   // v20.7.30 — BASE per-platform. Actual points_potential = 10 × platforms (1-3) + 80 if video. 3 unique pieces/day.
+    social_post:               10,   // v20.7.20 — BASE per-platform. Actual points_potential = 10 × platforms.length (1-3). 2/day cap enforced upstream.
     contacted_not_interested:   5,   // Real contact, worth something.
     listed:                     3,   // Rare informational outcome.
     recycled:                   2,   // Re-queue, minor effort.
@@ -8600,31 +8600,27 @@ This template is for informational/outreach purposes only.`;
   });
 
   // ─── v17.6 SOCIAL POST → APPROVAL QUEUE ─────────────────────
-  // v20.7.30 — Real-estate cross-post on Facebook / Instagram / TikTok / YouTube /
-  // BeReal / X. Must tag Watson Brothers Group OR Momentum Realty and be a
+  // v20.7.20 — Real-estate cross-post on Facebook / Instagram / TikTok / YouTube /
+  // LinkedIn / X. Must tag Watson Brothers Group OR Momentum Realty and be a
   // valid RE post (education, listing, just-sold, market update, local hotspot,
   // OH promotion, behind-the-scenes).
   //
-  // MECHANICS (v20.7.30):
-  //   • One submission = one unique piece of content
-  //   • Multi-platform per piece: 1-3 platforms (same content, different feeds)
-  //   • Points = 10 × platforms.length (10 / 20 / 30) + 80 if isVideo
-  //   • Video bonus is per piece, NOT per platform. Screenshot still required.
-  //   • Daily cap: 3 unique pieces per agent per ET day
-  //   • Max platforms/day: 3 × 30 = 90 pts. Max video bonus: 3 × 80 = 240.
-  //   • Combined max: 330 pts (3 video pieces × 3 platforms)
+  // NEW MECHANICS (v20.7.20):
+  //   • Multi-platform per submission: 1-3 platforms per post
+  //   • Points = 10 × platforms.length (10 / 20 / 30)
+  //   • ONE screenshot REQUIRED per selected platform (proves cross-post)
+  //   • Daily cap: 2 submissions per agent per ET day (up from 1)
+  //   • Max possible per day: 2 × 30 = 60 pts
   //
   // Backward-compatible: still accepts legacy { platform, photoDataUrl } single-field.
   const SOCIAL_PER_PLATFORM = 10;
   const SOCIAL_MAX_PLATFORMS = 3;
-  const SOCIAL_DAILY_CAP = 3;
-  const SOCIAL_VIDEO_BONUS = 80;
-  const SOCIAL_ALLOWED = new Set(["instagram", "facebook", "tiktok", "youtube", "bereal", "x"]);
+  const SOCIAL_DAILY_CAP = 2;
 
   app.post("/api/lead-gen/social-post", (req, res) => {
     const {
-      agentId, platform, platforms, postUrl, category, notes, caption,
-      photoDataUrl, photoDataUrls, timestamp, isVideo,
+      agentId, platform, platforms, postUrl, category, notes,
+      photoDataUrl, photoDataUrls, timestamp,
     } = req.body;
     const submitterId = agentId ? parseInt(String(agentId)) : null;
     if (!submitterId) return res.status(400).json({ error: "agentId required" });
@@ -8638,9 +8634,7 @@ This template is for informational/outreach purposes only.`;
       : (photoDataUrl ? [String(photoDataUrl)] : []);
 
     // Dedup + cap platforms to 3
-    platArr = Array.from(new Set(platArr))
-      .filter(p => SOCIAL_ALLOWED.has(p))
-      .slice(0, SOCIAL_MAX_PLATFORMS);
+    platArr = Array.from(new Set(platArr)).slice(0, SOCIAL_MAX_PLATFORMS);
 
     if (platArr.length === 0) {
       return res.status(400).json({ error: "Pick at least 1 platform" });
@@ -8669,13 +8663,11 @@ This template is for informational/outreach purposes only.`;
     `).get(submitterId, etDate) as any;
     if ((capRow?.n || 0) >= SOCIAL_DAILY_CAP) {
       return res.status(400).json({
-        error: `Daily cap reached (${SOCIAL_DAILY_CAP} unique pieces per day)`,
+        error: `Daily cap reached (${SOCIAL_DAILY_CAP} social posts per day)`,
       });
     }
 
-    const videoFlag = isVideo === true || isVideo === "true" || isVideo === 1 || isVideo === "1";
-    const notesText = String(notes || caption || "").trim().slice(0, 2000);
-    const pointsPotential = SOCIAL_PER_PLATFORM * platArr.length + (videoFlag ? SOCIAL_VIDEO_BONUS : 0);
+    const pointsPotential = SOCIAL_PER_PLATFORM * platArr.length;
 
     const now = new Date().toISOString();
     const submitter = storage.getAgentById(submitterId);
@@ -8684,9 +8676,7 @@ This template is for informational/outreach purposes only.`;
       platforms: platArr,
       category: cleanCategory,
       postUrl: postUrl ? String(postUrl).trim().slice(0, 500) : "",
-      notes: notesText,
-      isVideo: videoFlag,
-      videoBonus: videoFlag ? SOCIAL_VIDEO_BONUS : 0,
+      notes: notes ? String(notes).trim().slice(0, 2000) : "",
       capturedAt: timestamp || now,
       photoDataUrl: photoArr[0], // legacy single-field mirror
       photoDataUrls: photoArr,
@@ -8981,14 +8971,82 @@ This template is for informational/outreach purposes only.`;
   });
 
   // ─── REFERRALS (agent refers a person to join the team) ───────────────────
-  app.post("/api/referrals", (req, res) => {
+  // v20.7.30 — On submit: (1) row into referrals table, (2) create FUB Agent
+  // Recruit contact via fubCreateAgentRecruit, (3) email Alex + Nate. The
+  // referred agent is NEVER emailed by this endpoint.
+  app.post("/api/referrals", async (req, res) => {
     const { name, phone, email, brokerage, notes, referredBy, referredByName } = req.body;
     if (!name || !phone) return res.status(400).json({ error: "Name and phone required" });
     const now = new Date().toISOString();
     const info = rawDb.prepare(
       `INSERT INTO referrals (name, phone, email, brokerage, notes, referred_by, referred_by_name, created_at) VALUES (?,?,?,?,?,?,?,?)`
     ).run(name, phone, email || "", brokerage || "", notes || "", referredBy || null, referredByName || "", now);
+
+    // Respond immediately — FUB + email are fire-and-forget so the agent
+    // never sees a spinner if FUB or Resend is flaky.
     res.json({ created: true, id: info.lastInsertRowid });
+
+    // Split full name → first/last for FUB (splits on first space).
+    const trimmed = String(name).trim();
+    const spaceIdx = trimmed.indexOf(" ");
+    const firstName = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
+    const lastName  = spaceIdx === -1 ? ""       : trimmed.slice(spaceIdx + 1).trim();
+
+    // 1) Push to FUB as Agent Recruit Lead (Vendor-adjacent stage — Alex
+    //    promotes to actual Vendor after screening via fubApproveAgentAsVendor).
+    let fubId: number | null = null;
+    try {
+      fubId = await fubCreateAgentRecruit({
+        firstName: firstName || "Unknown",
+        lastName:  lastName || "(no last name)",
+        email:     email || undefined,
+        phone:     phone || undefined,
+        licenseStatus: "unknown",
+        currentBrokerage: brokerage || undefined,
+        applicantNotes: notes || undefined,
+        referralSource: "Lead Depot — Refer an Agent form",
+        referredByName: referredByName || undefined,
+        submittedAt: now,
+      });
+    } catch (err: any) {
+      console.error(`[referral] FUB push failed:`, err?.message || err);
+    }
+
+    // 2) Notify admins via Resend.
+    if (!resend) {
+      console.warn("[referral] RESEND_API_KEY not set — admin notification skipped");
+      return;
+    }
+    try {
+      const fubLink = fubId ? `https://app.followupboss.com/2/people/view/${fubId}` : null;
+      const rows: [string, string][] = [
+        ["Name",       trimmed],
+        ["Phone",      phone],
+        ["Email",      email || "—"],
+        ["Brokerage",  brokerage || "—"],
+        ["Notes",      notes || "—"],
+        ["Referred by", referredByName || "(unknown)"],
+        ["FUB record", fubLink ? `<a href="${fubLink}">${fubLink}</a>` : "⚠️ FUB push failed — check server logs"],
+      ];
+      const html = `
+        <div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:600px;color:#111;">
+          <h2 style="margin:0 0 16px;font-weight:600;">New agent referral</h2>
+          <p style="color:#555;margin:0 0 16px;">${referredByName ? escapeHtml(referredByName) : "An agent"} just referred someone to the team via Lead Depot.</p>
+          <table style="border-collapse:collapse;width:100%;font-size:14px;">
+            ${rows.map(([k, v]) => `<tr><td style="padding:8px 12px;background:#f6f6f6;font-weight:600;width:130px;vertical-align:top;">${k}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;">${v}</td></tr>`).join("")}
+          </table>
+          <p style="color:#888;font-size:12px;margin:24px 0 0;">Lead Depot v20.7.30 — noreply@watsonbrothersgroup.com</p>
+        </div>
+      `;
+      await resend.emails.send({
+        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+        subject: `Agent referral: ${trimmed}${referredByName ? ` (from ${referredByName})` : ""}`,
+        html,
+      });
+    } catch (err: any) {
+      console.error(`[referral] Admin email failed:`, err?.message || err);
+    }
   });
 
   // ─── ADMIN: VIEW REFERRALS ─────────────────────────────────────────────────

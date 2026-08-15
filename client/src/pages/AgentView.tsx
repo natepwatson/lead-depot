@@ -6187,7 +6187,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.34</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.35</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -8365,14 +8365,18 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const { user, toast, onDone } = props;
   const MAX_PLATFORMS = 3;
   const PTS_PER_PLATFORM = 10;
-  const PTS_PER_VIDEO_PLATFORM = 80; // v20.7.33 — video content earns dramatically more.
+  // v20.7.35 — Video is a WHOLE-LOG BONUS on top of platform points, not a
+  // replacement. Formula: (10 × platforms) + (isVideo ? 80 : 0). Single toggle,
+  // one 80-pt bonus per log regardless of how many platforms it cross-posted
+  // to. Prevents ticking "video" 3 times to stack 240.
+  const PTS_VIDEO_BONUS = 80;
   const [selected, setSelected] = useState<SocialPlatformId[]>(["instagram"]);
   const [postUrl, setPostUrl] = useState("");
   const [caption, setCaption] = useState("");
   // Map of platform → downscaled dataUrl. Independent per platform.
   const [photos, setPhotos] = useState<Partial<Record<SocialPlatformId, string>>>({});
-  // v20.7.33 — per-platform video flag. Video = 80 pts, still = 10 pts.
-  const [videoFlags, setVideoFlags] = useState<Partial<Record<SocialPlatformId, boolean>>>({});
+  // v20.7.35 — single log-level video flag.
+  const [isVideoLog, setIsVideoLog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const platforms: Array<{ id: SocialPlatformId; label: string }> = [
@@ -8387,9 +8391,8 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const togglePlatform = (id: SocialPlatformId) => {
     setSelected(prev => {
       if (prev.includes(id)) {
-        // Deselect: also drop that platform's photo + video flag
+        // Deselect: also drop that platform's photo
         setPhotos(pp => { const copy = { ...pp }; delete copy[id]; return copy; });
-        setVideoFlags(vv => { const copy = { ...vv }; delete copy[id]; return copy; });
         return prev.filter(p => p !== id);
       }
       if (prev.length >= MAX_PLATFORMS) {
@@ -8398,10 +8401,6 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
       }
       return [...prev, id];
     });
-  };
-
-  const toggleVideo = (id: SocialPlatformId) => {
-    setVideoFlags(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   const onPickPhotoFor = (platformId: SocialPlatformId, file: File | null) => {
@@ -8425,11 +8424,8 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     reader.readAsDataURL(file);
   };
 
-  // v20.7.33 — per-platform: video = 80 pts, still = 10 pts.
-  const pointsPreview = selected.reduce(
-    (sum, id) => sum + (videoFlags[id] ? PTS_PER_VIDEO_PLATFORM : PTS_PER_PLATFORM),
-    0,
-  );
+  // v20.7.35 — scoring: (10 × platforms) + (isVideo ? 80 : 0). Video is a bonus.
+  const pointsPreview = (PTS_PER_PLATFORM * selected.length) + (isVideoLog ? PTS_VIDEO_BONUS : 0);
 
   const submit = async () => {
     if (selected.length === 0) { toast({ title: "Pick at least 1 platform", variant: "destructive" }); return; }
@@ -8444,13 +8440,13 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     try {
       const platformsPayload = selected.slice();
       const photoDataUrls = platformsPayload.map(id => photos[id] as string);
-      // v20.7.33 — send per-platform video flags (parallel array to platforms).
-      const isVideoFlags = platformsPayload.map(id => !!videoFlags[id]);
+      // v20.7.35 — single log-level video flag. Server computes
+      // (10 × platforms) + (isVideoLog ? 80 : 0).
       const r = await apiRequest("POST", "/api/lead-gen/social-post", {
         agentId: user?.id,
         platforms: platformsPayload,
         photoDataUrls,
-        isVideo: isVideoFlags,
+        isVideoLog,
         postUrl: postUrl.trim() || null,
         caption: caption.trim() || null,
         timestamp: new Date().toISOString(),
@@ -8481,8 +8477,44 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ padding: "12px 14px", background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.18)", borderRadius: 10 }}>
         <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.75)", lineHeight: 1.55 }}>
-          Post about real estate — tag <strong>@watsonbrothersgroup</strong> or the brand. <strong>{PTS_PER_PLATFORM} pts per platform</strong>, up to {MAX_PLATFORMS} platforms per post, 2 posts per day.
+          Post about real estate — tag <strong>@watsonbrothersgroup</strong> or the brand. <strong>{PTS_PER_PLATFORM} pts per platform</strong> (up to {MAX_PLATFORMS}), <strong>+{PTS_VIDEO_BONUS} bonus</strong> if it's a video (Reel, TikTok, Short). 2 posts per day.
         </p>
+      </div>
+
+      {/* v20.7.35 — single log-level Video toggle. Not per-platform. */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setIsVideoLog(v => !v)}
+          style={{
+            width: "100%",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "12px 14px", borderRadius: 10,
+            background: isVideoLog ? "rgba(56,189,248,0.14)" : "rgba(255,255,255,0.04)",
+            border: isVideoLog ? "1px solid rgba(56,189,248,0.55)" : "1px solid rgba(255,255,255,0.10)",
+            cursor: "pointer",
+          }}
+          aria-pressed={isVideoLog}
+          title="Toggle if the post is a video (Reel, TikTok, Short, YouTube video). Adds a flat +80 pt bonus on top of platform points — once per log, not per platform."
+        >
+          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 18, height: 18, borderRadius: 4,
+              background: isVideoLog ? "#38bdf8" : "transparent",
+              border: isVideoLog ? "1px solid #38bdf8" : "1px solid rgba(255,255,255,0.4)",
+              color: "#080808", fontSize: 12, fontWeight: 900,
+            }}>{isVideoLog ? "✓" : ""}</span>
+            <span style={{
+              fontSize: 13, fontWeight: 700, letterSpacing: "0.06em",
+              color: isVideoLog ? "#38bdf8" : "rgba(255,255,255,0.85)",
+            }}>This is a video (Reel, TikTok, Short)</span>
+          </span>
+          <span style={{
+            fontSize: 12, fontWeight: 700,
+            color: isVideoLog ? "#38bdf8" : "rgba(255,255,255,0.5)",
+          }}>{isVideoLog ? `+${PTS_VIDEO_BONUS} bonus` : `+${PTS_VIDEO_BONUS} if video`}</span>
+        </button>
       </div>
 
       <div>
@@ -8513,37 +8545,9 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
       {selected.map(pid => {
         const label = platforms.find(p => p.id === pid)?.label || pid;
         const dataUrl = photos[pid];
-        const isVideo = !!videoFlags[pid];
         return (
           <div key={pid}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-              <label style={{ ...labelStyle, marginBottom: 0 }}>{label} screenshot *</label>
-              {/* v20.7.33 — Video toggle. Video = 80 pts, still = 10 pts. */}
-              <button
-                type="button"
-                onClick={() => toggleVideo(pid)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "4px 10px", borderRadius: 6,
-                  background: isVideo ? "rgba(56,189,248,0.18)" : "rgba(255,255,255,0.04)",
-                  border: isVideo ? "1px solid rgba(56,189,248,0.55)" : "1px solid rgba(255,255,255,0.14)",
-                  color: isVideo ? "#38bdf8" : "rgba(255,255,255,0.55)",
-                  fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
-                  cursor: "pointer",
-                }}
-                aria-pressed={isVideo}
-                title="Toggle if this post is a video (Reel, TikTok, Short, etc.) — videos earn +80 pts vs +10 for still photos."
-              >
-                <span style={{
-                  display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  width: 14, height: 14, borderRadius: 3,
-                  background: isVideo ? "#38bdf8" : "transparent",
-                  border: isVideo ? "1px solid #38bdf8" : "1px solid rgba(255,255,255,0.4)",
-                  color: "#080808", fontSize: 10, fontWeight: 900,
-                }}>{isVideo ? "✓" : ""}</span>
-                Video (+80 pts)
-              </button>
-            </div>
+            <label style={{ ...labelStyle, display: "block", marginBottom: 6 }}>{label} screenshot *</label>
             {dataUrl ? (
               <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(200,170,90,0.28)" }}>
                 <img src={dataUrl} alt={`${label} screenshot`} style={{ width: "100%", display: "block", maxHeight: 400, objectFit: "cover" }} />

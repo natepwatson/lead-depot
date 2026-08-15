@@ -5499,11 +5499,9 @@ function ChallengesTab() {
   );
 }
 
-// v19.6 — Referrals Hub wrapper deleted (was orphaned when nav bar dropped `refer`).
-// ReferralTab (agent recruiting /join link) now opens directly from Lead Gen sheet.
-// ─── Referrals Hub (DELETED v19.6) ─────────────────────────────────────────
-// Consolidates Client Referral (network lead → auto-assigned to referring agent,
-// jumps to Work-the-Lead card immediately) and Agent Referral (recruiting).
+// v20.7.31 — Referrals Hub deleted (v19.6) AND ReferralTab deleted (v20.7.31).
+// Agent recruiting flow now lives entirely in ReferAnAgentForm →
+// POST /api/candidates/invite. Opens from the Agent Invite bubble on the arc.
 
 // ─── Client Referral Form (v14.50) ────────────────────────────────────────
 function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: string; onSubmitted?: (leadId: number) => void } = {}) {
@@ -5703,117 +5701,10 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
 }
 
 
-// ─── Referral Tab (agent recruiting) ─────────────────────────────────────
-function ReferralTab() {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const [name, setName]           = useState("");
-  const [phone, setPhone]         = useState("");
-  const [email, setEmail]         = useState("");
-  const [brokerage, setBrokerage] = useState("");
-  const [notes, setNotes]         = useState("");
-  const [sending, setSending]     = useState(false);
-  const [sent, setSent]           = useState(false);
+// v20.7.31 — ReferralTab (POST /api/referrals) DELETED. Superseded by
+// ReferAnAgentForm (POST /api/candidates/invite), which is the one
+// canonical Agent Invite → candidate → hire flow (Alex approves = +100 pts).
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !phone.trim()) {
-      toast({ title: "Name and phone required", variant: "destructive" }); return;
-    }
-    setSending(true);
-    try {
-      await apiRequest("POST", "/api/referrals", {
-        name: name.trim(), phone: phone.trim(), email: email.trim(),
-        brokerage: brokerage.trim(), notes: notes.trim(),
-        referredBy: user?.id, referredByName: user?.name,
-      });
-      setSent(true);
-      setName(""); setPhone(""); setEmail(""); setBrokerage(""); setNotes("");
-      toast({ title: "Referral submitted!", description: "Admins have been notified." });
-    } catch {
-      toast({ title: "Failed to submit referral", variant: "destructive" });
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <div style={{ width: "100%", padding: "0 0 20px" }}>
-      <div style={{
-        padding: "24px 20px",
-        background: "linear-gradient(135deg, rgba(200,170,90,0.06) 0%, rgba(200,170,90,0.02) 100%)",
-        border: "1px solid rgba(200,170,90,0.25)",
-        borderRadius: 14,
-        boxShadow: "0 4px 24px rgba(200,170,90,0.05)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: "50%",
-            background: "rgba(200,170,90,0.12)", border: "1px solid rgba(200,170,90,0.3)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <UserPlus size={16} style={{ color: "#c8aa5a" }} />
-          </div>
-          <h3 style={{
-            fontFamily: "'Cormorant Garamond','Georgia',serif",
-            fontSize: 22, fontWeight: 400, color: "#fff",
-          }}>
-            Refer an Agent
-          </h3>
-        </div>
-        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 22, lineHeight: 1.6 }}>
-          Know someone who would be a great fit for Brothers Group — or who wants to start receiving leads? Send us their info and we'll connect with them directly.
-        </p>
-
-        {sent && (
-          <div style={{
-            padding: "14px 16px", marginBottom: 20,
-            background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)",
-            borderRadius: 8,
-          }}>
-            <p style={{ fontSize: 13, color: "rgb(134,239,172)" }}>Referral sent — we'll be in touch with them soon. Thank you!</p>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div>
-              <label style={labelStyle}>Full Name *</label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Jane Doe" style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Phone *</label>
-              <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(904) 555-0100" type="tel" style={inputStyle} />
-            </div>
-          </div>
-          <div>
-            <label style={labelStyle}>Email</label>
-            <input value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@email.com" type="email" style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>Current Brokerage (if licensed)</label>
-            <input value={brokerage} onChange={e => setBrokerage(e.target.value)} placeholder="e.g. Keller Williams, eXp, unlicensed" style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>Notes</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything helpful to know about this person…" rows={3}
-              style={{ ...inputStyle, resize: "none", lineHeight: 1.5 }} />
-          </div>
-          <button type="submit" disabled={sending} style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            padding: "14px 20px", marginTop: 4,
-            background: sending ? "rgba(200,170,90,0.3)" : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-            border: "none", borderRadius: 8, cursor: sending ? "not-allowed" : "pointer",
-            fontSize: 13, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase",
-            color: "#080808", boxShadow: sending ? "none" : "0 4px 16px rgba(200,170,90,0.3)",
-          }}>
-            <Send size={14} /> {sending ? "Sending…" : "Send Referral"}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 const labelStyle: React.CSSProperties = {
@@ -6160,7 +6051,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.30</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.31</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6665,7 +6556,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           />
         )}
 
-        {/* v19.6 — refer tab route removed. ReferralTab reachable from Lead Gen sheet. */}
+        {/* v20.7.31 — refer tab route removed. Agent Invite reachable from Lead Gen sheet. */}
 
         {/* v14.50 — Global Who called me? modal (rendered from AgentView, works on every tab) */}
         {globalLookupOpen && (

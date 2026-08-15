@@ -234,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.30 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.31 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -463,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.30 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.31 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -522,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.30 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.31 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -570,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.30 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.31 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1812,7 +1812,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.30</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.31</p>
             </div>
           `,
         });
@@ -1972,7 +1972,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.30 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.31 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -8355,7 +8355,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.30 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.31 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8970,90 +8970,9 @@ This template is for informational/outreach purposes only.`;
     res.json({ scope, sinceIso, team, perAgent });
   });
 
-  // ─── REFERRALS (agent refers a person to join the team) ───────────────────
-  // v20.7.30 — On submit: (1) row into referrals table, (2) create FUB Agent
-  // Recruit contact via fubCreateAgentRecruit, (3) email Alex + Nate. The
-  // referred agent is NEVER emailed by this endpoint.
-  app.post("/api/referrals", async (req, res) => {
-    const { name, phone, email, brokerage, notes, referredBy, referredByName } = req.body;
-    if (!name || !phone) return res.status(400).json({ error: "Name and phone required" });
-    const now = new Date().toISOString();
-    const info = rawDb.prepare(
-      `INSERT INTO referrals (name, phone, email, brokerage, notes, referred_by, referred_by_name, created_at) VALUES (?,?,?,?,?,?,?,?)`
-    ).run(name, phone, email || "", brokerage || "", notes || "", referredBy || null, referredByName || "", now);
-
-    // Respond immediately — FUB + email are fire-and-forget so the agent
-    // never sees a spinner if FUB or Resend is flaky.
-    res.json({ created: true, id: info.lastInsertRowid });
-
-    // Split full name → first/last for FUB (splits on first space).
-    const trimmed = String(name).trim();
-    const spaceIdx = trimmed.indexOf(" ");
-    const firstName = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
-    const lastName  = spaceIdx === -1 ? ""       : trimmed.slice(spaceIdx + 1).trim();
-
-    // 1) Push to FUB as Agent Recruit Lead (Vendor-adjacent stage — Alex
-    //    promotes to actual Vendor after screening via fubApproveAgentAsVendor).
-    let fubId: number | null = null;
-    try {
-      fubId = await fubCreateAgentRecruit({
-        firstName: firstName || "Unknown",
-        lastName:  lastName || "(no last name)",
-        email:     email || undefined,
-        phone:     phone || undefined,
-        licenseStatus: "unknown",
-        currentBrokerage: brokerage || undefined,
-        applicantNotes: notes || undefined,
-        referralSource: "Lead Depot — Refer an Agent form",
-        referredByName: referredByName || undefined,
-        submittedAt: now,
-      });
-    } catch (err: any) {
-      console.error(`[referral] FUB push failed:`, err?.message || err);
-    }
-
-    // 2) Notify admins via Resend.
-    if (!resend) {
-      console.warn("[referral] RESEND_API_KEY not set — admin notification skipped");
-      return;
-    }
-    try {
-      const fubLink = fubId ? `https://app.followupboss.com/2/people/view/${fubId}` : null;
-      const rows: [string, string][] = [
-        ["Name",       trimmed],
-        ["Phone",      phone],
-        ["Email",      email || "—"],
-        ["Brokerage",  brokerage || "—"],
-        ["Notes",      notes || "—"],
-        ["Referred by", referredByName || "(unknown)"],
-        ["FUB record", fubLink ? `<a href="${fubLink}">${fubLink}</a>` : "⚠️ FUB push failed — check server logs"],
-      ];
-      const html = `
-        <div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;max-width:600px;color:#111;">
-          <h2 style="margin:0 0 16px;font-weight:600;">New agent referral</h2>
-          <p style="color:#555;margin:0 0 16px;">${referredByName ? escapeHtml(referredByName) : "An agent"} just referred someone to the team via Lead Depot.</p>
-          <table style="border-collapse:collapse;width:100%;font-size:14px;">
-            ${rows.map(([k, v]) => `<tr><td style="padding:8px 12px;background:#f6f6f6;font-weight:600;width:130px;vertical-align:top;">${k}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;">${v}</td></tr>`).join("")}
-          </table>
-          <p style="color:#888;font-size:12px;margin:24px 0 0;">Lead Depot v20.7.30 — noreply@watsonbrothersgroup.com</p>
-        </div>
-      `;
-      await resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
-        to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
-        subject: `Agent referral: ${trimmed}${referredByName ? ` (from ${referredByName})` : ""}`,
-        html,
-      });
-    } catch (err: any) {
-      console.error(`[referral] Admin email failed:`, err?.message || err);
-    }
-  });
-
-  // ─── ADMIN: VIEW REFERRALS ─────────────────────────────────────────────────
-  app.get("/api/referrals", (req, res) => {
-    const rows = rawDb.prepare(`SELECT * FROM referrals ORDER BY created_at DESC`).all();
-    res.json(rows);
-  });
+  // v20.7.31 — POST/GET /api/referrals DELETED. Was a duplicate of the
+  // Agent Invite recruiting flow (POST /api/candidates/invite) that Alex uses.
+  // The `referrals` DB table is kept for historical rows; no endpoint reads it.
 
   // ─── CSV EXPORT ───────────────────────────────────────────────────────────
   app.get("/api/export/leads", (req, res) => {
@@ -9525,7 +9444,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.30",
+      version: "v20.7.31",
       services: results,
     });
   });
@@ -10583,7 +10502,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.30</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.31</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

@@ -5499,7 +5499,7 @@ function ChallengesTab() {
   );
 }
 
-// v20.7.31 — Referrals Hub deleted (v19.6) AND ReferralTab deleted (v20.7.31).
+// v20.7.32 — Referrals Hub deleted (v19.6) AND ReferralTab deleted (v20.7.32).
 // Agent recruiting flow now lives entirely in ReferAnAgentForm →
 // POST /api/candidates/invite. Opens from the Agent Invite bubble on the arc.
 
@@ -5701,7 +5701,7 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
 }
 
 
-// v20.7.31 — ReferralTab (POST /api/referrals) DELETED. Superseded by
+// v20.7.32 — ReferralTab (POST /api/referrals) DELETED. Superseded by
 // ReferAnAgentForm (POST /api/candidates/invite), which is the one
 // canonical Agent Invite → candidate → hire flow (Alex approves = +100 pts).
 
@@ -6051,7 +6051,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.31</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.32</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6556,7 +6556,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           />
         )}
 
-        {/* v20.7.31 — refer tab route removed. Agent Invite reachable from Lead Gen sheet. */}
+        {/* v20.7.32 — refer tab route removed. Agent Invite reachable from Lead Gen sheet. */}
 
         {/* v14.50 — Global Who called me? modal (rendered from AgentView, works on every tab) */}
         {globalLookupOpen && (
@@ -7385,7 +7385,7 @@ function LeadGenSheet(props: {
 
         {view === "refer-agent" && (
           <>
-            {header("Refer an Agent", () => setView("root"))}
+            {header("Agent Invite", () => setView("root"))}
             <ReferAnAgentForm user={props.user} toast={props.toast} onDone={close} />
           </>
         )}
@@ -8125,11 +8125,11 @@ function OpenHouseKnockRouteForm(props: { user: any; toast: any; onDone: () => v
   );
 }
 
-// ─── v17.6 Social Post form ─────────────────────────────────────────────────
-// v19.6 Refer an Agent form
+// ─── v20.7.32 Agent Invite form ────────────────────────────────────────────
 // Agent submits name/phone/email of someone they'd refer; server creates the
-// candidate + returns the /join/<token> link. Agent picks SMS, Email, or
-// Copy Link to hand it off. 100 pts awarded when Alex approves the candidate.
+// candidate + auto-sends a branded email to them (if email captured) with the
+// /join/<token> apply link. Agent gets +50 pts on invite send, +100 more if
+// Alex approves the hire. Copy Link is always available as a fallback.
 function ReferAnAgentForm(props: { user: any; toast: any; onDone: () => void }) {
   const { toast } = props;
   const [name, setName] = useState("");
@@ -8137,6 +8137,7 @@ function ReferAnAgentForm(props: { user: any; toast: any; onDone: () => void }) 
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [emailSent, setEmailSent] = useState(false);
 
   const submit = async () => {
     if (!name.trim() || !phone.trim()) {
@@ -8154,7 +8155,8 @@ function ReferAnAgentForm(props: { user: any; toast: any; onDone: () => void }) 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "invite failed");
       setInviteUrl(data.inviteUrl);
-      toast?.({ title: "Invite ready — share the link" });
+      setEmailSent(!!data.emailSent);
+      toast?.({ title: data.emailSent ? `Invite emailed to ${name.split(/\s+/)[0]}` : "Invite ready — copy the link" });
     } catch (err: any) {
       toast?.({ title: err.message || "Something went wrong", variant: "destructive" });
     } finally {
@@ -8163,10 +8165,6 @@ function ReferAnAgentForm(props: { user: any; toast: any; onDone: () => void }) 
   };
 
   const firstName = name.split(/\s+/)[0] || "there";
-  const shareMsg = `Hey ${firstName} — I think you'd be a great fit for our team at Brothers Group Real Estate (Momentum Realty). Take 3 minutes to fill out this quick form and we'll talk: ${inviteUrl || ""}`;
-  const isApple  = typeof navigator !== "undefined" && /iPhone|iPad|Mac/.test(navigator.userAgent);
-  const smsHref  = `sms:${(phone || "").replace(/[^\d+]/g, "")}${isApple ? "&" : "?"}body=${encodeURIComponent(shareMsg)}`;
-  const mailHref = email ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent("Come check out our real estate team")}&body=${encodeURIComponent(shareMsg)}` : "";
 
   const copyLink = async () => {
     if (!inviteUrl) return;
@@ -8183,15 +8181,18 @@ function ReferAnAgentForm(props: { user: any; toast: any; onDone: () => void }) 
   if (inviteUrl) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ padding: 14, borderRadius: 12, background: "rgba(56,189,248,0.08)", border: "1px solid rgba(56,189,248,0.28)" }}>
-          <p style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "#38bdf8", fontWeight: 700, margin: 0, marginBottom: 6 }}>Invite ready for {name}</p>
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", margin: 0, wordBreak: "break-all" }}>{inviteUrl}</p>
-        </div>
-        <a href={smsHref} style={{ display: "block", textAlign: "center", padding: "14px 16px", borderRadius: 10, background: "rgba(74,222,128,0.14)", border: "1px solid rgba(74,222,128,0.4)", color: "#4ade80", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase", textDecoration: "none" }}>Text {firstName} the link
-        </a>
-        {email && (
-          <a href={mailHref} style={{ display: "block", textAlign: "center", padding: "14px 16px", borderRadius: 10, background: "rgba(56,189,248,0.14)", border: "1px solid rgba(56,189,248,0.4)", color: "#38bdf8", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase", textDecoration: "none" }}>Email {firstName} the link
-          </a>
+        {emailSent ? (
+          <div style={{ padding: 14, borderRadius: 12, background: "rgba(74,222,128,0.10)", border: "1px solid rgba(74,222,128,0.35)" }}>
+            <p style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "#4ade80", fontWeight: 700, margin: 0, marginBottom: 6 }}>✓ Email sent to {firstName}</p>
+            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", margin: 0, lineHeight: 1.5 }}>
+              {firstName} will get a branded invite from Brothers Group with your name on it and a link to apply.
+            </p>
+          </div>
+        ) : (
+          <div style={{ padding: 14, borderRadius: 12, background: "rgba(56,189,248,0.08)", border: "1px solid rgba(56,189,248,0.28)" }}>
+            <p style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "#38bdf8", fontWeight: 700, margin: 0, marginBottom: 6 }}>Invite ready for {name}</p>
+            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.75)", margin: 0, wordBreak: "break-all" }}>{inviteUrl}</p>
+          </div>
         )}
         <button type="button" onClick={copyLink} style={{ padding: "14px 16px", borderRadius: 10, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.18)", color: "#fff", fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer" }}>Copy link
         </button>
@@ -8205,21 +8206,17 @@ function ReferAnAgentForm(props: { user: any; toast: any; onDone: () => void }) 
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
       <p style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", marginBottom: 14, lineHeight: 1.55 }}>
-        Know a licensed agent (or licensable person) who'd thrive on our team? Drop their info and we'll generate a private application link you can text or email to them. 100 pts to you if Alex approves.
+        Know a licensed agent (or licensable person) who'd thrive on our team? Drop their info — if you add their email we'll send them a branded invite from Brothers Group with your name on it. 100 pts to you if Alex approves.
       </p>
       <label style={{ fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 6, fontWeight: 700 }}>Full name</label>
-      <input value={name} onChange={e => setName(e.target.value)} placeholder="Jane Smith" style={inputStyle} />
-      <label style={{ fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 6, fontWeight: 700 }}>Mobile phone</label>
-      <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(555) 123-4567" type="tel" style={inputStyle} />
-      <label style={{ fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 6, fontWeight: 700 }}>Email (optional)</label>
-      <input value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" type="email" style={inputStyle} />
-      <button type="button" onClick={submit} disabled={submitting || !name.trim() || !phone.trim()} style={{
-        marginTop: 8, padding: "14px 16px", borderRadius: 10,
-        background: submitting ? "rgba(167,139,250,0.14)" : "rgba(167,139,250,0.24)",
-        border: "1px solid rgba(167,139,250,0.5)",
-        color: "#a78bfa", fontWeight: 700, fontSize: 13, letterSpacing: "0.12em",
-        textTransform: "uppercase", cursor: submitting ? "wait" : "pointer",
-      }}>{submitting ? "Creating invite…" : "Create invite link"}</button>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Liz Stewart" style={inputStyle} />
+      <label style={{ fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 6, fontWeight: 700 }}>Phone</label>
+      <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(904) 555-0100" style={inputStyle} type="tel" />
+      <label style={{ fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 6, fontWeight: 700 }}>Email <span style={{ color: "rgba(255,255,255,0.35)", letterSpacing: 0, textTransform: "none", fontWeight: 500 }}>(optional — enables auto-send)</span></label>
+      <input value={email} onChange={e => setEmail(e.target.value)} placeholder="liz@example.com" style={inputStyle} type="email" />
+      <button type="button" disabled={submitting || !name.trim() || !phone.trim()} onClick={submit} style={{ padding: "14px 16px", borderRadius: 10, background: submitting ? "rgba(200,170,90,0.4)" : "rgba(200,170,90,0.9)", border: "1px solid rgba(200,170,90,1)", color: "#0a0a0a", fontWeight: 700, fontSize: 13, letterSpacing: "0.12em", textTransform: "uppercase", cursor: submitting ? "wait" : "pointer", marginTop: 4 }}>
+        {submitting ? "Creating invite…" : "Send Invite"}
+      </button>
     </div>
   );
 }

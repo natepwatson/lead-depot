@@ -234,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.31 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.32 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -463,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.31 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.32 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -522,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.31 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.32 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -570,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.31 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.32 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1812,7 +1812,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.31</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.32</p>
             </div>
           `,
         });
@@ -1972,7 +1972,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.31 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.32 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -8355,7 +8355,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.31 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.32 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -9444,7 +9444,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.31",
+      version: "v20.7.32",
       services: results,
     });
   });
@@ -9531,7 +9531,7 @@ This template is for informational/outreach purposes only.`;
   // ── Admin OR agent invites a candidate. Any authed user with an agent row
   //    may invite (Alex's v19.6 choice: All agents can invite, tracked by
   //    invited_by_agent_id for later referral-credit attribution).
-  app.post("/api/candidates/invite", (req: any, res) => {
+  app.post("/api/candidates/invite", async (req: any, res) => {
     const authed = req.currentAgent;
     if (!authed) return res.status(401).json({ error: "Authentication required" });
     const { name, phone, email } = req.body || {};
@@ -9547,13 +9547,73 @@ This template is for informational/outreach purposes only.`;
       const host = req.get('host') || 'depot.watsonbrothersgroup.com';
       const scheme = host.includes('localhost') ? 'http' : 'https';
       const inviteUrl = `${scheme}://${host}/join/${token}`;
+
+      // v20.7.32 — Pull inviter's phone so the candidate email is signed correctly.
+      const inviterRow = rawDb.prepare(`SELECT name, email, phone FROM agents WHERE id = ?`).get(authed.id) as any;
+      const inviterName  = (inviterRow?.name  || authed.name  || "An agent").trim();
+      const inviterEmail = (inviterRow?.email || authed.email || "").trim();
+      const inviterPhone = (inviterRow?.phone || "").trim();
+      const candFirst    = String(name).trim().split(/\s+/)[0] || "there";
+
+      // v20.7.32 — Auto-send branded invite to the candidate (if email provided).
+      let emailSent = false;
+      if (resend && email) {
+        const candidateHtml = `
+<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f4f2ea;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f2ea;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.06);overflow:hidden;">
+        <tr><td style="padding:28px 32px 12px 32px;border-bottom:1px solid #eee;">
+          <div style="font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#a17f2e;font-weight:700;">Brothers Group Real Estate</div>
+          <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#888;font-weight:600;margin-top:4px;">at Momentum Realty</div>
+        </td></tr>
+        <tr><td style="padding:28px 32px 8px 32px;">
+          <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:400;color:#1a1a1a;margin:0 0 16px 0;line-height:1.35;">Hey ${escapeHtml(candFirst)} — come check us out.</h1>
+          <p style="font-size:15px;line-height:1.6;color:#333;margin:0 0 14px 0;">
+            ${escapeHtml(inviterName)} thinks you'd be a great fit on our team at Brothers Group Real Estate. We're a Jacksonville-based team at Momentum Realty and we're growing carefully — which is why we ask agents we like to walk through a short application before we talk.
+          </p>
+          <p style="font-size:15px;line-height:1.6;color:#333;margin:0 0 22px 0;">
+            It takes about 3 minutes. Once you finish, ${inviterName.toLowerCase().includes("alex watson") ? "Alex" : `${escapeHtml(inviterName.split(/\s+/)[0] || "we")} and Alex Watson (team owner)`} will review it and reach out.
+          </p>
+        </td></tr>
+        <tr><td align="center" style="padding:0 32px 28px 32px;">
+          <a href="${inviteUrl}" style="display:inline-block;background:#0a0a0a;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:14px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;">Start the application</a>
+          <div style="font-size:12px;color:#888;margin-top:12px;">or paste this link into your browser:<br><span style="color:#555;word-break:break-all;">${inviteUrl}</span></div>
+        </td></tr>
+        <tr><td style="padding:20px 32px 24px 32px;border-top:1px solid #eee;background:#faf8f2;">
+          <div style="font-size:11px;letter-spacing:0.16em;text-transform:uppercase;color:#a17f2e;font-weight:700;margin-bottom:8px;">Invited by</div>
+          <div style="font-size:15px;color:#1a1a1a;font-weight:700;">${escapeHtml(inviterName)}</div>
+          ${inviterPhone ? `<div style="font-size:13px;color:#555;margin-top:2px;">${escapeHtml(inviterPhone)}</div>` : ""}
+          ${inviterEmail ? `<div style="font-size:13px;color:#555;margin-top:2px;"><a href="mailto:${escapeHtml(inviterEmail)}" style="color:#a17f2e;text-decoration:none;">${escapeHtml(inviterEmail)}</a></div>` : ""}
+          <div style="font-size:12px;color:#999;margin-top:10px;line-height:1.5;">Reply to this email to reach ${escapeHtml(inviterName.split(/\s+/)[0] || "us")} directly.</div>
+        </td></tr>
+      </table>
+      <div style="font-size:11px;color:#aaa;margin-top:16px;">Brothers Group Real Estate · Momentum Realty · Jacksonville, FL</div>
+    </td></tr>
+  </table>
+</body></html>`;
+        try {
+          const sendResult: any = await resend.emails.send({
+            from: "Brothers Group Real Estate <noreply@watsonbrothersgroup.com>",
+            to:   [String(email).trim()],
+            replyTo: inviterEmail || undefined,
+            subject: `${inviterName} thinks you'd be a great fit at Brothers Group`,
+            html: candidateHtml,
+          });
+          if (sendResult && !sendResult.error) emailSent = true;
+          else console.error("[candidate invite — candidate email]", sendResult?.error || sendResult);
+        } catch (err) {
+          console.error("[candidate invite — candidate email]", err);
+        }
+      }
+
       // Notify admins so they see the invite lifecycle
       if (resend) {
         resend.emails.send({
           from: "Lead Depot <noreply@watsonbrothersgroup.com>",
           to:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
-          subject: `🎯 Candidate invited by ${authed.name || "Agent"} — ${name}`,
-          html: `<p>${authed.name || "An agent"} just invited <strong>${name}</strong> (${phone}${email ? " · " + email : ""}) to apply.</p><p>Their apply link: <a href="${inviteUrl}">${inviteUrl}</a></p><p>They'll appear in Admin → Candidates tab once they submit the questionnaire.</p>`,
+          subject: `🎯 Candidate invited by ${inviterName} — ${name}`,
+          html: `<p>${inviterName} just invited <strong>${name}</strong> (${phone}${email ? " · " + email : ""}) to apply${emailSent ? " — branded invite auto-sent to their inbox" : " (no email captured, agent will share the link manually)"}.</p><p>Their apply link: <a href="${inviteUrl}">${inviteUrl}</a></p><p>They'll appear in Admin → Candidates tab once they submit the questionnaire.</p>`,
         }).catch(err => console.error("[candidate invite notify]", err));
       }
       broadcast({ type: "activity_event", event: { type: "candidate_invited", candidateId: Number(info.lastInsertRowid), name, agentId: authed.id, agentName: authed.name, ts: now } });
@@ -9561,7 +9621,7 @@ This template is for informational/outreach purposes only.`;
       // the moment they send the invite (not later when the candidate applies/gets approved).
       // The +100 `agent_referral_approved` still fires on approval as an additional bonus.
       try { awardPoints(authed.id, "agent_invite_sent", undefined, "recruiting"); } catch {}
-      res.json({ ok: true, candidateId: Number(info.lastInsertRowid), inviteUrl });
+      res.json({ ok: true, candidateId: Number(info.lastInsertRowid), inviteUrl, emailSent });
     } catch (err: any) {
       console.error("[candidate invite]", err);
       res.status(500).json({ error: err.message || "invite failed" });
@@ -10502,7 +10562,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.31</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.32</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

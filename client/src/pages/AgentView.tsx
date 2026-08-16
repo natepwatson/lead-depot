@@ -5377,7 +5377,7 @@ function ChallengesTab() {
   const [claimOpen, setClaimOpen] = useState<ChallengeState | null>(null);
   const [unlockOpen, setUnlockOpen] = useState<ChallengeState | null>(null);
 
-  // v20.7.37 — hide bottom nav while claim sheet or unlock celebration is open,
+  // v20.7.38 — hide bottom nav while claim sheet or unlock celebration is open,
   // otherwise iOS Safari's backdrop-filter on the nav punches through the modal
   // and covers Cancel / Submit for Approval. Same fix as every other modal in this
   // file (see line ~229, 479, 561, etc.).
@@ -5399,14 +5399,50 @@ function ChallengesTab() {
   });
 
   const claimMut = useMutation({
-    mutationFn: async ({ key, notes }: { key: string; notes: string }) =>
-      apiRequest("POST", `/api/challenges/${key}/claim`, { notes }).then(r => r.json()),
+    mutationFn: async ({ key, notes, evidence }: { key: string; notes: string; evidence: string | null }) =>
+      apiRequest("POST", `/api/challenges/${key}/claim`, { notes, evidence }).then(r => r.json()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/challenges"] });
       setClaimOpen(null);
+      setClaimPhotoDataUrl(null);
       toast({ title: "Submitted for approval", description: "Nate will approve or reject in the admin queue." });
     },
   });
+
+  // v20.7.38 — optional photo evidence on the claim sheet. Every gated challenge
+  // has an evidencePrompt that usually mentions a selfie, photo, or screenshot,
+  // but the sheet previously only offered a notes textarea. Photo is optional to
+  // keep flexibility (some prompts are just confirmations); when attached, it's
+  // downscaled to 1024px longest edge / 0.82 JPEG and sent as evidence dataUrl.
+  const [claimPhotoDataUrl, setClaimPhotoDataUrl] = useState<string | null>(null);
+  const claimFileRef = useRef<HTMLInputElement>(null);
+  const onPickClaimPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 25 * 1024 * 1024) {
+      toast({ title: "Photo too large", description: "Try a smaller image (< 25MB).", variant: "destructive" });
+      return;
+    }
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        const MAX = 1024;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) {
+          const scale = MAX / Math.max(width, height);
+          width = Math.round(width * scale); height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) ctx.drawImage(img, 0, 0, width, height);
+        setClaimPhotoDataUrl(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(f);
+  };
 
   // Full-screen unlock modal fires ONE-SHOT the first time a completion appears
   // that we haven't shown. Track shown keys in sessionStorage.
@@ -5572,25 +5608,80 @@ function ChallengesTab() {
 
       {/* Claim sheet */}
       {claimOpen && (
-        <div onClick={() => setClaimOpen(null)} style={{
+        <div onClick={() => { setClaimOpen(null); setClaimPhotoDataUrl(null); }} style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 100,
           display: "flex", alignItems: "flex-end", justifyContent: "center",
         }}>
           <div onClick={e => e.stopPropagation()} style={{
             width: "100%", maxWidth: 480, background: "#0a0908",
             borderTop: "1px solid rgba(200,170,90,0.35)", padding: 24, borderRadius: "16px 16px 0 0",
+            maxHeight: "85vh", overflowY: "auto",
           }}>
             <p style={{ fontSize: 18, fontWeight: 600, color: "#c8aa5a", marginBottom: 6 }}>{claimOpen.label}</p>
             <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 14, lineHeight: 1.4 }}>
               {claimOpen.evidencePrompt || "Add a note describing what you did — admin will review."}
             </p>
+
+            {/* v20.7.38 — optional photo evidence. Every gated challenge asks for one
+                in its prompt; label is dynamic when the prompt mentions selfie / photo /
+                screenshot, otherwise stays generic. Not required so notes-only
+                submissions still work. */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>
+                {(() => {
+                  const p = (claimOpen.evidencePrompt || "").toLowerCase();
+                  if (p.includes("selfie")) return "Selfie (recommended)";
+                  if (p.includes("screenshot")) return "Screenshot (recommended)";
+                  if (p.includes("photo")) return "Photo (recommended)";
+                  return "Photo (optional)";
+                })()}
+              </label>
+              <input
+                ref={claimFileRef}
+                type="file"
+                accept="image/*"
+                capture={((claimOpen.evidencePrompt || "").toLowerCase().includes("selfie") ? "user" : undefined) as any}
+                onChange={onPickClaimPhoto}
+                style={{ display: "none" }}
+              />
+              {claimPhotoDataUrl ? (
+                <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(200,170,90,0.28)" }}>
+                  <img src={claimPhotoDataUrl} alt="Evidence" style={{ width: "100%", display: "block", maxHeight: 220, objectFit: "cover" }} />
+                  <button
+                    onClick={() => { setClaimPhotoDataUrl(null); if (claimFileRef.current) claimFileRef.current.value = ""; }}
+                    style={{
+                      position: "absolute", top: 8, right: 8,
+                      background: "rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.15)",
+                      borderRadius: 8, padding: "6px 10px", cursor: "pointer",
+                      color: "#fff", fontSize: 11, fontWeight: 600,
+                      display: "flex", alignItems: "center", gap: 4,
+                    }}
+                  ><X size={12} /> Retake</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => claimFileRef.current?.click()}
+                  style={{
+                    width: "100%", padding: "18px 14px",
+                    background: "rgba(200,170,90,0.05)", border: "1px dashed rgba(200,170,90,0.4)",
+                    borderRadius: 12, cursor: "pointer",
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                    color: "#c8aa5a", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em",
+                  }}
+                >
+                  <Camera size={20} />
+                  <span>Tap to add photo</span>
+                </button>
+              )}
+            </div>
+
             <Textarea
               id="claim-notes"
               placeholder="Notes for admin (address, teammate name, count, etc.)"
               style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.20)", color: "#fff", marginBottom: 14 }}
             />
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setClaimOpen(null)} style={{
+              <button onClick={() => { setClaimOpen(null); setClaimPhotoDataUrl(null); }} style={{
                 flex: 1, padding: "11px 14px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)",
                 borderRadius: 8, color: "rgba(255,255,255,0.65)", fontSize: 13, fontWeight: 600, cursor: "pointer",
               }}>Cancel</button>
@@ -5598,7 +5689,7 @@ function ChallengesTab() {
                 disabled={claimMut.isPending}
                 onClick={() => {
                   const notes = (document.getElementById("claim-notes") as HTMLTextAreaElement | null)?.value || "";
-                  claimMut.mutate({ key: claimOpen.key, notes });
+                  claimMut.mutate({ key: claimOpen.key, notes, evidence: claimPhotoDataUrl });
                 }}
                 style={{
                   flex: 1, padding: "11px 14px",
@@ -6197,7 +6288,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.37</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.38</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -8375,7 +8466,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const { user, toast, onDone } = props;
   const MAX_PLATFORMS = 3;
   const PTS_PER_PLATFORM = 10;
-  // v20.7.37 — Video is a WHOLE-LOG BONUS on top of platform points, not a
+  // v20.7.38 — Video is a WHOLE-LOG BONUS on top of platform points, not a
   // replacement. Formula: (10 × platforms) + (isVideo ? 80 : 0). Single toggle,
   // one 80-pt bonus per log regardless of how many platforms it cross-posted
   // to. Prevents ticking "video" 3 times to stack 240.
@@ -8385,7 +8476,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const [caption, setCaption] = useState("");
   // Map of platform → downscaled dataUrl. Independent per platform.
   const [photos, setPhotos] = useState<Partial<Record<SocialPlatformId, string>>>({});
-  // v20.7.37 — single log-level video flag.
+  // v20.7.38 — single log-level video flag.
   const [isVideoLog, setIsVideoLog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -8434,7 +8525,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     reader.readAsDataURL(file);
   };
 
-  // v20.7.37 — scoring: (10 × platforms) + (isVideo ? 80 : 0). Video is a bonus.
+  // v20.7.38 — scoring: (10 × platforms) + (isVideo ? 80 : 0). Video is a bonus.
   const pointsPreview = (PTS_PER_PLATFORM * selected.length) + (isVideoLog ? PTS_VIDEO_BONUS : 0);
 
   const submit = async () => {
@@ -8450,7 +8541,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     try {
       const platformsPayload = selected.slice();
       const photoDataUrls = platformsPayload.map(id => photos[id] as string);
-      // v20.7.37 — single log-level video flag. Server computes
+      // v20.7.38 — single log-level video flag. Server computes
       // (10 × platforms) + (isVideoLog ? 80 : 0).
       const r = await apiRequest("POST", "/api/lead-gen/social-post", {
         agentId: user?.id,
@@ -8491,7 +8582,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
         </p>
       </div>
 
-      {/* v20.7.37 — single log-level Video toggle. Not per-platform. */}
+      {/* v20.7.38 — single log-level Video toggle. Not per-platform. */}
       <div>
         <button
           type="button"

@@ -1215,6 +1215,10 @@ export default function AdminDashboard({
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [intentFilter, setIntentFilter] = useState("all"); // v15.3
+  // v20.7.47 — Admin can filter the pipeline view (tiles + paginated table)
+  // by owning agent. "all" = every agent. Stored as string so the <Select>
+  // can bind cleanly; parseInt at the fetch site.
+  const [pipelineAgentFilter, setPipelineAgentFilter] = useState<string>("all");
   const [drilldownAgent, setDrilldownAgent] = useState<{ id: number; name: string } | null>(null);
 
   // Paginated leads state (v11.70)
@@ -1262,14 +1266,19 @@ export default function AdminDashboard({
   // v14.49 — myQueueData removed. Pull-only model: no per-agent queues to display.
 
   const { data: pipeline, isLoading: pipelineLoading } = useQuery<any>({
-    queryKey: ["/api/admin/pipeline"],
-    queryFn: () => apiRequest("GET", "/api/admin/pipeline").then(r => r.json()),
+    // v20.7.47 — Include agent filter in key so React Query refetches when Alex
+    // switches which agent's pipeline he's viewing.
+    queryKey: ["/api/admin/pipeline", pipelineAgentFilter],
+    queryFn: () => {
+      const qs = pipelineAgentFilter !== "all" ? `?agentId=${pipelineAgentFilter}` : "";
+      return apiRequest("GET", `/api/admin/pipeline${qs}`).then(r => r.json());
+    },
     refetchInterval: 30000, // v19.5 — WS invalidates on outcome log
   });
 
   // Paginated lead list query (v11.70) — replaces full pipeline load for Lead Pool tab
   const paginatedLeadsQuery = useQuery<any>({
-    queryKey: ["/api/leads/paginated", statusFilter, intentFilter, searchTerm, leadsPage],
+    queryKey: ["/api/leads/paginated", statusFilter, intentFilter, searchTerm, leadsPage, pipelineAgentFilter],
     queryFn: () => {
       const params = new URLSearchParams({
         limit: String(LEADS_PAGE_SIZE),
@@ -1277,6 +1286,8 @@ export default function AdminDashboard({
         status: statusFilter,
         intent: intentFilter,
         ...(searchTerm ? { search: searchTerm } : {}),
+        // v20.7.47 — Admin agent filter. Server already supports ?agentId=.
+        ...(pipelineAgentFilter !== "all" ? { agentId: pipelineAgentFilter } : {}),
       });
       return apiRequest("GET", `/api/leads/paginated?${params}`).then(r => r.json());
     },
@@ -1885,7 +1896,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.7.46
+              v20.7.47
             </p>
           </div>
         </div>
@@ -1992,11 +2003,12 @@ export default function AdminDashboard({
               { value: "kpi",         icon: TrendingUp,  label: "KPI" },
               { value: "approvals",   icon: CheckCircle2, label: "Approvals" },
               { value: "candidates",  icon: UserPlus,    label: "Candidates" },
-              { value: "dbhealth",    icon: Database,    label: "DB Health" },
+              // v20.7.47 — DB Health, Newsletter, and Open Houses tabs removed
+              // from the admin bar per Alex 8/18. Their tab content is still
+              // wired up below in case they need to be re-enabled later, but
+              // they're not reachable from the admin nav.
               { value: "upload",      icon: Upload,      label: "Upload CSV" },
               { value: "masterlist",  icon: ClipboardList, label: "Master List" },
-              { value: "newsletter",  icon: Mail,         label: "Newsletter" },
-              { value: "openhouses",  icon: CalendarDays, label: "Open Houses" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
             ].map(tab => (
@@ -2228,15 +2240,45 @@ export default function AdminDashboard({
                top of Lead Pool, plus an "All" tile as a 9th at the front. Tapping a
                tile drives the SAME statusFilter state used by the paginated table
                below (and by the Status dropdown), so the two stay in sync either way. */}
-            <div className="flex items-center gap-2 mb-1">
-              <Layers size={13} style={{ color: "rgba(200,170,90,0.7)" }} />
-              <p style={{
-                fontFamily: "'Cormorant Garamond','Georgia',serif",
-                fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase",
-                color: "rgba(200,170,90,0.6)", fontWeight: 600,
-              }}>
-                Pipeline Funnel
-              </p>
+            <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Layers size={13} style={{ color: "rgba(200,170,90,0.7)" }} />
+                <p style={{
+                  fontFamily: "'Cormorant Garamond','Georgia',serif",
+                  fontSize: 12, letterSpacing: "0.18em", textTransform: "uppercase",
+                  color: "rgba(200,170,90,0.6)", fontWeight: 600,
+                }}>
+                  Pipeline Funnel
+                  {pipelineAgentFilter !== "all" && (
+                    <span style={{ marginLeft: 8, color: "#c8aa5a", textTransform: "none", letterSpacing: 0, fontFamily: "inherit" }}>
+                      — {(agents.find(a => String(a.id) === pipelineAgentFilter)?.name) || ""}
+                    </span>
+                  )}
+                </p>
+              </div>
+              {/* v20.7.47 — Admin agent selector for the pipeline view. "All Agents"
+                  shows the aggregate pool; selecting one agent filters both the
+                  tile counts and the paginated table below to only that agent's
+                  leads. Both queries key on pipelineAgentFilter so switching is
+                  instant. */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Agent</span>
+                <Select value={pipelineAgentFilter} onValueChange={setPipelineAgentFilter}>
+                  <SelectTrigger className="w-48 bg-secondary border-border text-sm h-8" data-testid="select-pipeline-agent">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Agents</SelectItem>
+                    {[...agents]
+                      .filter((a: any) => a.isActive && !(a.email || "").startsWith("tombstone:"))
+                      .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""))
+                      .map((a: any) => (
+                        <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
+                      ))
+                    }
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             {pipelineLoading ? (
               <div className="grid gap-2 grid-cols-3 md:grid-cols-9">
@@ -2792,7 +2834,7 @@ export default function AdminDashboard({
                 if (aOn !== bOn) return bOn - aOn;
                 return 0;
               });
-              // v20.7.46 — Inactive agents concept removed. Every row in `agents` is
+              // v20.7.47 — Inactive agents concept removed. Every row in `agents` is
               // considered active in the roster. Deactivation flow is retired; the
               // trash icon on the active row is now a direct hard-delete with two
               // confirmation steps. Historical activity of hard-deleted agents is
@@ -2907,17 +2949,8 @@ export default function AdminDashboard({
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
-                              <div className="flex flex-col items-center gap-0.5">
-                                <span className="text-[10px] text-muted-foreground">Flow</span>
-                                <LuxToggle
-                                  on={flowActive}
-                                  onToggle={() => toggleLeadFlowMutation.mutate({ id: agent.id, leadFlowOn: !flowActive })}
-                                  testId={`toggle-lead-flow-${agent.id}`}
-                                />
-                              </div>
-                              <Badge variant="outline" className={`text-xs ${flowActive ? "text-green-400 border-green-400/30" : "text-muted-foreground border-white/10"}`}>
-                                {flowActive ? "Flow On" : "Flow Off"}
-                              </Badge>
+                              {/* v20.7.47 — Flow toggle + Flow On/Off badge removed.
+                                  Every roster agent is now on-flow structurally. */}
                               {/* v14.0 — Min Dials/Wk gate removed. Motivation over shaming. */}
                               {/* v15.11.26 — Set Password: admin types the new password directly. */}
                               <Button
@@ -2946,15 +2979,7 @@ export default function AdminDashboard({
                               >
                                 <Mail size={13}/>
                               </Button>
-                              <Button
-                                variant="ghost" size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-blue-400"
-                                onClick={() => { setMergeSourceAgent(agent); setMergeTargetId(null); }}
-                                title="Merge into another agent"
-                                data-testid={`button-merge-agent-${agent.id}`}
-                              >
-                                <Users size={13}/>
-                              </Button>
+                              {/* v20.7.47 — Merge button removed. */}
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-purple-400"
@@ -2964,30 +2989,12 @@ export default function AdminDashboard({
                               >
                                 <ScrollText size={13}/>
                               </Button>
-                              {/* v15.11.39 — Reset today's skip quota. Admin escape hatch
-                                  for the 3-skip daily cap so a blocked agent can be unblocked
-                                  without waiting for midnight. */}
-                              <Button
-                                variant="ghost" size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-emerald-400"
-                                onClick={() => openConfirm({
-                                  title: `Reset today's skips for ${agent.name}?`,
-                                  message: `Clears any skips ${agent.name} used today (cap is 3/day) and releases any leads that were held out from them because of a skip. History is preserved in the audit log. Use when they've hit the cap or the 60-minute cooldown but need to keep working.`,
-                                  confirmLabel: "Reset skips",
-                                  confirmColor: "#10b981",
-                                  onConfirm: () => { closeConfirm(); resetSkipsMutation.mutate(agent.id); },
-                                })}
-                                title="Reset today's skip quota"
-                                disabled={resetSkipsMutation.isPending}
-                                data-testid={`button-reset-skips-${agent.id}`}
-                              >
-                                <RotateCcw size={13}/>
-                              </Button>
+                              {/* v20.7.47 — Reset today's skip quota button removed. */}
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
                                 onClick={() => {
-                                  // v20.7.46 — Two-step confirmation for permanent removal.
+                                  // v20.7.47 — Two-step confirmation for permanent removal.
                                   const ok = window.confirm(`Permanently DELETE ${agent.name}?\n\nThis removes the agent from the app entirely. All leads in their queue return to the shared pool. Historical activity (calls, KIT, appts) is preserved but attributed to "anonymous".\n\nThis cannot be undone. Type DELETE on the next prompt to confirm.`);
                                   if (!ok) return;
                                   const typed = window.prompt(`Type DELETE to permanently remove ${agent.name}:`);
@@ -3016,7 +3023,7 @@ export default function AdminDashboard({
                     </div>
                   </div>
 
-                  {/* v20.7.46 — Inactive Agents section removed. All roster rows are active. */}
+                  {/* v20.7.47 — Inactive Agents section removed. All roster rows are active. */}
                 </>
               );
             })()}
@@ -3789,7 +3796,7 @@ function CandidatesPanel() {
     onError: (e: any) => toast({ title: e.message || "Decline failed", variant: "destructive" }),
   });
 
-  // v20.7.46 — Hard-delete removes the candidate row and reverses any points
+  // v20.7.47 — Hard-delete removes the candidate row and reverses any points
   // that were awarded to the referring agent (invite +50, approval +100).
   const deleteMut = useMutation({
     mutationFn: async (id: number) => {
@@ -3849,7 +3856,7 @@ function CandidatesPanel() {
               <button onClick={() => setDeclining(c.id)} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(248,113,113,0.16)", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Decline</button>
             </>
           )}
-          {/* v20.7.46 — Hard-delete on every row. Confirms, reverses pts, drops candidate. */}
+          {/* v20.7.47 — Hard-delete on every row. Confirms, reverses pts, drops candidate. */}
           <button
             onClick={() => {
               const msg = `Hard-delete ${c.name}? Removes the candidate and reverses any recruiting points from this invite.`;

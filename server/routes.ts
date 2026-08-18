@@ -234,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.48 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.49 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -463,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.48 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.49 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -522,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.48 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.49 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -570,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.48 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.49 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1812,7 +1812,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.48</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.49</p>
             </div>
           `,
         });
@@ -1972,7 +1972,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.48 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.49 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2252,7 +2252,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     const before = storage.getAgentById(id);
     if (!before) return res.status(404).json({ error: "Agent not found" });
-    // v20.7.48 — Inactive-agents concept removed. Hard-delete now works on any agent
+    // v20.7.49 — Inactive-agents concept removed. Hard-delete now works on any agent
     // regardless of active status. The trash icon on the admin roster is the single
     // exit path. Self-delete still blocked to prevent admins from locking themselves out.
     if (req.currentAgent?.id === id) return res.status(400).json({ error: "Cannot hard-delete yourself." });
@@ -2525,10 +2525,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ok: true, leadId, agentId, agentName: agent.name, status: "contacted_appointment", pointsAwarded: awardedPoints });
   });
 
-  // v20.7.48 — Admin manual bonus award. Cookie-authed via requireAdmin.
+  // v20.7.49 — Admin manual bonus award. Cookie-authed via requireAdmin.
   // Inserts a row into agent_points with an arbitrary points value + reason.
   // Used for retroactive video-bonus credits and other one-off corrections
-  // (e.g. an agent posted a video before the v20.7.48 toggle shipped).
+  // (e.g. an agent posted a video before the v20.7.49 toggle shipped).
   app.post("/api/admin/agents/:id/award-bonus", (req, res) => {
     if (!requireAdmin(req, res)) return;
     const agentId = parseInt(req.params.id, 10);
@@ -2546,7 +2546,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     try {
       broadcast({ type: "points_awarded", agentId, delta: points, outcome: reason, scope: "seller", ts: nowIso });
     } catch {}
-    console.log(`[v20.7.48 award-bonus] agent=${agentId} (${agent.name}) pts=${points >= 0 ? "+" : ""}${points} reason="${reason}"`);
+    console.log(`[v20.7.49 award-bonus] agent=${agentId} (${agent.name}) pts=${points >= 0 ? "+" : ""}${points} reason="${reason}"`);
     res.json({ ok: true, agentId, agentName: agent.name, points, reason });
   });
 
@@ -4937,7 +4937,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // The live pipeline tab shows top 50 active leads + counts.
     const limit = parseInt((req.query.limit as string) || "50");
     const offset = parseInt((req.query.offset as string) || "0");
-    // v20.7.48 — Optional agentId filter so admin can view a single agent's
+    // v20.7.49 — Optional agentId filter so admin can view a single agent's
     // pipeline (tiles + list). When omitted, the aggregate pool is returned
     // as before. Filter is applied to BOTH the byStatus counts and the list.
     const agentIdRaw = req.query.agentId ? parseInt(String(req.query.agentId)) : NaN;
@@ -7147,7 +7147,7 @@ This template is for informational/outreach purposes only.`;
       if (_resetAtAdmin > monthStartISO) monthStartISO = _resetAtAdmin;
     }
 
-    // v20.7.48 — Every roster agent is on the admin leaderboard. Tombstones
+    // v20.7.49 — Every roster agent is on the admin leaderboard. Tombstones
     // (merged-away rows) are the only exclusion.
     const allAgents = storage.getAllAgents().filter(a =>
       a.isActive && !(a.email || "").startsWith("tombstone:")
@@ -7287,7 +7287,7 @@ This template is for informational/outreach purposes only.`;
     const socWeekMap  = bucketByReason("social_post", weekStartISO);
     const socMonthMap = bucketByReason("social_post", monthStartISO);
     const socAllMap   = bucketByReason("social_post", null);
-    // v20.7.48 — INV column: agent invites sent (no approval:* twin, invite fires immediately).
+    // v20.7.49 — INV column: agent invites sent (no approval:* twin, invite fires immediately).
     const invBucket = (floorISO: string | null): Record<number, number> => {
       const sql = floorISO
         ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason = 'agent_invite_sent' AND created_at >= ? GROUP BY agent_id`
@@ -7366,7 +7366,7 @@ This template is for informational/outreach purposes only.`;
         : period === "week"  ? (socWeekMap[agentId]  || 0)
         : period === "month" ? (socMonthMap[agentId] || 0)
         : (socAllMap[agentId] || 0);
-      // v20.7.48 — INV column.
+      // v20.7.49 — INV column.
       const inv = period === "today" ? (invTodayMap[agentId] || 0)
         : period === "week"  ? (invWeekMap[agentId]  || 0)
         : period === "month" ? (invMonthMap[agentId] || 0)
@@ -7636,14 +7636,14 @@ This template is for informational/outreach purposes only.`;
     const resetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
     const resetAt: string | null = resetRow?.value || null;
 
-    // v20.7.48 — STRUCTURAL RULE: every agent in the roster appears on the
+    // v20.7.49 — STRUCTURAL RULE: every agent in the roster appears on the
     // leaderboard. No exceptions. leadFlowOn, receiveLeads, and role are NOT
     // gates. The leaderboard is the single source of team motivation — pause
     // the flow, mute yourself, whatever, you are still on the board with a
     // real number next to your name. The only rows filtered out are:
     //   - merge-tombstones (email starts with 'tombstone:'); those are dead
     //     historical anchors, not agents.
-    // isActive is kept as a belt-and-suspenders filter but, per v20.7.48,
+    // isActive is kept as a belt-and-suspenders filter but, per v20.7.49,
     // no admin flow can flip it to false anymore — the roster IS the active
     // list. Do NOT reintroduce leadFlowOn / receiveLeads / role gates here.
     const allAgents = storage.getAllAgents().filter(a =>
@@ -7781,7 +7781,7 @@ This template is for informational/outreach purposes only.`;
     const socWeekMapA  = bucketByReasonAg("social_post", weekStartAg);
     const socMonthMapA = bucketByReasonAg("social_post", monthStartAg);
     const socAllMapA   = bucketByReasonAg("social_post", null);
-    // v20.7.48 — INV column = agent invites sent. Uses direct reason match
+    // v20.7.49 — INV column = agent invites sent. Uses direct reason match
     // (not bucketByReasonAg's approval pattern) because agent_invite_sent has
     // no `approval:*` twin — the invite fires immediately.
     const invBucketAg = (floorISO: string | null): Record<number, number> => {
@@ -7868,7 +7868,7 @@ This template is for informational/outreach purposes only.`;
         dm:        dmMap[agentId]  || 0,
         dk:        dkMap[agentId]  || 0,
         social:    socMap[agentId] || 0,
-        // v20.7.48 — INV column: agent invites sent.
+        // v20.7.49 — INV column: agent invites sent.
         inv:       invMap[agentId] || 0,
       };
     };
@@ -7928,7 +7928,7 @@ This template is for informational/outreach purposes only.`;
             dm:        dmAllMapA[agent.id]  || 0,
             dk:        dkAllMapA[agent.id]  || 0,
             social:    socAllMapA[agent.id] || 0,
-            // v20.7.48 — INV column: agent invites sent.
+            // v20.7.49 — INV column: agent invites sent.
             inv:       invAllMapA[agent.id] || 0,
           };
         })(),
@@ -7948,7 +7948,7 @@ This template is for informational/outreach purposes only.`;
             dm:     dmAllMapA[agent.id]  || 0,
             dk:     dkAllMapA[agent.id]  || 0,
             social: socAllMapA[agent.id] || 0,
-            // v20.7.48 — INV column: agent invites sent.
+            // v20.7.49 — INV column: agent invites sent.
             inv:    invAllMapA[agent.id] || 0,
           },
         },
@@ -7986,7 +7986,7 @@ This template is for informational/outreach purposes only.`;
   //   5 team appts → $500
   //   10 team appts → $750
   //   15 team appts → $1000 (stretch)
-  // v20.7.48 — Thresholds halved and floor rebased to $0. Payout split
+  // v20.7.49 — Thresholds halved and floor rebased to $0. Payout split
   // (70/30 to #1 / #2) unchanged from v16.7. Champion's Bonus fully retired
   // (was already dormant since v20.4.2 — now the constants are gone too).
   const TEAM_POT_LADDER = [
@@ -8082,10 +8082,10 @@ This template is for informational/outreach purposes only.`;
     // to show the dollar amount or the mystery placeholder.
     const fullLadder = [...TEAM_POT_LADDER, TEAM_POT_STRETCH];
 
-    // v20.7.48 — Month starts at $0. Team must book its first appointment to
-    // unlock the $250 tier. The array's tier-0 row is a zero-value floor so
-    // the walk starts before any real threshold.
-    let currentPot = TEAM_POT_LADDER[0].pot; // 0
+    // v20.7.49 — Month opens at the $250 floor. Ladder[0] IS tier 1 ($250 @ 0
+    // appts), so the team is already on the board on day 1 before any dial
+    // fires. The walk then advances to $500 at 5 appts, $750 at 10, $1000 at 15.
+    let currentPot = TEAM_POT_LADDER[0].pot; // 250 (floor)
     let currentTier: any = TEAM_POT_LADDER[0];
     let nextTier: any = null;
     for (let i = 1; i < fullLadder.length; i++) {
@@ -8112,7 +8112,7 @@ This template is for informational/outreach purposes only.`;
     const firstPayout = Math.round(currentPot * TEAM_POT_PAYOUT.first);
     const secondPayout = Math.round(currentPot * TEAM_POT_PAYOUT.second);
 
-    // v20.7.48 — Champion's Bonus fully deleted. Winner-take-all now IS the
+    // v20.7.49 — Champion's Bonus fully deleted. Winner-take-all now IS the
     // reward. teamReachedStretch kept for legacy clients that read it, but no
     // dollar bonus is computed anywhere on the server.
     const teamReachedStretch = teamAppts >= TEAM_POT_STRETCH.appts;
@@ -8378,7 +8378,7 @@ This template is for informational/outreach purposes only.`;
     const _refAgent = submitterAgentId ? storage.getAgentById(submitterAgentId) : null;
     broadcast({ type: "activity_event", event: { type: "warm_lead_submitted", source, intent, agentId: submitterAgentId, agentName: _refAgent?.name || submittedByName || "Agent", agentHeadshot: (_refAgent as any)?.headshotUrl || null, address: created.address, ts: new Date().toISOString() } });
 
-    // v20.7.48 — Award points AND write a lead_activity row matching the warm-
+    // v20.7.49 — Award points AND write a lead_activity row matching the warm-
     // lead source. Prior to this the endpoint always awarded `network_referral`
     // regardless of source, and NEVER wrote lead_activity, so the OH-Lead /
     // Door-Knock / Direct-Mail challenges never advanced when an agent captured
@@ -8447,7 +8447,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.48 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.49 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8706,7 +8706,7 @@ This template is for informational/outreach purposes only.`;
   //
   // Backward-compatible: still accepts legacy { platform, photoDataUrl } single-field.
   const SOCIAL_PER_PLATFORM = 10;
-  // v20.7.48 — Video is a WHOLE-LOG BONUS added on top of platform points, not
+  // v20.7.49 — Video is a WHOLE-LOG BONUS added on top of platform points, not
   // a per-platform multiplier. Formula: (10 × platforms) + (isVideoLog ? 80 : 0).
   const SOCIAL_VIDEO_BONUS = 80;
   const SOCIAL_MAX_PLATFORMS = 3;
@@ -8728,7 +8728,7 @@ This template is for informational/outreach purposes only.`;
       ? photoDataUrls.filter((p: any) => typeof p === "string" && p.length > 0)
       : (photoDataUrl ? [String(photoDataUrl)] : []);
 
-    // v20.7.48 — normalize video flag. Preferred client field is isVideoLog
+    // v20.7.49 — normalize video flag. Preferred client field is isVideoLog
     // (boolean, whole-log). We also accept legacy isVideo (boolean OR boolean[])
     // for backward compatibility — array is collapsed to a single log-level bool
     // via .some() so ticking any per-platform box on an old client still earns
@@ -8775,7 +8775,7 @@ This template is for informational/outreach purposes only.`;
       });
     }
 
-    // v20.7.48 — scoring: (10 × platforms) + (isVideoLog ? 80 : 0).
+    // v20.7.49 — scoring: (10 × platforms) + (isVideoLog ? 80 : 0).
     // Video is a whole-log bonus, not per-platform.
     const platformPoints = SOCIAL_PER_PLATFORM * platArr.length;
     const videoBonus = videoLog ? SOCIAL_VIDEO_BONUS : 0;
@@ -8793,7 +8793,7 @@ This template is for informational/outreach purposes only.`;
       photoDataUrl: photoArr[0], // legacy single-field mirror
       photoDataUrls: photoArr,
       pointsPerPlatform: SOCIAL_PER_PLATFORM,
-      // v20.7.48 — whole-log video bonus. isVideoLog=true → +80 flat on top of
+      // v20.7.49 — whole-log video bonus. isVideoLog=true → +80 flat on top of
       // platform points. Kept `isVideo` as an alias for older admin card code.
       isVideoLog: videoLog,
       isVideo: videoLog,
@@ -8820,7 +8820,7 @@ This template is for informational/outreach purposes only.`;
         platform: platArr.join(", "),
         platforms: platArr,
         pointsPotential,
-        // v20.7.48 — whole-log video flag so admin queue can badge video posts.
+        // v20.7.49 — whole-log video flag so admin queue can badge video posts.
         isVideo: videoLog,
         isVideoLog: videoLog,
         ts: now,
@@ -9567,7 +9567,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.48",
+      version: "v20.7.49",
       services: results,
     });
   });
@@ -9671,14 +9671,14 @@ This template is for informational/outreach purposes only.`;
       const scheme = host.includes('localhost') ? 'http' : 'https';
       const inviteUrl = `${scheme}://${host}/join/${token}`;
 
-      // v20.7.48 — Pull inviter's phone so the candidate email is signed correctly.
+      // v20.7.49 — Pull inviter's phone so the candidate email is signed correctly.
       const inviterRow = rawDb.prepare(`SELECT name, email, phone FROM agents WHERE id = ?`).get(authed.id) as any;
       const inviterName  = (inviterRow?.name  || authed.name  || "An agent").trim();
       const inviterEmail = (inviterRow?.email || authed.email || "").trim();
       const inviterPhone = (inviterRow?.phone || "").trim();
       const candFirst    = String(name).trim().split(/\s+/)[0] || "there";
 
-      // v20.7.48 — Auto-send branded invite to the candidate (if email provided).
+      // v20.7.49 — Auto-send branded invite to the candidate (if email provided).
       let emailSent = false;
       if (resend && email) {
         const candidateHtml = `
@@ -9716,7 +9716,7 @@ This template is for informational/outreach purposes only.`;
   </table>
 </body></html>`;
         try {
-          // v20.7.48 — Alex is auto-CC'd on every candidate-facing email so he
+          // v20.7.49 — Alex is auto-CC'd on every candidate-facing email so he
           // sees exactly what went out. Skip self-CC when Alex is the inviter.
           const ALEX_CC = "alex@watsonbrothersgroup.com";
           const ccList = inviterEmail.toLowerCase() === ALEX_CC ? undefined : [ALEX_CC];
@@ -9797,7 +9797,7 @@ This template is for informational/outreach purposes only.`;
       }).catch(err => console.error("[candidate apply notify]", err));
       // Auto-reply to candidate
       if (row.email) {
-        // v20.7.48 — Alex auto-CC'd on candidate autoreply so he sees the loop close.
+        // v20.7.49 — Alex auto-CC'd on candidate autoreply so he sees the loop close.
         resend.emails.send({
           from: "Brothers Group Real Estate <noreply@watsonbrothersgroup.com>",
           to:   [row.email],
@@ -9811,7 +9811,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true, recommendation: rec, score });
   });
 
-  // v20.7.48 ── Agent-side: list MY invitees (candidates I invited). Powers the
+  // v20.7.49 ── Agent-side: list MY invitees (candidates I invited). Powers the
   //           My Invites section on the Pipeline tab.
   app.get("/api/candidates/mine", (req: any, res) => {
     const authed = req.currentAgent;
@@ -9826,7 +9826,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ candidates: rows });
   });
 
-  // v20.7.48 ── Agent-side: nudge a still-`invited` candidate. Auto-fires a
+  // v20.7.49 ── Agent-side: nudge a still-`invited` candidate. Auto-fires a
   //           pre-written follow-up email from the inviter’s address. Rate-
   //           limited to 1 nudge every 24h per candidate to avoid spamming.
   app.post("/api/candidates/:id/nudge", async (req: any, res) => {
@@ -9895,7 +9895,7 @@ This template is for informational/outreach purposes only.`;
   </table>
 </body></html>`;
     try {
-      // v20.7.48 — Alex auto-CC'd on candidate nudge emails too. Self-CC skipped.
+      // v20.7.49 — Alex auto-CC'd on candidate nudge emails too. Self-CC skipped.
       const ALEX_CC = "alex@watsonbrothersgroup.com";
       const ccList = inviterEmail.toLowerCase() === ALEX_CC ? undefined : [ALEX_CC];
       const sendResult: any = await resend.emails.send({
@@ -10161,14 +10161,14 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true });
   });
 
-  // ── v20.7.48: Admin candidate DELETE (hard delete, includes point-reversal)
+  // ── v20.7.49: Admin candidate DELETE (hard delete, includes point-reversal)
   // Removes the candidate row AND reverses any recruiting points awarded to the
   // inviter for that specific invite. Points are matched by inviter agent_id +
   // reason='agent_invite_sent' + created_at within ±60s of the candidate row,
   // then the single closest matching row is deleted. Safe: only Alex can call.
   app.post("/api/admin/candidates/:id/hard-delete", (req: any, res) => {
     if (!requireAdmin(req, res)) return;
-    // v20.7.48 — either admin can hard-delete. Any admin action is auditable via
+    // v20.7.49 — either admin can hard-delete. Any admin action is auditable via
     // the activity_event broadcast and the candidates row deletion is logged.
     // (Alex-only guard removed: Alex's session was locked and Nate needed to
     // hard-delete stale E2E test candidates to reverse test points.)
@@ -10213,7 +10213,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true, reversedInvitePts, reversedApprovalPts });
   });
 
-  // ── v20.7.48: My Recruits — agent-facing list of everyone they've invited,
+  // ── v20.7.49: My Recruits — agent-facing list of everyone they've invited,
   // with status + email delivery indicator + points earned per candidate.
   app.get("/api/agents/me/recruits", (req: any, res) => {
     const authed = req.currentAgent;
@@ -10904,7 +10904,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.48</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.49</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

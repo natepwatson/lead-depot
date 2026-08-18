@@ -67,13 +67,65 @@ function computeProgressForAgent(agentId: number, periodKey: string, cadence: "d
         SUM(CASE WHEN outcome = 'open_house_log' OR outcome = 'open_house_lead' THEN 1 ELSE 0 END) as oh,
         SUM(CASE WHEN outcome = 'door_knock' THEN 1 ELSE 0 END) as doors,
         SUM(CASE WHEN outcome = 'oh_knock_route' THEN 1 ELSE 0 END) as routes,
-        SUM(CASE WHEN outcome = 'direct_mail' THEN 1 ELSE 0 END) as mail
+        SUM(CASE WHEN outcome = 'direct_mail' THEN 1 ELSE 0 END) as mail,
+        SUM(CASE WHEN outcome = 'social_post' THEN 1 ELSE 0 END) as socials
       FROM lead_activity
       WHERE agent_id = ? AND created_at >= ?
     `).get(agentId, sinceISO);
   } catch {
-    agg = { total: 0, dials: 0, appts: 0, kits: 0, refs: 0, oh: 0, doors: 0, routes: 0, mail: 0 };
+    agg = { total: 0, dials: 0, appts: 0, kits: 0, refs: 0, oh: 0, doors: 0, routes: 0, mail: 0, socials: 0 };
   }
+
+  // v20.7.39 — extra sub-aggregates so the weekend OH + weekly cross-leg
+  // challenges have real progress values instead of null. Anything not covered
+  // here still returns undefined → threshold check skips (safe).
+  let weekendOh = 0;
+  let legsHit = 0;
+  try {
+    // Weekend OH: count OH rows whose day-of-week (ET) is Fri/Sat/Sun for THIS
+    // agent, within the WEEK containing periodKey. Uses date(created_at, '-5 hours')
+    // to project timestamps back to ET before checking day-of-week. Runs both
+    // in daily context (for daily.oh.two) and weekly context (for consistency).
+    const [wy, wm, wd] = (cadence === "daily" ? periodKey.split("-").map(Number) : [0, 0, 0]);
+    // Determine week bounds (Mon-Sun ET) around either the daily periodKey or
+    // the ISO week already computed above.
+    let weekStartET: Date, weekEndET: Date;
+    if (cadence === "daily") {
+      const day = new Date(Date.UTC(wy, wm - 1, wd));
+      const dow = day.getUTCDay() || 7; // 1=Mon..7=Sun
+      weekStartET = new Date(day); weekStartET.setUTCDate(day.getUTCDate() - dow + 1);
+      weekEndET = new Date(weekStartET); weekEndET.setUTCDate(weekStartET.getUTCDate() + 6);
+    } else {
+      weekStartET = new Date(sinceISO); weekStartET.setUTCHours(0, 0, 0, 0);
+      weekEndET = new Date(weekStartET); weekEndET.setUTCDate(weekStartET.getUTCDate() + 6);
+    }
+    const wStart = weekStartET.toISOString().slice(0, 10);
+    const wEnd = weekEndET.toISOString().slice(0, 10);
+    const wr: any = rawDb.prepare(`
+      SELECT COUNT(*) as n
+      FROM lead_activity
+      WHERE agent_id = ?
+        AND (outcome = 'open_house_log' OR outcome = 'open_house_lead')
+        AND date(created_at, '-5 hours') BETWEEN ? AND ?
+        AND CAST(strftime('%w', created_at, '-5 hours') AS INTEGER) IN (0, 5, 6)
+    `).get(agentId, wStart, wEnd);
+    weekendOh = wr?.n || 0;
+
+    // Weekly legs: how many distinct lead-gen "legs" the agent hit in the
+    // current ISO week. Legs = dial (>=1 dial), oh, knock (door_knock or route),
+    // direct_mail, network (referral), social.
+    if (cadence === "weekly") {
+      const legs = [
+        (agg.dials || 0) > 0 ? 1 : 0,
+        (agg.oh || 0) > 0 ? 1 : 0,
+        ((agg.doors || 0) + (agg.routes || 0)) > 0 ? 1 : 0,
+        (agg.mail || 0) > 0 ? 1 : 0,
+        (agg.refs || 0) > 0 ? 1 : 0,
+        (agg.socials || 0) > 0 ? 1 : 0,
+      ];
+      legsHit = legs.reduce((a, b) => a + b, 0);
+    }
+  } catch {}
 
   progress["daily.dial.25"]        = agg.dials || 0;
   progress["daily.dial.50"]        = agg.dials || 0;
@@ -93,6 +145,12 @@ function computeProgressForAgent(agentId: number, periodKey: string, cadence: "d
   progress["weekly.vol.ref8"]      = agg.refs || 0;
   progress["weekly.meta.appt5"]    = agg.appts || 0;
   progress["weekly.meta.kit10"]    = agg.kits || 0;
+
+  // v20.7.39 — weekend OH goes into BOTH the (formerly daily) key and any weekly
+  // equivalent so future spec renames don't break tracking.
+  progress["weekly.oh.weekend2"]   = weekendOh;
+  progress["weekly.cross.3legs"]   = legsHit;
+  progress["weekly.cross.5legs"]   = legsHit;
 
   return progress;
 }

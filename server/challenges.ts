@@ -52,7 +52,11 @@ const DAILY: ChallengeDef[] = [
   { key: "daily.oh.leadFromOH", cadence: "daily", leg: "open_house", tier: 3, points: 40, label: "Bring Lead From OH",           detail: "Capture 1+ warm lead from your OH.",   gated: false, autoDetect: "warm_lead:open_house" },
   { key: "daily.oh.coverAgent", cadence: "daily", leg: "open_house", tier: 2, points: 30, label: "Cover Agent-Needed OH",        detail: "Cover an OH for another agent.",       gated: true,  evidencePrompt: "Confirm which agent's OH you covered." },
   { key: "daily.oh.selfieStart",cadence: "daily", leg: "open_house", tier: 1, points: 10, label: "OH Selfie Before Start",       detail: "Selfie at OH before doors open.",      gated: true,  evidencePrompt: "Selfie at the OH location." },
-  { key: "daily.oh.two",        cadence: "daily", leg: "open_house", tier: 3, points: 45, label: "2 OHs This Weekend",           detail: "Log 2+ OHs Sat/Sun.",                  gated: false, autoDetect: "weekend_oh:2" },
+  // v20.7.39 — formerly cadence=daily which was impossible to track (Fri-Sun
+  // spans 3 daily period_keys). Now weekly cadence with period_key = current
+  // ISO week; progress = count of OH logs in this ISO week whose ET day-of-week
+  // is Fri/Sat/Sun.
+  { key: "weekly.oh.weekend2",  cadence: "weekly", leg: "open_house", tier: 3, points: 45, label: "2 OHs This Weekend",           detail: "Log 2+ OHs Fri/Sat/Sun.",              gated: false, autoDetect: "weekend_oh:2" },
   { key: "daily.oh.support",    cadence: "daily", leg: "open_house", tier: 2, points: 25, label: "Attend Teammate's OH (support)", detail: "Show up as support at a teammate's OH.", gated: true, evidencePrompt: "Selfie at teammate's OH location." },
 
   // Knock (8) — most non-gated (rep-card app is evidence), piggyback gated

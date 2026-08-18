@@ -3419,18 +3419,55 @@ export function TeamPotCard() {
   const nextTierPot: number | null = pot.nextTier?.pot ?? null;
   const nextTierMystery: boolean = !!pot.nextTierMystery;
 
-  // Ladder rungs. Tier 1 is the pre-committed $250 floor at 0 appts — the
-  // pot opens the month already funded. Real unlocks are at 10/20/30 team
-  // appts. Champion's Bonus arms at the $1000 tier.
-  // v16.7 — rescale: floor $250 (0 appts), 10 → $500, 20 → $750, 30 → $1000.
-  const rungs: Array<{ tier: number; appts: number; pot: number; label: string; mystery?: boolean }> = [
-    { tier: 1, appts: 0,  pot: 250,  label: "$250" },
-    { tier: 2, appts: 10, pot: 500,  label: "$500" },
-    { tier: 3, appts: 20, pot: 750,  label: "$750" },
-    { tier: 4, appts: 30, pot: 1000, label: "$1000" },
-  ];
-  const maxAppts = rungs[rungs.length - 1].appts;
-  const progressPct = Math.min(100, (teamAppts / maxAppts) * 100);
+  // v20.7.48 — Ladder is now derived from the SERVER response instead of being
+  // hard-coded on the client. When the server rescales thresholds (as in v20.7.48
+  // going 0/1/5/10/15) the meter must follow instantly — previously the client's
+  // hard-coded 0/10/20/30 ladder produced a bar that filled at 4/30 = 13% while
+  // the copy said "1 more appt unlocks $500", visually contradicting itself.
+  //
+  // The server returns `currentTier` (the tier the team has unlocked) and
+  // `nextTier` (the next threshold). We reconstruct the whole ladder from those
+  // two rungs plus the tier ids in between, so the labels + rung positions are
+  // always in lockstep with what the server is actually computing.
+  const serverCurrentTier = pot.currentTier || { tier: 0, appts: 0, pot: 0 };
+  const serverNextTier = pot.nextTier || null;
+  // Build display rungs from what the server told us. We always want to show
+  // every meaningful dollar amount — the current tier and every tier after it.
+  // If the server ever adds/removes tiers, this stays correct because we only
+  // trust the two anchors it returned + the tier numbers it uses.
+  type Rung = { tier: number; appts: number; pot: number; label: string; mystery?: boolean };
+  const rungsRaw: Rung[] = [];
+  // Anchor: the tier currently unlocked (may be the $0 floor before the first appt).
+  rungsRaw.push({ tier: serverCurrentTier.tier, appts: serverCurrentTier.appts, pot: serverCurrentTier.pot, label: `$${serverCurrentTier.pot}` });
+  if (serverNextTier) {
+    rungsRaw.push({ tier: serverNextTier.tier, appts: serverNextTier.appts, pot: serverNextTier.pot, label: `$${serverNextTier.pot}`, mystery: nextTierMystery });
+  }
+  // De-dupe by tier id (guards against server returning currentTier == nextTier
+  // on a boundary) and sort ascending by appts so the bar reads left-to-right.
+  const seenTiers = new Set<number>();
+  const rungs: Rung[] = rungsRaw
+    .filter(r => { if (seenTiers.has(r.tier)) return false; seenTiers.add(r.tier); return true; })
+    .sort((a, b) => a.appts - b.appts);
+
+  // Progress: fill the meter based on where the team is BETWEEN the current tier
+  // and the next tier, not on some fixed 30-appt scale. So 4 of 5 appts to the
+  // next tier reads as 80% full — which is what "1 more appt unlocks $500" is
+  // asking the viewer to feel. If nextTier is null (team maxed the ladder), fill
+  // the bar completely.
+  const segmentStart = serverCurrentTier.appts;
+  const segmentEnd = serverNextTier ? serverNextTier.appts : segmentStart;
+  const segmentSize = Math.max(1, segmentEnd - segmentStart);
+  const segmentDone = Math.max(0, teamAppts - segmentStart);
+  const progressPct = serverNextTier ? Math.min(100, (segmentDone / segmentSize) * 100) : 100;
+  // Rungs sit at 0% (current tier) and 100% (next tier) of the bar so the
+  // visible "you need 1 more appt" fill lands right at the right-hand rung when
+  // the team completes the segment.
+  const rungPct = (r: Rung): number => {
+    if (!serverNextTier) return r.appts === segmentStart ? 0 : 100;
+    if (r.appts <= segmentStart) return 0;
+    if (r.appts >= segmentEnd) return 100;
+    return ((r.appts - segmentStart) / segmentSize) * 100;
+  };
   const first = pot.standings?.first;
   const second = pot.standings?.second;
   const firstInitials = first?.name ? first.name.split(" ").map((s: string) => s[0]).slice(0, 2).join("").toUpperCase() : "—";
@@ -3623,7 +3660,10 @@ export function TeamPotCard() {
           {/* Rung labels */}
           <div style={{ position: "relative", marginTop: 6, height: 22 }}>
             {rungs.map((r) => {
-              const pct = (r.appts / maxAppts) * 100;
+              // v20.7.48 — Rung positions come from rungPct(), which maps them
+              // onto the current tier segment so labels sit at the visible fill
+              // endpoints of the bar.
+              const pct = rungPct(r);
               const reached = teamAppts >= r.appts;
               const mystery = !!r.mystery;
               return (
@@ -4221,7 +4261,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
 
       {/* ── Personal stats — v15.11.31: Emails column removed. Alex: we do not
            track / reward / display emails, cold sends, or voicemails anymore.
-           v20.7.47 — KPI tiles now honor the leaderboard window toggle
+           v20.7.48 — KPI tiles now honor the leaderboard window toggle
            (Today / Week / Month / All). Previously the top-level fields
            (appointmentsSet, totalAttempts, outcomes.keep_in_touch) were
            all-time totals, which contradicted the leaderboard row and team-pot
@@ -5402,7 +5442,7 @@ function ChallengesTab() {
   const [claimOpen, setClaimOpen] = useState<ChallengeState | null>(null);
   const [unlockOpen, setUnlockOpen] = useState<ChallengeState | null>(null);
 
-  // v20.7.47 — hide bottom nav while claim sheet or unlock celebration is open,
+  // v20.7.48 — hide bottom nav while claim sheet or unlock celebration is open,
   // otherwise iOS Safari's backdrop-filter on the nav punches through the modal
   // and covers Cancel / Submit for Approval. Same fix as every other modal in this
   // file (see line ~229, 479, 561, etc.).
@@ -5434,7 +5474,7 @@ function ChallengesTab() {
     },
   });
 
-  // v20.7.47 — optional photo evidence on the claim sheet. Every gated challenge
+  // v20.7.48 — optional photo evidence on the claim sheet. Every gated challenge
   // has an evidencePrompt that usually mentions a selfie, photo, or screenshot,
   // but the sheet previously only offered a notes textarea. Photo is optional to
   // keep flexibility (some prompts are just confirmations); when attached, it's
@@ -5647,7 +5687,7 @@ function ChallengesTab() {
               {claimOpen.evidencePrompt || "Add a note describing what you did — admin will review."}
             </p>
 
-            {/* v20.7.47 — optional photo evidence. Every gated challenge asks for one
+            {/* v20.7.48 — optional photo evidence. Every gated challenge asks for one
                 in its prompt; label is dynamic when the prompt mentions selfie / photo /
                 screenshot, otherwise stays generic. Not required so notes-only
                 submissions still work. */}
@@ -6313,7 +6353,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.47</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.48</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -8491,7 +8531,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const { user, toast, onDone } = props;
   const MAX_PLATFORMS = 3;
   const PTS_PER_PLATFORM = 10;
-  // v20.7.47 — Video is a WHOLE-LOG BONUS on top of platform points, not a
+  // v20.7.48 — Video is a WHOLE-LOG BONUS on top of platform points, not a
   // replacement. Formula: (10 × platforms) + (isVideo ? 80 : 0). Single toggle,
   // one 80-pt bonus per log regardless of how many platforms it cross-posted
   // to. Prevents ticking "video" 3 times to stack 240.
@@ -8501,7 +8541,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const [caption, setCaption] = useState("");
   // Map of platform → downscaled dataUrl. Independent per platform.
   const [photos, setPhotos] = useState<Partial<Record<SocialPlatformId, string>>>({});
-  // v20.7.47 — single log-level video flag.
+  // v20.7.48 — single log-level video flag.
   const [isVideoLog, setIsVideoLog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -8550,7 +8590,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     reader.readAsDataURL(file);
   };
 
-  // v20.7.47 — scoring: (10 × platforms) + (isVideo ? 80 : 0). Video is a bonus.
+  // v20.7.48 — scoring: (10 × platforms) + (isVideo ? 80 : 0). Video is a bonus.
   const pointsPreview = (PTS_PER_PLATFORM * selected.length) + (isVideoLog ? PTS_VIDEO_BONUS : 0);
 
   const submit = async () => {
@@ -8566,7 +8606,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     try {
       const platformsPayload = selected.slice();
       const photoDataUrls = platformsPayload.map(id => photos[id] as string);
-      // v20.7.47 — single log-level video flag. Server computes
+      // v20.7.48 — single log-level video flag. Server computes
       // (10 × platforms) + (isVideoLog ? 80 : 0).
       const r = await apiRequest("POST", "/api/lead-gen/social-post", {
         agentId: user?.id,
@@ -8607,7 +8647,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
         </p>
       </div>
 
-      {/* v20.7.47 — single log-level Video toggle. Not per-platform. */}
+      {/* v20.7.48 — single log-level Video toggle. Not per-platform. */}
       <div>
         <button
           type="button"

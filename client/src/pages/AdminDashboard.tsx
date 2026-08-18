@@ -1885,7 +1885,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.7.42
+              v20.7.43
             </p>
           </div>
         </div>
@@ -3919,7 +3919,7 @@ function CandidatesPanel() {
     onError: (e: any) => toast({ title: e.message || "Decline failed", variant: "destructive" }),
   });
 
-  // v20.7.42 — Hard-delete removes the candidate row and reverses any points
+  // v20.7.43 — Hard-delete removes the candidate row and reverses any points
   // that were awarded to the referring agent (invite +50, approval +100).
   const deleteMut = useMutation({
     mutationFn: async (id: number) => {
@@ -3979,7 +3979,7 @@ function CandidatesPanel() {
               <button onClick={() => setDeclining(c.id)} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(248,113,113,0.16)", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Decline</button>
             </>
           )}
-          {/* v20.7.42 — Hard-delete on every row. Confirms, reverses pts, drops candidate. */}
+          {/* v20.7.43 — Hard-delete on every row. Confirms, reverses pts, drops candidate. */}
           <button
             onClick={() => {
               const msg = `Hard-delete ${c.name}? Removes the candidate and reverses any recruiting points from this invite.`;

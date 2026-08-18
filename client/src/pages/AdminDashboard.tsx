@@ -1885,7 +1885,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.7.43
+              v20.7.44
             </p>
           </div>
         </div>
@@ -2792,17 +2792,11 @@ export default function AdminDashboard({
                 if (aOn !== bOn) return bOn - aOn;
                 return 0;
               });
-              // v14.62 Phase D — Inactive Agents section: deactivated within last 7 days.
-              // Server enforces the 7d reactivate window (returns 410 Gone past that). Client
-              // filters to only show deactivated agents that are still within-window OR were
-              // deactivated but have no timestamp (legacy pre-v14.61 rows) so admin can still
-              // see them and take action. Merge tombstones (email starts with 'tombstone:')
-              // are excluded — they represent a merged-away row, not a genuine inactive agent.
-              const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-              const inactiveAgents = agents
-                .filter(a => !a.isActive)
-                .filter(a => !(a.email || "").startsWith("tombstone:"))
-                .sort((a, b) => (b.deactivatedAt ?? 0) - (a.deactivatedAt ?? 0));
+              // v20.7.44 — Inactive agents concept removed. Every row in `agents` is
+              // considered active in the roster. Deactivation flow is retired; the
+              // trash icon on the active row is now a direct hard-delete with two
+              // confirmation steps. Historical activity of hard-deleted agents is
+              // preserved as anonymous (agent_id nulled) per the server routes.
               return (
                 <>
                   <div className="space-y-3">
@@ -2992,14 +2986,16 @@ export default function AdminDashboard({
                               <Button
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                onClick={() => openConfirm({
-                                  title: `Deactivate ${agent.name}?`,
-                                  message: `${agent.name} will be moved to Inactive Agents. All leads in their queue return to the pool. They can be reactivated within 7 days.`,
-                                  confirmLabel: "Deactivate",
-                                  confirmColor: "#ef4444",
-                                  onConfirm: () => { closeConfirm(); deleteAgentMutation.mutate(agent.id); },
-                                })}
-                                title="Deactivate agent"
+                                onClick={() => {
+                                  // v20.7.44 — Two-step confirmation for permanent removal.
+                                  const ok = window.confirm(`Permanently DELETE ${agent.name}?\n\nThis removes the agent from the app entirely. All leads in their queue return to the shared pool. Historical activity (calls, KIT, appts) is preserved but attributed to "anonymous".\n\nThis cannot be undone. Type DELETE on the next prompt to confirm.`);
+                                  if (!ok) return;
+                                  const typed = window.prompt(`Type DELETE to permanently remove ${agent.name}:`);
+                                  if (typed !== "DELETE") { alert("Not deleted (you must type DELETE exactly)."); return; }
+                                  hardDeleteAgentMutation.mutate(agent.id);
+                                }}
+                                title="Delete agent (permanent)"
+                                disabled={hardDeleteAgentMutation.isPending}
                                 data-testid={`button-delete-agent-${agent.id}`}
                               >
                                 <Trash2 size={13}/>
@@ -3020,133 +3016,7 @@ export default function AdminDashboard({
                     </div>
                   </div>
 
-                  {/* v14.62 Phase D — Inactive Agents section restored with 7-day reactivate window. */}
-                  {inactiveAgents.length > 0 && (
-                    <div className="space-y-3">
-                      <div>
-                        <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.1rem", fontWeight: 300, color: "rgba(255,255,255,0.4)" }}>
-                          Inactive Agents
-                        </h2>
-                        <p className="text-xs text-muted-foreground">Deactivated agents. Reactivate any time to bring them back, or hard-delete to remove permanently (historical activity is preserved as anonymous).</p>
-                      </div>
-                      <div className="space-y-2">
-                        {inactiveAgents.map((agent) => {
-                          // v14.81.2 — Removed the 7-day reactivate window. Deactivated timestamp is
-                          // shown for reference only — admins can reactivate OR hard-delete at any time.
-                          const deactivatedAt = (agent as any).deactivatedAt ?? null;
-                          const msSinceDeactivate = deactivatedAt ? Date.now() - deactivatedAt : null;
-                          const daysAgo = msSinceDeactivate ? Math.floor(msSinceDeactivate / (24*60*60*1000)) : null;
-                          const countdownText = deactivatedAt === null
-                            ? "Legacy inactive (no timestamp)"
-                            : daysAgo === 0 ? "Deactivated today"
-                              : daysAgo === 1 ? "Deactivated 1 day ago"
-                              : `Deactivated ${daysAgo} days ago`;
-                          return (
-                            <div
-                              key={agent.id}
-                              style={{
-                                background: "rgba(255,255,255,0.01)",
-                                border: "1px solid rgba(255,255,255,0.05)",
-                                borderRadius: 10, padding: "12px 16px",
-                                display: "flex", alignItems: "center", gap: 12,
-                                opacity: 0.55,
-                              }}
-                              data-testid={`row-inactive-agent-${agent.id}`}
-                            >
-                              {(() => {
-                                const initials = agent.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
-                                if (agent.headshotUrl) return (
-                                  <img src={agent.headshotUrl} alt={agent.name}
-                                    style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover",
-                                      border: "2px solid rgba(200,170,90,0.4)", flexShrink: 0 }}
-                                    onError={(e) => { e.currentTarget.style.display='none'; }}
-                                  />
-                                );
-                                return (
-                                  <div style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    border: "1px solid rgba(200,170,90,0.25)", background: "rgba(200,170,90,0.06)",
-                                    fontSize: 11, fontWeight: 700, color: "#c8aa5a",
-                                    fontFamily: "'Cormorant Garamond','Georgia',serif" }}>
-                                    {initials}
-                                  </div>
-                                );
-                              })()}
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-foreground/70">{agent.name}</p>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <p className="text-xs text-muted-foreground" style={{ margin: 0 }}>{agent.email}</p>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleEditAgentEmail({ id: agent.id, name: agent.name, email: agent.email })}
-                                    title="Edit email"
-                                    data-testid={`button-edit-email-${agent.id}`}
-                                    style={{
-                                      background: "transparent", border: "none", padding: 0,
-                                      cursor: "pointer", color: "rgba(200,170,90,0.55)",
-                                      fontSize: 11, lineHeight: 1,
-                                    }}
-                                  >✎</button>
-                                </div>
-                              </div>
-                              <div className="flex flex-col items-end gap-1">
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="text-xs text-red-400 border-red-400/30">Deactivated</Badge>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="gap-1.5 text-xs border-green-500/40 text-green-400 hover:bg-green-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                                    onClick={() => reactivateAgentMutation.mutate(agent.id)}
-                                    disabled={reactivateAgentMutation.isPending}
-                                    title={`Reactivate ${agent.name}`}
-                                    data-testid={`button-reactivate-agent-${agent.id}`}
-                                  >
-                                    <Power size={11}/> Re-activate
-                                  </Button>
-                                  {/* v14.81.2 — Hard-delete. Permanent removal with confirmation prompt. */}
-                                  <Button
-                                    variant="ghost" size="icon"
-                                    className="h-7 w-7 text-muted-foreground hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
-                                    onClick={() => {
-                                      const ok = window.confirm(`Permanently DELETE ${agent.name}?\n\nThis removes the agent row entirely. Their historical activity (calls made, leads worked) will be preserved as anonymous but their name/email will be gone.\n\nThis cannot be undone. Type YES on the next prompt to confirm.`);
-                                      if (!ok) return;
-                                      const typed = window.prompt(`Type DELETE to permanently remove ${agent.name}:`);
-                                      if (typed !== "DELETE") { alert("Not deleted (you must type DELETE exactly)."); return; }
-                                      hardDeleteAgentMutation.mutate(agent.id);
-                                    }}
-                                    disabled={hardDeleteAgentMutation.isPending}
-                                    title={`Permanently delete ${agent.name}`}
-                                    data-testid={`button-hard-delete-agent-${agent.id}`}
-                                  >
-                                    <Trash2 size={13}/>
-                                  </Button>
-                                  <Button
-                                    variant="ghost" size="icon"
-                                    className="h-7 w-7 text-muted-foreground hover:text-blue-400"
-                                    onClick={() => { setMergeSourceAgent(agent); setMergeTargetId(null); }}
-                                    title="Merge into another agent"
-                                    data-testid={`button-merge-agent-${agent.id}`}
-                                  >
-                                    <Users size={13}/>
-                                  </Button>
-                                  <Button
-                                    variant="ghost" size="icon"
-                                    className="h-7 w-7 text-muted-foreground hover:text-purple-400"
-                                    onClick={() => setAuditLogAgentId(agent.id)}
-                                    title="View audit log"
-                                    data-testid={`button-audit-log-${agent.id}`}
-                                  >
-                                    <ScrollText size={13}/>
-                                  </Button>
-                                </div>
-                                <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.4)" }}>{countdownText}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                  {/* v20.7.44 — Inactive Agents section removed. All roster rows are active. */}
                 </>
               );
             })()}
@@ -3919,7 +3789,7 @@ function CandidatesPanel() {
     onError: (e: any) => toast({ title: e.message || "Decline failed", variant: "destructive" }),
   });
 
-  // v20.7.43 — Hard-delete removes the candidate row and reverses any points
+  // v20.7.44 — Hard-delete removes the candidate row and reverses any points
   // that were awarded to the referring agent (invite +50, approval +100).
   const deleteMut = useMutation({
     mutationFn: async (id: number) => {
@@ -3979,7 +3849,7 @@ function CandidatesPanel() {
               <button onClick={() => setDeclining(c.id)} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(248,113,113,0.16)", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Decline</button>
             </>
           )}
-          {/* v20.7.43 — Hard-delete on every row. Confirms, reverses pts, drops candidate. */}
+          {/* v20.7.44 — Hard-delete on every row. Confirms, reverses pts, drops candidate. */}
           <button
             onClick={() => {
               const msg = `Hard-delete ${c.name}? Removes the candidate and reverses any recruiting points from this invite.`;

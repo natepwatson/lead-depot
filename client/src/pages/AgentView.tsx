@@ -4221,7 +4221,7 @@ function LeaderboardTab({ mode = "seller" }: { mode?: "seller" } = {}) {
 
       {/* ── Personal stats — v15.11.31: Emails column removed. Alex: we do not
            track / reward / display emails, cold sends, or voicemails anymore.
-           v20.7.44 — KPI tiles now honor the leaderboard window toggle
+           v20.7.45 — KPI tiles now honor the leaderboard window toggle
            (Today / Week / Month / All). Previously the top-level fields
            (appointmentsSet, totalAttempts, outcomes.keep_in_touch) were
            all-time totals, which contradicted the leaderboard row and team-pot
@@ -5402,7 +5402,7 @@ function ChallengesTab() {
   const [claimOpen, setClaimOpen] = useState<ChallengeState | null>(null);
   const [unlockOpen, setUnlockOpen] = useState<ChallengeState | null>(null);
 
-  // v20.7.44 — hide bottom nav while claim sheet or unlock celebration is open,
+  // v20.7.45 — hide bottom nav while claim sheet or unlock celebration is open,
   // otherwise iOS Safari's backdrop-filter on the nav punches through the modal
   // and covers Cancel / Submit for Approval. Same fix as every other modal in this
   // file (see line ~229, 479, 561, etc.).
@@ -5434,7 +5434,7 @@ function ChallengesTab() {
     },
   });
 
-  // v20.7.44 — optional photo evidence on the claim sheet. Every gated challenge
+  // v20.7.45 — optional photo evidence on the claim sheet. Every gated challenge
   // has an evidencePrompt that usually mentions a selfie, photo, or screenshot,
   // but the sheet previously only offered a notes textarea. Photo is optional to
   // keep flexibility (some prompts are just confirmations); when attached, it's
@@ -5647,7 +5647,7 @@ function ChallengesTab() {
               {claimOpen.evidencePrompt || "Add a note describing what you did — admin will review."}
             </p>
 
-            {/* v20.7.44 — optional photo evidence. Every gated challenge asks for one
+            {/* v20.7.45 — optional photo evidence. Every gated challenge asks for one
                 in its prompt; label is dynamic when the prompt mentions selfie / photo /
                 screenshot, otherwise stays generic. Not required so notes-only
                 submissions still work. */}
@@ -6313,7 +6313,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.44</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.45</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -8491,7 +8491,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const { user, toast, onDone } = props;
   const MAX_PLATFORMS = 3;
   const PTS_PER_PLATFORM = 10;
-  // v20.7.44 — Video is a WHOLE-LOG BONUS on top of platform points, not a
+  // v20.7.45 — Video is a WHOLE-LOG BONUS on top of platform points, not a
   // replacement. Formula: (10 × platforms) + (isVideo ? 80 : 0). Single toggle,
   // one 80-pt bonus per log regardless of how many platforms it cross-posted
   // to. Prevents ticking "video" 3 times to stack 240.
@@ -8501,7 +8501,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
   const [caption, setCaption] = useState("");
   // Map of platform → downscaled dataUrl. Independent per platform.
   const [photos, setPhotos] = useState<Partial<Record<SocialPlatformId, string>>>({});
-  // v20.7.44 — single log-level video flag.
+  // v20.7.45 — single log-level video flag.
   const [isVideoLog, setIsVideoLog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -8550,7 +8550,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     reader.readAsDataURL(file);
   };
 
-  // v20.7.44 — scoring: (10 × platforms) + (isVideo ? 80 : 0). Video is a bonus.
+  // v20.7.45 — scoring: (10 × platforms) + (isVideo ? 80 : 0). Video is a bonus.
   const pointsPreview = (PTS_PER_PLATFORM * selected.length) + (isVideoLog ? PTS_VIDEO_BONUS : 0);
 
   const submit = async () => {
@@ -8566,7 +8566,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
     try {
       const platformsPayload = selected.slice();
       const photoDataUrls = platformsPayload.map(id => photos[id] as string);
-      // v20.7.44 — single log-level video flag. Server computes
+      // v20.7.45 — single log-level video flag. Server computes
       // (10 × platforms) + (isVideoLog ? 80 : 0).
       const r = await apiRequest("POST", "/api/lead-gen/social-post", {
         agentId: user?.id,
@@ -8607,7 +8607,7 @@ function SocialPostForm(props: { user: any; toast: any; onDone: () => void }) {
         </p>
       </div>
 
-      {/* v20.7.44 — single log-level Video toggle. Not per-platform. */}
+      {/* v20.7.45 — single log-level Video toggle. Not per-platform. */}
       <div>
         <button
           type="button"

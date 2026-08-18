@@ -1885,7 +1885,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.7.40
+              v20.7.41
             </p>
           </div>
         </div>
@@ -3919,6 +3919,24 @@ function CandidatesPanel() {
     onError: (e: any) => toast({ title: e.message || "Decline failed", variant: "destructive" }),
   });
 
+  // v20.7.41 — Hard-delete removes the candidate row and reverses any points
+  // that were awarded to the referring agent (invite +50, approval +100).
+  const deleteMut = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/admin/candidates/${id}/hard-delete`, { method: "POST", credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "delete failed");
+      return data;
+    },
+    onSuccess: (data: any) => {
+      const rev = (data?.reversedInvitePts || 0) + (data?.reversedApprovalPts || 0);
+      toast({ title: rev > 0 ? `Deleted \u2014 reversed ${rev} pts` : "Deleted \u2014 no points to reverse" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/candidates"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/leaderboard"] });
+    },
+    onError: (e: any) => toast({ title: e.message || "Delete failed", variant: "destructive" }),
+  });
+
   const candidates: any[] = list.data?.candidates || [];
   const buckets = {
     submitted: candidates.filter(c => c.status === "submitted"),
@@ -3954,12 +3972,26 @@ function CandidatesPanel() {
             Invited by {c.invited_by_name || "admin"} · {new Date(c.created_at).toLocaleDateString()}
           </div>
         </div>
-        {c.status === "submitted" && (
-          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-            <button onClick={() => approveMut.mutate(c.id)} disabled={approveMut.isPending} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(74,222,128,0.16)", border: "1px solid rgba(74,222,128,0.4)", color: "#4ade80", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Approve</button>
-            <button onClick={() => setDeclining(c.id)} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(248,113,113,0.16)", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Decline</button>
-          </div>
-        )}
+        <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
+          {c.status === "submitted" && (
+            <>
+              <button onClick={() => approveMut.mutate(c.id)} disabled={approveMut.isPending} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(74,222,128,0.16)", border: "1px solid rgba(74,222,128,0.4)", color: "#4ade80", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Approve</button>
+              <button onClick={() => setDeclining(c.id)} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(248,113,113,0.16)", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Decline</button>
+            </>
+          )}
+          {/* v20.7.41 — Hard-delete on every row. Confirms, reverses pts, drops candidate. */}
+          <button
+            onClick={() => {
+              const msg = `Hard-delete ${c.name}? Removes the candidate and reverses any recruiting points from this invite.`;
+              if (window.confirm(msg)) deleteMut.mutate(c.id);
+            }}
+            disabled={deleteMut.isPending}
+            title="Hard delete + reverse points"
+            style={{ padding: "6px 8px", borderRadius: 6, background: "transparent", border: "1px solid rgba(255,255,255,0.14)", color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
       </div>
       {c.status === "submitted" && c.questionnaire && (
         <div style={{ marginTop: 10 }}>

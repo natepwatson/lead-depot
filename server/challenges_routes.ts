@@ -146,11 +146,57 @@ function computeProgressForAgent(agentId: number, periodKey: string, cadence: "d
   progress["weekly.meta.appt5"]    = agg.appts || 0;
   progress["weekly.meta.kit10"]    = agg.kits || 0;
 
-  // v20.7.39 — weekend OH goes into BOTH the (formerly daily) key and any weekly
-  // equivalent so future spec renames don't break tracking.
+  // v20.7.39 — weekend OH + weekly-legs progress
   progress["weekly.oh.weekend2"]   = weekendOh;
   progress["weekly.cross.3legs"]   = legsHit;
   progress["weekly.cross.5legs"]   = legsHit;
+
+  // v20.7.41 — additional weekly progress keys. For composite challenges
+  // ("do X AND Y"), we report the LESSER of the two subtotals so the progress
+  // bar reads "you've done N of the smaller task" — threshold in autoDetect
+  // for these composite keys is set to the target of that lesser task.
+  // For zero-recycle we report a boolean-style value (0 or the recycles count)
+  // and gate completion on the recycle count === 0 rule in the awarder below.
+  try {
+    // Weekly appts / kits / new leads / KIT stage / recycles / new leads.
+    progress["weekly.meta.new5"]      = (agg.refs || 0) + (agg.oh || 0);  // proxy — warm/network sources
+    progress["weekly.meta.kit20"]     = agg.kits || 0;
+    // Zero recycles: agent completes iff recycles === 0 for the week. Since the
+    // threshold-based awarder does p >= threshold, we invert: progress = 1 iff
+    // recycles === 0, threshold: 0 in the challenge autoDetect. But autoDetect
+    // says week_recycles:0, so threshold is 0. p >= 0 is always true, which
+    // would falsely auto-award. Handle this special-case below in awarder.
+    const recycleRow: any = rawDb.prepare(`
+      SELECT COUNT(*) as n FROM lead_activity
+      WHERE agent_id = ? AND outcome = 'recycled' AND created_at >= ?
+    `).get(agentId, sinceISO);
+    progress["weekly.meta.zeroRcyc"]  = recycleRow?.n ?? 0;
+
+    // week_dials:300+week_oh:2 — report min(dials/300, oh/2) scaled to 300
+    const d300oh2 = Math.min(
+      Math.min(agg.dials || 0, 300),
+      Math.round((Math.min(agg.oh || 0, 2) / 2) * 300),
+    );
+    progress["weekly.cross.d300oh2"]  = d300oh2;
+
+    // week_oh:2+week_routes:2 — report min(oh, routes) toward target 2
+    const oh2k2 = Math.min(agg.oh || 0, agg.routes || 0);
+    progress["weekly.cross.oh2k2"]    = oh2k2;
+
+    // Days-of-week aggregates for streak challenges.
+    const daysRow: any = rawDb.prepare(`
+      SELECT COUNT(DISTINCT date(created_at, '-5 hours')) as n
+      FROM lead_activity WHERE agent_id = ? AND created_at >= ?
+    `).get(agentId, sinceISO);
+    progress["weekly.streak.every"]   = daysRow?.n ?? 0;
+
+    const mfRow: any = rawDb.prepare(`
+      SELECT COUNT(DISTINCT date(created_at, '-5 hours')) as n
+      FROM lead_activity WHERE agent_id = ? AND created_at >= ?
+        AND CAST(strftime('%w', created_at, '-5 hours') AS INTEGER) BETWEEN 1 AND 5
+    `).get(agentId, sinceISO);
+    progress["weekly.streak.fiveDay"] = mfRow?.n ?? 0;
+  } catch {}
 
   return progress;
 }
@@ -170,6 +216,18 @@ export function checkAndAwardAutoDetect(agentId: number, periodKey: string, cade
     const match = ch.autoDetect?.match(/:(\d+)/);
     const threshold = match ? Number(match[1]) : null;
     if (threshold == null) continue;
+
+    // v20.7.41 — special-case: zero-recycle challenge completes iff recycles === 0.
+    // Without this, p >= 0 would always be true and the awarder would fire on
+    // Monday morning. Only fire on Sunday night when the full week is closed.
+    if (ch.key === "weekly.meta.zeroRcyc") {
+      if (p !== 0) continue;
+      // Only auto-award once the ISO week is complete. Skip mid-week fires.
+      const now = new Date();
+      const dow = now.getUTCDay(); // 0=Sun
+      const isSundayLate = dow === 0 && now.getUTCHours() >= 23;
+      if (!isSundayLate) continue;
+    }
 
     if (p >= threshold) {
       try {

@@ -11,6 +11,7 @@ import { checkPassword, MIN_PASSWORD_LEN } from "../../../shared/password-rules"
 import {
   User, Mail, Phone, Lock, Home, Building2, Trash2, MapPin,
   Camera, ChevronLeft, Check, AlertTriangle, Eye, EyeOff, Volume2, PlayCircle, Sparkles,
+  UserPlus, Clock, CheckCircle2, XCircle, Copy as CopyIcon,
 } from "lucide-react";
 import { StreakCard, ChampionFrame } from "@/components/ld/StreakBadge";
 
@@ -643,6 +644,9 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
           </div>
         </div>
 
+        {/* ── My Recruits (v20.7.41) ── */}
+        <MyRecruitsCard />
+
         {/* ── Onboarding (v14.81) ── */}
         <div style={sectionCard}>
           <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(200,170,90,0.6)", marginBottom: 16, fontWeight: 600 }}>
@@ -787,6 +791,137 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
         </div>
 
       </main>
+    </div>
+  );
+}
+
+// v20.7.41 — My Recruits card. Renders every candidate the current agent has
+// invited, with status, points earned, submitted/decided timestamps, and a
+// copy-link button for the invite URL. Empty state explains the +50 / +100
+// point structure so agents know exactly what's on offer.
+function MyRecruitsCard() {
+  const { toast } = useToast();
+  const [recruits, setRecruits] = useState<any[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiRequest("GET", "/api/agents/me/recruits");
+        const j = await r.json();
+        if (!cancelled) setRecruits(j.recruits || []);
+      } catch {
+        if (!cancelled) setRecruits([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const totalPts = (recruits || []).reduce((s, r) => s + (r.invitePoints || 0) + (r.approvalPoints || 0), 0);
+  const statusMeta = (s: string) => {
+    if (s === "approved") return { icon: CheckCircle2, label: "Approved", color: "#4ade80" };
+    if (s === "declined") return { icon: XCircle, label: "Declined", color: "#f87171" };
+    if (s === "submitted") return { icon: Clock, label: "Ready to Review", color: "#c8aa5a" };
+    return { icon: Clock, label: "Awaiting Response", color: "rgba(255,255,255,0.5)" };
+  };
+
+  const copyLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Link copied", description: "Invite link copied to clipboard." });
+    } catch {
+      toast({ title: "Copy failed", description: "Long-press the link to copy manually.", variant: "destructive" });
+    }
+  };
+
+  return (
+    <div style={{
+      background: "rgba(255,255,255,0.03)",
+      border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: 14,
+      padding: 18,
+      marginBottom: 14,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(200,170,90,0.75)", fontWeight: 600, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+          <UserPlus size={12} /> My Recruits
+        </p>
+        {totalPts > 0 && (
+          <span style={{ fontSize: 11, color: "#c8aa5a", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+            +{totalPts} pts earned
+          </span>
+        )}
+      </div>
+
+      {loading && <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>Loading…</p>}
+
+      {!loading && (recruits || []).length === 0 && (
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.6 }}>
+          <p style={{ margin: "0 0 8px 0" }}>You haven't invited anyone yet.</p>
+          <p style={{ margin: 0, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+            Use the Refer an Agent tile in Lead Gen. You get <strong style={{ color: "#c8aa5a" }}>+50 pts</strong> the moment you send an invite, and <strong style={{ color: "#c8aa5a" }}>+100 more</strong> when Alex approves them.
+          </p>
+        </div>
+      )}
+
+      {!loading && (recruits || []).length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {(recruits || []).map(r => {
+            const meta = statusMeta(r.status);
+            const Icon = meta.icon;
+            const pts = (r.invitePoints || 0) + (r.approvalPoints || 0);
+            return (
+              <div key={r.id} style={{
+                display: "flex", flexDirection: "column", gap: 6,
+                padding: 12,
+                background: "rgba(0,0,0,0.2)",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.05)",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <p style={{ fontSize: 13, color: "#fff", fontWeight: 500, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</p>
+                    <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", margin: "2px 0 0 0" }}>
+                      {r.phone}{r.email ? ` · ${r.email}` : ""}
+                    </p>
+                  </div>
+                  {pts > 0 && (
+                    <span style={{ fontSize: 11, color: "#c8aa5a", fontWeight: 600, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                      +{pts}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: meta.color, fontWeight: 500 }}>
+                    <Icon size={12} />
+                    {meta.label}
+                  </div>
+                  {r.status === "invited" && (
+                    <button
+                      onClick={() => copyLink(r.inviteUrl)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 5,
+                        padding: "4px 10px",
+                        background: "rgba(200,170,90,0.12)",
+                        border: "1px solid rgba(200,170,90,0.3)",
+                        borderRadius: 6,
+                        color: "#c8aa5a",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <CopyIcon size={11} /> Copy Link
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

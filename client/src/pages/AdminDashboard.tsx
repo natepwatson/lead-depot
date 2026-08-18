@@ -1885,7 +1885,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.7.45
+              v20.7.46
             </p>
           </div>
         </div>
@@ -2792,7 +2792,7 @@ export default function AdminDashboard({
                 if (aOn !== bOn) return bOn - aOn;
                 return 0;
               });
-              // v20.7.45 — Inactive agents concept removed. Every row in `agents` is
+              // v20.7.46 — Inactive agents concept removed. Every row in `agents` is
               // considered active in the roster. Deactivation flow is retired; the
               // trash icon on the active row is now a direct hard-delete with two
               // confirmation steps. Historical activity of hard-deleted agents is
@@ -2987,7 +2987,7 @@ export default function AdminDashboard({
                                 variant="ghost" size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
                                 onClick={() => {
-                                  // v20.7.45 — Two-step confirmation for permanent removal.
+                                  // v20.7.46 — Two-step confirmation for permanent removal.
                                   const ok = window.confirm(`Permanently DELETE ${agent.name}?\n\nThis removes the agent from the app entirely. All leads in their queue return to the shared pool. Historical activity (calls, KIT, appts) is preserved but attributed to "anonymous".\n\nThis cannot be undone. Type DELETE on the next prompt to confirm.`);
                                   if (!ok) return;
                                   const typed = window.prompt(`Type DELETE to permanently remove ${agent.name}:`);
@@ -3016,7 +3016,7 @@ export default function AdminDashboard({
                     </div>
                   </div>
 
-                  {/* v20.7.45 — Inactive Agents section removed. All roster rows are active. */}
+                  {/* v20.7.46 — Inactive Agents section removed. All roster rows are active. */}
                 </>
               );
             })()}
@@ -3789,7 +3789,7 @@ function CandidatesPanel() {
     onError: (e: any) => toast({ title: e.message || "Decline failed", variant: "destructive" }),
   });
 
-  // v20.7.45 — Hard-delete removes the candidate row and reverses any points
+  // v20.7.46 — Hard-delete removes the candidate row and reverses any points
   // that were awarded to the referring agent (invite +50, approval +100).
   const deleteMut = useMutation({
     mutationFn: async (id: number) => {
@@ -3849,7 +3849,7 @@ function CandidatesPanel() {
               <button onClick={() => setDeclining(c.id)} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(248,113,113,0.16)", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", cursor: "pointer" }}>Decline</button>
             </>
           )}
-          {/* v20.7.45 — Hard-delete on every row. Confirms, reverses pts, drops candidate. */}
+          {/* v20.7.46 — Hard-delete on every row. Confirms, reverses pts, drops candidate. */}
           <button
             onClick={() => {
               const msg = `Hard-delete ${c.name}? Removes the candidate and reverses any recruiting points from this invite.`;

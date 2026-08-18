@@ -284,8 +284,10 @@ for (const t of TERRITORIES) {
   try { rawDb.prepare("INSERT OR IGNORE INTO territories (name) VALUES (?)").run(t); } catch {}
 }
 
-// v15.11.34 — Cory Deroin and Denise Jacobs REMOVED (Alex request 7/22).
-// Their entries are intentionally deleted from headshotMap. Do NOT restore.
+// v20.7.45 — Denise Jacobs RESTORED to headshotMap. Alex reversed the 7/22
+// removal on 8/18 and asked for her to be permanently on the roster and
+// leaderboard. Cory Deroin was hard-deleted from the database entirely
+// (v20.7.44 cleanup) so his slug is gone for good.
 const headshotMap: Record<string, string> = {
   "Bronson Sarmento": "bronson-sarmento",
   "Vonda Jewell":     "vonda-jewell",
@@ -294,20 +296,15 @@ const headshotMap: Record<string, string> = {
   "Alex Watson":      "alex-watson",
   "Noah Tomlinson":   "noah-tomlinson",  // v14.17
   "Gabriel Marcano":  "gabriel-marcano", // v15.11.6
+  "Denise Jacobs":    "denise-jacobs",   // v20.7.45
 };
 
-// v15.11.34 — HARD-REMOVED AGENTS. This sweep runs on every Railway restart
-// and forcibly deactivates any agent whose name/email matches the blacklist,
-// regardless of headshot state or admin toggle. This is the belt-and-braces
-// counterpart to removing them from headshotMap — the earlier sweep only
-// deactivates when headshot_url is missing, but these two already have valid
-// URLs, so we need an explicit rule. Alex requested permanent removal 7/22.
-// If either is ever intentionally re-added in the future, delete their entry
-// from this array first.
-const HARD_REMOVED_AGENTS: Array<{ name: string; emailPrefix: string }> = [
-  { name: "Cory Deroin",   emailPrefix: "corylderoin@" },
-  { name: "Denise Jacobs", emailPrefix: "denise@watsonbrothersgroup.com" },
-];
+// v20.7.45 — HARD-REMOVED AGENTS list cleared. Both Cory Deroin and Denise
+// Jacobs are no longer force-deactivated on boot. Cory was hard-deleted
+// from the DB (v20.7.44), Denise is back on the roster by Alex's request.
+// The array is preserved as a mechanism in case a future permanent removal
+// is needed — add { name, emailPrefix } entries here to re-arm the sweep.
+const HARD_REMOVED_AGENTS: Array<{ name: string; emailPrefix: string }> = [];
 try {
   for (const rm of HARD_REMOVED_AGENTS) {
     const rows = rawDb.prepare(`
@@ -347,6 +344,23 @@ try {
   `).run();
 } catch (e) {
   console.error("[v15.11.6 gabriel-marcano-reactivate] Failed:", e);
+}
+
+// v20.7.45 — One-shot reactivate Denise Jacobs. She's back on the roster
+// (Alex 8/18) and must show up on the leaderboard permanently. Prior boot
+// sweeps had her force-deactivated; this flips her on and lets the flags
+// stick because HARD_REMOVED_AGENTS is now empty and headshotMap includes
+// her slug. Idempotent — only touches the row if the flags are still off.
+try {
+  rawDb.prepare(`
+    UPDATE agents
+       SET is_active = 1, lead_flow_on = 1, deactivated_at = NULL
+     WHERE name = 'Denise Jacobs'
+       AND email NOT LIKE 'tombstone:%'
+       AND (is_active = 0 OR lead_flow_on = 0)
+  `).run();
+} catch (e) {
+  console.error("[v20.7.45 denise-reactivate] Failed:", e);
 }
 
 // v15.11.7 — One-shot backfill: 13 agents had NULL tutorial_completed_at because

@@ -6060,15 +6060,18 @@ export const WARM_LEAD_INTENTS: {
 // v18.4 — Leaderboard slot swapped for Challenges. Home tab still renders the
 // leaderboard content (that's the dashboard). "leaderboard" id kept in the union
 // to gracefully fall through for anyone with a stale initialTab or bookmark.
-type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home" | "inventory";
+type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home" | "inventory" | "repairQuote";
 // v20.6.8 — Profile removed from bottom nav (moved to header profile circle).
-// 5 symmetric slots around the FAB: Home / Pipeline / [Lead Gen] / Inventory / Challenges.
+// v20.10.0 — Inventory tab replaced with Repair Quote. "inventory" kept in the
+// Tab union so a stale bookmark/initialTab doesn't hard-crash; it just renders
+// nothing since no NAV entry or route matches it anymore.
+// 5 symmetric slots around the FAB: Home / Pipeline / [Lead Gen] / Repair Quote / Challenges.
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
-  { id: "home",       label: "Home",       icon: Home },
-  { id: "pipeline",   label: "Pipeline",   icon: Layers },
-  { id: "leads",      label: "Lead Gen",   icon: Phone },
-  { id: "inventory",  label: "Inventory",  icon: Package },
-  { id: "challenges", label: "Challenges", icon: Target },
+  { id: "home",        label: "Home",         icon: Home },
+  { id: "pipeline",    label: "Pipeline",     icon: Layers },
+  { id: "leads",       label: "Lead Gen",     icon: Phone },
+  { id: "repairQuote", label: "Repair Quote", icon: Wrench },
+  { id: "challenges",  label: "Challenges",   icon: Target },
 ];
 
 // ─── Main AgentView ───────────────────────────────────────────────────────────
@@ -6080,9 +6083,6 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   // instead of navigating straight to Dial. Chooser has 4 tiles; Dial tile sets
   // tab="leads" and closes chooser. Other tiles open sub-sheets or forms.
   const [leadGenOpen, setLeadGenOpen] = useState(false);
-  // v20.8.0 — Repair Consult wizard, opened from the top-left button on the
-  // seller Lead Gen screen. Independent of the leadGenOpen chooser sheet.
-  const [showRepairConsult, setShowRepairConsult] = useState(false);
   // v20.6.9 — motivational quote frozen at the moment Lead Gen opens so it
   // doesn't reshuffle mid-render. Refreshed each open. See leadgen-quotes.ts.
   const [leadGenQuote, setLeadGenQuote] = useState<MotivationalQuote | null>(null);
@@ -6360,7 +6360,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.9.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.10.0</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6538,7 +6538,19 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
         )}
         {tab === "leaderboard" && <LeaderboardTab mode={mode} />}
         {tab === "challenges" && <ChallengesTab />}
-        {tab === "inventory" && <InventoryTab />}
+        {/* v20.10.0 — Inventory tab removed. Repair Quote is now the everyone-
+            goes-here tab to start a repair consult and generate a quote. */}
+        {tab === "repairQuote" && (
+          <RepairConsultSheet
+            leadId={null}
+            agentId={(user as any)?.id ?? null}
+            initialAddress=""
+            initialClientName=""
+            initialClientEmail=""
+            initialClientPhone=""
+            onClose={() => setTab("home")}
+          />
+        )}
 
         {tab === "leads" && (
           <div>
@@ -6780,23 +6792,8 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             ) : (
               // ── EXISTING SELLER LEAD CARD ───────────────────────────────────────────
               <>
-                {/* v20.8.0 — Repair Consult entry point. Top-left, seller mode only.
-                    Opens the full checklist wizard as an independent overlay. */}
-                <div style={{ padding: "0 4px 14px" }}>
-                  <button
-                    onClick={() => setShowRepairConsult(true)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 7,
-                      padding: "9px 14px", borderRadius: 10,
-                      background: "rgba(200,170,90,0.08)",
-                      border: "1px solid rgba(200,170,90,0.3)",
-                      color: "#c8aa5a", fontSize: 12.5, fontWeight: 600,
-                      letterSpacing: "0.02em", cursor: "pointer",
-                    }}
-                  >
-                    <Wrench size={15} /> Repair Consult
-                  </button>
-                </div>
+                {/* v20.10.0 — Repair Consult entry point moved off the dial page.
+                    Everyone now starts a repair consult from the Repair Quote nav tab. */}
                 {leadLoading ? (
                   <div>
                     <Skeleton className="h-[480px] w-full rounded-2xl" style={{ background: "rgba(200,170,90,0.05)" }} />
@@ -6868,17 +6865,6 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                   </>
                 )}
               </>
-            )}
-            {showRepairConsult && (
-              <RepairConsultSheet
-                leadId={displayedLead?.id ?? null}
-                agentId={(user as any)?.id ?? null}
-                initialAddress={displayedLead?.address || ""}
-                initialClientName={(displayedLead as any)?.ownerName || ""}
-                initialClientEmail={displayedLead?.email || ""}
-                initialClientPhone={displayedLead?.phone || ""}
-                onClose={() => setShowRepairConsult(false)}
-              />
             )}
           </div>
         )}

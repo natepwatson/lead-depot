@@ -1,0 +1,20 @@
+{
+  "version": "v20.14.0",
+  "changes": [
+    "Two new edge bubbles in the Lead Gen chooser: Repairs (left, opens Repair Consult) and Listing (right, opens the new Listing Consult flow) — sized down from the standard arc bubbles and positioned closer to the screen edge, outside the existing 150°/30° arc bubbles",
+    "New Listing Consult wizard (ListingConsultSheet.tsx): 8-step flow modeled on page 1 of the Brothers Group printed Listing Flow (Seller Meet & Greet) — Before You Arrive/prep, Preview the Home (folds in the repair-scoping question with a hand-off into Repair Consult and a return trip back to Listing Consult), Capture Intel, Sales Presentation checklist, CMA Pricing reference, Close the Deal, Lock In (schedule/access), Debrief",
+    "New backend module server/listingConsult.ts: listing_consults table + 4 endpoints (create, fetch, merge-patch step data, debrief) — debrief fires a branded admin summary email to alex/nate/denise, mirroring the Repair Consult admin-notification pattern",
+    "AgentView.tsx wiring: Repair Consult launched mid-Listing-Consult renders as an overlay on top of the still-mounted Listing Consult sheet so wizard progress survives the round trip; closing the overlay drops back into Listing Consult exactly where the agent left off"
+  ],
+  "endpoints": [
+    { "path": "/api/listing-consult", "method": "POST", "expectStatus": 200, "expectKeys": ["id"], "body": { "propertyAddress": "999 Certify Verify Test Ln — DELETE ME (v20.14.0 Tier V)" } }
+  ],
+  "bundleMustContain": [
+    "/api/listing-consult",
+    "Open Repair Consult"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "Bubble labels 'Repairs'/'Listing' are common short words risking false-negative confidence, not used as guards. Step content (prep/intel/presentation/pricing/close/lockin/debrief answers) and the debrief admin email are server-round-tripped at runtime, not verifiable as static bundle strings — covered instead by the L1 create-endpoint contract check. This release intentionally creates one throw-away test row per Tier V run (POST /api/listing-consult with a DELETE ME marker in propertyAddress) since there is no read-only admin listing endpoint yet to probe non-destructively — mirrors how a real agent would use the tool.",
+
+  "mathChecks": []
+}

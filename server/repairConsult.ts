@@ -666,6 +666,25 @@ export async function sendWorkOrderEmail(consultId: number) {
   rawDb.prepare(`UPDATE repair_consults SET status = 'work_order_sent', work_order_sent_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(consultId);
 }
 
+// ─── Draw an image into a fixed box WITHOUT distorting its aspect ratio ────
+// pdf-lib's drawImage stretches to exactly fill width/height, which skews any
+// photo that doesn't match the box's ratio. This scales the photo to fit
+// fully inside the box (preserving its native aspect ratio) and centers it,
+// filling any letterbox margin with a black bar to match the brand's
+// black-and-white bar styling used elsewhere on these documents.
+function drawContainedImage(
+  page: any,
+  img: any,
+  box: { x: number; y: number; width: number; height: number },
+  background = rgb(0, 0, 0)
+) {
+  page.drawRectangle({ x: box.x, y: box.y - box.height, width: box.width, height: box.height, color: background });
+  const { width: drawW, height: drawH } = img.scaleToFit(box.width, box.height);
+  const drawX = box.x + (box.width - drawW) / 2;
+  const drawY = box.y - box.height + (box.height - drawH) / 2;
+  page.drawImage(img, { x: drawX, y: drawY, width: drawW, height: drawH });
+}
+
 // ─── PDF QUOTE (pdf-lib, matches Brothers Group letterhead) ────────────────
 export async function generateQuotePdf(consultId: number): Promise<string> {
   const consult = getConsultRow(consultId);
@@ -709,7 +728,7 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
         const bytes = fs.readFileSync(heroPath);
         const img = consult.hero_photo_url.endsWith(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
         const w = 536, h = 180;
-        page.drawImage(img, { x: 38, y: y - h, width: w, height: h });
+        drawContainedImage(page, img, { x: 38, y, width: w, height: h });
         y -= h + 18;
       }
     } catch { /* non-fatal — skip hero image if unreadable */ }
@@ -858,7 +877,7 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
         const bytes = fs.readFileSync(heroPath);
         const img = consult.hero_photo_url.endsWith(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
         const w = 536, h = 130;
-        p1.drawImage(img, { x: 38, y: y - h, width: w, height: h });
+        drawContainedImage(p1, img, { x: 38, y, width: w, height: h });
         y -= h + 14;
       }
     } catch { /* non-fatal — skip hero image if unreadable */ }

@@ -1,10 +1,11 @@
-// v20.8.0 — Repair Consult. Full-screen wizard an agent runs during a listing
-// walkthrough: capture property photos, check off simple in-house repairs
-// (auto-priced by sqft/linear-ft/each) plus anything that needs a licensed
-// vendor, set a start window, then generate a branded quote on the spot.
-// In-house quote emails Alex+Nate immediately; "Send to Client" delivers the
-// branded proposal + accept link; "Request Vendor Quotes" fires trade-specific
-// quote-request emails with photos to our preferred vendors.
+// v20.11.0 — Repair Consult. Full-screen wizard an agent runs during a listing
+// walkthrough: capture the front-of-house hero photo upfront, check off simple
+// in-house repairs (auto-priced by sqft/linear-ft/each) plus anything that
+// needs a licensed vendor, set a start window, then bulk-upload every other
+// walkthrough photo in one final step right before generating the branded
+// quote. In-house quote emails Alex+Nate immediately; "Send to Client"
+// delivers the branded proposal + accept link; "Request Vendor Quotes" fires
+// trade-specific quote-request emails with photos to our preferred vendors.
 import { useEffect, useMemo, useState } from "react";
 import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, X } from "lucide-react";
 
@@ -58,26 +59,54 @@ const labelStyle: React.CSSProperties = {
   textTransform: "uppercase", marginBottom: 6, display: "block",
 };
 
-async function fileToImageData(file: File): Promise<{ imageData: string; mimeType: string } | null> {
+// Reads + compresses a photo BEFORE it's sent to the server. Phone-camera
+// photos (especially HEIC→JPEG converted ones) can run several megabytes,
+// which was pushing base64 payloads past the old body-size limit and causing
+// intermittent "failed to load" upload errors. Downscaling here fixes that at
+// the source and keeps the DB footprint small, on top of the server's own
+// resize pass.
+async function fileToImageData(file: File, opts: { maxDim?: number; quality?: number } = {}): Promise<{ imageData: string; mimeType: string } | null> {
+  const maxDim = opts.maxDim ?? 1800;
+  const quality = opts.quality ?? 0.82;
   let processed: File | Blob = file;
   if (file.type === "image/heic" || file.type === "image/heif" || file.name.toLowerCase().match(/\.(heic|heif)$/)) {
     try {
       const heic2any = (await import("heic2any")).default;
-      const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.85 });
+      const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
       processed = Array.isArray(converted) ? converted[0] : converted;
     } catch { return null; }
   }
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      const [meta, imageData] = dataUrl.split(",");
-      const mimeType = meta.match(/:(.*?);/)?.[1] ?? "image/jpeg";
-      resolve({ imageData, mimeType });
-    };
-    reader.onerror = () => resolve(null);
-    reader.readAsDataURL(processed);
-  });
+  try {
+    // createImageBitmap decodes with EXIF orientation already applied, so the
+    // canvas pixels come out right-side-up with no separate rotation step.
+    const bitmap = await createImageBitmap(processed as Blob, { imageOrientation: "from-image" } as any);
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("no 2d context");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL("image/jpeg", quality);
+    const [meta, imageData] = dataUrl.split(",");
+    const mimeType = meta.match(/:(.*?);/)?.[1] ?? "image/jpeg";
+    return { imageData, mimeType };
+  } catch {
+    // Fallback for browsers without createImageBitmap/canvas support — ship
+    // the original file as-is; the server's own sharp resize pass still applies.
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        const [meta, imageData] = dataUrl.split(",");
+        const mimeType = meta.match(/:(.*?);/)?.[1] ?? "image/jpeg";
+        resolve({ imageData, mimeType });
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(processed);
+    });
+  }
 }
 
 export function RepairConsultSheet({
@@ -87,7 +116,7 @@ export function RepairConsultSheet({
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
   onClose: () => void;
 }) {
-  const [step, setStep] = useState<"info" | "photos" | "checklist" | "schedule" | "review">("info");
+  const [step, setStep] = useState<"info" | "photos" | "checklist" | "schedule" | "gallery" | "review">("info");
   const [consultId, setConsultId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -100,6 +129,7 @@ export function RepairConsultSheet({
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [uploadingHero, setUploadingHero] = useState(false);
   const [uploadingGallery, setUploadingGallery] = useState(false);
+  const [galleryProgress, setGalleryProgress] = useState<{ done: number; total: number } | null>(null);
 
   const [catalog, setCatalog] = useState<RepairItem[]>([]);
   const [checked, setChecked] = useState<Record<string, CheckedState>>({});
@@ -188,17 +218,31 @@ export function RepairConsultSheet({
     finally { setBusy(false); }
   };
 
-  const handleItemPhotoPick = async (itemKey: string, file: File) => {
+  // Bulk end-of-walkthrough upload — agent shoots photos with the phone's own
+  // camera throughout the walkthrough, then picks them all at once here from
+  // their photo library. Uploaded one at a time (each already downscaled by
+  // fileToImageData) so a single oversized file can't block the rest.
+  const handleBulkGalleryUpload = async (files: FileList) => {
     const id = await ensureConsult();
-    try {
-      const conv = await fileToImageData(file);
-      if (!conv) return;
-      const d = await fetchJson(`/api/repair-consult/${id}/photo`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "item" }),
-      });
-      setItemState(itemKey, { photos: [...(checked[itemKey]?.photos || []), d.url] });
-    } catch { /* non-fatal — item photo is optional */ }
+    const fileArr = Array.from(files);
+    if (fileArr.length === 0) return;
+    setUploadingGallery(true);
+    setGalleryProgress({ done: 0, total: fileArr.length });
+    for (let i = 0; i < fileArr.length; i++) {
+      try {
+        const conv = await fileToImageData(fileArr[i]);
+        if (conv) {
+          const d = await fetchJson(`/api/repair-consult/${id}/photo`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery" }),
+          });
+          setGalleryUrls(prev => [...prev, d.url]);
+        }
+      } catch (e: any) { setError(e.message || `Photo ${i + 1} of ${fileArr.length} failed to upload — the rest kept going.`); }
+      setGalleryProgress({ done: i + 1, total: fileArr.length });
+    }
+    setUploadingGallery(false);
+    setGalleryProgress(null);
   };
 
   const selectedCount = Object.values(checked).filter(c => c.checked).length;
@@ -225,7 +269,7 @@ export function RepairConsultSheet({
         body: JSON.stringify({ startWindow, startDate: startWindow === "specific" ? startDate : null, startTime: startWindow === "specific" ? startTime : null }),
       });
       setTotals({ subtotal: d.subtotal, total: d.total });
-      setStep("review");
+      setStep("gallery");
     } catch (e: any) { setError(e.message || "Failed to save checklist."); }
     finally { setSubmittingItems(false); }
   };
@@ -263,7 +307,7 @@ export function RepairConsultSheet({
   const hasVendorSelections = Object.entries(checked).some(([k, v]) => v.checked && vendorItems.some(vi => vi.key === k));
   const hasInHouseSelections = Object.entries(checked).some(([k, v]) => v.checked && inHouseItems.some(ii => ii.key === k));
 
-  const stepIndex = { info: 0, photos: 1, checklist: 2, schedule: 3, review: 4 }[step];
+  const stepIndex = { info: 0, photos: 1, checklist: 2, schedule: 3, gallery: 4, review: 5 }[step];
 
   const header = (title: string, sub: string) => (
     <div style={{ marginBottom: 18 }}>
@@ -274,7 +318,7 @@ export function RepairConsultSheet({
         </div>
       </div>
       <div style={{ display: "flex", gap: 4, marginTop: 14 }}>
-        {["Info", "Photos", "Checklist", "Schedule", "Review"].map((s, i) => (
+        {["Info", "Photo", "Checklist", "Schedule", "Gallery", "Review"].map((s, i) => (
           <div key={s} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= stepIndex ? GOLD : "rgba(255,255,255,0.1)" }} />
         ))}
       </div>
@@ -350,7 +394,7 @@ export function RepairConsultSheet({
 
         {step === "photos" && (
           <>
-            {header("Property Photos", "Front of house + interior gallery — used on the branded quote")}
+            {header("Front of House Photo", "This is the hero photo used on the branded quote — all other photos come at the end")}
             <div style={cardStyle}>
               <label style={labelStyle}>Front of House (Hero Photo)</label>
               {heroPhotoUrl ? (
@@ -372,21 +416,10 @@ export function RepairConsultSheet({
                 </label>
               )}
             </div>
-            <div style={cardStyle}>
-              <label style={labelStyle}>Interior / Additional Photos ({galleryUrls.length})</label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {galleryUrls.map((u, i) => <img key={i} src={u} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6 }} />)}
-                <label style={{
-                  width: 72, height: 72, borderRadius: 6, border: "1px dashed rgba(200,170,90,0.4)",
-                  display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-                }}>
-                  {uploadingGallery ? <Loader2 size={16} className="animate-spin" style={{ color: GOLD }} /> : <Camera size={16} style={{ color: GOLD }} />}
-                  <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files?.[0] && handlePhotoPick(e.target.files[0], "gallery")} />
-                </label>
-              </div>
-              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8 }}>Optional, but photos make the quote stand out and help vendors scope licensed-trade work.</p>
-            </div>
-            {navButtons({ onBack: () => setStep("info"), onNext: () => setStep("checklist") })}
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 4 }}>
+              Snap interior and detail photos with your phone's camera as you walk through — you'll bulk-upload all of them together at the end, right before sending the quote.
+            </p>
+            {navButtons({ onBack: () => setStep("info"), onNext: () => setStep("checklist"), nextBusy: uploadingHero })}
           </>
         )}
 
@@ -430,14 +463,7 @@ export function RepairConsultSheet({
                                 </label>
                               )}
                               <input placeholder="Measurement notes (optional)" value={st.measurementNotes} onChange={e => setItemState(it.key, { measurementNotes: e.target.value })}
-                                style={{ ...inputStyle, marginBottom: 8, fontSize: 12.5 }} />
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                {st.photos.map((u, i) => <img key={i} src={u} style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 5 }} />)}
-                                <label style={{ width: 44, height: 44, borderRadius: 5, border: "1px dashed rgba(200,170,90,0.4)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-                                  <Camera size={13} style={{ color: GOLD }} />
-                                  <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files?.[0] && handleItemPhotoPick(it.key, e.target.files[0])} />
-                                </label>
-                              </div>
+                                style={{ ...inputStyle, fontSize: 12.5 }} />
                             </div>
                           )}
                         </div>
@@ -460,14 +486,7 @@ export function RepairConsultSheet({
                           {st?.checked && (
                             <div style={{ marginTop: 10, paddingLeft: 28 }}>
                               <input placeholder="Notes for the vendor (scope, measurements, etc.)" value={st.measurementNotes} onChange={e => setItemState(it.key, { measurementNotes: e.target.value })}
-                                style={{ ...inputStyle, marginBottom: 8, fontSize: 12.5 }} />
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                {st.photos.map((u, i) => <img key={i} src={u} style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 5 }} />)}
-                                <label style={{ width: 44, height: 44, borderRadius: 5, border: "1px dashed rgba(255,255,255,0.3)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-                                  <Camera size={13} style={{ color: "rgba(255,255,255,0.6)" }} />
-                                  <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files?.[0] && handleItemPhotoPick(it.key, e.target.files[0])} />
-                                </label>
-                              </div>
+                                style={{ ...inputStyle, fontSize: 12.5 }} />
                             </div>
                           )}
                         </div>
@@ -514,7 +533,33 @@ export function RepairConsultSheet({
                 </div>
               </div>
             )}
-            {navButtons({ onBack: () => setStep("checklist"), onNext: handleScheduleNext, nextBusy: submittingItems, nextLabel: "Review & Quote" })}
+            {navButtons({ onBack: () => setStep("checklist"), onNext: handleScheduleNext, nextBusy: submittingItems, nextLabel: "Continue to Photos" })}
+          </>
+        )}
+
+        {step === "gallery" && (
+          <>
+            {header("Walkthrough Photos", "Bulk-upload everything you shot on your phone — right before the quote goes out")}
+            <div style={cardStyle}>
+              <label style={labelStyle}>Interior / Additional Photos ({galleryUrls.length})</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {galleryUrls.map((u, i) => <img key={i} src={u} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6 }} />)}
+                <label style={{
+                  width: 72, height: 72, borderRadius: 6, border: "1px dashed rgba(200,170,90,0.4)",
+                  display: "flex", alignItems: "center", justifyContent: "center", cursor: uploadingGallery ? "default" : "pointer", opacity: uploadingGallery ? 0.6 : 1,
+                }}>
+                  {uploadingGallery ? <Loader2 size={16} className="animate-spin" style={{ color: GOLD }} /> : <Camera size={16} style={{ color: GOLD }} />}
+                  <input type="file" accept="image/*" multiple disabled={uploadingGallery} style={{ display: "none" }}
+                    onChange={e => { if (e.target.files && e.target.files.length > 0) handleBulkGalleryUpload(e.target.files); e.target.value = ""; }} />
+                </label>
+              </div>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8 }}>
+                {uploadingGallery && galleryProgress
+                  ? `Uploading photo ${Math.min(galleryProgress.done + 1, galleryProgress.total)} of ${galleryProgress.total}\u2026`
+                  : "Select multiple photos from your camera roll at once. Optional, but photos make the quote stand out and help vendors scope licensed-trade work."}
+              </p>
+            </div>
+            {navButtons({ onBack: () => setStep("schedule"), onNext: () => setStep("review"), nextDisabled: uploadingGallery, nextLabel: "Review & Quote" })}
           </>
         )}
 

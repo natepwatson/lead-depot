@@ -70,16 +70,21 @@ app.use(securityHeaders);
 // for cold-start bandwidth. threshold: 1024 keeps small JSON responses uncompressed.
 app.use(compression({ level: 6, threshold: 1024 }));
 
+// v20.11.0 — Raised 10mb→25mb. Repair Consult photo uploads send a base64 JSON
+// body (~33% larger than the raw file) and that route's own guard already accepts
+// up to ~28MB base64. At 10mb, real phone-camera photos (esp. HEIC→JPEG converted)
+// were silently 413'd by this middleware BEFORE ever reaching the route's own check
+// — the root cause of intermittent "failed to load" photo upload errors.
 app.use(
   express.json({
-    limit: "10mb",
+    limit: "25mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false, limit: "10mb" }));
+app.use(express.urlencoded({ extended: false, limit: "25mb" }));
 
 // v14.58 — Phase A: parse cookies + attach session (non-blocking).
 // Routes that need auth check req.currentAgent themselves via requireSession /

@@ -1,0 +1,72 @@
+{
+  "version": "v20.7.53",
+  "changes": [
+    "Bake verify-live gate into deploy skill (no code changes to app itself yet — this release exists to prove the gate works against v20.7.51/v20.7.52 features)",
+    "Back-verify team pot ladder shows $250→$500→$750→$1000",
+    "Back-verify ledger attestation admin endpoint reachable",
+    "Back-verify points-audit admin endpoint reachable"
+  ],
+  "endpoints": [
+    { "path": "/api/team-pot",         "method": "GET",  "auth": "admin", "expectStatus": 200, "expectKeys": ["teamAppts", "currentPot", "currentTier", "nextTier", "apptsToNext", "ladder", "visibleCap"] },
+    { "path": "/api/admin/leaderboard", "method": "GET",  "auth": "admin", "expectStatus": 200 },
+    { "path": "/api/admin/pipeline",    "method": "GET",  "auth": "admin", "expectStatus": 200 },
+    { "path": "/api/agents",            "method": "GET",  "auth": "admin", "expectStatus": 200 }
+  ],
+  "bundleMustContain": [
+    "pot.ladder",
+    "$250",
+    "$500",
+    "$750",
+    "$1000",
+    "more appointments unlocks",
+    "team appointments booked"
+  ],
+  "bundleMustNotContain": [
+    "rungsRaw",
+    "Callback"
+  ],
+  "mathChecks": [
+    {
+      "name": "team-pot ladder has exactly 4 rungs",
+      "path": "/api/team-pot",
+      "auth": "admin",
+      "expr": "Array.isArray(body.ladder) && body.ladder.length === 4"
+    },
+    {
+      "name": "team-pot ladder ends at $1000",
+      "path": "/api/team-pot",
+      "auth": "admin",
+      "expr": "body.ladder[body.ladder.length-1].pot === 1000"
+    },
+    {
+      "name": "team-pot ladder starts at $250",
+      "path": "/api/team-pot",
+      "auth": "admin",
+      "expr": "body.ladder[0].pot === 250"
+    },
+    {
+      "name": "team-pot ladder ascending on appts and pot",
+      "path": "/api/team-pot",
+      "auth": "admin",
+      "expr": "body.ladder.every((r, i, a) => i === 0 || (r.appts > a[i-1].appts && r.pot > a[i-1].pot))"
+    },
+    {
+      "name": "team-pot visibleCap equals ladder ceiling",
+      "path": "/api/team-pot",
+      "auth": "admin",
+      "expr": "body.visibleCap === body.ladder[body.ladder.length-1].pot"
+    },
+    {
+      "name": "team-pot apptsToNext matches nextTier - teamAppts",
+      "path": "/api/team-pot",
+      "auth": "admin",
+      "expr": "!body.nextTier || body.apptsToNext === Math.max(0, body.nextTier.appts - body.teamAppts)"
+    },
+    {
+      "name": "team-pot currentPot matches currentTier.pot",
+      "path": "/api/team-pot",
+      "auth": "admin",
+      "expr": "body.currentPot === body.currentTier.pot"
+    }
+  ]
+}

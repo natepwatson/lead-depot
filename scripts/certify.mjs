@@ -22,6 +22,7 @@ import { runTier1 } from './certify/tier1-backend.mjs';
 import { runTier2 } from './certify/tier2-ui.mjs';
 import { runTier3 } from './certify/tier3-matrix.mjs';
 import { runTier4 } from './certify/tier4-integrity.mjs';
+import { runTierV } from './certify/tierV-verify-live.mjs';
 import { T, badge, EXPECT_VERSION } from './certify/lib.mjs';
 
 const arg = (name, def = null) => {
@@ -35,8 +36,8 @@ const startedAt = new Date().toISOString();
 
 const plan = {
   preflight:   ['T0'],
-  'post-deploy': ['T1', 'T2', 'T4'],
-  full:        ['T0', 'T1', 'T2', 'T3', 'T4'],
+  'post-deploy': ['T1', 'T2', 'T4', 'TV'],
+  full:        ['T0', 'T1', 'T2', 'T3', 'T4', 'TV'],
   nightly:     ['T1', 'T4'],
 }[tier];
 
@@ -62,6 +63,7 @@ for (const key of plan) {
     if (key === 'T2') all.push(...await runTier2());
     if (key === 'T3') all.push(...await runTier3());
     if (key === 'T4') all.push(...await runTier4());
+    if (key === 'TV') all.push(...await runTierV());
   } catch (e) {
     console.log(`${T.RED}${key} threw:${T.RST} ${e.message}`);
     all.push({ tier: key, name: `${key} · orchestrator`, status: 'fail', critical: true, detail: e.message.slice(0, 200), durationMs: 0 });

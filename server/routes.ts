@@ -234,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.49 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.50 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -463,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.49 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.50 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -522,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.49 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.50 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -570,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.49 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.50 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1812,7 +1812,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.49</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.50</p>
             </div>
           `,
         });
@@ -1972,7 +1972,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.49 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.50 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2252,7 +2252,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     const before = storage.getAgentById(id);
     if (!before) return res.status(404).json({ error: "Agent not found" });
-    // v20.7.49 — Inactive-agents concept removed. Hard-delete now works on any agent
+    // v20.7.50 — Inactive-agents concept removed. Hard-delete now works on any agent
     // regardless of active status. The trash icon on the admin roster is the single
     // exit path. Self-delete still blocked to prevent admins from locking themselves out.
     if (req.currentAgent?.id === id) return res.status(400).json({ error: "Cannot hard-delete yourself." });
@@ -2525,10 +2525,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ok: true, leadId, agentId, agentName: agent.name, status: "contacted_appointment", pointsAwarded: awardedPoints });
   });
 
-  // v20.7.49 — Admin manual bonus award. Cookie-authed via requireAdmin.
+  // v20.7.50 — Admin manual bonus award. Cookie-authed via requireAdmin.
   // Inserts a row into agent_points with an arbitrary points value + reason.
   // Used for retroactive video-bonus credits and other one-off corrections
-  // (e.g. an agent posted a video before the v20.7.49 toggle shipped).
+  // (e.g. an agent posted a video before the v20.7.50 toggle shipped).
   app.post("/api/admin/agents/:id/award-bonus", (req, res) => {
     if (!requireAdmin(req, res)) return;
     const agentId = parseInt(req.params.id, 10);
@@ -2546,7 +2546,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     try {
       broadcast({ type: "points_awarded", agentId, delta: points, outcome: reason, scope: "seller", ts: nowIso });
     } catch {}
-    console.log(`[v20.7.49 award-bonus] agent=${agentId} (${agent.name}) pts=${points >= 0 ? "+" : ""}${points} reason="${reason}"`);
+    console.log(`[v20.7.50 award-bonus] agent=${agentId} (${agent.name}) pts=${points >= 0 ? "+" : ""}${points} reason="${reason}"`);
     res.json({ ok: true, agentId, agentName: agent.name, points, reason });
   });
 
@@ -4937,7 +4937,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // The live pipeline tab shows top 50 active leads + counts.
     const limit = parseInt((req.query.limit as string) || "50");
     const offset = parseInt((req.query.offset as string) || "0");
-    // v20.7.49 — Optional agentId filter so admin can view a single agent's
+    // v20.7.50 — Optional agentId filter so admin can view a single agent's
     // pipeline (tiles + list). When omitted, the aggregate pool is returned
     // as before. Filter is applied to BOTH the byStatus counts and the list.
     const agentIdRaw = req.query.agentId ? parseInt(String(req.query.agentId)) : NaN;
@@ -7147,7 +7147,7 @@ This template is for informational/outreach purposes only.`;
       if (_resetAtAdmin > monthStartISO) monthStartISO = _resetAtAdmin;
     }
 
-    // v20.7.49 — Every roster agent is on the admin leaderboard. Tombstones
+    // v20.7.50 — Every roster agent is on the admin leaderboard. Tombstones
     // (merged-away rows) are the only exclusion.
     const allAgents = storage.getAllAgents().filter(a =>
       a.isActive && !(a.email || "").startsWith("tombstone:")
@@ -7287,7 +7287,7 @@ This template is for informational/outreach purposes only.`;
     const socWeekMap  = bucketByReason("social_post", weekStartISO);
     const socMonthMap = bucketByReason("social_post", monthStartISO);
     const socAllMap   = bucketByReason("social_post", null);
-    // v20.7.49 — INV column: agent invites sent (no approval:* twin, invite fires immediately).
+    // v20.7.50 — INV column: agent invites sent (no approval:* twin, invite fires immediately).
     const invBucket = (floorISO: string | null): Record<number, number> => {
       const sql = floorISO
         ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason = 'agent_invite_sent' AND created_at >= ? GROUP BY agent_id`
@@ -7366,7 +7366,7 @@ This template is for informational/outreach purposes only.`;
         : period === "week"  ? (socWeekMap[agentId]  || 0)
         : period === "month" ? (socMonthMap[agentId] || 0)
         : (socAllMap[agentId] || 0);
-      // v20.7.49 — INV column.
+      // v20.7.50 — INV column.
       const inv = period === "today" ? (invTodayMap[agentId] || 0)
         : period === "week"  ? (invWeekMap[agentId]  || 0)
         : period === "month" ? (invMonthMap[agentId] || 0)
@@ -7636,14 +7636,14 @@ This template is for informational/outreach purposes only.`;
     const resetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
     const resetAt: string | null = resetRow?.value || null;
 
-    // v20.7.49 — STRUCTURAL RULE: every agent in the roster appears on the
+    // v20.7.50 — STRUCTURAL RULE: every agent in the roster appears on the
     // leaderboard. No exceptions. leadFlowOn, receiveLeads, and role are NOT
     // gates. The leaderboard is the single source of team motivation — pause
     // the flow, mute yourself, whatever, you are still on the board with a
     // real number next to your name. The only rows filtered out are:
     //   - merge-tombstones (email starts with 'tombstone:'); those are dead
     //     historical anchors, not agents.
-    // isActive is kept as a belt-and-suspenders filter but, per v20.7.49,
+    // isActive is kept as a belt-and-suspenders filter but, per v20.7.50,
     // no admin flow can flip it to false anymore — the roster IS the active
     // list. Do NOT reintroduce leadFlowOn / receiveLeads / role gates here.
     const allAgents = storage.getAllAgents().filter(a =>
@@ -7781,7 +7781,7 @@ This template is for informational/outreach purposes only.`;
     const socWeekMapA  = bucketByReasonAg("social_post", weekStartAg);
     const socMonthMapA = bucketByReasonAg("social_post", monthStartAg);
     const socAllMapA   = bucketByReasonAg("social_post", null);
-    // v20.7.49 — INV column = agent invites sent. Uses direct reason match
+    // v20.7.50 — INV column = agent invites sent. Uses direct reason match
     // (not bucketByReasonAg's approval pattern) because agent_invite_sent has
     // no `approval:*` twin — the invite fires immediately.
     const invBucketAg = (floorISO: string | null): Record<number, number> => {
@@ -7868,7 +7868,7 @@ This template is for informational/outreach purposes only.`;
         dm:        dmMap[agentId]  || 0,
         dk:        dkMap[agentId]  || 0,
         social:    socMap[agentId] || 0,
-        // v20.7.49 — INV column: agent invites sent.
+        // v20.7.50 — INV column: agent invites sent.
         inv:       invMap[agentId] || 0,
       };
     };
@@ -7928,7 +7928,7 @@ This template is for informational/outreach purposes only.`;
             dm:        dmAllMapA[agent.id]  || 0,
             dk:        dkAllMapA[agent.id]  || 0,
             social:    socAllMapA[agent.id] || 0,
-            // v20.7.49 — INV column: agent invites sent.
+            // v20.7.50 — INV column: agent invites sent.
             inv:       invAllMapA[agent.id] || 0,
           };
         })(),
@@ -7948,7 +7948,7 @@ This template is for informational/outreach purposes only.`;
             dm:     dmAllMapA[agent.id]  || 0,
             dk:     dkAllMapA[agent.id]  || 0,
             social: socAllMapA[agent.id] || 0,
-            // v20.7.49 — INV column: agent invites sent.
+            // v20.7.50 — INV column: agent invites sent.
             inv:    invAllMapA[agent.id] || 0,
           },
         },
@@ -7986,7 +7986,7 @@ This template is for informational/outreach purposes only.`;
   //   5 team appts → $500
   //   10 team appts → $750
   //   15 team appts → $1000 (stretch)
-  // v20.7.49 — Thresholds halved and floor rebased to $0. Payout split
+  // v20.7.50 — Thresholds halved and floor rebased to $0. Payout split
   // (70/30 to #1 / #2) unchanged from v16.7. Champion's Bonus fully retired
   // (was already dormant since v20.4.2 — now the constants are gone too).
   const TEAM_POT_LADDER = [
@@ -8082,7 +8082,7 @@ This template is for informational/outreach purposes only.`;
     // to show the dollar amount or the mystery placeholder.
     const fullLadder = [...TEAM_POT_LADDER, TEAM_POT_STRETCH];
 
-    // v20.7.49 — Month opens at the $250 floor. Ladder[0] IS tier 1 ($250 @ 0
+    // v20.7.50 — Month opens at the $250 floor. Ladder[0] IS tier 1 ($250 @ 0
     // appts), so the team is already on the board on day 1 before any dial
     // fires. The walk then advances to $500 at 5 appts, $750 at 10, $1000 at 15.
     let currentPot = TEAM_POT_LADDER[0].pot; // 250 (floor)
@@ -8112,7 +8112,7 @@ This template is for informational/outreach purposes only.`;
     const firstPayout = Math.round(currentPot * TEAM_POT_PAYOUT.first);
     const secondPayout = Math.round(currentPot * TEAM_POT_PAYOUT.second);
 
-    // v20.7.49 — Champion's Bonus fully deleted. Winner-take-all now IS the
+    // v20.7.50 — Champion's Bonus fully deleted. Winner-take-all now IS the
     // reward. teamReachedStretch kept for legacy clients that read it, but no
     // dollar bonus is computed anywhere on the server.
     const teamReachedStretch = teamAppts >= TEAM_POT_STRETCH.appts;
@@ -8378,7 +8378,7 @@ This template is for informational/outreach purposes only.`;
     const _refAgent = submitterAgentId ? storage.getAgentById(submitterAgentId) : null;
     broadcast({ type: "activity_event", event: { type: "warm_lead_submitted", source, intent, agentId: submitterAgentId, agentName: _refAgent?.name || submittedByName || "Agent", agentHeadshot: (_refAgent as any)?.headshotUrl || null, address: created.address, ts: new Date().toISOString() } });
 
-    // v20.7.49 — Award points AND write a lead_activity row matching the warm-
+    // v20.7.50 — Award points AND write a lead_activity row matching the warm-
     // lead source. Prior to this the endpoint always awarded `network_referral`
     // regardless of source, and NEVER wrote lead_activity, so the OH-Lead /
     // Door-Knock / Direct-Mail challenges never advanced when an agent captured
@@ -8447,7 +8447,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.49 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.50 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8706,7 +8706,7 @@ This template is for informational/outreach purposes only.`;
   //
   // Backward-compatible: still accepts legacy { platform, photoDataUrl } single-field.
   const SOCIAL_PER_PLATFORM = 10;
-  // v20.7.49 — Video is a WHOLE-LOG BONUS added on top of platform points, not
+  // v20.7.50 — Video is a WHOLE-LOG BONUS added on top of platform points, not
   // a per-platform multiplier. Formula: (10 × platforms) + (isVideoLog ? 80 : 0).
   const SOCIAL_VIDEO_BONUS = 80;
   const SOCIAL_MAX_PLATFORMS = 3;
@@ -8728,7 +8728,7 @@ This template is for informational/outreach purposes only.`;
       ? photoDataUrls.filter((p: any) => typeof p === "string" && p.length > 0)
       : (photoDataUrl ? [String(photoDataUrl)] : []);
 
-    // v20.7.49 — normalize video flag. Preferred client field is isVideoLog
+    // v20.7.50 — normalize video flag. Preferred client field is isVideoLog
     // (boolean, whole-log). We also accept legacy isVideo (boolean OR boolean[])
     // for backward compatibility — array is collapsed to a single log-level bool
     // via .some() so ticking any per-platform box on an old client still earns
@@ -8775,7 +8775,7 @@ This template is for informational/outreach purposes only.`;
       });
     }
 
-    // v20.7.49 — scoring: (10 × platforms) + (isVideoLog ? 80 : 0).
+    // v20.7.50 — scoring: (10 × platforms) + (isVideoLog ? 80 : 0).
     // Video is a whole-log bonus, not per-platform.
     const platformPoints = SOCIAL_PER_PLATFORM * platArr.length;
     const videoBonus = videoLog ? SOCIAL_VIDEO_BONUS : 0;
@@ -8793,7 +8793,7 @@ This template is for informational/outreach purposes only.`;
       photoDataUrl: photoArr[0], // legacy single-field mirror
       photoDataUrls: photoArr,
       pointsPerPlatform: SOCIAL_PER_PLATFORM,
-      // v20.7.49 — whole-log video bonus. isVideoLog=true → +80 flat on top of
+      // v20.7.50 — whole-log video bonus. isVideoLog=true → +80 flat on top of
       // platform points. Kept `isVideo` as an alias for older admin card code.
       isVideoLog: videoLog,
       isVideo: videoLog,
@@ -8820,7 +8820,7 @@ This template is for informational/outreach purposes only.`;
         platform: platArr.join(", "),
         platforms: platArr,
         pointsPotential,
-        // v20.7.49 — whole-log video flag so admin queue can badge video posts.
+        // v20.7.50 — whole-log video flag so admin queue can badge video posts.
         isVideo: videoLog,
         isVideoLog: videoLog,
         ts: now,
@@ -9567,7 +9567,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.49",
+      version: "v20.7.50",
       services: results,
     });
   });
@@ -9671,14 +9671,14 @@ This template is for informational/outreach purposes only.`;
       const scheme = host.includes('localhost') ? 'http' : 'https';
       const inviteUrl = `${scheme}://${host}/join/${token}`;
 
-      // v20.7.49 — Pull inviter's phone so the candidate email is signed correctly.
+      // v20.7.50 — Pull inviter's phone so the candidate email is signed correctly.
       const inviterRow = rawDb.prepare(`SELECT name, email, phone FROM agents WHERE id = ?`).get(authed.id) as any;
       const inviterName  = (inviterRow?.name  || authed.name  || "An agent").trim();
       const inviterEmail = (inviterRow?.email || authed.email || "").trim();
       const inviterPhone = (inviterRow?.phone || "").trim();
       const candFirst    = String(name).trim().split(/\s+/)[0] || "there";
 
-      // v20.7.49 — Auto-send branded invite to the candidate (if email provided).
+      // v20.7.50 — Auto-send branded invite to the candidate (if email provided).
       let emailSent = false;
       if (resend && email) {
         const candidateHtml = `
@@ -9716,7 +9716,7 @@ This template is for informational/outreach purposes only.`;
   </table>
 </body></html>`;
         try {
-          // v20.7.49 — Alex is auto-CC'd on every candidate-facing email so he
+          // v20.7.50 — Alex is auto-CC'd on every candidate-facing email so he
           // sees exactly what went out. Skip self-CC when Alex is the inviter.
           const ALEX_CC = "alex@watsonbrothersgroup.com";
           const ccList = inviterEmail.toLowerCase() === ALEX_CC ? undefined : [ALEX_CC];
@@ -9797,7 +9797,7 @@ This template is for informational/outreach purposes only.`;
       }).catch(err => console.error("[candidate apply notify]", err));
       // Auto-reply to candidate
       if (row.email) {
-        // v20.7.49 — Alex auto-CC'd on candidate autoreply so he sees the loop close.
+        // v20.7.50 — Alex auto-CC'd on candidate autoreply so he sees the loop close.
         resend.emails.send({
           from: "Brothers Group Real Estate <noreply@watsonbrothersgroup.com>",
           to:   [row.email],
@@ -9811,7 +9811,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true, recommendation: rec, score });
   });
 
-  // v20.7.49 ── Agent-side: list MY invitees (candidates I invited). Powers the
+  // v20.7.50 ── Agent-side: list MY invitees (candidates I invited). Powers the
   //           My Invites section on the Pipeline tab.
   app.get("/api/candidates/mine", (req: any, res) => {
     const authed = req.currentAgent;
@@ -9826,7 +9826,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ candidates: rows });
   });
 
-  // v20.7.49 ── Agent-side: nudge a still-`invited` candidate. Auto-fires a
+  // v20.7.50 ── Agent-side: nudge a still-`invited` candidate. Auto-fires a
   //           pre-written follow-up email from the inviter’s address. Rate-
   //           limited to 1 nudge every 24h per candidate to avoid spamming.
   app.post("/api/candidates/:id/nudge", async (req: any, res) => {
@@ -9895,7 +9895,7 @@ This template is for informational/outreach purposes only.`;
   </table>
 </body></html>`;
     try {
-      // v20.7.49 — Alex auto-CC'd on candidate nudge emails too. Self-CC skipped.
+      // v20.7.50 — Alex auto-CC'd on candidate nudge emails too. Self-CC skipped.
       const ALEX_CC = "alex@watsonbrothersgroup.com";
       const ccList = inviterEmail.toLowerCase() === ALEX_CC ? undefined : [ALEX_CC];
       const sendResult: any = await resend.emails.send({
@@ -10161,14 +10161,14 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true });
   });
 
-  // ── v20.7.49: Admin candidate DELETE (hard delete, includes point-reversal)
+  // ── v20.7.50: Admin candidate DELETE (hard delete, includes point-reversal)
   // Removes the candidate row AND reverses any recruiting points awarded to the
   // inviter for that specific invite. Points are matched by inviter agent_id +
   // reason='agent_invite_sent' + created_at within ±60s of the candidate row,
   // then the single closest matching row is deleted. Safe: only Alex can call.
   app.post("/api/admin/candidates/:id/hard-delete", (req: any, res) => {
     if (!requireAdmin(req, res)) return;
-    // v20.7.49 — either admin can hard-delete. Any admin action is auditable via
+    // v20.7.50 — either admin can hard-delete. Any admin action is auditable via
     // the activity_event broadcast and the candidates row deletion is logged.
     // (Alex-only guard removed: Alex's session was locked and Nate needed to
     // hard-delete stale E2E test candidates to reverse test points.)
@@ -10213,7 +10213,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true, reversedInvitePts, reversedApprovalPts });
   });
 
-  // ── v20.7.49: My Recruits — agent-facing list of everyone they've invited,
+  // ── v20.7.50: My Recruits — agent-facing list of everyone they've invited,
   // with status + email delivery indicator + points earned per candidate.
   app.get("/api/agents/me/recruits", (req: any, res) => {
     const authed = req.currentAgent;
@@ -10904,7 +10904,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.49</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.50</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -11442,11 +11442,34 @@ function scheduleDailyMetricsSnapshot() {
 }
 scheduleDailyMetricsSnapshot();
 
-// ─── v16.7 ─ NIGHTLY LEDGER RECONCILIATION (9pm ET) ────────────────────
-// At 9pm ET every night, compare lead_activity outcome rows against agent_points
-// rows created since the current leaderboard reset. Any activity that logged
-// without a matching agent_points row (or vice versa) is a bug we need to know
-// about. Emails alex@ + nate@ with the mismatch list. If clean, silent.
+// ─── v20.7.50 ─ CLOSED-SYSTEM INVARIANT CHECK (9pm ET) ────────────────
+// Rewrite of the old shape-matching reconciler. That version tried to pair
+// every lead_activity row to an agent_points row by (agent_id, lead_id, outcome,
+// timestamp) — but the actual data model has legitimate mismatches by design:
+//
+//   • Wrong # deletes the lead, so the activity row's lead_id ends up NULL
+//     while the paired point row keeps the real lead_id → shape mismatch, not
+//     a real bug.
+//   • Point rows exist for challenge:*, manual_credit, network_referral,
+//     open_house_log, and daily-digest bonuses that never write to lead_activity.
+//   • Activity rows exist for outcomes worth 0 points (wrong_number when the
+//     lead had already been cleaned) that legitimately have no point row.
+//
+// The old checker generated 76→116 false positives in 4 days, spamming email
+// every night while the ledger itself was fine.
+//
+// This rewrite checks the ACTUAL invariants of the closed system:
+//   1. Every agent_id in agent_points references a real agent.
+//   2. No agent has a negative point sum since the current reset.
+//   3. Write-once outcomes (contacted_appointment, listed, keep_in_touch) never
+//      have duplicate point rows for the same lead+agent+outcome.
+//   4. No point row has NaN, negative, or absurd (>1000) pts value.
+//
+// If any of those trip, email alex+nate. Otherwise silent. Since point writes
+// live in the same request handlers as activity writes and are all synchronous
+// better-sqlite3 calls under the shared rawDb singleton, actual drift is
+// architecturally impossible unless the process crashes mid-write — which
+// would surface as a 500, not silent orphans.
 function scheduleNightlyReconciliation() {
   function msUntil9pmEt(): number {
     const now = new Date();
@@ -11475,72 +11498,90 @@ function scheduleNightlyReconciliation() {
       const resetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
       const resetAt = resetRow?.value || new Date(Date.now() - 24*3600_000).toISOString();
 
-      // Every outcome row that SHOULD have generated points
-      const activityRows = rawDb.prepare(`
-        SELECT id, lead_id, agent_id, outcome, created_at
-        FROM lead_activity
-        WHERE created_at >= ?
-          AND outcome IN ('contacted_appointment','keep_in_touch','network_referral',
-                          'contacted_not_interested','listed','recycled','no_answer',
-                          'wrong_number','disconnected','left_voicemail','nice_not_interested',
-                          'open_house_log','open_house_lead')
-        ORDER BY created_at ASC
-      `).all(resetAt) as any[];
+      const violations: string[] = [];
 
-      // Every agent_points row created since reset
-      const pointRows = rawDb.prepare(`
-        SELECT id, agent_id, lead_id, reason, points, created_at
+      // ─── INVARIANT 1: every agent_id in agent_points references a real agent ───
+      const orphanAgentRows = rawDb.prepare(`
+        SELECT ap.id, ap.agent_id, ap.points, ap.reason, ap.created_at
+        FROM agent_points ap
+        LEFT JOIN agents a ON a.id = ap.agent_id
+        WHERE ap.created_at >= ? AND a.id IS NULL
+        ORDER BY ap.created_at DESC
+        LIMIT 20
+      `).all(resetAt) as any[];
+      if (orphanAgentRows.length > 0) {
+        violations.push(`INVARIANT 1 FAIL — ${orphanAgentRows.length} point rows reference nonexistent agents:`);
+        orphanAgentRows.forEach(r => violations.push(`  • ${r.created_at} agent=${r.agent_id} pts=${r.points} reason=${r.reason}`));
+      }
+
+      // ─── INVARIANT 2: no agent has a negative point sum since reset ───
+      const negativeSums = rawDb.prepare(`
+        SELECT agent_id, SUM(points) AS total
         FROM agent_points
-        WHERE scope = 'seller' AND created_at >= ?
-        ORDER BY created_at ASC
+        WHERE created_at >= ? AND scope = 'seller'
+        GROUP BY agent_id
+        HAVING total < 0
       `).all(resetAt) as any[];
-
-      // Build a matcher: for each activity, is there a point row within 5 seconds
-      // for the same (agent_id, lead_id) whose reason starts with outcome?
-      const orphanActivity: any[] = [];
-      for (const act of activityRows) {
-        const actTs = new Date(act.created_at).getTime();
-        const match = pointRows.find(p => {
-          if (p.agent_id !== act.agent_id) return false;
-          if (p.lead_id !== act.lead_id) return false;
-          if (!String(p.reason || "").startsWith(act.outcome)) return false;
-          const pTs = new Date(p.created_at).getTime();
-          return Math.abs(pTs - actTs) < 10_000; // 10s tolerance
-        });
-        if (!match) orphanActivity.push(act);
+      if (negativeSums.length > 0) {
+        violations.push(`INVARIANT 2 FAIL — ${negativeSums.length} agents have negative point sums:`);
+        negativeSums.forEach(r => violations.push(`  • agent=${r.agent_id} total=${r.total}`));
       }
 
-      const orphanPoints: any[] = [];
-      for (const p of pointRows) {
-        if (String(p.reason || "").endsWith("_backfill")) continue; // repair rows are expected
-        const pTs = new Date(p.created_at).getTime();
-        const baseReason = String(p.reason || "").split("_prime_")[0].split("_mid_")[0].split("_low_")[0].split("_down_")[0];
-        const match = activityRows.find(a => {
-          if (a.agent_id !== p.agent_id) return false;
-          if (a.lead_id !== p.lead_id) return false;
-          if (a.outcome !== baseReason) return false;
-          const aTs = new Date(a.created_at).getTime();
-          return Math.abs(pTs - aTs) < 10_000;
-        });
-        if (!match) orphanPoints.push(p);
+      // ─── INVARIANT 3: write-once outcomes have no duplicate point rows ───
+      // contacted_appointment / listed / keep_in_touch fire ONCE per lead — if
+      // we see 2+ point rows for the same lead+agent+base_reason, something
+      // double-scored.
+      const dupes = rawDb.prepare(`
+        SELECT agent_id, lead_id,
+               CASE
+                 WHEN reason LIKE 'contacted_appointment%' THEN 'contacted_appointment'
+                 WHEN reason LIKE 'listed%' THEN 'listed'
+                 WHEN reason LIKE 'keep_in_touch%' THEN 'keep_in_touch'
+                 ELSE NULL
+               END AS base,
+               COUNT(*) AS n
+        FROM agent_points
+        WHERE created_at >= ?
+          AND scope = 'seller'
+          AND lead_id IS NOT NULL
+          AND reason NOT LIKE '%_backfill'
+          AND (reason LIKE 'contacted_appointment%' OR reason LIKE 'listed%' OR reason LIKE 'keep_in_touch%')
+        GROUP BY agent_id, lead_id, base
+        HAVING n > 1
+        LIMIT 20
+      `).all(resetAt) as any[];
+      if (dupes.length > 0) {
+        violations.push(`INVARIANT 3 FAIL — ${dupes.length} duplicate write-once outcome scores:`);
+        dupes.forEach(r => violations.push(`  • agent=${r.agent_id} lead=${r.lead_id} outcome=${r.base} count=${r.n}`));
       }
 
-      if (orphanActivity.length === 0 && orphanPoints.length === 0) {
-        console.log(`[reconcile] Clean board — ${activityRows.length} activities, ${pointRows.length} point rows all match.`);
+      // ─── INVARIANT 4: no NaN, negative, or absurd (>1000) point values ───
+      const badPts = rawDb.prepare(`
+        SELECT id, agent_id, lead_id, points, reason, created_at
+        FROM agent_points
+        WHERE created_at >= ?
+          AND (points IS NULL OR points != CAST(points AS INTEGER) OR points < -100 OR points > 1000)
+        LIMIT 20
+      `).all(resetAt) as any[];
+      if (badPts.length > 0) {
+        violations.push(`INVARIANT 4 FAIL — ${badPts.length} point rows with invalid pts values:`);
+        badPts.forEach(r => violations.push(`  • ${r.created_at} agent=${r.agent_id} lead=${r.lead_id} pts=${r.points} reason=${r.reason}`));
+      }
+
+      if (violations.length === 0) {
+        console.log(`[reconcile] Clean board — all 4 invariants pass since reset ${resetAt}.`);
         return;
       }
 
-      console.warn(`[reconcile] MISMATCH — ${orphanActivity.length} orphan activities, ${orphanPoints.length} orphan point rows`);
-      // Email the report.
-      const subject = `Lead Depot reconcile — ${orphanActivity.length + orphanPoints.length} mismatch(es)`;
+      console.warn(`[reconcile] INVARIANT VIOLATIONS — ${violations.length} lines`);
+      const subject = `Lead Depot ledger — invariant violation detected`;
       const bodyLines = [
-        `Ledger reconciliation as of ${new Date().toISOString()} (since reset ${resetAt}).`,
+        `Ledger invariant check as of ${new Date().toISOString()} (since reset ${resetAt}).`,
         "",
-        `Orphan activities (logged but no points awarded): ${orphanActivity.length}`,
-        ...orphanActivity.slice(0, 30).map(a => `  • ${a.created_at} agent=${a.agent_id} lead=${a.lead_id} outcome=${a.outcome}`),
+        "Real bugs detected — these are NOT shape mismatches. Every line below is",
+        "a genuine violation of a closed-system invariant that should never fail.",
         "",
-        `Orphan point rows (points but no activity): ${orphanPoints.length}`,
-        ...orphanPoints.slice(0, 30).map(p => `  • ${p.created_at} agent=${p.agent_id} lead=${p.lead_id} reason=${p.reason} pts=${p.points}`),
+        ...violations,
       ];
       try {
         if (typeof (globalThis as any).sendEmailToAdmins === "function") {

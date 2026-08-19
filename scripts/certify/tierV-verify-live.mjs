@@ -116,6 +116,7 @@ export async function runTierV() {
       out.push(res("V-L2 · asset discovery", true, `asset=${m[0]} bytes=${js.length}`, false));
 
       for (const p of manifest.bundleMustContain || []) {
+        if (p.startsWith("__")) continue;
         const hits = js.split(p).length - 1;
         out.push(res(`V-L2 · contains "${p}"`, hits > 0, hits > 0 ? `hits=${hits}` : "NOT in deployed bundle"));
       }

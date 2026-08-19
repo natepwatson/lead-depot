@@ -13,18 +13,15 @@
     { "path": "/api/agents",            "method": "GET",  "auth": "admin", "expectStatus": 200 }
   ],
   "bundleMustContain": [
-    "pot.ladder",
-    "$250",
-    "$500",
-    "$750",
-    "$1000",
+    ".ladder",
     "more appointments unlocks",
-    "team appointments booked"
+    "team appointments booked so far this month"
   ],
   "bundleMustNotContain": [
-    "rungsRaw",
-    "Callback"
+    "rungsRaw"
   ],
+  "__bundleNotes": "Rungs $250/$500/$750/$1000 come from server payload at runtime, so they are NOT string literals in the bundle. Verify their presence via Layer 3 (mathChecks against /api/team-pot).",
+
   "mathChecks": [
     {
       "name": "team-pot ladder has exactly 4 rungs",

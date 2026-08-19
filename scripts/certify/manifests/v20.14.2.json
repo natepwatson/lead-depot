@@ -1,0 +1,20 @@
+{
+  "version": "v20.14.2",
+  "changes": [
+    "Home toggle: 3-way segmented control (Leaderboard / Team Map / Challenges) at the top of the Home tab. Challenges added as a new third slot; Leaderboard and Team Map preserved from prior releases.",
+    "Bottom nav bar reshuffled to 5 slots: Home / Listing Consultation / Lead Generation / Repair Quote / Pipeline. Challenges button removed from the bottom nav (now reachable only via the Home toggle). Old Pipeline nav slot now opens Listing Consultation; old Lead Gen label spelled out to 'Lead Generation'; Pipeline moved into the vacated 5th slot.",
+    "Team Map (client/src/pages/TeamMap.tsx) trimmed to show ONLY uploaded-lead pins. Removed the Active Listings layer, Open House layer, and the top-left inventory/OH legend, along with their /api/listings/active-map and /api/open-houses/upcoming fetches. Server endpoint /api/team-map/pins was already lead-only and required no change.",
+    "Fix: bottom nav bar floating up mid-screen when the iOS keyboard opens while typing in a Listing Consultation field. Root cause: ListingConsultSheet.tsx never set body.ld-modal-open, so the existing CSS rule that hides the fixed nav during modals never triggered. Added the missing effect. Also added manageNavVisibility prop to RepairConsultSheet so the nested Repair Consult hand-off (opened from within Listing Consult) doesn't prematurely reveal the nav when it closes while the parent Listing Consult sheet is still open."
+  ],
+  "endpoints": [],
+  "bundleMustContain": [
+    "/api/listing-consult",
+    "Open Repair Consult",
+    "Listing Consultation",
+    "Lead Generation",
+    "Team Map"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "No must-not-contain guards: 'Pipeline' and 'Challenges' both remain legitimately present elsewhere in the app (Pipeline tab content, ChallengesTab component, ActiveChallengesCard), so removing them from one nav slot isn't verifiable via a global absence check. The toggle re-ordering, nav re-labeling, and Team Map pin-only trim are layout/behavior changes confirmed via live browser smoke test rather than static bundle strings.",
+  "mathChecks": []
+}

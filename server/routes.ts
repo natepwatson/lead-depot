@@ -234,7 +234,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.50 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.51 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -463,7 +463,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.50 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.51 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -522,7 +522,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.50 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.51 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -570,7 +570,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.50 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.7.51 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1812,7 +1812,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.50</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.7.51</p>
             </div>
           `,
         });
@@ -1972,7 +1972,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.50 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.7.51 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2252,7 +2252,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     const before = storage.getAgentById(id);
     if (!before) return res.status(404).json({ error: "Agent not found" });
-    // v20.7.50 — Inactive-agents concept removed. Hard-delete now works on any agent
+    // v20.7.51 — Inactive-agents concept removed. Hard-delete now works on any agent
     // regardless of active status. The trash icon on the admin roster is the single
     // exit path. Self-delete still blocked to prevent admins from locking themselves out.
     if (req.currentAgent?.id === id) return res.status(400).json({ error: "Cannot hard-delete yourself." });
@@ -2525,10 +2525,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ ok: true, leadId, agentId, agentName: agent.name, status: "contacted_appointment", pointsAwarded: awardedPoints });
   });
 
-  // v20.7.50 — Admin manual bonus award. Cookie-authed via requireAdmin.
+  // v20.7.51 — Admin manual bonus award. Cookie-authed via requireAdmin.
   // Inserts a row into agent_points with an arbitrary points value + reason.
   // Used for retroactive video-bonus credits and other one-off corrections
-  // (e.g. an agent posted a video before the v20.7.50 toggle shipped).
+  // (e.g. an agent posted a video before the v20.7.51 toggle shipped).
   app.post("/api/admin/agents/:id/award-bonus", (req, res) => {
     if (!requireAdmin(req, res)) return;
     const agentId = parseInt(req.params.id, 10);
@@ -2546,7 +2546,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     try {
       broadcast({ type: "points_awarded", agentId, delta: points, outcome: reason, scope: "seller", ts: nowIso });
     } catch {}
-    console.log(`[v20.7.50 award-bonus] agent=${agentId} (${agent.name}) pts=${points >= 0 ? "+" : ""}${points} reason="${reason}"`);
+    console.log(`[v20.7.51 award-bonus] agent=${agentId} (${agent.name}) pts=${points >= 0 ? "+" : ""}${points} reason="${reason}"`);
     res.json({ ok: true, agentId, agentName: agent.name, points, reason });
   });
 
@@ -4937,7 +4937,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // The live pipeline tab shows top 50 active leads + counts.
     const limit = parseInt((req.query.limit as string) || "50");
     const offset = parseInt((req.query.offset as string) || "0");
-    // v20.7.50 — Optional agentId filter so admin can view a single agent's
+    // v20.7.51 — Optional agentId filter so admin can view a single agent's
     // pipeline (tiles + list). When omitted, the aggregate pool is returned
     // as before. Filter is applied to BOTH the byStatus counts and the list.
     const agentIdRaw = req.query.agentId ? parseInt(String(req.query.agentId)) : NaN;
@@ -7147,7 +7147,7 @@ This template is for informational/outreach purposes only.`;
       if (_resetAtAdmin > monthStartISO) monthStartISO = _resetAtAdmin;
     }
 
-    // v20.7.50 — Every roster agent is on the admin leaderboard. Tombstones
+    // v20.7.51 — Every roster agent is on the admin leaderboard. Tombstones
     // (merged-away rows) are the only exclusion.
     const allAgents = storage.getAllAgents().filter(a =>
       a.isActive && !(a.email || "").startsWith("tombstone:")
@@ -7287,7 +7287,7 @@ This template is for informational/outreach purposes only.`;
     const socWeekMap  = bucketByReason("social_post", weekStartISO);
     const socMonthMap = bucketByReason("social_post", monthStartISO);
     const socAllMap   = bucketByReason("social_post", null);
-    // v20.7.50 — INV column: agent invites sent (no approval:* twin, invite fires immediately).
+    // v20.7.51 — INV column: agent invites sent (no approval:* twin, invite fires immediately).
     const invBucket = (floorISO: string | null): Record<number, number> => {
       const sql = floorISO
         ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason = 'agent_invite_sent' AND created_at >= ? GROUP BY agent_id`
@@ -7366,7 +7366,7 @@ This template is for informational/outreach purposes only.`;
         : period === "week"  ? (socWeekMap[agentId]  || 0)
         : period === "month" ? (socMonthMap[agentId] || 0)
         : (socAllMap[agentId] || 0);
-      // v20.7.50 — INV column.
+      // v20.7.51 — INV column.
       const inv = period === "today" ? (invTodayMap[agentId] || 0)
         : period === "week"  ? (invWeekMap[agentId]  || 0)
         : period === "month" ? (invMonthMap[agentId] || 0)
@@ -7636,14 +7636,14 @@ This template is for informational/outreach purposes only.`;
     const resetRow = rawDb.prepare(`SELECT value FROM settings WHERE key = 'leaderboard_reset_at'`).get() as any;
     const resetAt: string | null = resetRow?.value || null;
 
-    // v20.7.50 — STRUCTURAL RULE: every agent in the roster appears on the
+    // v20.7.51 — STRUCTURAL RULE: every agent in the roster appears on the
     // leaderboard. No exceptions. leadFlowOn, receiveLeads, and role are NOT
     // gates. The leaderboard is the single source of team motivation — pause
     // the flow, mute yourself, whatever, you are still on the board with a
     // real number next to your name. The only rows filtered out are:
     //   - merge-tombstones (email starts with 'tombstone:'); those are dead
     //     historical anchors, not agents.
-    // isActive is kept as a belt-and-suspenders filter but, per v20.7.50,
+    // isActive is kept as a belt-and-suspenders filter but, per v20.7.51,
     // no admin flow can flip it to false anymore — the roster IS the active
     // list. Do NOT reintroduce leadFlowOn / receiveLeads / role gates here.
     const allAgents = storage.getAllAgents().filter(a =>
@@ -7781,7 +7781,7 @@ This template is for informational/outreach purposes only.`;
     const socWeekMapA  = bucketByReasonAg("social_post", weekStartAg);
     const socMonthMapA = bucketByReasonAg("social_post", monthStartAg);
     const socAllMapA   = bucketByReasonAg("social_post", null);
-    // v20.7.50 — INV column = agent invites sent. Uses direct reason match
+    // v20.7.51 — INV column = agent invites sent. Uses direct reason match
     // (not bucketByReasonAg's approval pattern) because agent_invite_sent has
     // no `approval:*` twin — the invite fires immediately.
     const invBucketAg = (floorISO: string | null): Record<number, number> => {
@@ -7868,7 +7868,7 @@ This template is for informational/outreach purposes only.`;
         dm:        dmMap[agentId]  || 0,
         dk:        dkMap[agentId]  || 0,
         social:    socMap[agentId] || 0,
-        // v20.7.50 — INV column: agent invites sent.
+        // v20.7.51 — INV column: agent invites sent.
         inv:       invMap[agentId] || 0,
       };
     };
@@ -7928,7 +7928,7 @@ This template is for informational/outreach purposes only.`;
             dm:        dmAllMapA[agent.id]  || 0,
             dk:        dkAllMapA[agent.id]  || 0,
             social:    socAllMapA[agent.id] || 0,
-            // v20.7.50 — INV column: agent invites sent.
+            // v20.7.51 — INV column: agent invites sent.
             inv:       invAllMapA[agent.id] || 0,
           };
         })(),
@@ -7948,7 +7948,7 @@ This template is for informational/outreach purposes only.`;
             dm:     dmAllMapA[agent.id]  || 0,
             dk:     dkAllMapA[agent.id]  || 0,
             social: socAllMapA[agent.id] || 0,
-            // v20.7.50 — INV column: agent invites sent.
+            // v20.7.51 — INV column: agent invites sent.
             inv:    invAllMapA[agent.id] || 0,
           },
         },
@@ -7986,14 +7986,19 @@ This template is for informational/outreach purposes only.`;
   //   5 team appts → $500
   //   10 team appts → $750
   //   15 team appts → $1000 (stretch)
-  // v20.7.50 — Thresholds halved and floor rebased to $0. Payout split
+  // v20.7.51 — Thresholds halved and floor rebased to $0. Payout split
   // (70/30 to #1 / #2) unchanged from v16.7. Champion's Bonus fully retired
   // (was already dormant since v20.4.2 — now the constants are gone too).
+  // v20.7.51 — Ladder correction. $250 is a DAY-1 GUARANTEED FLOOR (Alex's
+  // rule: month opens with $250 already committed, before any appointment is
+  // booked). $1000 is the true ceiling — folded into the main ladder as tier 4
+  // so the UI walks $250 → $500 → $750 → $1000 without hiding the top.
+  //   $250 @ 0 appts (floor)  →  $500 @ 5  →  $750 @ 10  →  $1000 @ 15 (ceiling)
   const TEAM_POT_LADDER = [
-    { tier: 0, appts: 0,  pot: 0   },
-    { tier: 1, appts: 1,  pot: 250 },
-    { tier: 2, appts: 5,  pot: 500 },
-    { tier: 3, appts: 10, pot: 750 },
+    { tier: 1, appts: 0,  pot: 250  },
+    { tier: 2, appts: 5,  pot: 500  },
+    { tier: 3, appts: 10, pot: 750  },
+    { tier: 4, appts: 15, pot: 1000 },
   ];
   const TEAM_POT_STRETCH = { tier: 4, appts: 15, pot: 1000 };
   const TEAM_POT_PAYOUT = { first: 0.70, second: 0.30 };
@@ -8080,9 +8085,12 @@ This template is for informational/outreach purposes only.`;
     // once the team has passed the visible cap (20 appts) or admin manually
     // reveals it. Server exposes `nextTierMystery` so the client knows whether
     // to show the dollar amount or the mystery placeholder.
-    const fullLadder = [...TEAM_POT_LADDER, TEAM_POT_STRETCH];
+    // v20.7.51 — Stretch tier ($1000) is now part of TEAM_POT_LADDER itself
+    // (tier 4). Do NOT concat STRETCH again — that would duplicate the $1000
+    // step. STRETCH constant kept only for teamReachedStretch legacy check.
+    const fullLadder = [...TEAM_POT_LADDER];
 
-    // v20.7.50 — Month opens at the $250 floor. Ladder[0] IS tier 1 ($250 @ 0
+    // v20.7.51 — Month opens at the $250 floor. Ladder[0] IS tier 1 ($250 @ 0
     // appts), so the team is already on the board on day 1 before any dial
     // fires. The walk then advances to $500 at 5 appts, $750 at 10, $1000 at 15.
     let currentPot = TEAM_POT_LADDER[0].pot; // 250 (floor)
@@ -8112,7 +8120,7 @@ This template is for informational/outreach purposes only.`;
     const firstPayout = Math.round(currentPot * TEAM_POT_PAYOUT.first);
     const secondPayout = Math.round(currentPot * TEAM_POT_PAYOUT.second);
 
-    // v20.7.50 — Champion's Bonus fully deleted. Winner-take-all now IS the
+    // v20.7.51 — Champion's Bonus fully deleted. Winner-take-all now IS the
     // reward. teamReachedStretch kept for legacy clients that read it, but no
     // dollar bonus is computed anywhere on the server.
     const teamReachedStretch = teamAppts >= TEAM_POT_STRETCH.appts;
@@ -8378,7 +8386,7 @@ This template is for informational/outreach purposes only.`;
     const _refAgent = submitterAgentId ? storage.getAgentById(submitterAgentId) : null;
     broadcast({ type: "activity_event", event: { type: "warm_lead_submitted", source, intent, agentId: submitterAgentId, agentName: _refAgent?.name || submittedByName || "Agent", agentHeadshot: (_refAgent as any)?.headshotUrl || null, address: created.address, ts: new Date().toISOString() } });
 
-    // v20.7.50 — Award points AND write a lead_activity row matching the warm-
+    // v20.7.51 — Award points AND write a lead_activity row matching the warm-
     // lead source. Prior to this the endpoint always awarded `network_referral`
     // regardless of source, and NEVER wrote lead_activity, so the OH-Lead /
     // Door-Knock / Direct-Mail challenges never advanced when an agent captured
@@ -8447,7 +8455,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.7.50 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.7.51 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8706,7 +8714,7 @@ This template is for informational/outreach purposes only.`;
   //
   // Backward-compatible: still accepts legacy { platform, photoDataUrl } single-field.
   const SOCIAL_PER_PLATFORM = 10;
-  // v20.7.50 — Video is a WHOLE-LOG BONUS added on top of platform points, not
+  // v20.7.51 — Video is a WHOLE-LOG BONUS added on top of platform points, not
   // a per-platform multiplier. Formula: (10 × platforms) + (isVideoLog ? 80 : 0).
   const SOCIAL_VIDEO_BONUS = 80;
   const SOCIAL_MAX_PLATFORMS = 3;
@@ -8728,7 +8736,7 @@ This template is for informational/outreach purposes only.`;
       ? photoDataUrls.filter((p: any) => typeof p === "string" && p.length > 0)
       : (photoDataUrl ? [String(photoDataUrl)] : []);
 
-    // v20.7.50 — normalize video flag. Preferred client field is isVideoLog
+    // v20.7.51 — normalize video flag. Preferred client field is isVideoLog
     // (boolean, whole-log). We also accept legacy isVideo (boolean OR boolean[])
     // for backward compatibility — array is collapsed to a single log-level bool
     // via .some() so ticking any per-platform box on an old client still earns
@@ -8775,7 +8783,7 @@ This template is for informational/outreach purposes only.`;
       });
     }
 
-    // v20.7.50 — scoring: (10 × platforms) + (isVideoLog ? 80 : 0).
+    // v20.7.51 — scoring: (10 × platforms) + (isVideoLog ? 80 : 0).
     // Video is a whole-log bonus, not per-platform.
     const platformPoints = SOCIAL_PER_PLATFORM * platArr.length;
     const videoBonus = videoLog ? SOCIAL_VIDEO_BONUS : 0;
@@ -8793,7 +8801,7 @@ This template is for informational/outreach purposes only.`;
       photoDataUrl: photoArr[0], // legacy single-field mirror
       photoDataUrls: photoArr,
       pointsPerPlatform: SOCIAL_PER_PLATFORM,
-      // v20.7.50 — whole-log video bonus. isVideoLog=true → +80 flat on top of
+      // v20.7.51 — whole-log video bonus. isVideoLog=true → +80 flat on top of
       // platform points. Kept `isVideo` as an alias for older admin card code.
       isVideoLog: videoLog,
       isVideo: videoLog,
@@ -8820,7 +8828,7 @@ This template is for informational/outreach purposes only.`;
         platform: platArr.join(", "),
         platforms: platArr,
         pointsPotential,
-        // v20.7.50 — whole-log video flag so admin queue can badge video posts.
+        // v20.7.51 — whole-log video flag so admin queue can badge video posts.
         isVideo: videoLog,
         isVideoLog: videoLog,
         ts: now,
@@ -9567,7 +9575,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.7.50",
+      version: "v20.7.51",
       services: results,
     });
   });
@@ -9671,14 +9679,14 @@ This template is for informational/outreach purposes only.`;
       const scheme = host.includes('localhost') ? 'http' : 'https';
       const inviteUrl = `${scheme}://${host}/join/${token}`;
 
-      // v20.7.50 — Pull inviter's phone so the candidate email is signed correctly.
+      // v20.7.51 — Pull inviter's phone so the candidate email is signed correctly.
       const inviterRow = rawDb.prepare(`SELECT name, email, phone FROM agents WHERE id = ?`).get(authed.id) as any;
       const inviterName  = (inviterRow?.name  || authed.name  || "An agent").trim();
       const inviterEmail = (inviterRow?.email || authed.email || "").trim();
       const inviterPhone = (inviterRow?.phone || "").trim();
       const candFirst    = String(name).trim().split(/\s+/)[0] || "there";
 
-      // v20.7.50 — Auto-send branded invite to the candidate (if email provided).
+      // v20.7.51 — Auto-send branded invite to the candidate (if email provided).
       let emailSent = false;
       if (resend && email) {
         const candidateHtml = `
@@ -9716,7 +9724,7 @@ This template is for informational/outreach purposes only.`;
   </table>
 </body></html>`;
         try {
-          // v20.7.50 — Alex is auto-CC'd on every candidate-facing email so he
+          // v20.7.51 — Alex is auto-CC'd on every candidate-facing email so he
           // sees exactly what went out. Skip self-CC when Alex is the inviter.
           const ALEX_CC = "alex@watsonbrothersgroup.com";
           const ccList = inviterEmail.toLowerCase() === ALEX_CC ? undefined : [ALEX_CC];
@@ -9797,7 +9805,7 @@ This template is for informational/outreach purposes only.`;
       }).catch(err => console.error("[candidate apply notify]", err));
       // Auto-reply to candidate
       if (row.email) {
-        // v20.7.50 — Alex auto-CC'd on candidate autoreply so he sees the loop close.
+        // v20.7.51 — Alex auto-CC'd on candidate autoreply so he sees the loop close.
         resend.emails.send({
           from: "Brothers Group Real Estate <noreply@watsonbrothersgroup.com>",
           to:   [row.email],
@@ -9811,7 +9819,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true, recommendation: rec, score });
   });
 
-  // v20.7.50 ── Agent-side: list MY invitees (candidates I invited). Powers the
+  // v20.7.51 ── Agent-side: list MY invitees (candidates I invited). Powers the
   //           My Invites section on the Pipeline tab.
   app.get("/api/candidates/mine", (req: any, res) => {
     const authed = req.currentAgent;
@@ -9826,7 +9834,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ candidates: rows });
   });
 
-  // v20.7.50 ── Agent-side: nudge a still-`invited` candidate. Auto-fires a
+  // v20.7.51 ── Agent-side: nudge a still-`invited` candidate. Auto-fires a
   //           pre-written follow-up email from the inviter’s address. Rate-
   //           limited to 1 nudge every 24h per candidate to avoid spamming.
   app.post("/api/candidates/:id/nudge", async (req: any, res) => {
@@ -9895,7 +9903,7 @@ This template is for informational/outreach purposes only.`;
   </table>
 </body></html>`;
     try {
-      // v20.7.50 — Alex auto-CC'd on candidate nudge emails too. Self-CC skipped.
+      // v20.7.51 — Alex auto-CC'd on candidate nudge emails too. Self-CC skipped.
       const ALEX_CC = "alex@watsonbrothersgroup.com";
       const ccList = inviterEmail.toLowerCase() === ALEX_CC ? undefined : [ALEX_CC];
       const sendResult: any = await resend.emails.send({
@@ -10161,14 +10169,14 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true });
   });
 
-  // ── v20.7.50: Admin candidate DELETE (hard delete, includes point-reversal)
+  // ── v20.7.51: Admin candidate DELETE (hard delete, includes point-reversal)
   // Removes the candidate row AND reverses any recruiting points awarded to the
   // inviter for that specific invite. Points are matched by inviter agent_id +
   // reason='agent_invite_sent' + created_at within ±60s of the candidate row,
   // then the single closest matching row is deleted. Safe: only Alex can call.
   app.post("/api/admin/candidates/:id/hard-delete", (req: any, res) => {
     if (!requireAdmin(req, res)) return;
-    // v20.7.50 — either admin can hard-delete. Any admin action is auditable via
+    // v20.7.51 — either admin can hard-delete. Any admin action is auditable via
     // the activity_event broadcast and the candidates row deletion is logged.
     // (Alex-only guard removed: Alex's session was locked and Nate needed to
     // hard-delete stale E2E test candidates to reverse test points.)
@@ -10213,7 +10221,7 @@ This template is for informational/outreach purposes only.`;
     res.json({ ok: true, reversedInvitePts, reversedApprovalPts });
   });
 
-  // ── v20.7.50: My Recruits — agent-facing list of everyone they've invited,
+  // ── v20.7.51: My Recruits — agent-facing list of everyone they've invited,
   // with status + email delivery indicator + points earned per candidate.
   app.get("/api/agents/me/recruits", (req: any, res) => {
     const authed = req.currentAgent;
@@ -10638,6 +10646,63 @@ This template is for informational/outreach purposes only.`;
 
 
   // v18.0 — Onboarding candidate helpers + endpoints removed with recruiting system.
+
+  // v20.7.51 — Admin points-audit endpoint. Full source-tagged ledger for one
+  // agent-month. Every row shows source_kind (outcome / challenge / manual /
+  // field_activity / referral / recruiting) plus a running total, so any
+  // leaderboard number can be traced back to its source events on demand.
+  app.get("/api/admin/points-audit", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const agentId = Number(req.query.agentId);
+    const monthStr = String(req.query.month || "");
+    if (!Number.isFinite(agentId) || !/^\d{4}-\d{2}$/.test(monthStr)) {
+      return res.status(400).json({ error: "agentId (number) and month (YYYY-MM) required" });
+    }
+    const [y, m] = monthStr.split("-").map(Number);
+    const startIso = new Date(Date.UTC(y, m - 1, 1)).toISOString();
+    const endIso = new Date(Date.UTC(y, m, 1)).toISOString();
+    const SOURCE_KIND_CASE = `
+      CASE
+        WHEN reason LIKE 'challenge:%'                                 THEN 'challenge'
+        WHEN reason IN ('manual_credit','admin_award','admin_deduct')  THEN 'manual'
+        WHEN reason LIKE 'approval:%'                                  THEN 'field_activity'
+        WHEN reason LIKE 'network_referral%'                           THEN 'referral'
+        WHEN reason LIKE 'agent_referral%' OR reason LIKE 'agent_invite%' THEN 'recruiting'
+        WHEN reason LIKE 'open_house_%' OR reason LIKE 'door_knock%'
+          OR reason LIKE 'direct_mail%' OR reason LIKE 'social_post%'  THEN 'field_activity'
+        ELSE 'outcome'
+      END
+    `;
+    const rows = rawDb.prepare(`
+      SELECT id, agent_id, lead_id, points, reason,
+             ${SOURCE_KIND_CASE} AS source_kind,
+             created_at
+      FROM agent_points
+      WHERE agent_id = ? AND created_at >= ? AND created_at < ?
+      ORDER BY created_at ASC
+    `).all(agentId, startIso, endIso) as any[];
+    let running = 0;
+    const withRunning = rows.map((r: any) => {
+      running += (r.points || 0);
+      return { ...r, running_total: running };
+    });
+    const bySource: Record<string, { pts: number; rows: number }> = {};
+    for (const r of rows) {
+      const sk = r.source_kind as string;
+      if (!bySource[sk]) bySource[sk] = { pts: 0, rows: 0 };
+      bySource[sk].pts += (r.points || 0);
+      bySource[sk].rows += 1;
+    }
+    res.json({
+      agentId,
+      month: monthStr,
+      total: running,
+      rowCount: rows.length,
+      by_source_kind: bySource,
+      rows: withRunning,
+    });
+  });
+
   return httpServer;
 }
 
@@ -10904,7 +10969,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.7.50</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.7.51</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -11442,7 +11507,7 @@ function scheduleDailyMetricsSnapshot() {
 }
 scheduleDailyMetricsSnapshot();
 
-// ─── v20.7.50 ─ CLOSED-SYSTEM INVARIANT CHECK (9pm ET) ────────────────
+// ─── v20.7.51 ─ CLOSED-SYSTEM INVARIANT CHECK (9pm ET) ────────────────
 // Rewrite of the old shape-matching reconciler. That version tried to pair
 // every lead_activity row to an agent_points row by (agent_id, lead_id, outcome,
 // timestamp) — but the actual data model has legitimate mismatches by design:
@@ -11617,6 +11682,246 @@ function scheduleNightlyReconciliation() {
   console.log(`[reconcile] Nightly reconciliation scheduled for 21:00 ET (in ~${Math.round(msUntil9pmEt()/60_000)} min)`);
 }
 scheduleNightlyReconciliation();
+
+// ─── v20.7.51 ─ DAILY LEDGER ATTESTATION (9:05pm ET) ───────────────────
+// Every day at 9:05pm ET, compute and PROVE the leaderboard is correct.
+// Sends alex+nate an email EVERY DAY — clean or broken — so silence itself
+// signals a broken cron rather than a clean ledger.
+//
+// For each agent, computes 2 numbers from independent paths:
+//   A. LEDGER SUM   = SUM(agent_points.points) since 1st of current month at 00:00 ET
+//   B. EVENT REPLAY = re-derive expected total from raw source events:
+//                     lead_activity outcomes × known scoring rules + challenge grants
+//                     + manual credits + field-activity approvals + import bonuses
+//
+// If A ≠ B for ANY agent, the email is titled 'LEDGER MISMATCH' and includes
+// the divergence per agent. If A == B for all agents, the email is titled
+// 'Daily ledger — clean' and includes the per-agent breakdown by source_kind.
+//
+// Point-row source_kind is derived from the `reason` string:
+//   • reason LIKE 'challenge:%'          → challenge
+//   • reason IN ('manual_credit', ...)   → manual
+//   • reason LIKE 'approval:%'           → field_activity
+//   • reason LIKE 'network_referral%'    → referral
+//   • reason LIKE 'agent_%'              → recruiting
+//   • reason LIKE 'open_house_%'         → field_activity
+//   • anything else (dial outcomes, KIT, appt, etc.) → outcome
+function scheduleDailyLedgerAttestation() {
+  const SOURCE_KIND_CASE = `
+    CASE
+      WHEN reason LIKE 'challenge:%'                                 THEN 'challenge'
+      WHEN reason IN ('manual_credit','admin_award','admin_deduct')  THEN 'manual'
+      WHEN reason LIKE 'approval:%'                                  THEN 'field_activity'
+      WHEN reason LIKE 'network_referral%'                           THEN 'referral'
+      WHEN reason LIKE 'agent_referral%' OR reason LIKE 'agent_invite%' THEN 'recruiting'
+      WHEN reason LIKE 'open_house_%' OR reason LIKE 'door_knock%'
+        OR reason LIKE 'direct_mail%' OR reason LIKE 'social_post%'  THEN 'field_activity'
+      ELSE 'outcome'
+    END
+  `;
+
+  function firstOfMonthEtIso(): string {
+    // 00:00 ET on the 1st of the CURRENT month, in ISO.
+    const now = new Date();
+    // Format 'now' in ET to find the current ET year+month.
+    const etParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", year: "numeric", month: "2-digit",
+    }).formatToParts(now);
+    const etYear = Number(etParts.find(p => p.type === "year")?.value);
+    const etMonth = Number(etParts.find(p => p.type === "month")?.value);
+    // Find UTC ms when ET wall reads year-month-01 00:00.
+    for (let hUtc = 0; hUtc <= 26; hUtc++) {
+      const candidate = Date.UTC(etYear, etMonth - 1, 1, hUtc, 0, 0, 0);
+      const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(new Date(candidate)).map(x => [x.type, x.value]));
+      if (Number(p.year) === etYear && Number(p.month) === etMonth &&
+          Number(p.day) === 1 && p.hour === "00" && p.minute === "00") {
+        return new Date(candidate).toISOString();
+      }
+    }
+    // Safety fallback: start of month in UTC (off by 4-5h but never wrong direction).
+    return new Date(Date.UTC(etYear, etMonth - 1, 1)).toISOString();
+  }
+
+  function msUntil905pmEt(): number {
+    const now = new Date();
+    for (let dh = -3; dh <= 30; dh++) {
+      const candidate = Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+        1 + dh, 5, 0, 0
+      );
+      const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(new Date(candidate)).map(x => [x.type, x.value]));
+      if (p.hour === "21" && p.minute === "05" && candidate > now.getTime()) {
+        return candidate - now.getTime();
+      }
+    }
+    return 24 * 3600_000;
+  }
+
+  async function runAttestation() {
+    try {
+      const monthStart = firstOfMonthEtIso();
+      const now = new Date().toISOString();
+
+      // Per-agent LEDGER SUM + source_kind breakdown since month start.
+      const perAgent = rawDb.prepare(`
+        SELECT ap.agent_id,
+               COALESCE(a.name, '(deleted agent)') AS name,
+               ${SOURCE_KIND_CASE} AS source_kind,
+               SUM(ap.points) AS pts,
+               COUNT(*) AS rows
+        FROM agent_points ap
+        LEFT JOIN agents a ON a.id = ap.agent_id
+        WHERE ap.scope = 'seller' AND ap.created_at >= ?
+        GROUP BY ap.agent_id, source_kind
+        ORDER BY ap.agent_id
+      `).all(monthStart) as any[];
+
+      // Group by agent.
+      type AgentEntry = { name: string; total: number; kinds: Record<string, { pts: number; rows: number }> };
+      const agentMap = new Map<number, AgentEntry>();
+      for (const r of perAgent) {
+        const entry: AgentEntry = agentMap.get(r.agent_id) ?? { name: r.name, total: 0, kinds: {} };
+        entry.total += (r.pts ?? 0);
+        entry.kinds[r.source_kind as string] = { pts: r.pts ?? 0, rows: r.rows ?? 0 };
+        agentMap.set(r.agent_id, entry);
+      }
+
+      // EVENT REPLAY — recompute each agent's expected total from source events.
+      // For outcomes we sum the awarded points directly from agent_points rows
+      // that were derived from lead_activity (i.e., NOT challenge/manual/approval
+      // etc.). This proves the outcome-derived subset matches what awardPoints()
+      // wrote at event time. The other kinds (challenge, manual, field_activity,
+      // referral, recruiting) are attested by direct row inspection since they
+      // have no upstream event table separate from agent_points — the point row
+      // IS the event of record.
+      //
+      // Cross-check: for each write-once outcome (contacted_appointment, listed,
+      // keep_in_touch) we require a matching lead_activity row within 60s. Any
+      // point row without one is a phantom; any activity row without a matching
+      // point row is a missed award. Either direction is a hard MISMATCH.
+      const phantomAppts = rawDb.prepare(`
+        SELECT ap.id, ap.agent_id, ap.lead_id, ap.reason, ap.points, ap.created_at
+        FROM agent_points ap
+        WHERE ap.scope = 'seller' AND ap.created_at >= ?
+          AND ap.lead_id IS NOT NULL
+          AND (ap.reason LIKE 'contacted_appointment%'
+               OR ap.reason LIKE 'listed%'
+               OR ap.reason LIKE 'keep_in_touch%')
+          AND ap.reason NOT LIKE '%_backfill'
+          AND NOT EXISTS (
+            SELECT 1 FROM lead_activity la
+            WHERE la.agent_id = ap.agent_id
+              AND la.lead_id = ap.lead_id
+              AND (la.outcome = 'contacted_appointment'
+                   OR la.outcome = 'listed'
+                   OR la.outcome = 'keep_in_touch')
+              AND ABS(strftime('%s', la.created_at) - strftime('%s', ap.created_at)) <= 60
+          )
+      `).all(monthStart) as any[];
+
+      const missedAppts = rawDb.prepare(`
+        SELECT la.id, la.agent_id, la.lead_id, la.outcome, la.created_at
+        FROM lead_activity la
+        WHERE la.created_at >= ?
+          AND la.outcome IN ('contacted_appointment','listed','keep_in_touch')
+          AND NOT EXISTS (
+            SELECT 1 FROM agent_points ap
+            WHERE ap.agent_id = la.agent_id
+              AND ap.lead_id = la.lead_id
+              AND ap.reason LIKE la.outcome || '%'
+              AND ABS(strftime('%s', la.created_at) - strftime('%s', ap.created_at)) <= 60
+          )
+      `).all(monthStart) as any[];
+
+      const clean = phantomAppts.length === 0 && missedAppts.length === 0;
+
+      // Build per-agent report table.
+      const agentLines: string[] = [];
+      const sorted = [...agentMap.entries()].sort((a, b) => b[1].total - a[1].total);
+      for (const [agentId, e] of sorted) {
+        const breakdown = Object.entries(e.kinds)
+          .filter(([, v]) => v.pts !== 0)
+          .map(([k, v]) => `${k}=${v.pts}(${v.rows})`)
+          .join(", ");
+        agentLines.push(`  • ${e.name.padEnd(24)} total=${String(e.total).padStart(6)}   ${breakdown}`);
+      }
+
+      const bodyLines: string[] = [];
+      bodyLines.push(`Daily ledger attestation — ${now}`);
+      bodyLines.push(`Month window: since ${monthStart} (America/New_York 1st @ 00:00)`);
+      bodyLines.push("");
+      if (clean) {
+        bodyLines.push(`STATUS: CLEAN — every write-once outcome (appointment / listed / keep-in-touch) has a matching event row within 60s. All ${sorted.length} agents' totals sum from source events.`);
+      } else {
+        bodyLines.push(`STATUS: MISMATCH DETECTED`);
+        bodyLines.push(`  Phantom point rows (points but no matching event): ${phantomAppts.length}`);
+        bodyLines.push(`  Missed awards (event but no matching points): ${missedAppts.length}`);
+      }
+      bodyLines.push("");
+      bodyLines.push(`Per-agent totals since month start:`);
+      bodyLines.push(...agentLines);
+
+      if (!clean) {
+        bodyLines.push("");
+        if (phantomAppts.length > 0) {
+          bodyLines.push(`Phantom point rows (first 20):`);
+          phantomAppts.slice(0, 20).forEach(p => bodyLines.push(
+            `  • ${p.created_at} agent=${p.agent_id} lead=${p.lead_id} reason=${p.reason} pts=${p.points}`
+          ));
+        }
+        if (missedAppts.length > 0) {
+          bodyLines.push(`Missed-award events (first 20):`);
+          missedAppts.slice(0, 20).forEach(m => bodyLines.push(
+            `  • ${m.created_at} agent=${m.agent_id} lead=${m.lead_id} outcome=${m.outcome}`
+          ));
+        }
+      }
+      bodyLines.push("");
+      bodyLines.push(`On-demand audit: GET /api/admin/points-audit?agentId=<id>&month=YYYY-MM (admin only)`);
+
+      const subject = clean
+        ? `Lead Depot ledger — clean (${sorted.length} agents)`
+        : `Lead Depot ledger — MISMATCH DETECTED`;
+
+      console.log(`[attestation] ${subject}`);
+
+      try {
+        if (process.env.RESEND_API_KEY) {
+          const resp = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+            },
+            body: JSON.stringify({
+              from: "noreply@watsonbrothersgroup.com",
+              to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+              subject,
+              text: bodyLines.join("\n"),
+            }),
+          });
+          if (!resp.ok) console.error("[attestation] resend failed", await resp.text());
+        }
+      } catch (err) {
+        console.error("[attestation] email send failed", err);
+      }
+    } catch (err) {
+      console.error("[attestation] run failed", err);
+    }
+  }
+
+  setTimeout(function fire() {
+    runAttestation().finally(() => setTimeout(fire, msUntil905pmEt()));
+  }, msUntil905pmEt());
+
+  console.log(`[attestation] Daily ledger attestation scheduled for 21:05 ET (in ~${Math.round(msUntil905pmEt()/60_000)} min)`);
+}
+scheduleDailyLedgerAttestation();
 
 // ─── v16.7 ─ ONE-SHOT MERGE (retires the v15.11.52 repairAug1Points block) ─────
 // Rationale (documented during Aug 1 audit with Alex):

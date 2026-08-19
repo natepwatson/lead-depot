@@ -37,6 +37,7 @@
   "GET /api/admin/open-houses/pending",
   "GET /api/admin/phone-attempts/stats",
   "GET /api/admin/pipeline",
+  "GET /api/admin/points-audit",
   "GET /api/admin/snapshots/agent/:id",
   "GET /api/admin/snapshots/daily",
   "GET /api/admin/source-of-truth-backup/download",

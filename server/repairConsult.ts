@@ -1096,6 +1096,33 @@ export function registerRepairConsultRoutes(app: Express) {
     res.json({ id: result.lastInsertRowid });
   });
 
+  // ── v20.14.5 — In-progress consults for this agent (resume picker). MUST be
+  //    registered before the "/:id" GET below — otherwise Express would try
+  //    to parse "mine" as a numeric id and 404. Resumable = not yet accepted
+  //    or handed off to the admin work-order flow. ──
+  app.get("/api/repair-consult/mine", (req: any, res: Response) => {
+    const agentId = parseInt(req.query.agentId as string) || req.currentAgent?.id || null;
+    if (!agentId) return res.json({ consults: [] });
+    const rows = rawDb.prepare(`
+      SELECT id, property_address, client_name, status, updated_at, created_at
+      FROM repair_consults
+      WHERE agent_id = ? AND status IN ('draft', 'quoted', 'sent')
+      ORDER BY updated_at DESC
+      LIMIT 20
+    `).all(agentId);
+    res.json({ consults: rows });
+  });
+
+  // ── v20.14.5 — Fetch a consult in full (row + checklist items) for the resume
+  //    picker to hydrate the wizard's local state on mount. ──
+  app.get("/api/repair-consult/:id", (req: any, res: Response) => {
+    const id = parseInt(req.params.id);
+    const consult = getConsultRow(id);
+    if (!consult) return res.status(404).json({ error: "Not found" });
+    const items = getConsultItems(id);
+    res.json({ ...consult, items });
+  });
+
   // ── Upload a photo (hero, gallery, or per-item). Returns a URL. ──
   app.post("/api/repair-consult/:id/photo", async (req: any, res: Response) => {
     const consultId = parseInt(req.params.id);

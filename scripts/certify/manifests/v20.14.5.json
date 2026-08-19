@@ -1,0 +1,23 @@
+{
+  "version": "v20.14.5",
+  "changes": [
+    "New: 'In Progress Consults' resume feature for both Listing Consult and Repair Consult. Each sheet now checks on mount for the agent's own not-yet-finished consults (Listing: status='in_progress'; Repair: status in draft/quoted/sent) and, if any exist, shows a resume picker (client/src/components/ld/ConsultResumePicker.tsx) before the first wizard step instead of jumping straight in.",
+    "New backend endpoints: GET /api/listing-consult/mine, GET /api/repair-consult/mine (both list the current agent's resumable consults), and GET /api/repair-consult/:id (full row + checklist items fetch, mirroring the pre-existing GET /api/listing-consult/:id).",
+    "Resuming a picked consult hydrates every wizard field from the server (client/contact info, hero + gallery photos, checklist selections, and \u2014 for Listing Consult \u2014 every completed section's data) and lands the agent on the first incomplete step instead of the beginning.",
+    "Known, accepted limitation: Listing Consult's Lock In step only persists the derived accessNotes string server-side, not its six granular access fields (accessKeyOrCode, gateCode, ownerNames, ownerNames2, accessPhone, accessEmail) \u2014 those come back blank on resume even if previously filled. Documented in code, not silently patched.",
+    "RepairConsultSheet's nested-from-listing launch path (showRepairFromListing) is unaffected \u2014 it sets resumePhase directly to 'ready' and skips the resume check, since that flow is ephemeral to the current Listing Consult session and already creates its own linked record on mount."
+  ],
+  "endpoints": [
+    { "method": "GET", "path": "/api/listing-consult/mine?agentId=1", "expectStatus": 200, "expectKeys": ["consults"] },
+    { "method": "GET", "path": "/api/repair-consult/mine?agentId=1", "expectStatus": 200, "expectKeys": ["consults"] },
+    { "method": "GET", "path": "/api/health", "expectStatus": 200, "expectKeys": ["status", "version"] }
+  ],
+  "bundleMustContain": [
+    "listing-consult/mine",
+    "repair-consult/mine",
+    "Start New"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "No bundleMustNotContain guards: this release is purely additive (new endpoints + new picker UI layered in front of existing steps) \u2014 nothing was removed that would need an absence check.",
+  "mathChecks": []
+}

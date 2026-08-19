@@ -7,6 +7,7 @@
 // (AgentView) is responsible for swapping back to this sheet when that closes.
 import { useState, useEffect } from "react";
 import { CheckCircle2, ChevronRight, ChevronLeft, X, Wrench, Loader2, Camera } from "lucide-react";
+import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 
 // v20.14.4 — same compress-before-upload helper as RepairConsultSheet. Keeps
 // front-of-house + walkthrough photos small before they hit the server, on
@@ -125,6 +126,12 @@ export function ListingConsultSheet({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  // v20.14.5 — Resume picker: this sheet is never nested inside another
+  // (Repair Consult can be nested inside it, not the other way around), so
+  // it always checks for a resumable in-progress consult before rendering steps.
+  const [resumePhase, setResumePhase] = useState<"checking" | "picking" | "ready">("checking");
+  const [resumeList, setResumeList] = useState<ResumeItem[]>([]);
+
   // v20.14.2 — nav-bar detach fix. Every other full-screen sheet (Repair
   // Consult, KIT modal, etc.) hides the fixed bottom nav via body.ld-modal-open
   // while it's mounted. This sheet was missing it, so typing into any of its
@@ -135,6 +142,18 @@ export function ListingConsultSheet({
   useEffect(() => {
     document.body.classList.add("ld-modal-open");
     return () => document.body.classList.remove("ld-modal-open");
+  }, []);
+
+  // v20.14.5 — check for a resumable in-progress consult on every mount.
+  useEffect(() => {
+    fetchJson(`/api/listing-consult/mine?agentId=${agentId ?? ""}`)
+      .then(d => {
+        const list: ResumeItem[] = d.consults || [];
+        if (list.length > 0) { setResumeList(list); setResumePhase("picking"); }
+        else setResumePhase("ready");
+      })
+      .catch(() => setResumePhase("ready"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const [clientName, setClientName] = useState(initialClientName || "");
@@ -311,6 +330,76 @@ export function ListingConsultSheet({
     setGalleryProgress(null);
   };
 
+  // v20.14.5 — Hydrate every field from a previously-started consult (the
+  // section-by-section `data` JSON blob + top-level row) so resuming feels
+  // like the appointment never paused. Determines which step to land on by
+  // walking the sections from most-advanced to least.
+  // KNOWN LIMITATION: Lock In's granular access fields (accessKeyOrCode,
+  // gateCode, ownerNames, ownerNames2, accessPhone, accessEmail) are never
+  // persisted individually — only the derived `accessNotes` string is saved
+  // for the debrief email. On resume into the lockin step these six fields
+  // come back blank even if previously filled; only schedule, scheduleDates,
+  // and contractSent survive. Pre-existing architecture gap — not solved here
+  // by reverse-parsing accessNotes.
+  const handleResumeConsult = async (id: number) => {
+    setResumePhase("ready"); setError("");
+    try {
+      const d = await fetchJson(`/api/listing-consult/${id}`);
+      setConsultId(d.id);
+      setClientName(d.client_name || "");
+      setClientEmail(d.client_email || "");
+      setClientPhone(d.client_phone || "");
+      setPropertyAddress(d.property_address || "");
+      setHeroPhotoUrl(d.hero_photo_url || null);
+      setGalleryUrls(Array.isArray(d.gallery_photos) ? d.gallery_photos : []);
+
+      const data = d.data || {};
+      let nextStep: typeof step = "prep";
+
+      if (data.prep) { setPrepChecklist(data.prep.checklist || {}); nextStep = "preview"; }
+      if (data.preview) {
+        setPreviewNotes(data.preview.notes || "");
+        setNeedsRepairs(data.preview.needsRepairs === true ? "yes" : data.preview.needsRepairs === false ? "no" : "");
+        setRepairNotes(data.preview.repairNotes || "");
+        nextStep = "intel";
+      }
+      if (data.intel) {
+        setDesiredPrice(data.intel.desiredPrice || "");
+        setMotivation(data.intel.motivation || "");
+        setMortgageBalance(data.intel.mortgageBalance || "");
+        setBuyingToo(data.intel.buyingToo || "");
+        setBuyingNotes(data.intel.buyingNotes || "");
+        setTimeline(data.intel.timeline || "");
+        nextStep = "presentation";
+      }
+      if (data.presentation) { setPresentationChecklist(data.presentation.covered || {}); nextStep = "close"; }
+      if (data.pricing) {
+        setRecommendedPrice(data.pricing.recommendedPrice || "");
+        setReviewedComps(!!data.pricing.reviewedComps);
+      }
+      if (data.close) {
+        setReadyToStart(data.close.readyToStart || "");
+        setStartTiming(data.close.startTiming || "");
+        setRepairsOrReady(data.close.repairsOrReady || "");
+        setHoldingBack(data.close.holdingBack || "");
+        setFinalListingPrice(data.close.finalListingPrice || "");
+        nextStep = data.close.readyToStart === "yes" ? "lockin" : "debrief";
+      }
+      if (data.lockin) {
+        setLockinSchedule(data.lockin.schedule || {});
+        setLockinScheduleDates(data.lockin.scheduleDates || {});
+        setContractSent(!!data.lockin.contractSent);
+        nextStep = "debrief";
+      }
+      // data.debrief is never present on a resumable consult — submitting the
+      // debrief atomically flips status to 'debriefed', which /mine filters out.
+
+      setStep(nextStep);
+    } catch (e: any) {
+      setError(e.message || "Failed to load that consult — starting fresh instead.");
+    }
+  };
+
   const handlePrepNext = async () => {
     if (!propertyAddress.trim()) { setError("Property address is required."); return; }
     setError(""); setSaving(true);
@@ -475,6 +564,20 @@ export function ListingConsultSheet({
           </div>
         )}
 
+        {resumePhase === "checking" && <ResumeCheckingSpinner />}
+
+        {resumePhase === "picking" && (
+          <ConsultResumePicker
+            title="Listing Consult"
+            subtitle="Pick up an in-progress consult, or start a new one."
+            items={resumeList}
+            onResume={handleResumeConsult}
+            onStartNew={() => setResumePhase("ready")}
+          />
+        )}
+
+        {resumePhase === "ready" && (
+        <>
         {step === "prep" && (
           <>
             {header("Before You Arrive", "Property + client info, quick prep checklist")}
@@ -739,6 +842,8 @@ export function ListingConsultSheet({
               </>
             )}
           </>
+        )}
+        </>
         )}
       </div>
     </div>

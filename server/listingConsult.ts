@@ -212,6 +212,22 @@ export function registerListingConsultRoutes(app: Express) {
     }
   });
 
+  // ── v20.14.5 — In-progress consults for this agent (resume picker). MUST be
+  //    registered before the "/:id" GET below — otherwise Express would try
+  //    to parse "mine" as a numeric id and 404. ──
+  app.get("/api/listing-consult/mine", (req: any, res: Response) => {
+    const agentId = parseInt(req.query.agentId as string) || req.currentAgent?.id || null;
+    if (!agentId) return res.json({ consults: [] });
+    const rows = rawDb.prepare(`
+      SELECT id, property_address, client_name, status, updated_at, created_at
+      FROM listing_consults
+      WHERE agent_id = ? AND status = 'in_progress'
+      ORDER BY updated_at DESC
+      LIMIT 20
+    `).all(agentId);
+    res.json({ consults: rows });
+  });
+
   // ── Fetch a consult ──
   app.get("/api/listing-consult/:id", (req: any, res: Response) => {
     const r = getRow(parseInt(req.params.id));

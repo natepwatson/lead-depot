@@ -10,6 +10,7 @@
 // quote-request emails with photos to our preferred vendors.
 import { useEffect, useMemo, useState } from "react";
 import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, X } from "lucide-react";
+import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 
 type RepairItem = {
   id: number; key: string; category: "in_house" | "vendor"; trade: string; name: string;
@@ -139,6 +140,13 @@ export function RepairConsultSheet({
   const [consultId, setConsultId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // v20.14.5 — Resume picker: nested-from-listing skips straight to "ready"
+  // (that flow already carries its own state from the parent Listing Consult
+  // and creates its own record immediately). Standalone opens check for any
+  // in-progress consult this agent already started before rendering steps.
+  const [resumePhase, setResumePhase] = useState<"checking" | "picking" | "ready">(nestedFromListing ? "ready" : "checking");
+  const [resumeList, setResumeList] = useState<ResumeItem[]>([]);
+
   const [clientName, setClientName] = useState(initialClientName || "");
   const [clientEmail, setClientEmail] = useState(initialClientEmail || "");
   const [clientPhone, setClientPhone] = useState(initialClientPhone || "");
@@ -180,6 +188,19 @@ export function RepairConsultSheet({
       .finally(() => setCatalogLoading(false));
   }, []);
 
+  // v20.14.5 — check for resumable consults on standalone opens only.
+  useEffect(() => {
+    if (nestedFromListing) return;
+    fetchJson(`/api/repair-consult/mine?agentId=${agentId ?? ""}`)
+      .then(d => {
+        const list: ResumeItem[] = d.consults || [];
+        if (list.length > 0) { setResumeList(list); setResumePhase("picking"); }
+        else setResumePhase("ready");
+      })
+      .catch(() => setResumePhase("ready"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // v20.14.4 — nested-from-listing: create the linked repair_consult record
   // immediately on mount (carrying over the already-known info + hero photo)
   // instead of waiting for an "info" step the agent never sees.
@@ -218,6 +239,56 @@ export function RepairConsultSheet({
       setConsultId(d.id);
       return d.id;
     } finally { setCreating(false); }
+  };
+
+  // v20.14.5 — Hydrate every wizard field from a previously-started consult
+  // (row + checklist items) so resuming feels like the tab never closed.
+  const handleResumeConsult = async (id: number) => {
+    setResumePhase("ready"); setError("");
+    try {
+      const d = await fetchJson(`/api/repair-consult/${id}`);
+      setConsultId(d.id);
+      setClientName(d.client_name || "");
+      setClientEmail(d.client_email || "");
+      setClientPhone(d.client_phone || "");
+      setPropertyAddress(d.property_address || "");
+      setHeroPhotoUrl(d.hero_photo_url || null);
+      setGalleryUrls(Array.isArray(d.property_photos) ? d.property_photos : []);
+
+      const items: any[] = d.items || [];
+      if (items.length > 0) {
+        const nextChecked: Record<string, CheckedState> = {};
+        for (const it of items) {
+          let photos: string[] = [];
+          try { photos = it.photos ? JSON.parse(it.photos) : []; } catch { photos = []; }
+          nextChecked[it.item_key] = {
+            checked: true,
+            quantity: String(it.quantity ?? 1),
+            twoStory: !!it.two_story,
+            photos,
+            measurementNotes: it.measurement_notes || "",
+          };
+        }
+        setChecked(nextChecked);
+      }
+
+      if (d.subtotal || d.total) setTotals({ subtotal: d.subtotal || 0, total: d.total || 0 });
+
+      if (d.quote_token) {
+        // Quote already generated — jump to Review with the send/dispatch
+        // actions available. pdfUrl/acceptUrl aren't persisted server-side
+        // (only the total is needed to render this card), so leave them blank.
+        setQuoteResult({ pdfUrl: "", acceptUrl: "", total: d.total || 0 });
+        if (d.status === "sent") setClientSent(true);
+        setStep("review");
+      } else if (items.length > 0) {
+        setStep("gallery");
+      } else {
+        setStep("checklist");
+      }
+    } catch (e: any) {
+      setError(e.message || "Failed to load that consult — starting fresh instead.");
+    }
   };
 
   const handleInfoNext = async () => {
@@ -395,6 +466,20 @@ export function RepairConsultSheet({
           </div>
         )}
 
+        {resumePhase === "checking" && <ResumeCheckingSpinner />}
+
+        {resumePhase === "picking" && (
+          <ConsultResumePicker
+            title="Repair Consult"
+            subtitle="Pick up an in-progress consult, or start a new one."
+            items={resumeList}
+            onResume={handleResumeConsult}
+            onStartNew={() => setResumePhase("ready")}
+          />
+        )}
+
+        {resumePhase === "ready" && (
+        <>
         {step === "info" && (
           <>
             {header("Repair Consult", "Property + client info, front of house photo")}
@@ -619,6 +704,8 @@ export function RepairConsultSheet({
               border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 6,
             }}>Done</button>
           </>
+        )}
+        </>
         )}
       </div>
     </div>

@@ -6368,7 +6368,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.1</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -7320,7 +7320,13 @@ function LeadGenSheet(props: {
     // chord-distance math against ARC_RADIUS's real-device floor of 160.
     const EDGE_SIZE = Math.round(BUBBLE_SIZE * 0.85);
     const EDGE_RADIUS = ARC_RADIUS - 10;
-    const EDGE_LIFT = 16;
+    // v20.14.1 — Alex correction: horizontal position was right, vertical was
+    // not — 175°/5° is near-horizontal on the arc's circle, which naturally
+    // lands dy near zero (bottom of the circle), not level with Dial. Override
+    // edge-bubble dy directly to Dial's own vertical center so Repairs/Listing
+    // sit in the blank area flanking Dial at the same height, instead of
+    // computing dy from the angle/radius like the rest of the arc.
+    const EDGE_DY = -(ARC_RADIUS + HERO_LIFT);
 
     // v20.7.4 — 5 arc bubbles across ~160°. Center = 90° (Dial hero), step = 30°.
     // Angles: 150 / 120 / 90 / 60 / 30. Symmetric around DIAL.
@@ -7422,7 +7428,7 @@ function LeadGenSheet(props: {
             // without overlapping the 150°/30° arc bubbles.
             const bubbleRadius = b.radius ?? ARC_RADIUS;
             const dx = Math.cos(rad) * bubbleRadius;
-            const dy = -Math.sin(rad) * bubbleRadius - (b.hero ? HERO_LIFT : 0) - (b.edge ? EDGE_LIFT : 0);
+            const dy = b.edge ? EDGE_DY : -Math.sin(rad) * bubbleRadius - (b.hero ? HERO_LIFT : 0);
             const size = b.hero ? HERO_SIZE : b.edge ? EDGE_SIZE : BUBBLE_SIZE;
             const LABEL_GAP = 12; // px gap between bubble rim and label
             // v20.14.0 — edge-bubble labels nudge 14px TOWARD screen center

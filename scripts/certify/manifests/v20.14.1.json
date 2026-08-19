@@ -1,0 +1,14 @@
+{
+  "version": "v20.14.1",
+  "changes": [
+    "Fix: Repairs/Listing edge bubbles vertical position. Alex reported horizontal placement (left/right, near screen edge) was correct but vertical placement landed them too low, overlapping/hidden behind the Direct Mail and Door Knock bubbles. Root cause: the 175°/5° near-horizontal arc angle naturally produces a dy near zero on the arc's circle (bottom of the circle), not level with Dial. Fix decouples dy for edge bubbles from the angle/radius formula and sets it directly to Dial's own vertical center (EDGE_DY = -(ARC_RADIUS + HERO_LIFT)), so Repairs/Listing now float in the blank area flanking Dial at the same height, while horizontal (dx) placement is unchanged."
+  ],
+  "endpoints": [],
+  "bundleMustContain": [
+    "/api/listing-consult",
+    "Open Repair Consult"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "EDGE_LIFT was removed and replaced by a direct EDGE_DY override, but local variable/const names are minified by Vite and were never verifiable as literal bundle strings even before removal, so no must-not-contain guard is used for it. No new endpoints in this release; the v20.14.0 endpoint/bundle checks are re-asserted to confirm the underlying Listing Consult feature is still intact after this layout-only change. The vertical-position fix itself (dy math) is not independently verifiable via static bundle strings or server payloads — confirmed instead via a live visual smoke test after deploy.",
+  "mathChecks": []
+}

@@ -4036,20 +4036,25 @@ function ActiveChallengesCard() {
 // (see /api/team-map/pins). Toggle state is local to the tab so it resets on
 // leave/return, which is fine — board is the default landing.
 // v20.7.4 — ActiveChallengesCard renders below the leaderboard on board view.
+// v20.14.2 — Alex: 3-way toggle — Leaderboard / Team Map / Challenges. Team
+// Map is kept (Alex: pins on the map are impressive), Challenges added as a
+// third slot now that the bottom-nav Challenges button was retired in favor
+// of Pipeline/Listing Consultation, so this toggle is Challenges' only home.
 function HomeShell({ mode = "seller" }: { mode?: "seller" } = {}) {
-  const [view, setView] = useState<"board" | "map">("board");
+  const [view, setView] = useState<"board" | "map" | "challenges">("board");
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
         <div style={{ display: "inline-flex", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 999, padding: 3 }}>
           {([
             { k: "board", l: "Leaderboard" },
-            { k: "map",   l: "Team Map"   },
+            { k: "map", l: "Team Map" },
+            { k: "challenges", l: "Challenges" },
           ] as const).map(o => {
             const active = view === o.k;
             return (
               <button key={o.k} onClick={() => setView(o.k)} style={{
-                padding: "6px 16px",
+                padding: "6px 13px",
                 borderRadius: 999,
                 border: "none",
                 background: active ? "rgba(200,170,90,0.14)" : "transparent",
@@ -4059,6 +4064,7 @@ function HomeShell({ mode = "seller" }: { mode?: "seller" } = {}) {
                 fontWeight: 500,
                 cursor: "pointer",
                 transition: "all 0.15s",
+                whiteSpace: "nowrap",
               }}>{o.l}</button>
             );
           })}
@@ -4069,7 +4075,7 @@ function HomeShell({ mode = "seller" }: { mode?: "seller" } = {}) {
           <LeaderboardTab mode={mode} />
           <ActiveChallengesCard />
         </>
-      ) : <TeamMap />}
+      ) : view === "map" ? <TeamMap /> : <ChallengesTab />}
     </div>
   );
 }
@@ -6066,13 +6072,18 @@ type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "ho
 // v20.10.0 — Inventory tab replaced with Repair Quote. "inventory" kept in the
 // Tab union so a stale bookmark/initialTab doesn't hard-crash; it just renders
 // nothing since no NAV entry or route matches it anymore.
-// 5 symmetric slots around the FAB: Home / Pipeline / [Lead Gen] / Repair Quote / Challenges.
+// 5 symmetric slots around the FAB: Home / Listing Consultation / [Lead
+// Generation] / Repair Quote / Pipeline.
+// v20.14.2 — Alex: Challenges nav button removed (Challenges now lives on the
+// Home toggle instead — see HomeShell). Pipeline moved from slot 2 into the
+// vacated slot 5, slot 2 now opens Listing Consultation, and the middle Lead
+// Gen label is spelled out in full now that there's room.
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
-  { id: "home",        label: "Home",         icon: Home },
-  { id: "pipeline",    label: "Pipeline",     icon: Layers },
-  { id: "leads",       label: "Lead Gen",     icon: Phone },
-  { id: "repairQuote", label: "Repair Quote", icon: Wrench },
-  { id: "challenges",  label: "Challenges",   icon: Target },
+  { id: "home",          label: "Home",               icon: Home },
+  { id: "listingConsult", label: "Listing Consultation", icon: ClipboardCheck },
+  { id: "leads",         label: "Lead Generation",    icon: Phone },
+  { id: "repairQuote",   label: "Repair Quote",       icon: Wrench },
+  { id: "pipeline",      label: "Pipeline",           icon: Layers },
 ];
 
 // ─── Main AgentView ───────────────────────────────────────────────────────────
@@ -6368,7 +6379,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.1</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.2</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6584,6 +6595,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             initialClientEmail={listingRepairPrefill?.email ?? ""}
             initialClientPhone={listingRepairPrefill?.phone ?? ""}
             onClose={() => setShowRepairFromListing(false)}
+            manageNavVisibility={false}
           />
         )}
 

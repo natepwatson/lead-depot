@@ -112,11 +112,19 @@ async function fileToImageData(file: File, opts: { maxDim?: number; quality?: nu
 }
 
 export function RepairConsultSheet({
-  leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose,
+  leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose, manageNavVisibility = true,
 }: {
   leadId?: number | null; agentId?: number | null;
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
   onClose: () => void;
+  // v20.14.2 — when this sheet is opened NESTED inside another full-screen
+  // sheet that already keeps body.ld-modal-open set for its own lifetime
+  // (e.g. the Listing Consult repair hand-off), the parent already owns nav
+  // visibility. Default true preserves the standalone-tab behavior (this
+  // sheet manages the class itself); pass false for the nested case so
+  // closing this overlay doesn't prematurely reveal the nav while the parent
+  // sheet is still open underneath.
+  manageNavVisibility?: boolean;
 }) {
   const [step, setStep] = useState<"info" | "photos" | "checklist" | "gallery" | "review">("info");
   const [consultId, setConsultId] = useState<number | null>(null);
@@ -151,9 +159,10 @@ export function RepairConsultSheet({
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!manageNavVisibility) return; // parent sheet already owns nav visibility
     document.body.classList.add("ld-modal-open");
     return () => document.body.classList.remove("ld-modal-open");
-  }, []);
+  }, [manageNavVisibility]);
 
   useEffect(() => {
     fetchJson("/api/repair-items")

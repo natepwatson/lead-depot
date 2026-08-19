@@ -5,7 +5,7 @@
 // The repair-scoping question lives inside Step 2 (Preview the Home) and can
 // hand off into the existing Repair Consult tool mid-appointment; the parent
 // (AgentView) is responsible for swapping back to this sheet when that closes.
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CheckCircle2, ChevronRight, ChevronLeft, X, Wrench, Loader2 } from "lucide-react";
 
 const fetchJson = async (url: string, opts: RequestInit = {}) => {
@@ -82,6 +82,18 @@ export function ListingConsultSheet({
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // v20.14.2 — nav-bar detach fix. Every other full-screen sheet (Repair
+  // Consult, KIT modal, etc.) hides the fixed bottom nav via body.ld-modal-open
+  // while it's mounted. This sheet was missing it, so typing into any of its
+  // many text fields opened the iOS keyboard, which resizes the visualViewport
+  // but not the layout viewport — leaving the nav's position:fixed;bottom:0
+  // to "float" up into the middle of the screen. Matches RepairConsultSheet's
+  // effect exactly.
+  useEffect(() => {
+    document.body.classList.add("ld-modal-open");
+    return () => document.body.classList.remove("ld-modal-open");
+  }, []);
 
   const [clientName, setClientName] = useState(initialClientName || "");
   const [clientEmail, setClientEmail] = useState(initialClientEmail || "");

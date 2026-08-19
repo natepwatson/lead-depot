@@ -1,11 +1,13 @@
-// v20.11.0 — Repair Consult. Full-screen wizard an agent runs during a listing
+// v20.12.0 — Repair Consult. Full-screen wizard an agent runs during a listing
 // walkthrough: capture the front-of-house hero photo upfront, check off simple
 // in-house repairs (auto-priced by sqft/linear-ft/each) plus anything that
-// needs a licensed vendor, set a start window, then bulk-upload every other
-// walkthrough photo in one final step right before generating the branded
-// quote. In-house quote emails Alex+Nate immediately; "Send to Client"
-// delivers the branded proposal + accept link; "Request Vendor Quotes" fires
-// trade-specific quote-request emails with photos to our preferred vendors.
+// needs a licensed vendor, then bulk-upload every other walkthrough photo in
+// one final step right before generating the branded quote. Scheduling is NOT
+// discussed here — sequence is signed -> deposit received -> THEN a start
+// date is scheduled from the admin Consults panel. In-house quote emails
+// Alex+Nate+Denise immediately; "Send to Client" delivers the branded
+// proposal + accept link; "Request Vendor Quotes" fires trade-specific
+// quote-request emails with photos to our preferred vendors.
 import { useEffect, useMemo, useState } from "react";
 import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, X } from "lucide-react";
 
@@ -116,7 +118,7 @@ export function RepairConsultSheet({
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
   onClose: () => void;
 }) {
-  const [step, setStep] = useState<"info" | "photos" | "checklist" | "schedule" | "gallery" | "review">("info");
+  const [step, setStep] = useState<"info" | "photos" | "checklist" | "gallery" | "review">("info");
   const [consultId, setConsultId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -135,9 +137,8 @@ export function RepairConsultSheet({
   const [checked, setChecked] = useState<Record<string, CheckedState>>({});
   const [catalogLoading, setCatalogLoading] = useState(true);
 
-  const [startWindow, setStartWindow] = useState("asap");
-  const [startDate, setStartDate] = useState("");
-  const [startTime, setStartTime] = useState("");
+  // v20.12.0 — start window/date/time are no longer captured in this wizard;
+  // scheduling happens later from the admin panel once deposit is received.
 
   const [submittingItems, setSubmittingItems] = useState(false);
   const [totals, setTotals] = useState<{ subtotal: number; total: number } | null>(null);
@@ -247,9 +248,11 @@ export function RepairConsultSheet({
 
   const selectedCount = Object.values(checked).filter(c => c.checked).length;
 
-  const handleChecklistNext = () => setStep("schedule");
-
-  const handleScheduleNext = async () => {
+  // v20.12.0 — Deposit Required Gate: scheduling is no longer discussed here.
+  // Sequence is now signed -> deposit received -> THEN start date is scheduled
+  // from the admin Consults panel. This step goes straight from checklist to
+  // the final photo gallery.
+  const handleChecklistNext = async () => {
     const id = await ensureConsult();
     setSubmittingItems(true);
     setError("");
@@ -263,10 +266,6 @@ export function RepairConsultSheet({
       if (items.length === 0) { setError("Check off at least one repair item before continuing."); setSubmittingItems(false); return; }
       const d = await fetchJson(`/api/repair-consult/${id}/items`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }),
-      });
-      await fetchJson(`/api/repair-consult/${id}/start-window`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ startWindow, startDate: startWindow === "specific" ? startDate : null, startTime: startWindow === "specific" ? startTime : null }),
       });
       setTotals({ subtotal: d.subtotal, total: d.total });
       setStep("gallery");
@@ -496,44 +495,7 @@ export function RepairConsultSheet({
                 ))}
               </>
             )}
-            {navButtons({ onBack: () => setStep("photos"), onNext: handleChecklistNext, nextDisabled: selectedCount === 0 })}
-          </>
-        )}
-
-        {step === "schedule" && (
-          <>
-            {header("Start Window", "When can we realistically get started?")}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-              {[
-                { v: "asap", l: "As soon as possible" },
-                { v: "within_1_week", l: "Within 1 week" },
-                { v: "1_2_weeks", l: "1–2 weeks" },
-                { v: "2_4_weeks", l: "2–4 weeks" },
-                { v: "specific", l: "Specific day / time" },
-              ].map(o => (
-                <label key={o.v} style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, cursor: "pointer",
-                  background: startWindow === o.v ? "rgba(200,170,90,0.12)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${startWindow === o.v ? "rgba(200,170,90,0.5)" : "rgba(255,255,255,0.08)"}`,
-                }}>
-                  <input type="radio" checked={startWindow === o.v} onChange={() => setStartWindow(o.v)} style={{ accentColor: GOLD }} />
-                  <span style={{ fontSize: 13.5, color: "#fff" }}>{o.l}</span>
-                </label>
-              ))}
-            </div>
-            {startWindow === "specific" && (
-              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-                <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Date</label>
-                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={inputStyle} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Time</label>
-                  <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={inputStyle} />
-                </div>
-              </div>
-            )}
-            {navButtons({ onBack: () => setStep("checklist"), onNext: handleScheduleNext, nextBusy: submittingItems, nextLabel: "Continue to Photos" })}
+            {navButtons({ onBack: () => setStep("photos"), onNext: handleChecklistNext, nextDisabled: selectedCount === 0, nextBusy: submittingItems, nextLabel: "Continue to Photos" })}
           </>
         )}
 
@@ -559,7 +521,7 @@ export function RepairConsultSheet({
                   : "Select multiple photos from your camera roll at once. Optional, but photos make the quote stand out and help vendors scope licensed-trade work."}
               </p>
             </div>
-            {navButtons({ onBack: () => setStep("schedule"), onNext: () => setStep("review"), nextDisabled: uploadingGallery, nextLabel: "Review & Quote" })}
+            {navButtons({ onBack: () => setStep("checklist"), onNext: () => setStep("review"), nextDisabled: uploadingGallery, nextLabel: "Review & Quote" })}
           </>
         )}
 

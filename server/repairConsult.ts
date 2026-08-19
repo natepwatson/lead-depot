@@ -34,7 +34,9 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"];
+// v20.12.0 — Denise added per Alex's standing instruction: always CC nate, alex,
+// and Denise on all repair-consult emails moving forward by default.
+const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"];
 const FROM = "Lead Depot <noreply@watsonbrothersgroup.com>";
 const APP_URL = "https://depot.watsonbrothersgroup.com";
 const BRAND = {
@@ -172,6 +174,14 @@ export function ensureRepairConsultSchema() {
   if (!rcCols.includes("agreement_pdf_url"))        rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN agreement_pdf_url TEXT").run();
   if (!rcCols.includes("signed_agreement_pdf_url")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN signed_agreement_pdf_url TEXT").run();
   if (!rcCols.includes("approval_email_sent_at"))   rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN approval_email_sent_at TEXT").run();
+
+  // v20.12.0 — Deposit Required Gate: scheduling (start_window/date/time) is now
+  // locked until the client has signed AND the deposit is marked received.
+  // Sequence: signed -> work order sent -> deposit received -> THEN schedule start date.
+  if (!rcCols.includes("deposit_received_at"))      rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN deposit_received_at TEXT").run();
+  if (!rcCols.includes("deposit_received_by"))      rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN deposit_received_by TEXT").run();
+  if (!rcCols.includes("deposit_method"))           rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN deposit_method TEXT").run();
+  if (!rcCols.includes("deposit_reference"))        rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN deposit_reference TEXT").run();
 
   seedRepairItems();
 }
@@ -1141,12 +1151,39 @@ export function registerRepairConsultRoutes(app: Express) {
   });
 
   // ── Set start window / specific date+time ──
+  // v20.12.0 — Deposit Required Gate: scheduling is locked until signed + deposit received.
   app.post("/api/repair-consult/:id/start-window", (req: any, res: Response) => {
     const consultId = parseInt(req.params.id);
     const { startWindow, startDate, startTime } = req.body || {};
+    const consult = getConsultRow(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+    if (consult.status !== "accepted") {
+      return res.status(409).json({ error: "This consult hasn't been signed yet. Scheduling opens once the client signs." });
+    }
+    if (!consult.deposit_received_at) {
+      return res.status(409).json({ error: "Deposit not yet received. Mark the deposit received before scheduling a start date." });
+    }
     rawDb.prepare(`
       UPDATE repair_consults SET start_window = ?, start_date = ?, start_time = ?, updated_at = datetime('now') WHERE id = ?
     `).run(startWindow || null, startDate || null, startTime || null, consultId);
+    res.json({ ok: true });
+  });
+
+  // ── Mark deposit received (fast, one-tap; unlocks scheduling) ──
+  app.post("/api/repair-consult/:id/mark-deposit-received", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    const consult = getConsultRow(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+    if (consult.status !== "accepted") {
+      return res.status(409).json({ error: "Client hasn't signed yet — can't take a deposit on an unsigned agreement." });
+    }
+    const { method, reference } = req.body || {};
+    rawDb.prepare(`
+      UPDATE repair_consults SET deposit_received_at = datetime('now'), deposit_received_by = ?,
+        deposit_method = ?, deposit_reference = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(req.currentAgent.name || req.currentAgent.email || "Admin", method || null, reference || null, consultId);
     res.json({ ok: true });
   });
 

@@ -47,6 +47,13 @@ type Consult = {
   print_signed_at: string | null;
   print_signed_by: string | null;
   approval_email_sent_at: string | null;
+  deposit_received_at: string | null;
+  deposit_received_by: string | null;
+  deposit_method: string | null;
+  deposit_amount: number;
+  start_window: string | null;
+  start_date: string | null;
+  start_time: string | null;
   agent_name: string | null;
   created_at: string;
 };
@@ -429,6 +436,35 @@ function ConsultsPanel() {
     } finally { setBusy(null); }
   };
 
+  // v20.12.0 — Deposit Required Gate: one-tap mark-received, unlocks scheduling.
+  const markDepositReceived = async (c: Consult) => {
+    if (!confirm(`Mark the 50% deposit ($${c.deposit_amount?.toLocaleString(undefined, { minimumFractionDigits: 2 })}) received for ${c.property_address}?`)) return;
+    setBusy(c.id);
+    try {
+      const r = await fetch(`/api/repair-consult/${c.id}/mark-deposit-received`, { method: "POST", credentials: "include" });
+      const b = await r.json();
+      if (!r.ok) alert(b?.error || "Failed to mark deposit received");
+      load();
+    } finally { setBusy(null); }
+  };
+
+  const scheduleStart = async (c: Consult) => {
+    const dateStr = prompt(`Start date for ${c.property_address} (YYYY-MM-DD):`, c.start_date || "");
+    if (dateStr === null) return;
+    const timeStr = dateStr.trim() ? (prompt(`Start time (optional, e.g. 9:00 AM):`, c.start_time || "") || "") : "";
+    setBusy(c.id);
+    try {
+      const r = await fetch(`/api/repair-consult/${c.id}/start-window`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startWindow: dateStr.trim() ? "specific" : null, startDate: dateStr.trim() || null, startTime: timeStr.trim() || null }),
+      });
+      const b = await r.json();
+      if (!r.ok) alert(b?.error || "Failed to schedule start date");
+      load();
+    } finally { setBusy(null); }
+  };
+
   const statusColor = (status: string) =>
     status === "accepted" ? "#5eead4" : status === "sent" || status === "quoted" ? "#e8d8a8" : "#94a3b8";
 
@@ -470,6 +506,7 @@ function ConsultsPanel() {
                 <th style={{ textAlign: "right", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Total</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Status</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Signed</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Deposit / Start</th>
                 <th style={{ textAlign: "center", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Actions</th>
               </tr>
             </thead>
@@ -485,6 +522,17 @@ function ConsultsPanel() {
                   </td>
                   <td style={{ padding: "6px 10px", color: statusColor(c.status), textTransform: "capitalize" }}>{c.status}</td>
                   <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11 }}>{signedLabel(c)}</td>
+                  <td style={{ padding: "6px 10px", fontSize: 11 }}>
+                    {c.status !== "accepted" ? (
+                      <span style={{ color: "#64748b" }}>Awaiting signature</span>
+                    ) : !c.deposit_received_at ? (
+                      <span style={{ color: "#e8d8a8" }}>Awaiting deposit</span>
+                    ) : !c.start_date && !c.start_window ? (
+                      <span style={{ color: "#5eead4" }}>Deposit in · not scheduled</span>
+                    ) : (
+                      <span style={{ color: "#5eead4" }}>{c.start_date ? `Start ${c.start_date}${c.start_time ? " " + c.start_time : ""}` : c.start_window}</span>
+                    )}
+                  </td>
                   <td style={{ padding: "6px 10px" }}>
                     <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap" }}>
                       <button disabled={!c.quote_token || busy === c.id} onClick={() => sendToClient(c)} title="Send to Client (E-Sign)"
@@ -495,6 +543,14 @@ function ConsultsPanel() {
                         style={actionBtnStyle}><Download size={11} /> Print PDF</button>
                       <button disabled={busy === c.id} onClick={() => markPrintSigned(c)} title="Mark as Print-Signed"
                         style={actionBtnStyle}><PenLine size={11} /> Mark Signed</button>
+                      {c.status === "accepted" && !c.deposit_received_at && (
+                        <button disabled={busy === c.id} onClick={() => markDepositReceived(c)} title="Mark Deposit Received"
+                          style={{ ...actionBtnStyle, color: "#e8d8a8", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><DollarSign size={11} /> Deposit In</button>
+                      )}
+                      {c.status === "accepted" && c.deposit_received_at && (
+                        <button disabled={busy === c.id} onClick={() => scheduleStart(c)} title="Schedule Start Date"
+                          style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.08)" }}>Schedule</button>
+                      )}
                     </div>
                   </td>
                 </tr>

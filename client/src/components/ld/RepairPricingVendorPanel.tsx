@@ -1,10 +1,10 @@
-// v20.8.1 — Repair Program admin: Pricing Catalog + Vendor Directory CRUD.
+// v20.9.0 — Repair Program admin: Pricing Catalog + Vendor Directory CRUD.
 // In-house items (repair_items) get an editable default rate / min charge / active toggle.
 // Vendor directory (repair_vendors) is admin-managed contacts routed a quote request per trade
 // (auto-emailed from the Repair Consult client flow when an item needs a licensed trade).
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { RefreshCw, Trash2, Plus, DollarSign, Users2 } from "lucide-react";
+import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine } from "lucide-react";
 
 type PricingItem = {
   id: number;
@@ -33,10 +33,28 @@ type Vendor = {
   created_at: string;
 };
 
+type Consult = {
+  id: number;
+  property_address: string;
+  client_name: string | null;
+  client_email: string | null;
+  status: string;
+  total: number;
+  quote_token: string | null;
+  signature_method: string | null;
+  accepted_at: string | null;
+  accepted_signature_name: string | null;
+  print_signed_at: string | null;
+  print_signed_by: string | null;
+  approval_email_sent_at: string | null;
+  agent_name: string | null;
+  created_at: string;
+};
+
 const unitLabel = (u: string) => (u === "linear_ft" ? "linear ft" : u === "sqft" ? "sqft" : u === "each" ? "each" : "flat");
 
 export function RepairPricingVendorPanel() {
-  const [tab, setTab] = useState<"pricing" | "vendors">("pricing");
+  const [tab, setTab] = useState<"pricing" | "vendors" | "consults">("pricing");
 
   return (
     <div style={{ marginTop: 24 }}>
@@ -44,6 +62,7 @@ export function RepairPricingVendorPanel() {
         {[
           { key: "pricing", label: "Pricing Catalog", icon: DollarSign },
           { key: "vendors", label: "Vendor Directory", icon: Users2 },
+          { key: "consults", label: "Consults", icon: FileSignature },
         ].map(t => (
           <button
             key={t.key}
@@ -61,7 +80,7 @@ export function RepairPricingVendorPanel() {
           </button>
         ))}
       </div>
-      {tab === "pricing" ? <PricingCatalogPanel /> : <VendorDirectoryPanel />}
+      {tab === "pricing" ? <PricingCatalogPanel /> : tab === "vendors" ? <VendorDirectoryPanel /> : <ConsultsPanel />}
     </div>
   );
 }
@@ -354,6 +373,144 @@ function VendorDirectoryPanel() {
     </div>
   );
 }
+
+// ── REPAIR CONSULTS: Agreement send / print-sign / approval actions ───────────
+function ConsultsPanel() {
+  const [consults, setConsults] = useState<Consult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<number | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/repair-consults", { credentials: "include" });
+      const d = await r.json();
+      setConsults(d.consults || []);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const sendToClient = async (c: Consult) => {
+    setBusy(c.id);
+    try {
+      await fetch(`/api/repair-consult/${c.id}/send-to-client`, { method: "POST", credentials: "include" });
+      load();
+    } finally { setBusy(null); }
+  };
+
+  const sendApproval = async (c: Consult) => {
+    setBusy(c.id);
+    try {
+      const r = await fetch(`/api/repair-consult/${c.id}/send-approval-email`, { method: "POST", credentials: "include" });
+      const b = await r.json();
+      if (!r.ok) alert(b?.error || "Failed to send approval email");
+      load();
+    } finally { setBusy(null); }
+  };
+
+  const downloadPdf = (c: Consult) => {
+    window.open(`/api/repair-consult/${c.id}/agreement-pdf`, "_blank");
+  };
+
+  const markPrintSigned = async (c: Consult) => {
+    const signedBy = prompt(`Client's full name as signed on the printed agreement for ${c.property_address}:`, c.client_name || "");
+    if (!signedBy || signedBy.trim().length < 2) return;
+    setBusy(c.id);
+    try {
+      const r = await fetch(`/api/repair-consult/${c.id}/mark-print-signed`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signedBy: signedBy.trim() }),
+      });
+      const b = await r.json();
+      if (!r.ok) alert(b?.error || "Failed to record print-signed agreement");
+      load();
+    } finally { setBusy(null); }
+  };
+
+  const statusColor = (status: string) =>
+    status === "accepted" ? "#5eead4" : status === "sent" || status === "quoted" ? "#e8d8a8" : "#94a3b8";
+
+  const signedLabel = (c: Consult) => {
+    if (c.status !== "accepted") return "—";
+    if (c.signature_method === "print_sign") return `Print & Sign · ${c.print_signed_by || c.accepted_signature_name || ""}`;
+    if (c.signature_method === "email_approval") return `Email Approval · ${c.accepted_signature_name || ""}`;
+    return `E-Sign · ${c.accepted_signature_name || ""}`;
+  };
+
+  return (
+    <div style={{ padding: 16, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+        <h3 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.15rem", fontWeight: 300, color: "#fff" }}>
+          Repair Consults &amp; Agreements
+        </h3>
+        <button onClick={load} style={{
+          display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6,
+          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.10)",
+          color: "#94a3b8", fontSize: 11, cursor: "pointer",
+        }}><RefreshCw size={11} /> Refresh</button>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Send the two-page agreement for e-signature, send a one-click green approval email, download the blank
+        Print &amp; Sign PDF, or mark a consult signed after a physical printout comes back.
+      </p>
+
+      {loading ? (
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>Loading consults…</div>
+      ) : consults.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>No repair consults yet.</div>
+      ) : (
+        <div style={{ maxHeight: 520, overflowY: "auto", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6 }}>
+          <table style={{ width: "100%", fontSize: 12, color: "#c7d1dd", borderCollapse: "collapse" }}>
+            <thead style={{ background: "rgba(255,255,255,0.03)", position: "sticky", top: 0 }}>
+              <tr>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Property</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Client</th>
+                <th style={{ textAlign: "right", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Total</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Status</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Signed</th>
+                <th style={{ textAlign: "center", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {consults.map(c => (
+                <tr key={c.id} style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                  <td style={{ padding: "6px 10px", color: "#e5e7eb" }}>{c.property_address}</td>
+                  <td style={{ padding: "6px 10px", color: "#94a3b8" }}>
+                    {c.client_name || "—"}{c.client_email ? <div style={{ fontSize: 10 }}>{c.client_email}</div> : null}
+                  </td>
+                  <td style={{ padding: "6px 10px", textAlign: "right", color: "#e5e7eb" }}>
+                    {c.total ? `$${c.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
+                  </td>
+                  <td style={{ padding: "6px 10px", color: statusColor(c.status), textTransform: "capitalize" }}>{c.status}</td>
+                  <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11 }}>{signedLabel(c)}</td>
+                  <td style={{ padding: "6px 10px" }}>
+                    <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap" }}>
+                      <button disabled={!c.quote_token || busy === c.id} onClick={() => sendToClient(c)} title="Send to Client (E-Sign)"
+                        style={actionBtnStyle}><Mail size={11} /> E-Sign</button>
+                      <button disabled={!c.quote_token || busy === c.id} onClick={() => sendApproval(c)} title="Send Approval Email"
+                        style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.08)" }}><Mail size={11} /> Approval</button>
+                      <button disabled={busy === c.id} onClick={() => downloadPdf(c)} title="Download Print & Sign PDF"
+                        style={actionBtnStyle}><Download size={11} /> Print PDF</button>
+                      <button disabled={busy === c.id} onClick={() => markPrintSigned(c)} title="Mark as Print-Signed"
+                        style={actionBtnStyle}><PenLine size={11} /> Mark Signed</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const actionBtnStyle: CSSProperties = {
+  display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, padding: "4px 7px", borderRadius: 5,
+  background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.10)", color: "#94a3b8", cursor: "pointer",
+};
 
 const inputStyle: CSSProperties = {
   padding: "6px 8px", borderRadius: 5, background: "rgba(255,255,255,0.04)",

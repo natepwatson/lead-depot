@@ -161,6 +161,18 @@ export function ensureRepairConsultSchema() {
     CREATE INDEX IF NOT EXISTS idx_repair_vendor_dispatches_consult ON repair_vendor_dispatches(consult_id);
     CREATE INDEX IF NOT EXISTS idx_repair_vendors_trade ON repair_vendors(trade);
   `);
+
+  // v20.9.0 — signing-method tracking + agreement PDF paths (ALTER TABLE is safe to run
+  // repeatedly — guarded by PRAGMA table_info check, same pattern as server/db.ts)
+  const rcCols = (rawDb.prepare(`PRAGMA table_info(repair_consults)`).all() as any[]).map((c: any) => c.name);
+  if (!rcCols.includes("signature_method"))        rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN signature_method TEXT").run();
+  if (!rcCols.includes("print_signed_at"))          rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN print_signed_at TEXT").run();
+  if (!rcCols.includes("print_signed_by"))          rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN print_signed_by TEXT").run();
+  if (!rcCols.includes("print_signed_upload_url"))  rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN print_signed_upload_url TEXT").run();
+  if (!rcCols.includes("agreement_pdf_url"))        rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN agreement_pdf_url TEXT").run();
+  if (!rcCols.includes("signed_agreement_pdf_url")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN signed_agreement_pdf_url TEXT").run();
+  if (!rcCols.includes("approval_email_sent_at"))   rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN approval_email_sent_at TEXT").run();
+
   seedRepairItems();
 }
 
@@ -292,6 +304,70 @@ export const IN_HOUSE_TERMS = [
 
 export const VENDOR_DISPATCH_NOTE =
   "Items marked Vendor-Quoted are performed by an independent, licensed third-party contractor. Brothers Group facilitates the introduction and quote request only — pricing, licensing, insurance, scheduling, and workmanship are solely between the client and the vendor. Brothers Group assumes no liability for vendor work.";
+
+// ─── REPAIR & RENOVATION AGREEMENT — full legal text (v20.9.0) ─────────────
+// Two signing LLCs operating jointly under the internal/marketing name
+// "BGRE Home Touchups and Repairs" (NOT a registered Florida DBA — both LLCs
+// remain the actual legal signing parties on every agreement).
+export const ENTITY_NATE = "Nathaniel Peter Watson LLC";
+export const ENTITY_ALEX = "Alexander Gabriel Watson LLC";
+export const DIVISION_NAME = "BGRE Home Touchups and Repairs";
+
+export interface AgreementSection { heading: string; body: string; }
+export const AGREEMENT_SECTIONS: AgreementSection[] = [
+  {
+    heading: "1. Full Transparency: Why We're Both Your Agents and Your Repair Team",
+    body: `As your listing agents, Alex and Nate Watson are also the owners of ${ENTITY_ALEX} and ${ENTITY_NATE} — together operating as ${DIVISION_NAME}, the team performing this work. We want to be upfront about that — not because it's a conflict, but because it's the whole reason this program exists. Rather than handing you off to a stranger and hoping it goes well, we put our own name, our own crew, and our own schedule behind the work, because we have just as much riding on a smooth, successful sale as you do. That means no marked-up middleman, one point of contact instead of three, and a team that's motivated to get your home market-ready — right, and on time. Florida law requires us to disclose that we (and our companies) are paid separately for this work, in addition to any real estate commission we earn on your sale. Consider this that disclosure — given openly, because we think it's a better way to do business, not something to bury in the fine print.`,
+  },
+  {
+    heading: "2. Not a Licensed General Contractor — Scope of Work",
+    body: `Neither ${ENTITY_NATE} nor ${ENTITY_ALEX} is a licensed general contractor. The work covered by this Agreement is limited to non-structural, non-permitted cosmetic and maintenance items only — the kind listed in your itemized quote (painting, pressure washing, landscaping, cleaning, junk removal, and minor handyman repairs). Anything requiring a licensed trade — electrical, plumbing, roofing, HVAC, structural work, and similar — is not performed by us. See Section 8.`,
+  },
+  {
+    heading: "3. Pricing & Payment",
+    body: "Total price for the Scope of Work is set out in your itemized quote and is part of this Agreement. 50% deposit is due before work begins. The remaining 50% is due upon completion, before the job is considered closed out. Deposits are non-refundable once materials have been purchased or labor has been scheduled with less than 48 hours' notice. Your quote is valid for 14 days from the date it's issued.",
+  },
+  {
+    heading: "4. If Payment Isn't Made",
+    body: "If the deposit isn't received, we won't schedule or begin work. If final payment isn't made upon completion, we may pause any remaining or future work under this or any other agreement with you until the balance is resolved, and pursue the unpaid balance through ordinary collection remedies available under Florida law. We do not assert, and this Agreement does not create, any lien or other claim against your property.",
+  },
+  {
+    heading: "5. Conditions Discovered Once Work Begins",
+    body: "Your price reflects the scope, quantities, and condition we observed during your walkthrough. If we discover something once work is underway that wasn't part of that original scope — rot, mold, structural issues, pest damage, code violations, and similar — we'll stop and present it to you as a separate change order in writing. We won't perform or charge for any additional work without your approval first.",
+  },
+  {
+    heading: "6. Color Matching & Material Disclaimers",
+    body: "Paint and material color matches are made by visual sample only. Some variance in sheen or tone from the original surface is possible due to substrate age, weathering, or changes in manufacturer formulation over time. You'll approve your color/material sample before we purchase anything.",
+  },
+  {
+    heading: "7. Your Responsibilities",
+    body: "You agree to provide on-site access, water, and electricity for the duration of the work, and to secure pets and personal property in and around the work area. If a delay is caused by lack of access, we may charge a reasonable rescheduling fee.",
+  },
+  {
+    heading: "8. Vendor-Quoted (Licensed Trade) Items",
+    body: "Any item in your quote marked \u201cVendor-Quoted\u201d is performed by an independent, licensed, and insured third-party contractor from our preferred vendor network — not by Brothers Group. We facilitate the introduction and quote request only. Pricing, licensing, insurance, scheduling, and workmanship for that work are solely between you and the vendor, under a separate agreement with them. Brothers Group assumes no liability for vendor-performed work.",
+  },
+  {
+    heading: "9. Our Work — Limited Warranty",
+    body: "We stand behind the work we perform. For 30 days after completion, we'll return and correct, at no charge, any workmanship defect directly caused by our crew on the items listed in your quote. This warranty does not cover normal wear and tear, weather events, damage caused by others, pre-existing conditions, or any item outside the original Scope of Work.",
+  },
+  {
+    heading: "10. Limitation of Liability",
+    body: "Our liability under this Agreement, for any claim of any kind, is limited to the total amount you paid us for the Scope of Work. We are not liable for indirect, incidental, or consequential damages, including delays to your closing or sale timeline. This Agreement does not guarantee that your home will sell, or sell within any particular timeframe or price.",
+  },
+  {
+    heading: "11. Cancellation",
+    body: "Either party may cancel this Agreement before work begins by written notice. If you cancel after your deposit has been used to purchase materials or after labor has been scheduled with less than 48 hours' notice, the deposit is non-refundable as described in Section 3.",
+  },
+  {
+    heading: "12. Resolving Disagreements",
+    body: "If a disagreement comes up, we agree to first try to work it out directly, in good faith. If we can't, either party may pursue any remedy available under Florida law. This Agreement is governed by the laws of the State of Florida, and any legal proceeding will be brought in Nassau or Duval County, Florida. The prevailing party in any dispute is entitled to recover its reasonable attorneys' fees and costs.",
+  },
+  {
+    heading: "13. Entire Agreement",
+    body: "This Agreement, together with your itemized quote, is the entire agreement between you and Brothers Group regarding this Scope of Work, and replaces any prior discussion or understanding on the subject. If any part of this Agreement is found unenforceable, the rest remains in full effect.",
+  },
+];
 
 // ─── EMAIL: In-house quote (to agent + admin, always fires the moment a quote is generated) ─
 function quoteItemsTable(items: any[]): string {
@@ -428,6 +504,52 @@ export async function sendClientQuoteEmail(consultId: number) {
   });
 
   rawDb.prepare(`UPDATE repair_consults SET status = 'sent', updated_at = datetime('now') WHERE id = ?`).run(consultId);
+}
+
+// ─── EMAIL: One-click green Approval (mode=approve, no typing required) ───────
+export async function sendApprovalEmail(consultId: number) {
+  if (!resend) return;
+  const consult = getConsultRow(consultId);
+  const items = getConsultItems(consultId).filter((i: any) => i.category === "in_house");
+  if (!consult || !consult.client_email) return;
+  if (!consult.quote_token) throw new Error("Quote must be generated before sending an approval email");
+
+  const approveUrl = `${APP_URL}/#/repair-quote/${consult.quote_token}?mode=approve`;
+  const heroImg = consult.hero_photo_url
+    ? `<img src="${consult.hero_photo_url.startsWith("http") ? consult.hero_photo_url : APP_URL + consult.hero_photo_url}" alt="${consult.property_address}" style="width:100%;max-height:220px;object-fit:cover;display:block" />`
+    : "";
+
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Ready for Your Approval", consult.property_address)}
+    ${heroImg}
+    <div style="padding:24px 32px">
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${consult.client_name || "there"} — your repair proposal and full agreement are ready. Tap the button below to review and approve — no printing or typing required.</p>
+      ${quoteItemsTable(items)}
+      <table style="width:100%;margin-top:14px">
+        <tr><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700;width:110px">$${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
+      </table>
+      <p style="font-size:12px;color:${BRAND.gray};text-align:right;margin-top:2px">50% deposit ($${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) to begin · 50% ($${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) on completion</p>
+      <div style="text-align:center;margin:28px 0 10px">
+        <a href="${approveUrl}" style="background:${BRAND.green};color:#fff;text-decoration:none;padding:16px 44px;border-radius:6px;font-size:15px;font-weight:700;display:inline-block">✓ Approve Proposal</a>
+      </div>
+      <p style="font-size:10.5px;color:${BRAND.gray};text-align:center">Or open on your phone: <a href="${approveUrl}" style="color:${BRAND.gray}">${approveUrl}</a></p>
+      <p style="font-size:11px;color:${BRAND.gray};text-align:center;margin-top:10px">Full Terms &amp; Conditions are shown on the approval page before you approve.</p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+
+  await resend.emails.send({
+    from: FROM,
+    to: [consult.client_email],
+    cc: ADMIN_EMAILS,
+    subject: `Approve Your Repair Proposal — ${consult.property_address}`,
+    html,
+  });
+
+  rawDb.prepare(`UPDATE repair_consults SET approval_email_sent_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(consultId);
 }
 
 // ─── EMAIL: Vendor quote-request dispatch ───────────────────────────────────
@@ -662,6 +784,228 @@ function wrapText(text: string, font: any, size: number, maxWidth: number): stri
   return lines;
 }
 
+// ─── TWO-PAGE REPAIR & RENOVATION AGREEMENT PDF (pdf-lib) ─────────────────
+// Page 1 (front) = branded estimate/scope + client info pre-fill + signature
+// block. Page 2 (back) = full 13-section Terms & Conditions, two-column.
+// `opts.blank=true` renders empty signature lines (Print & Sign hand-out).
+// Otherwise, if the consult has already been accepted, the client signature
+// line shows the captured e-signature name/timestamp/IP instead of a blank line.
+export async function generateAgreementPdf(consultId: number, opts: { blank?: boolean } = {}): Promise<string> {
+  const consult = getConsultRow(consultId);
+  const items = getConsultItems(consultId).filter((i: any) => i.category === "in_house");
+  if (!consult) throw new Error("Consult not found");
+
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+  const black = rgb(0, 0, 0);
+  const gray = rgb(0.5, 0.5, 0.5);
+  const lightGray = rgb(0.95, 0.95, 0.95);
+  const green = rgb(0, 0.5, 0);
+  const PAGE_W = 612, PAGE_H = 792;
+
+  // ── PAGE 1 — FRONT: Estimate, Scope & Signatures ──────────────────────────
+  const p1 = pdfDoc.addPage([PAGE_W, PAGE_H]);
+  let y = PAGE_H - 34;
+
+  try {
+    const logoBytes = fs.readFileSync(brandLogoPath());
+    const logoImg = await pdfDoc.embedJpg(logoBytes);
+    const w = 160;
+    const h = w * (logoImg.height / logoImg.width);
+    p1.drawImage(logoImg, { x: (PAGE_W - w) / 2, y: y - h, width: w, height: h });
+    y -= h + 8;
+  } catch { y -= 6; }
+
+  const divisionLabel = DIVISION_NAME.toUpperCase();
+  const divW = fontBold.widthOfTextAtSize(divisionLabel, 10.5);
+  p1.drawText(divisionLabel, { x: (PAGE_W - divW) / 2, y, size: 10.5, font: fontBold, color: black });
+  y -= 14;
+  const subLabel = "an in-house division of Brothers Group at Momentum Realty";
+  const subW = font.widthOfTextAtSize(subLabel, 8);
+  p1.drawText(subLabel, { x: (PAGE_W - subW) / 2, y, size: 8, font, color: gray });
+  y -= 18;
+
+  const title = "Repair & Renovation Agreement";
+  const titleWidth = fontBold.widthOfTextAtSize(title, 16);
+  p1.drawText(title, { x: (PAGE_W - titleWidth) / 2, y, size: 16, font: fontBold, color: black });
+  y -= 8;
+  const pageTag = "Page 1 of 2 — Estimate, Scope of Work & Signatures";
+  const pageTagW = font.widthOfTextAtSize(pageTag, 8);
+  p1.drawText(pageTag, { x: (PAGE_W - pageTagW) / 2, y: y - 10, size: 8, font: fontItalic, color: gray });
+  y -= 24;
+
+  // Property bar
+  p1.drawRectangle({ x: 38, y: y - 20, width: 536, height: 20, color: black });
+  p1.drawText(consult.property_address || "Property TBD", { x: 43, y: y - 14, size: 10, font: fontBold, color: rgb(1, 1, 1) });
+  y -= 32;
+
+  // Client info line (pre-filled)
+  const infoParts = [
+    consult.client_name ? `Client: ${consult.client_name}` : "Client: ____________________",
+    `Date: ${new Date().toLocaleDateString("en-US")}`,
+  ];
+  if (consult.client_phone) infoParts.push(`Phone: ${consult.client_phone}`);
+  p1.drawText(infoParts.join("      "), { x: 38, y, size: 8.5, font, color: rgb(0.2, 0.2, 0.2) });
+  y -= 16;
+
+  // Hero photo (walkthrough photo captured room-by-room, hero selected)
+  if (consult.hero_photo_url) {
+    try {
+      const heroPath = path.join(repairPhotosDir(), path.basename(consult.hero_photo_url));
+      if (fs.existsSync(heroPath)) {
+        const bytes = fs.readFileSync(heroPath);
+        const img = consult.hero_photo_url.endsWith(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        const w = 536, h = 130;
+        p1.drawImage(img, { x: 38, y: y - h, width: w, height: h });
+        y -= h + 14;
+      }
+    } catch { /* non-fatal — skip hero image if unreadable */ }
+  }
+
+  // Items table
+  const colLabelX = 38, colQtyX = 420, colAmtX = 480;
+  p1.drawText("Item", { x: colLabelX, y, size: 8.5, font: fontBold, color: gray });
+  p1.drawText("Qty", { x: colQtyX, y, size: 8.5, font: fontBold, color: gray });
+  p1.drawText("Amount", { x: colAmtX, y, size: 8.5, font: fontBold, color: gray });
+  y -= 6;
+  p1.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 1, color: black });
+  y -= 13;
+
+  let rowIdx = 0;
+  const rowFloor = 230; // leave room for totals + signature block below
+  for (const it of items) {
+    if (y < rowFloor) break;
+    if (rowIdx % 2 === 1) p1.drawRectangle({ x: 38, y: y - 3, width: 536, height: 14, color: lightGray });
+    const label = it.two_story ? `${it.name} (2-story)` : it.name;
+    p1.drawText(label.slice(0, 62), { x: colLabelX, y, size: 8.5, font, color: black });
+    p1.drawText(`${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`, { x: colQtyX, y, size: 8.5, font, color: black });
+    p1.drawText(`$${Number(it.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 8.5, font: fontBold, color: black });
+    y -= 14;
+    rowIdx++;
+  }
+
+  y -= 8;
+  p1.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 0.5, color: gray });
+  y -= 16;
+  p1.drawText("Subtotal", { x: colAmtX - 70, y, size: 9.5, font, color: gray });
+  p1.drawText(`$${consult.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 9.5, font, color: black });
+  y -= 16;
+  p1.drawText("Total", { x: colAmtX - 70, y, size: 12, font: fontBold, color: black });
+  p1.drawText(`$${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 12, font: fontBold, color: black });
+  y -= 14;
+  p1.drawText(`50% deposit: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}   /   50% on completion: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: colAmtX - 210, y, size: 8, font, color: gray });
+  y -= 16;
+  p1.drawText(`Estimated Start: ${startWindowLabel(consult)}`, { x: 38, y, size: 9, font: fontBold, color: black });
+  y -= 14;
+  p1.drawText("Full Terms & Conditions (Sections 1–13) on the reverse — part of this Agreement by reference.", { x: 38, y, size: 7.5, font: fontItalic, color: gray });
+  y -= 22;
+
+  // ── Signature block ──
+  p1.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 0.75, color: black });
+  y -= 16;
+  const isSigned = !opts.blank && consult.status === "accepted" && consult.accepted_signature_name;
+  if (isSigned) {
+    p1.drawText("CLIENT — Signed Electronically", { x: 38, y, size: 8, font: fontBold, color: green });
+    y -= 13;
+    p1.drawText(`${consult.accepted_signature_name}`, { x: 38, y, size: 11, font: fontItalic, color: black });
+    p1.drawText(`Signed: ${consult.accepted_at || ""}  ·  IP: ${consult.accepted_ip || "—"}`, { x: 300, y: y + 1, size: 7, font, color: gray });
+    y -= 20;
+  } else {
+    p1.drawText("Client Signature:", { x: 38, y, size: 8.5, font, color: gray });
+    p1.drawLine({ start: { x: 130, y: y - 2 }, end: { x: 400, y: y - 2 }, thickness: 0.75, color: black });
+    p1.drawText("Date:", { x: 410, y, size: 8.5, font, color: gray });
+    p1.drawLine({ start: { x: 440, y: y - 2 }, end: { x: 574, y: y - 2 }, thickness: 0.75, color: black });
+    y -= 24;
+  }
+
+  p1.drawText(ENTITY_NATE, { x: 38, y, size: 8.5, font: fontBold, color: black });
+  y -= 12;
+  p1.drawText("Representative Signature:", { x: 38, y, size: 8, font, color: gray });
+  p1.drawLine({ start: { x: 165, y: y - 2 }, end: { x: 400, y: y - 2 }, thickness: 0.75, color: black });
+  p1.drawText("Date:", { x: 410, y, size: 8, font, color: gray });
+  p1.drawLine({ start: { x: 440, y: y - 2 }, end: { x: 574, y: y - 2 }, thickness: 0.75, color: black });
+  y -= 20;
+
+  p1.drawText(ENTITY_ALEX, { x: 38, y, size: 8.5, font: fontBold, color: black });
+  y -= 12;
+  p1.drawText("Representative Signature:", { x: 38, y, size: 8, font, color: gray });
+  p1.drawLine({ start: { x: 165, y: y - 2 }, end: { x: 400, y: y - 2 }, thickness: 0.75, color: black });
+  p1.drawText("Date:", { x: 410, y, size: 8, font, color: gray });
+  p1.drawLine({ start: { x: 440, y: y - 2 }, end: { x: 574, y: y - 2 }, thickness: 0.75, color: black });
+
+  // ── PAGE 2 — BACK: Full Terms & Conditions (two-column) ──────────────────
+  const p2 = pdfDoc.addPage([PAGE_W, PAGE_H]);
+  let py = PAGE_H - 36;
+  const backTitle = "Terms & Conditions";
+  const backTitleW = fontBold.widthOfTextAtSize(backTitle, 14);
+  p2.drawText(backTitle, { x: (PAGE_W - backTitleW) / 2, y: py, size: 14, font: fontBold, color: black });
+  py -= 6;
+  const backSub = "Page 2 of 2 — This page is part of the Repair & Renovation Agreement";
+  const backSubW = font.widthOfTextAtSize(backSub, 7.5);
+  p2.drawText(backSub, { x: (PAGE_W - backSubW) / 2, y: py - 10, size: 7.5, font: fontItalic, color: gray });
+  py -= 24;
+  p2.drawLine({ start: { x: 38, y: py }, end: { x: 574, y: py }, thickness: 1, color: black });
+  py -= 14;
+
+  const colTop = py;
+  const colWidth = 250;
+  const colGap = 36;
+  const colX = [38, 38 + colWidth + colGap];
+  const colFloor = 66;
+  let col = 0;
+  let cy = colTop;
+
+  const advance = (lines: number, lineHeight: number) => {
+    if (cy - lines * lineHeight < colFloor) {
+      col++;
+      cy = colTop;
+    }
+  };
+
+  for (const section of AGREEMENT_SECTIONS) {
+    const headingLines = wrapText(section.heading, fontBold, 7.8, colWidth);
+    const bodyLines = wrapText(section.body, font, 7, colWidth);
+    const totalLines = headingLines.length + bodyLines.length + 1;
+    if (col > 1) break; // safety guard — should never overflow 2 columns given content length
+    advance(totalLines, 9);
+    if (col > 1) break;
+    for (const hl of headingLines) {
+      p2.drawText(hl, { x: colX[col], y: cy, size: 7.8, font: fontBold, color: black });
+      cy -= 9.5;
+    }
+    for (const bl of bodyLines) {
+      p2.drawText(bl, { x: colX[col], y: cy, size: 7, font, color: rgb(0.15, 0.15, 0.15) });
+      cy -= 8.5;
+    }
+    cy -= 7;
+  }
+
+  // Footer disclosure line
+  const footerNote = `This Agreement, together with the attached itemized quote, is between the Client and ${ENTITY_NATE} and ${ENTITY_ALEX}, jointly operating as ${DIVISION_NAME}.`;
+  const footerLines = wrapText(footerNote, fontItalic, 6.5, 536);
+  let fy = 40;
+  for (const line of footerLines) {
+    const fw = fontItalic.widthOfTextAtSize(line, 6.5);
+    p2.drawText(line, { x: (PAGE_W - fw) / 2, y: fy, size: 6.5, font: fontItalic, color: gray });
+    fy -= 8;
+  }
+
+  const bytes = await pdfDoc.save();
+  const outDir = repairPdfDir();
+  const filename = `agreement-${consultId}-${Date.now()}.pdf`;
+  fs.writeFileSync(path.join(outDir, filename), bytes);
+  const url = `/repair-quotes/${filename}`;
+
+  if (opts.blank) {
+    rawDb.prepare(`UPDATE repair_consults SET agreement_pdf_url = ?, updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
+  } else {
+    rawDb.prepare(`UPDATE repair_consults SET signed_agreement_pdf_url = ?, updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
+  }
+  return url;
+}
+
 // ─── ROW HELPERS ─────────────────────────────────────────────────────────────
 function getConsultRow(id: number): any {
   const row = rawDb.prepare(`
@@ -797,9 +1141,10 @@ export function registerRepairConsultRoutes(app: Express) {
         UPDATE repair_consults SET status = 'quoted', quote_token = ?, quote_expires_at = ?, updated_at = datetime('now') WHERE id = ?
       `).run(token, expires, consultId);
       const pdfUrl = await generateQuotePdf(consultId);
+      const agreementPdfUrl = await generateAgreementPdf(consultId, { blank: true });
       await sendInHouseQuoteInternal(consultId);
       const consult = getConsultRow(consultId);
-      res.json({ ok: true, quoteToken: token, pdfUrl, total: consult.total, acceptUrl: `${APP_URL}/#/repair-quote/${token}` });
+      res.json({ ok: true, quoteToken: token, pdfUrl, agreementPdfUrl, total: consult.total, acceptUrl: `${APP_URL}/#/repair-quote/${token}` });
     } catch (err: any) {
       console.error("generate-quote error:", err);
       res.status(500).json({ error: "Failed to generate quote", detail: err?.message });
@@ -815,6 +1160,64 @@ export function registerRepairConsultRoutes(app: Express) {
     } catch (err: any) {
       console.error("send-to-client error:", err);
       res.status(500).json({ error: "Failed to send to client" });
+    }
+  });
+
+  // ── Print & Sign: download/regenerate the blank agreement PDF (admin) ──
+  app.get("/api/repair-consult/:id/agreement-pdf", async (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    try {
+      const url = await generateAgreementPdf(consultId, { blank: true });
+      res.redirect(url);
+    } catch (err: any) {
+      console.error("agreement-pdf error:", err);
+      res.status(500).json({ error: "Failed to generate agreement PDF", detail: err?.message });
+    }
+  });
+
+  // ── Print & Sign: mark a consult as signed via a physically-signed printout ──
+  app.post("/api/repair-consult/:id/mark-print-signed", async (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    const { signedBy, imageData, mimeType } = req.body || {};
+    if (!signedBy || String(signedBy).trim().length < 2) return res.status(400).json({ error: "signedBy name is required" });
+    try {
+      let uploadUrl: string | null = null;
+      if (imageData && mimeType) {
+        const sharp = require("sharp");
+        const inputBuf = Buffer.from(imageData, "base64");
+        const rotated = await sharp(inputBuf).rotate().toBuffer();
+        const processed = await sharp(rotated).resize(1600, 1600, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85, progressive: true }).toBuffer();
+        const dir = repairPhotosDir();
+        const filename = `${consultId}-print-signed-${Date.now()}.jpg`;
+        fs.writeFileSync(path.join(dir, filename), processed);
+        uploadUrl = `/repair-photos/${filename}`;
+      }
+      rawDb.prepare(`
+        UPDATE repair_consults SET status = 'accepted', signature_method = 'print_sign',
+          print_signed_at = datetime('now'), print_signed_by = ?, print_signed_upload_url = ?,
+          accepted_at = datetime('now'), accepted_signature_name = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(String(signedBy).trim(), uploadUrl, String(signedBy).trim(), consultId);
+      try { await sendWorkOrderEmail(consultId); } catch (e) { console.error("work order send failed:", e); }
+      res.json({ ok: true, printSignedUploadUrl: uploadUrl });
+    } catch (err: any) {
+      console.error("mark-print-signed error:", err);
+      res.status(500).json({ error: "Failed to record print-signed agreement", detail: err?.message });
+    }
+  });
+
+  // ── Send one-click green Approval email ──
+  app.post("/api/repair-consult/:id/send-approval-email", async (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    try {
+      await sendApprovalEmail(consultId);
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("send-approval-email error:", err);
+      res.status(500).json({ error: "Failed to send approval email", detail: err?.message });
     }
   });
 
@@ -846,9 +1249,11 @@ export function registerRepairConsultRoutes(app: Express) {
         startWindow: consult.start_window, startDate: consult.start_date, startTime: consult.start_time,
         status: consult.status, acceptedAt: consult.accepted_at,
         quoteExpiresAt: consult.quote_expires_at,
+        signatureMethod: consult.signature_method,
       },
       items,
       terms: IN_HOUSE_TERMS,
+      agreementSections: AGREEMENT_SECTIONS,
     });
   });
 
@@ -856,16 +1261,18 @@ export function registerRepairConsultRoutes(app: Express) {
   app.post("/api/repair-quote/:token/accept", async (req: Request, res: Response) => {
     const consult = rawDb.prepare(`SELECT * FROM repair_consults WHERE quote_token = ?`).get(req.params.token) as any;
     if (!consult) return res.status(404).json({ error: "Quote not found" });
-    const { signatureName } = req.body || {};
+    const { signatureName, method } = req.body || {};
     if (!signatureName || String(signatureName).trim().length < 2) return res.status(400).json({ error: "Full name required to sign" });
     const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+    const signatureMethod = method === "email_approval" ? "email_approval" : "e_sign";
 
     rawDb.prepare(`
       UPDATE repair_consults SET status = 'accepted', accepted_at = datetime('now'),
-        accepted_signature_name = ?, accepted_ip = ?, updated_at = datetime('now')
+        accepted_signature_name = ?, accepted_ip = ?, signature_method = ?, updated_at = datetime('now')
       WHERE id = ?
-    `).run(String(signatureName).trim(), ip, consult.id);
+    `).run(String(signatureName).trim(), ip, signatureMethod, consult.id);
 
+    try { await generateAgreementPdf(consult.id, { blank: false }); } catch (e) { console.error("signed agreement pdf failed:", e); }
     try { await sendWorkOrderEmail(consult.id); } catch (e) { console.error("work order send failed:", e); }
 
     res.json({ ok: true });

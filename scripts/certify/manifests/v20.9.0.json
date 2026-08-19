@@ -1,0 +1,39 @@
+{
+  "version": "v20.9.0",
+  "changes": [
+    "Two-page branded Repair & Renovation Agreement PDF (generateAgreementPdf): front page = logo, BGRE Home Touchups and Repairs division name, walk-through hero photo, pre-filled client info, itemized scope/total/deposit, 3-line signature block; back page = full 13-section terms in two columns",
+    "Three signing paths: Print & Sign (admin downloads blank PDF, later records signer name via mark-print-signed), E-Sign (existing client quote link, now renders full agreementSections instead of a short bullet list), one-click green Approve Proposal email (sendApprovalEmail + /repair-quote/:token?mode=approve)",
+    "New endpoints: GET /api/repair-consult/:id/agreement-pdf (admin), POST /api/repair-consult/:id/mark-print-signed (admin), POST /api/repair-consult/:id/send-approval-email (admin)",
+    "generate-quote endpoint now also produces the blank agreement PDF up front; accept endpoint now persists signature_method and regenerates a signed agreement PDF",
+    "New 'Consults' tab in the admin Repair Program panel (RepairPricingVendorPanel.tsx) listing all repair_consults with per-row Send to Client (E-Sign), Send Approval Email, Download Print & Sign PDF, and Mark as Print-Signed actions"
+  ],
+  "endpoints": [
+    { "path": "/api/admin/repair-consults", "method": "GET", "auth": "admin", "expectStatus": 200, "expectKeys": ["consults"] }
+  ],
+  "bundleMustContain": [
+    "Approve Proposal",
+    "Print & Sign PDF",
+    "Mark Signed",
+    "agreement-pdf",
+    "mark-print-signed",
+    "send-approval-email",
+    "agreementSections"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "No removed client-facing copy in this release (the short terms bullet list was replaced by full agreementSections rendering, but 'terms' as a word is too common to use as a must-not-contain guard). Hero photo, signature-block name/date/IP, and dollar totals are server-provided at runtime, not bundle string literals — not verifiable via Layer 2.",
+
+  "mathChecks": [
+    {
+      "name": "repair-consults rows expose the new signature-tracking columns",
+      "path": "/api/admin/repair-consults",
+      "auth": "admin",
+      "expr": "Array.isArray(body.consults) && (body.consults.length === 0 || ['signature_method','print_signed_at','print_signed_by','approval_email_sent_at','agreement_pdf_url','signed_agreement_pdf_url'].every(k => k in body.consults[0]))"
+    },
+    {
+      "name": "any accepted consult has a non-null signature_method",
+      "path": "/api/admin/repair-consults",
+      "auth": "admin",
+      "expr": "body.consults.filter(c => c.status === 'accepted').every(c => !!c.signature_method)"
+    }
+  ]
+}

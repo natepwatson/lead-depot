@@ -1897,7 +1897,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.8.1
+              v20.9.0
             </p>
           </div>
         </div>
@@ -3036,7 +3036,7 @@ export default function AdminDashboard({
             <ScriptEditor />
           </TabsContent>
 
-          {/* v20.8.1 — Repair Program admin: Pricing Catalog + Vendor Directory CRUD. */}
+          {/* v20.9.0 — Repair Program admin: Pricing Catalog + Vendor Directory CRUD. */}
           <TabsContent value="repairs" className="mt-5">
             <div>
               <h2 style={{

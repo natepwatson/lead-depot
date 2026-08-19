@@ -1,24 +1,27 @@
-// v20.8.0 — Public, unauthenticated client-facing repair quote accept page.
+// v20.9.0 — Public, unauthenticated client-facing repair quote accept page.
 // Reached via /#/repair-quote/:token (hash route, outside the auth gate).
-// Renders the branded in-house quote, lets the client type their name to
-// e-sign, and posts the accept. Deposit/final split + terms shown per Alex's
-// drafted (pending sign-off) legal language.
+// Default flow: client types their name to e-sign. ?mode=approve flow (from
+// the one-click green approval email): skips typing, shows a big green
+// one-click Approve button. Both flows render the full 13-section Terms &
+// Conditions (agreementSections) alongside the itemized quote.
 import { useEffect, useState } from "react";
-import { useParams } from "wouter";
+import { useParams, useSearch } from "wouter";
 import { CheckCircle2, Loader2 } from "lucide-react";
 
 type QuoteItem = {
   name: string; quantity: number; unit: string; line_total: number | null; two_story: number;
 };
+type AgreementSection = { heading: string; body: string };
 type QuoteData = {
   consult: {
     propertyAddress: string; clientName: string | null; heroPhotoUrl: string | null;
     subtotal: number; total: number; depositAmount: number; finalAmount: number;
     startWindow: string | null; startDate: string | null; startTime: string | null;
-    status: string;
+    status: string; signatureMethod: string | null;
   };
   items: QuoteItem[];
   terms: string[];
+  agreementSections: AgreementSection[];
 };
 
 const APP_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
@@ -37,6 +40,8 @@ const startWindowLabel = (c: QuoteData["consult"]) => {
 
 export default function RepairQuotePage() {
   const params = useParams<{ token: string }>();
+  const search = useSearch();
+  const isApproveMode = new URLSearchParams(search).get("mode") === "approve";
   const [data, setData] = useState<QuoteData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -58,10 +63,24 @@ export default function RepairQuotePage() {
     try {
       const r = await fetch(`/api/repair-quote/${params.token}/accept`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureName: signerName.trim() }),
+        body: JSON.stringify({ signatureName: signerName.trim(), method: "e_sign" }),
       });
       const b = await r.json();
       if (!r.ok) throw new Error(b?.error || "Failed to accept quote");
+      setAccepted(true);
+    } catch (e: any) { setError(e.message || "Something went wrong. Please try again or call us."); }
+    finally { setAccepting(false); }
+  };
+
+  const handleApprove = async () => {
+    setAccepting(true); setError("");
+    try {
+      const r = await fetch(`/api/repair-quote/${params.token}/accept`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signatureName: data?.consult.clientName || "Client", method: "email_approval" }),
+      });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b?.error || "Failed to approve quote");
       setAccepted(true);
     } catch (e: any) { setError(e.message || "Something went wrong. Please try again or call us."); }
     finally { setAccepting(false); }
@@ -87,7 +106,7 @@ export default function RepairQuotePage() {
   }
 
   if (!data) return null;
-  const { consult, items, terms } = data;
+  const { consult, items, agreementSections } = data;
   const hero = resolveUrl(consult.heroPhotoUrl);
 
   return (
@@ -137,18 +156,37 @@ export default function RepairQuotePage() {
             <p style={{ fontSize: 14, color: "#1a1a1a", margin: 0, fontWeight: 600 }}>{startWindowLabel(consult)}</p>
           </div>
 
-          {terms && terms.length > 0 && (
+          {agreementSections && agreementSections.length > 0 && (
             <div style={{ marginBottom: 22 }}>
-              <p style={{ fontSize: 11.5, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Terms</p>
-              <ol style={{ paddingLeft: 18, margin: 0 }}>
-                {terms.map((t, i) => <li key={i} style={{ fontSize: 11.5, color: "#777", marginBottom: 6, lineHeight: 1.5 }}>{t}</li>)}
-              </ol>
+              <p style={{ fontSize: 11.5, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Terms & Conditions</p>
+              <div style={{ background: "#f7f6f2", borderRadius: 8, padding: "16px 18px", maxHeight: 320, overflowY: "auto" }}>
+                {agreementSections.map((s, i) => (
+                  <div key={i} style={{ marginBottom: i === agreementSections.length - 1 ? 0 : 14 }}>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: "#1a1a1a", margin: "0 0 4px" }}>{s.heading}</p>
+                    <p style={{ fontSize: 11.5, color: "#666", margin: 0, lineHeight: 1.55 }}>{s.body}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
           {accepted ? (
             <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(30,150,90,0.08)", color: "#1e7a45", padding: "14px 16px", borderRadius: 8, fontSize: 14 }}>
-              <CheckCircle2 size={20} /> Accepted — thank you! We'll follow up with a signed agreement and confirm your start date.
+              <CheckCircle2 size={20} /> Approved — thank you! We'll follow up with a signed agreement and confirm your start date.
+            </div>
+          ) : isApproveMode ? (
+            <div>
+              {error && <p style={{ color: "#c0392b", fontSize: 12.5, marginBottom: 8 }}>{error}</p>}
+              <p style={{ fontSize: 12, color: "#666", marginBottom: 12, lineHeight: 1.5 }}>
+                Review the proposal and Terms & Conditions above. When you're ready, tap below to approve — no typing or printing required.
+              </p>
+              <button
+                onClick={handleApprove} disabled={accepting}
+                style={{ width: "100%", padding: "16px 18px", borderRadius: 8, background: "#008000", color: "#fff", border: "none", fontSize: 15, fontWeight: 700, cursor: "pointer" }}
+              >{accepting ? "Submitting…" : `✓ Approve Proposal — $${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</button>
+              <p style={{ fontSize: 10.5, color: "#999", marginTop: 10, lineHeight: 1.5 }}>
+                By clicking Approve, you agree to the Terms & Conditions above and authorize Brothers Group / Nathaniel Peter Watson LLC and Alexander Gabriel Watson LLC to begin work upon receipt of the deposit.
+              </p>
             </div>
           ) : (
             <div>
@@ -163,7 +201,7 @@ export default function RepairQuotePage() {
                 style={{ width: "100%", padding: "14px 18px", borderRadius: 8, background: "#111", color: "#fff", border: "none", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
               >{accepting ? "Submitting…" : `Accept Proposal — $${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</button>
               <p style={{ fontSize: 10.5, color: "#999", marginTop: 10, lineHeight: 1.5 }}>
-                By clicking Accept, you agree to the terms above and authorize Brothers Group / Nathaniel Peter Watson LLC to begin work upon receipt of the deposit.
+                By clicking Accept, you agree to the Terms & Conditions above and authorize Brothers Group / Nathaniel Peter Watson LLC and Alexander Gabriel Watson LLC to begin work upon receipt of the deposit.
               </p>
             </div>
           )}

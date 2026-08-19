@@ -34,7 +34,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-// v20.12.0 — Denise added per Alex's standing instruction: always CC nate, alex,
+// v20.13.0 — Denise added per Alex's standing instruction: always CC nate, alex,
 // and Denise on all repair-consult emails moving forward by default.
 const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"];
 const FROM = "Lead Depot <noreply@watsonbrothersgroup.com>";
@@ -175,13 +175,17 @@ export function ensureRepairConsultSchema() {
   if (!rcCols.includes("signed_agreement_pdf_url")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN signed_agreement_pdf_url TEXT").run();
   if (!rcCols.includes("approval_email_sent_at"))   rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN approval_email_sent_at TEXT").run();
 
-  // v20.12.0 — Deposit Required Gate: scheduling (start_window/date/time) is now
+  // v20.13.0 — Deposit Required Gate: scheduling (start_window/date/time) is now
   // locked until the client has signed AND the deposit is marked received.
   // Sequence: signed -> work order sent -> deposit received -> THEN schedule start date.
   if (!rcCols.includes("deposit_received_at"))      rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN deposit_received_at TEXT").run();
   if (!rcCols.includes("deposit_received_by"))      rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN deposit_received_by TEXT").run();
   if (!rcCols.includes("deposit_method"))           rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN deposit_method TEXT").run();
   if (!rcCols.includes("deposit_reference"))        rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN deposit_reference TEXT").run();
+  // v20.13.0 — Office Approval Gate: no quote/approval email may reach the client
+  // until an admin has approved it in-house first.
+  if (!rcCols.includes("office_approved_at"))        rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN office_approved_at TEXT").run();
+  if (!rcCols.includes("office_approved_by"))        rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN office_approved_by TEXT").run();
 
   seedRepairItems();
 }
@@ -411,6 +415,19 @@ function startWindowLabel(consult: any): string {
   return map[consult.start_window] || "To be scheduled";
 }
 
+// v20.13.0 — Momentum messaging: shown at quote time (before signing/deposit)
+// to keep the homeowner hopeful and ready to move forward. Deliberately
+// non-committal ("often", "depending on trade") — the real start date is
+// still locked behind the signed + deposit-received gate; this is copy only.
+const START_MOMENTUM_HTML =
+  "Good news — depending on the trade, we can often get crews started as soon as tomorrow. " +
+  "And the moment repairs wrap up, we move right into photos &amp; video for your listing. Let's keep this moving!";
+const START_MOMENTUM_PLAIN =
+  "Good news — depending on the trade, we can often get crews started as soon as tomorrow. " +
+  "And the moment repairs wrap up, we move right into photos & video for your listing. Let's keep this moving!";
+const START_MOMENTUM_PDF_LINE =
+  "Start Availability: Often as soon as tomorrow, depending on trade.";
+
 function brandedHeader(title: string, subtitle: string): string {
   return `
   <div style="background:${BRAND.black};padding:28px 32px;text-align:center">
@@ -492,7 +509,9 @@ export async function sendClientQuoteEmail(consultId: number) {
         <tr><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700;width:110px">$${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
       </table>
       <p style="font-size:12px;color:${BRAND.gray};text-align:right;margin-top:2px">50% deposit ($${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) to begin · 50% ($${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) on completion</p>
-      <p style="font-size:13px;color:#333;margin-top:16px"><strong>Estimated Start:</strong> ${startWindowLabel(consult)}</p>
+      <div style="margin-top:16px;padding:14px 16px;background:#f0f9f0;border:1px solid #cfe8cf;border-radius:6px">
+        <p style="font-size:13px;color:#1a1a1a;line-height:1.55;margin:0"><strong style="color:${BRAND.green}">${START_MOMENTUM_HTML}</strong></p>
+      </div>
       <div style="text-align:center;margin:28px 0 10px">
         <a href="${acceptUrl}" style="background:${BRAND.black};color:#fff;text-decoration:none;padding:14px 36px;border-radius:6px;font-size:14px;font-weight:700;display:inline-block">Review &amp; Accept Proposal</a>
       </div>
@@ -541,6 +560,9 @@ export async function sendApprovalEmail(consultId: number) {
         <tr><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700;width:110px">$${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
       </table>
       <p style="font-size:12px;color:${BRAND.gray};text-align:right;margin-top:2px">50% deposit ($${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) to begin · 50% ($${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) on completion</p>
+      <div style="margin-top:16px;padding:14px 16px;background:#f0f9f0;border:1px solid #cfe8cf;border-radius:6px">
+        <p style="font-size:13px;color:#1a1a1a;line-height:1.55;margin:0"><strong style="color:${BRAND.green}">${START_MOMENTUM_HTML}</strong></p>
+      </div>
       <div style="text-align:center;margin:28px 0 10px">
         <a href="${approveUrl}" style="background:${BRAND.green};color:#fff;text-decoration:none;padding:16px 44px;border-radius:6px;font-size:15px;font-weight:700;display:inline-block">✓ Approve Proposal</a>
       </div>
@@ -776,7 +798,7 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   y -= 16;
   page.drawText(`50% deposit: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}   /   50% on completion: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: colAmtX - 210, y, size: 8.5, font, color: gray });
   y -= 20;
-  page.drawText(`Estimated Start: ${startWindowLabel(consult)}`, { x: 38, y, size: 10, font: fontBold, color: black });
+  page.drawText(START_MOMENTUM_PDF_LINE, { x: 38, y, size: 9.5, font: fontBold, color: rgb(0, 0.35, 0) });
 
   // Footer terms (small print)
   const footerY = 70;
@@ -926,7 +948,7 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   y -= 14;
   p1.drawText(`50% deposit: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}   /   50% on completion: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: colAmtX - 210, y, size: 8, font, color: gray });
   y -= 16;
-  p1.drawText(`Estimated Start: ${startWindowLabel(consult)}`, { x: 38, y, size: 9, font: fontBold, color: black });
+  p1.drawText(START_MOMENTUM_PDF_LINE, { x: 38, y, size: 8.5, font: fontBold, color: rgb(0, 0.35, 0) });
   y -= 14;
   p1.drawText("Full Terms & Conditions (Sections 1–13) on the reverse — part of this Agreement by reference.", { x: 38, y, size: 7.5, font: fontItalic, color: gray });
   y -= 22;
@@ -1151,7 +1173,7 @@ export function registerRepairConsultRoutes(app: Express) {
   });
 
   // ── Set start window / specific date+time ──
-  // v20.12.0 — Deposit Required Gate: scheduling is locked until signed + deposit received.
+  // v20.13.0 — Deposit Required Gate: scheduling is locked until signed + deposit received.
   app.post("/api/repair-consult/:id/start-window", (req: any, res: Response) => {
     const consultId = parseInt(req.params.id);
     const { startWindow, startDate, startTime } = req.body || {};
@@ -1194,7 +1216,9 @@ export function registerRepairConsultRoutes(app: Express) {
       const token = randomBytes(20).toString("hex");
       const expires = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
       rawDb.prepare(`
-        UPDATE repair_consults SET status = 'quoted', quote_token = ?, quote_expires_at = ?, updated_at = datetime('now') WHERE id = ?
+        UPDATE repair_consults SET status = 'quoted', quote_token = ?, quote_expires_at = ?,
+          office_approved_at = NULL, office_approved_by = NULL, updated_at = datetime('now')
+        WHERE id = ?
       `).run(token, expires, consultId);
       const pdfUrl = await generateQuotePdf(consultId);
       const agreementPdfUrl = await generateAgreementPdf(consultId, { blank: true });
@@ -1207,10 +1231,31 @@ export function registerRepairConsultRoutes(app: Express) {
     }
   });
 
+  // ── Office Approval Gate (v20.13.0): admin must approve in-house before ANY
+  // quote/approval email is allowed to reach the client. Every fresh
+  // generate-quote call clears this, so re-pricing always needs re-approval.
+  app.post("/api/repair-consult/:id/office-approve", async (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    const consult = getConsultRow(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+    if (!consult.quote_token) return res.status(409).json({ error: "Generate the quote before approving it." });
+    rawDb.prepare(`
+      UPDATE repair_consults SET office_approved_at = datetime('now'), office_approved_by = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(req.currentAgent.name || req.currentAgent.email || "Admin", consultId);
+    res.json({ ok: true });
+  });
+
   // ── Send to client ──
   app.post("/api/repair-consult/:id/send-to-client", async (req: any, res: Response) => {
     const consultId = parseInt(req.params.id);
     try {
+      const consult = getConsultRow(consultId);
+      if (!consult) return res.status(404).json({ error: "Consult not found" });
+      if (!consult.office_approved_at) {
+        return res.status(409).json({ error: "Needs office approval before it can be sent to the client." });
+      }
       await sendClientQuoteEmail(consultId);
       res.json({ ok: true });
     } catch (err: any) {
@@ -1224,6 +1269,11 @@ export function registerRepairConsultRoutes(app: Express) {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
     const consultId = parseInt(req.params.id);
     try {
+      const consult = getConsultRow(consultId);
+      if (!consult) return res.status(404).json({ error: "Consult not found" });
+      if (!consult.office_approved_at) {
+        return res.status(409).json({ error: "Needs office approval before this can be printed for a client signature." });
+      }
       const url = await generateAgreementPdf(consultId, { blank: true });
       res.redirect(url);
     } catch (err: any) {
@@ -1269,6 +1319,11 @@ export function registerRepairConsultRoutes(app: Express) {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
     const consultId = parseInt(req.params.id);
     try {
+      const consult = getConsultRow(consultId);
+      if (!consult) return res.status(404).json({ error: "Consult not found" });
+      if (!consult.office_approved_at) {
+        return res.status(409).json({ error: "Needs office approval before it can be sent to the client." });
+      }
       await sendApprovalEmail(consultId);
       res.json({ ok: true });
     } catch (err: any) {
@@ -1303,6 +1358,7 @@ export function registerRepairConsultRoutes(app: Express) {
         subtotal: consult.subtotal, total: consult.total,
         depositAmount: consult.deposit_amount, finalAmount: consult.final_amount,
         startWindow: consult.start_window, startDate: consult.start_date, startTime: consult.start_time,
+        startMomentum: START_MOMENTUM_PLAIN,
         status: consult.status, acceptedAt: consult.accepted_at,
         quoteExpiresAt: consult.quote_expires_at,
         signatureMethod: consult.signature_method,

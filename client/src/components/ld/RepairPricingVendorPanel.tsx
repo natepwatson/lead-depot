@@ -4,7 +4,7 @@
 // (auto-emailed from the Repair Consult client flow when an item needs a licensed trade).
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine } from "lucide-react";
+import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2 } from "lucide-react";
 
 type PricingItem = {
   id: number;
@@ -54,6 +54,8 @@ type Consult = {
   start_window: string | null;
   start_date: string | null;
   start_time: string | null;
+  office_approved_at: string | null;
+  office_approved_by: string | null;
   agent_name: string | null;
   created_at: string;
 };
@@ -416,6 +418,18 @@ function ConsultsPanel() {
     } finally { setBusy(null); }
   };
 
+  // v20.13.0 — Office Approval Gate: admin sign-off in-house before anything goes to the client.
+  const officeApprove = async (c: Consult) => {
+    if (!confirm(`Approve this proposal for ${c.property_address} to be sent to the client?\n\nTotal: $${c.total?.toLocaleString(undefined, { minimumFractionDigits: 2 })}`)) return;
+    setBusy(c.id);
+    try {
+      const r = await fetch(`/api/repair-consult/${c.id}/office-approve`, { method: "POST", credentials: "include" });
+      const b = await r.json();
+      if (!r.ok) alert(b?.error || "Failed to approve");
+      load();
+    } finally { setBusy(null); }
+  };
+
   const downloadPdf = (c: Consult) => {
     window.open(`/api/repair-consult/${c.id}/agreement-pdf`, "_blank");
   };
@@ -436,7 +450,7 @@ function ConsultsPanel() {
     } finally { setBusy(null); }
   };
 
-  // v20.12.0 — Deposit Required Gate: one-tap mark-received, unlocks scheduling.
+  // v20.13.0 — Deposit Required Gate: one-tap mark-received, unlocks scheduling.
   const markDepositReceived = async (c: Consult) => {
     if (!confirm(`Mark the 50% deposit ($${c.deposit_amount?.toLocaleString(undefined, { minimumFractionDigits: 2 })}) received for ${c.property_address}?`)) return;
     setBusy(c.id);
@@ -505,6 +519,7 @@ function ConsultsPanel() {
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Client</th>
                 <th style={{ textAlign: "right", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Total</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Status</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Office</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Signed</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Deposit / Start</th>
                 <th style={{ textAlign: "center", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Actions</th>
@@ -521,6 +536,15 @@ function ConsultsPanel() {
                     {c.total ? `$${c.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
                   </td>
                   <td style={{ padding: "6px 10px", color: statusColor(c.status), textTransform: "capitalize" }}>{c.status}</td>
+                  <td style={{ padding: "6px 10px", fontSize: 11 }}>
+                    {!c.quote_token ? (
+                      <span style={{ color: "#64748b" }}>—</span>
+                    ) : c.office_approved_at ? (
+                      <span style={{ color: "#5eead4" }}>Approved · {c.office_approved_by}</span>
+                    ) : (
+                      <span style={{ color: "#e8d8a8" }}>Pending approval</span>
+                    )}
+                  </td>
                   <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11 }}>{signedLabel(c)}</td>
                   <td style={{ padding: "6px 10px", fontSize: 11 }}>
                     {c.status !== "accepted" ? (
@@ -535,11 +559,18 @@ function ConsultsPanel() {
                   </td>
                   <td style={{ padding: "6px 10px" }}>
                     <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap" }}>
-                      <button disabled={!c.quote_token || busy === c.id} onClick={() => sendToClient(c)} title="Send to Client (E-Sign)"
+                      {c.quote_token && !c.office_approved_at && (
+                        <button disabled={busy === c.id} onClick={() => officeApprove(c)} title="Office Approval — required before this can be sent to the client"
+                          style={{ ...actionBtnStyle, color: "#c8aa5a", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><CheckCircle2 size={11} /> Approve</button>
+                      )}
+                      <button disabled={!c.quote_token || !c.office_approved_at || busy === c.id} onClick={() => sendToClient(c)}
+                        title={!c.quote_token ? "Generate the quote first" : !c.office_approved_at ? "Needs office approval first" : "Send to Client (E-Sign)"}
                         style={actionBtnStyle}><Mail size={11} /> E-Sign</button>
-                      <button disabled={!c.quote_token || busy === c.id} onClick={() => sendApproval(c)} title="Send Approval Email"
+                      <button disabled={!c.quote_token || !c.office_approved_at || busy === c.id} onClick={() => sendApproval(c)}
+                        title={!c.quote_token ? "Generate the quote first" : !c.office_approved_at ? "Needs office approval first" : "Send Approval Email"}
                         style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.08)" }}><Mail size={11} /> Approval</button>
-                      <button disabled={busy === c.id} onClick={() => downloadPdf(c)} title="Download Print & Sign PDF"
+                      <button disabled={!c.quote_token || !c.office_approved_at || busy === c.id} onClick={() => downloadPdf(c)}
+                        title={!c.quote_token ? "Generate the quote first" : !c.office_approved_at ? "Needs office approval first" : "Download Print & Sign PDF"}
                         style={actionBtnStyle}><Download size={11} /> Print PDF</button>
                       <button disabled={busy === c.id} onClick={() => markPrintSigned(c)} title="Mark as Print-Signed"
                         style={actionBtnStyle}><PenLine size={11} /> Mark Signed</button>

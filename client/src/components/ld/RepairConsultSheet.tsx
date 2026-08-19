@@ -1,4 +1,4 @@
-// v20.12.0 — Repair Consult. Full-screen wizard an agent runs during a listing
+// v20.13.0 — Repair Consult. Full-screen wizard an agent runs during a listing
 // walkthrough: capture the front-of-house hero photo upfront, check off simple
 // in-house repairs (auto-priced by sqft/linear-ft/each) plus anything that
 // needs a licensed vendor, then bulk-upload every other walkthrough photo in
@@ -137,7 +137,7 @@ export function RepairConsultSheet({
   const [checked, setChecked] = useState<Record<string, CheckedState>>({});
   const [catalogLoading, setCatalogLoading] = useState(true);
 
-  // v20.12.0 — start window/date/time are no longer captured in this wizard;
+  // v20.13.0 — start window/date/time are no longer captured in this wizard;
   // scheduling happens later from the admin panel once deposit is received.
 
   const [submittingItems, setSubmittingItems] = useState(false);
@@ -248,7 +248,7 @@ export function RepairConsultSheet({
 
   const selectedCount = Object.values(checked).filter(c => c.checked).length;
 
-  // v20.12.0 — Deposit Required Gate: scheduling is no longer discussed here.
+  // v20.13.0 — Deposit Required Gate: scheduling is no longer discussed here.
   // Sequence is now signed -> deposit received -> THEN start date is scheduled
   // from the admin Consults panel. This step goes straight from checklist to
   // the final photo gallery.

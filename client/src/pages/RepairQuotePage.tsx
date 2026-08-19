@@ -17,6 +17,7 @@ type QuoteData = {
     propertyAddress: string; clientName: string | null; heroPhotoUrl: string | null;
     subtotal: number; total: number; depositAmount: number; finalAmount: number;
     startWindow: string | null; startDate: string | null; startTime: string | null;
+    startMomentum: string;
     status: string; signatureMethod: string | null;
   };
   items: QuoteItem[];
@@ -26,17 +27,6 @@ type QuoteData = {
 
 const APP_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
 const resolveUrl = (u: string | null) => !u ? null : (u.startsWith("http") ? u : APP_ORIGIN + u);
-
-const startWindowLabel = (c: QuoteData["consult"]) => {
-  if (c.startWindow === "specific" && c.startDate) {
-    return `${c.startDate}${c.startTime ? ` at ${c.startTime}` : ""}`;
-  }
-  const map: Record<string, string> = {
-    asap: "As soon as possible", within_1_week: "Within 1 week",
-    "1_2_weeks": "1–2 weeks", "2_4_weeks": "2–4 weeks",
-  };
-  return c.startWindow ? (map[c.startWindow] || c.startWindow) : "To be confirmed";
-};
 
 export default function RepairQuotePage() {
   const params = useParams<{ token: string }>();
@@ -151,9 +141,9 @@ export default function RepairQuotePage() {
             <span>Due on completion (50%)</span><span>${consult.finalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
           </div>
 
-          <div style={{ background: "#f7f6f2", borderRadius: 8, padding: "14px 16px", marginBottom: 20 }}>
-            <p style={{ fontSize: 11.5, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Estimated Start</p>
-            <p style={{ fontSize: 14, color: "#1a1a1a", margin: 0, fontWeight: 600 }}>{startWindowLabel(consult)}</p>
+          <div style={{ background: "#f0f9f0", border: "1px solid #cfe8cf", borderRadius: 8, padding: "14px 16px", marginBottom: 20 }}>
+            <p style={{ fontSize: 11.5, color: "#3a7d3a", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px", fontWeight: 700 }}>Good News</p>
+            <p style={{ fontSize: 13.5, color: "#1a1a1a", margin: 0, fontWeight: 600, lineHeight: 1.5 }}>{consult.startMomentum}</p>
           </div>
 
           {agreementSections && agreementSections.length > 0 && (

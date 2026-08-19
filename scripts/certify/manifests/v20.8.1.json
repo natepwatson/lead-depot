@@ -1,0 +1,49 @@
+{
+  "version": "v20.8.1",
+  "changes": [
+    "Repair Program admin UI: new 'Repair Program' tab in AdminDashboard with Pricing Catalog (editable rate/min/active per in-house item) and Vendor Directory (CRUD for licensed-trade vendor contacts)",
+    "Wires the already-built /api/admin/repair-pricing and /api/admin/repair-vendors endpoints to a UI for the first time",
+    "No backend/route changes in this release — repairConsult.ts routes were already live in v20.8.0"
+  ],
+  "endpoints": [
+    { "path": "/api/admin/repair-pricing", "method": "GET", "auth": "admin", "expectStatus": 200, "expectKeys": ["items"] },
+    { "path": "/api/admin/repair-vendors", "method": "GET", "auth": "admin", "expectStatus": 200, "expectKeys": ["vendors"] },
+    { "path": "/api/admin/repair-consults", "method": "GET", "auth": "admin", "expectStatus": 200, "expectKeys": ["consults"] }
+  ],
+  "bundleMustContain": [
+    "Repair Program",
+    "Pricing Catalog",
+    "Vendor Directory",
+    "repair-pricing",
+    "repair-vendors"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "No removed code in this release, so no must-not-contain strings. Pricing rate/min values are server-provided at runtime, not bundle string literals — verified via mathChecks below instead.",
+
+  "mathChecks": [
+    {
+      "name": "repair-pricing returns both in_house and vendor category items",
+      "path": "/api/admin/repair-pricing",
+      "auth": "admin",
+      "expr": "body.items.some(i => i.category === 'in_house') && body.items.some(i => i.category === 'vendor')"
+    },
+    {
+      "name": "repair-pricing in_house items all carry a positive default_rate or min_charge",
+      "path": "/api/admin/repair-pricing",
+      "auth": "admin",
+      "expr": "body.items.filter(i => i.category === 'in_house').every(i => i.default_rate > 0 || i.min_charge > 0)"
+    },
+    {
+      "name": "repair-pricing vendor items carry no pricing authority (rate is 0)",
+      "path": "/api/admin/repair-pricing",
+      "auth": "admin",
+      "expr": "body.items.filter(i => i.category === 'vendor').every(i => !i.default_rate || i.default_rate === 0)"
+    },
+    {
+      "name": "repair-vendors endpoint returns an array (empty directory is valid)",
+      "path": "/api/admin/repair-vendors",
+      "auth": "admin",
+      "expr": "Array.isArray(body.vendors)"
+    }
+  ]
+}

@@ -39,6 +39,15 @@ export function serveStatic(app: Express) {
     app.use("/headshots", express.static(headshotsFallbackPath, headshotOpts));
   }
 
+  // ── Repair Consult photos + generated quote PDFs → no-cache (user-uploaded / generated) ──
+  const repairPhotosPath = isProduction ? "/app/data/repair-photos" : path.join(distPath, "repair-photos");
+  if (!fs.existsSync(repairPhotosPath)) fs.mkdirSync(repairPhotosPath, { recursive: true });
+  app.use("/repair-photos", express.static(repairPhotosPath, headshotOpts));
+
+  const repairQuotesPath = isProduction ? "/app/data/repair-quotes" : path.join(distPath, "repair-quotes");
+  if (!fs.existsSync(repairQuotesPath)) fs.mkdirSync(repairQuotesPath, { recursive: true });
+  app.use("/repair-quotes", express.static(repairQuotesPath, headshotOpts));
+
   // ── Hashed assets (JS/CSS bundles) → 1 year immutable cache ──────────────
   // Vite fingerprints filenames: index-AbCdEfGh.js — safe to cache forever
   app.use("/assets", express.static(path.join(distPath, "assets"), {

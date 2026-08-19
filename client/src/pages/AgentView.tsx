@@ -17,7 +17,7 @@ import {
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
   Home, Voicemail, Layers, Calendar, FileText,
   Camera, DoorOpen, Zap, X, ArrowLeft, Plus,
-  Share2, Instagram, Target, Shield, Package,
+  Share2, Instagram, Target, Shield, Package, Wrench,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import TeamMap from "./TeamMap";
@@ -27,6 +27,7 @@ import { RankTrophy } from "../components/ld/RankTrophy";
 import { StreakBadge, ChampionFrame, useCurrentChampion } from "../components/ld/StreakBadge";
 import PermissionGate, { shouldPromptPermissions } from "../components/ld/PermissionGate";
 import { BookOpenHouseSheet } from "../components/ld/BookOpenHouseSheet";
+import { RepairConsultSheet } from "../components/ld/RepairConsultSheet";
 import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
@@ -6079,6 +6080,9 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   // instead of navigating straight to Dial. Chooser has 4 tiles; Dial tile sets
   // tab="leads" and closes chooser. Other tiles open sub-sheets or forms.
   const [leadGenOpen, setLeadGenOpen] = useState(false);
+  // v20.8.0 — Repair Consult wizard, opened from the top-left button on the
+  // seller Lead Gen screen. Independent of the leadGenOpen chooser sheet.
+  const [showRepairConsult, setShowRepairConsult] = useState(false);
   // v20.6.9 — motivational quote frozen at the moment Lead Gen opens so it
   // doesn't reshuffle mid-render. Refreshed each open. See leadgen-quotes.ts.
   const [leadGenQuote, setLeadGenQuote] = useState<MotivationalQuote | null>(null);
@@ -6356,7 +6360,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.7.53</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.8.1</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6776,6 +6780,23 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             ) : (
               // ── EXISTING SELLER LEAD CARD ───────────────────────────────────────────
               <>
+                {/* v20.8.0 — Repair Consult entry point. Top-left, seller mode only.
+                    Opens the full checklist wizard as an independent overlay. */}
+                <div style={{ padding: "0 4px 14px" }}>
+                  <button
+                    onClick={() => setShowRepairConsult(true)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 7,
+                      padding: "9px 14px", borderRadius: 10,
+                      background: "rgba(200,170,90,0.08)",
+                      border: "1px solid rgba(200,170,90,0.3)",
+                      color: "#c8aa5a", fontSize: 12.5, fontWeight: 600,
+                      letterSpacing: "0.02em", cursor: "pointer",
+                    }}
+                  >
+                    <Wrench size={15} /> Repair Consult
+                  </button>
+                </div>
                 {leadLoading ? (
                   <div>
                     <Skeleton className="h-[480px] w-full rounded-2xl" style={{ background: "rgba(200,170,90,0.05)" }} />
@@ -6847,6 +6868,17 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                   </>
                 )}
               </>
+            )}
+            {showRepairConsult && (
+              <RepairConsultSheet
+                leadId={displayedLead?.id ?? null}
+                agentId={(user as any)?.id ?? null}
+                initialAddress={displayedLead?.address || ""}
+                initialClientName={(displayedLead as any)?.ownerName || ""}
+                initialClientEmail={displayedLead?.email || ""}
+                initialClientPhone={displayedLead?.phone || ""}
+                onClose={() => setShowRepairConsult(false)}
+              />
             )}
           </div>
         )}

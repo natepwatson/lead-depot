@@ -8,6 +8,7 @@ import { ListingsPanel } from "../components/ld/ListingsPanel";
 // v20.6.8 — WeeklyWorkbookPanel removed; FUB is source of truth. Keeping import commented for git history.
 // import { WeeklyWorkbookPanel } from "../components/ld/WeeklyWorkbookPanel";
 import { FubTagConfigPanel } from "../components/ld/FubTagConfigPanel";
+import { RepairPricingVendorPanel } from "../components/ld/RepairPricingVendorPanel";
 import { OpenHouseSchedulePanel } from "../components/ld/OpenHouseSchedulePanel";
 import { PendingOpenHousesPanel } from "../components/ld/PendingOpenHousesPanel";
 import ProfilePage from "./ProfilePage";
@@ -1896,7 +1897,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.7.53
+              v20.8.1
             </p>
           </div>
         </div>
@@ -2011,6 +2012,7 @@ export default function AdminDashboard({
               { value: "masterlist",  icon: ClipboardList, label: "Master List" },
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
+              { value: "repairs",     icon: Wrench,      label: "Repair Program" },
             ].map(tab => (
               <TabsTrigger
                 key={tab.value}
@@ -3032,6 +3034,22 @@ export default function AdminDashboard({
           {/* ── SCRIPTS ─────────────────────────────────────────────────────── */}
           <TabsContent value="scripts" className="mt-5">
             <ScriptEditor />
+          </TabsContent>
+
+          {/* v20.8.1 — Repair Program admin: Pricing Catalog + Vendor Directory CRUD. */}
+          <TabsContent value="repairs" className="mt-5">
+            <div>
+              <h2 style={{
+                fontFamily: "'Cormorant Garamond','Georgia',serif",
+                fontSize: "1.2rem", fontWeight: 300, color: "#fff",
+              }}>
+                Repair Program
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                In-house pricing catalog and licensed-trade vendor directory for the Repair Consult tool.
+              </p>
+            </div>
+            <RepairPricingVendorPanel />
           </TabsContent>
 
           {/* v20.4.2 — Old admin Territory Map (MapView.tsx) removed. Team map lives in

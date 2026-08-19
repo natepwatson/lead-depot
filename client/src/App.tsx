@@ -22,6 +22,7 @@ import ProfileGate from "./components/ProfileGate";
 import TutorialFlow from "./components/TutorialFlow";
 import NotFound from "./pages/not-found";
 import JoinPage from "./pages/JoinPage";
+import RepairQuotePage from "./pages/RepairQuotePage";
 import { useEffect, useState } from "react";
 
 function AppRoutes() {
@@ -161,6 +162,8 @@ export default function App() {
             <Route path="/setup/:token" component={AccountSetupPage} />
             {/* Password reset — no auth required, token-gated */}
             <Route path="/reset-password/:token" component={ResetPasswordPage} />
+            {/* Repair quote client accept page — no auth required, token-gated */}
+            <Route path="/repair-quote/:token" component={RepairQuotePage} />
             <Route path="/" component={AppRoutes} />
             {/* v15.11.31 — defensive catch: any hash path we don't own routes home
                 instead of 404. Prevents stale bookmarks and mis-typed URLs from

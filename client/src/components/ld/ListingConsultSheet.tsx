@@ -6,7 +6,50 @@
 // hand off into the existing Repair Consult tool mid-appointment; the parent
 // (AgentView) is responsible for swapping back to this sheet when that closes.
 import { useState, useEffect } from "react";
-import { CheckCircle2, ChevronRight, ChevronLeft, X, Wrench, Loader2 } from "lucide-react";
+import { CheckCircle2, ChevronRight, ChevronLeft, X, Wrench, Loader2, Camera } from "lucide-react";
+
+// v20.14.4 — same compress-before-upload helper as RepairConsultSheet. Keeps
+// front-of-house + walkthrough photos small before they hit the server, on
+// top of the server's own sharp resize pass.
+async function fileToImageData(file: File, opts: { maxDim?: number; quality?: number } = {}): Promise<{ imageData: string; mimeType: string } | null> {
+  const maxDim = opts.maxDim ?? 1800;
+  const quality = opts.quality ?? 0.82;
+  let processed: File | Blob = file;
+  if (file.type === "image/heic" || file.type === "image/heif" || file.name.toLowerCase().match(/\.(heic|heif)$/)) {
+    try {
+      const heic2any = (await import("heic2any")).default;
+      const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
+      processed = Array.isArray(converted) ? converted[0] : converted;
+    } catch { return null; }
+  }
+  try {
+    const bitmap = await createImageBitmap(processed as Blob, { imageOrientation: "from-image" } as any);
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("no 2d context");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL("image/jpeg", quality);
+    const [meta, imageData] = dataUrl.split(",");
+    const mimeType = meta.match(/:(.*?);/)?.[1] ?? "image/jpeg";
+    return { imageData, mimeType };
+  } catch {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        const [meta, imageData] = dataUrl.split(",");
+        const mimeType = meta.match(/:(.*?);/)?.[1] ?? "image/jpeg";
+        resolve({ imageData, mimeType });
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(processed);
+    });
+  }
+}
 
 const fetchJson = async (url: string, opts: RequestInit = {}) => {
   const r = await fetch(url, { credentials: "include", ...opts });
@@ -61,13 +104,12 @@ type ChecklistState = Record<string, boolean>;
 const PREP_ITEMS = ["Generated Sales Package", "Studied $/SF & DOM", "Texted Confirmation", "Arrived Early"];
 const PRESENTATION_ITEMS = ["Accolades", "Reviews", "3x Marketing", "Pay at Close Reno", "Zillow Showcase", "Multiple MLS's"];
 const LOCKIN_SCHEDULE_ITEMS = ["Repairs / Cleaning", "Photos & Video", "Sign + Lockbox", "Go Live", "Open House(s)"];
-
-const PRICING_TIERS = [
-  { tier: "Top Market", desc: "Fully Renovated", reno: "$25-50k Reno", note: "Maximum Return" },
-  { tier: "Median", desc: "Move-in Ready", reno: "$15-25k Reno", note: "Balanced" },
-  { tier: "Owner Occupant", desc: "Cash Buyer", reno: "$10-15k Reno", note: "Faster Close" },
-  { tier: "Cash Investor", desc: "ARV × 70% − Reno", reno: "$0 Reno", note: "Lowest Return" },
-];
+// v20.15.0 — removed the standalone "CMA Pricing & Pay-at-Close Reno" step
+// (was an instructional 4-tier reference table). This tool is for quick
+// intel-gathering during the appointment, not for walking the client through
+// educational content on-screen — that conversation happens live, off-app.
+// The functional fields that step actually captured (recommended price,
+// reviewed-comps confirmation) moved into the Close step below.
 
 export function ListingConsultSheet({
   leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose, onLaunchRepairConsult,
@@ -75,9 +117,9 @@ export function ListingConsultSheet({
   leadId?: number | null; agentId?: number | null;
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
   onClose: () => void;
-  onLaunchRepairConsult: (prefill: { address: string; name: string; email: string; phone: string }) => void;
+  onLaunchRepairConsult: (prefill: { address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null }) => void;
 }) {
-  const [step, setStep] = useState<"prep" | "preview" | "intel" | "presentation" | "pricing" | "close" | "lockin" | "debrief">("prep");
+  const [step, setStep] = useState<"prep" | "preview" | "intel" | "presentation" | "close" | "lockin" | "debrief">("prep");
   const [consultId, setConsultId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -100,6 +142,60 @@ export function ListingConsultSheet({
   const [clientPhone, setClientPhone] = useState(initialClientPhone || "");
   const [propertyAddress, setPropertyAddress] = useState(initialAddress || "");
   const [prepChecklist, setPrepChecklist] = useState<ChecklistState>({});
+  // v20.15.0 — front-of-house photo captured right on the Prep step (the
+  // first page of the appointment), and the full interior/exterior
+  // walkthrough gallery captured on the Preview step — mirrors
+  // RepairConsultSheet's hero + gallery pattern so both tools feel like one
+  // continuous consultation.
+  const [heroPhotoUrl, setHeroPhotoUrl] = useState<string | null>(null);
+  const [uploadingHero, setUploadingHero] = useState(false);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [uploadingGallery, setUploadingGallery] = useState(false);
+  const [galleryProgress, setGalleryProgress] = useState<{ done: number; total: number } | null>(null);
+
+  // v20.15.0 — live FUB contact picker. Agent types a name, we search FUB's
+  // cached people list server-side, tap a result to autofill phone/email.
+  // Full legal name (which may differ from FUB's nickname/display name)
+  // stays a separate, always-manual field on the Lock In step.
+  const [fubQuery, setFubQuery] = useState("");
+  const [fubResults, setFubResults] = useState<{ id: number; name: string; email: string | null; phone: string | null }[]>([]);
+  const [fubSearching, setFubSearching] = useState(false);
+  const [fubPickedName, setFubPickedName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (fubQuery.trim().length < 2 || fubPickedName) { setFubResults([]); return; }
+    const t = setTimeout(async () => {
+      setFubSearching(true);
+      try {
+        const r = await fetch(`/api/fub/contacts/search?q=${encodeURIComponent(fubQuery.trim())}`, { credentials: "include" });
+        const body = await r.json().catch(() => ({ results: [] }));
+        setFubResults(body.results || []);
+      } catch { setFubResults([]); }
+      finally { setFubSearching(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [fubQuery, fubPickedName]);
+
+  const pickFubContact = (c: { name: string; email: string | null; phone: string | null }) => {
+    setClientName(c.name);
+    if (c.email) setClientEmail(c.email);
+    if (c.phone) setClientPhone(c.phone);
+    setFubPickedName(c.name);
+    setFubQuery(c.name);
+    setFubResults([]);
+  };
+
+  // v20.15.0 — Lock In's Access Phone/Email were a separate blank state from
+  // the client contact info gathered on Prep, forcing the agent to retype
+  // what they already entered (or picked from FUB). Default them once, the
+  // first time the agent reaches Lock In, without stomping anything they've
+  // already typed there themselves.
+  useEffect(() => {
+    if (step === "lockin") {
+      if (!accessPhone && clientPhone) setAccessPhone(clientPhone);
+      if (!accessEmail && clientEmail) setAccessEmail(clientEmail);
+    }
+  }, [step]);
 
   const [previewNotes, setPreviewNotes] = useState("");
   const [needsRepairs, setNeedsRepairs] = useState<"" | "yes" | "no">("");
@@ -115,16 +211,27 @@ export function ListingConsultSheet({
   const [presentationChecklist, setPresentationChecklist] = useState<ChecklistState>({});
 
   const [recommendedPrice, setRecommendedPrice] = useState("");
+  const [reviewedComps, setReviewedComps] = useState(false);
 
   const [readyToStart, setReadyToStart] = useState<"" | "yes" | "no">("");
+  // v20.14.4 — the price the seller actually agreed to list at, captured once
+  // they say yes — distinct from recommendedPrice above, which is the agent's
+  // CMA-driven suggestion before the negotiation happens.
+  const [finalListingPrice, setFinalListingPrice] = useState("");
   const [startTiming, setStartTiming] = useState<"" | "now" | "later">("");
   const [repairsOrReady, setRepairsOrReady] = useState<"" | "repairs" | "ready">("");
   const [holdingBack, setHoldingBack] = useState("");
 
   const [lockinSchedule, setLockinSchedule] = useState<ChecklistState>({});
+  // v20.14.4 — optional target date per Lock In schedule item, captured live
+  // at the appointment so nothing has to be chased down after the fact.
+  const [lockinScheduleDates, setLockinScheduleDates] = useState<Record<string, string>>({});
   const [accessKeyOrCode, setAccessKeyOrCode] = useState("");
   const [gateCode, setGateCode] = useState("");
   const [ownerNames, setOwnerNames] = useState("");
+  // v20.14.4 — most listings have two owners on title; second is optional.
+  const [ownerNames2, setOwnerNames2] = useState("");
+  const [showOwner2, setShowOwner2] = useState(false);
   const [accessPhone, setAccessPhone] = useState("");
   const [accessEmail, setAccessEmail] = useState("");
   const [contractSent, setContractSent] = useState(false);
@@ -163,6 +270,47 @@ export function ListingConsultSheet({
   const toggleChip = (state: ChecklistState, setState: (s: ChecklistState) => void, key: string) =>
     setState({ ...state, [key]: !state[key] });
 
+  // v20.15.0 — hero + gallery photo upload, mirrors RepairConsultSheet exactly.
+  const handlePhotoPick = async (file: File, kind: "hero" | "gallery") => {
+    const id = await ensureConsult();
+    const setBusy = kind === "hero" ? setUploadingHero : setUploadingGallery;
+    setBusy(true);
+    try {
+      const conv = await fileToImageData(file);
+      if (!conv) { setError("Couldn't read that photo. Try another."); setBusy(false); return; }
+      const d = await fetchJson(`/api/listing-consult/${id}/photo`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind }),
+      });
+      if (kind === "hero") setHeroPhotoUrl(d.url);
+      else setGalleryUrls(prev => [...prev, d.url]);
+    } catch (e: any) { setError(e.message || "Photo upload failed."); }
+    finally { setBusy(false); }
+  };
+
+  const handleBulkGalleryUpload = async (files: FileList) => {
+    const id = await ensureConsult();
+    const fileArr = Array.from(files);
+    if (fileArr.length === 0) return;
+    setUploadingGallery(true);
+    setGalleryProgress({ done: 0, total: fileArr.length });
+    for (let i = 0; i < fileArr.length; i++) {
+      try {
+        const conv = await fileToImageData(fileArr[i]);
+        if (conv) {
+          const d = await fetchJson(`/api/listing-consult/${id}/photo`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery" }),
+          });
+          setGalleryUrls(prev => [...prev, d.url]);
+        }
+      } catch (e: any) { setError(e.message || `Photo ${i + 1} of ${fileArr.length} failed to upload — the rest kept going.`); }
+      setGalleryProgress({ done: i + 1, total: fileArr.length });
+    }
+    setUploadingGallery(false);
+    setGalleryProgress(null);
+  };
+
   const handlePrepNext = async () => {
     if (!propertyAddress.trim()) { setError("Property address is required."); return; }
     setError(""); setSaving(true);
@@ -188,7 +336,7 @@ export function ListingConsultSheet({
     try {
       await ensureConsult();
       await saveSection("preview", { notes: previewNotes, needsRepairs: true, repairNotes });
-      onLaunchRepairConsult({ address: propertyAddress, name: clientName, email: clientEmail, phone: clientPhone });
+      onLaunchRepairConsult({ address: propertyAddress, name: clientName, email: clientEmail, phone: clientPhone, heroPhotoUrl });
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
   };
@@ -206,24 +354,20 @@ export function ListingConsultSheet({
     setError(""); setSaving(true);
     try {
       await saveSection("presentation", { covered: presentationChecklist });
-      setStep("pricing");
-    } catch (e: any) { setError(e.message || "Failed to save."); }
-    finally { setSaving(false); }
-  };
-
-  const handlePricingNext = async () => {
-    setError(""); setSaving(true);
-    try {
-      await saveSection("pricing", { recommendedPrice });
       setStep("close");
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
   };
 
+  // v20.15.0 — pricing + close merged into one save/step. Was two taps
+  // (Pricing tiers reference page, then Close) for what is really one
+  // decision point in the appointment: what price did they agree to, and
+  // are they ready to move.
   const handleCloseNext = async () => {
     setError(""); setSaving(true);
     try {
-      await saveSection("close", { readyToStart, startTiming, repairsOrReady, holdingBack });
+      await saveSection("pricing", { recommendedPrice, reviewedComps });
+      await saveSection("close", { readyToStart, startTiming, repairsOrReady, holdingBack, finalListingPrice });
       setStep(readyToStart === "yes" ? "lockin" : "debrief");
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
@@ -234,7 +378,8 @@ export function ListingConsultSheet({
     try {
       await saveSection("lockin", {
         schedule: lockinSchedule,
-        accessNotes: [accessKeyOrCode && `Key/Code: ${accessKeyOrCode}`, gateCode && `Gate: ${gateCode}`, ownerNames && `Owners: ${ownerNames}`, accessPhone, accessEmail].filter(Boolean).join(" · "),
+        scheduleDates: lockinScheduleDates,
+        accessNotes: [accessKeyOrCode && `Key/Code: ${accessKeyOrCode}`, gateCode && `Gate: ${gateCode}`, ownerNames && `Owners: ${[ownerNames, ownerNames2].filter(Boolean).join(" & ")}`, accessPhone, accessEmail].filter(Boolean).join(" · "),
         contractSent,
       });
       setStep("debrief");
@@ -255,8 +400,8 @@ export function ListingConsultSheet({
     finally { setSendingDebrief(false); }
   };
 
-  const stepOrder = ["prep", "preview", "intel", "presentation", "pricing", "close", readyToStart === "yes" ? "lockin" : null, "debrief"].filter(Boolean) as string[];
-  const stepLabels: Record<string, string> = { prep: "Prep", preview: "Preview", intel: "Intel", presentation: "Present", pricing: "Pricing", close: "Close", lockin: "Lock In", debrief: "Debrief" };
+  const stepOrder = ["prep", "preview", "intel", "presentation", "close", readyToStart === "yes" ? "lockin" : null, "debrief"].filter(Boolean) as string[];
+  const stepLabels: Record<string, string> = { prep: "Prep", preview: "Preview", intel: "Intel", presentation: "Present", close: "Close", lockin: "Lock In", debrief: "Debrief" };
   const stepIdx = stepOrder.indexOf(step);
 
   const header = (title: string, sub: string) => (
@@ -335,8 +480,61 @@ export function ListingConsultSheet({
             {header("Before You Arrive", "Property + client info, quick prep checklist")}
             <label style={labelStyle}>Property Address</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
+            <label style={labelStyle}>Front of House Photo</label>
+            <div style={{ marginBottom: 14 }}>
+              {heroPhotoUrl ? (
+                <div style={{ position: "relative" }}>
+                  <img src={heroPhotoUrl} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: 8 }} />
+                  <label style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.7)", borderRadius: 8, padding: "6px 10px", fontSize: 11, color: "#fff", cursor: "pointer" }}>
+                    Retake
+                    <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => e.target.files?.[0] && handlePhotoPick(e.target.files[0], "hero")} />
+                  </label>
+                </div>
+              ) : (
+                <label style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  height: 120, borderRadius: 8, border: "1px dashed rgba(200,170,90,0.4)", cursor: "pointer", gap: 6,
+                }}>
+                  {uploadingHero ? <Loader2 size={22} className="animate-spin" style={{ color: GOLD }} /> : <Camera size={22} style={{ color: GOLD }} />}
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>{uploadingHero ? "Uploading…" : "Tap to take or choose a photo"}</span>
+                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => e.target.files?.[0] && handlePhotoPick(e.target.files[0], "hero")} />
+                </label>
+              )}
+            </div>
+            <label style={labelStyle}>Find in FUB</label>
+            <div style={{ position: "relative", marginBottom: 6 }}>
+              <input
+                style={inputStyle}
+                value={fubQuery}
+                onChange={e => { setFubQuery(e.target.value); setFubPickedName(null); }}
+                placeholder="Type client name to search Follow Up Boss…"
+              />
+              {fubSearching && (
+                <Loader2 size={14} className="animate-spin" style={{ position: "absolute", right: 12, top: 13, color: GOLD }} />
+              )}
+              {fubResults.length > 0 && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20,
+                  background: "#1a1815", border: "1px solid rgba(200,170,90,0.35)", borderRadius: 8,
+                  maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                }}>
+                  {fubResults.map(c => (
+                    <button key={c.id} type="button" onClick={() => pickFubContact(c)} style={{
+                      display: "block", width: "100%", textAlign: "left", padding: "9px 12px", cursor: "pointer",
+                      background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#fff",
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{[c.phone, c.email].filter(Boolean).join(" · ") || "No phone/email on file"}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 14 }}>
+              Selecting a match autofills name, phone, and email below — you can still edit any of it. If FUB shows a nickname, you'll enter their full legal name separately on the Lock In step.
+            </p>
             <label style={labelStyle}>Client Name</label>
-            <input style={{ ...inputStyle, marginBottom: 14 }} value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Client full name" />
+            <input style={{ ...inputStyle, marginBottom: 14 }} value={clientName} onChange={e => { setClientName(e.target.value); setFubPickedName(null); }} placeholder="Client full name" />
             <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
               <div style={{ flex: 1 }}>
                 <label style={labelStyle}>Client Email</label>
@@ -381,6 +579,28 @@ export function ListingConsultSheet({
                 </p>
               </div>
             )}
+            <div style={cardStyle}>
+              <label style={labelStyle}>Walkthrough Photos ({galleryUrls.length})</label>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>
+                Get one of every room, plus close-ups of anything you'd flag in the repair notes above. Shoot them live as you walk, or with your own camera and add them here after — either way, bulk-select and upload as many at once as you want.
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {galleryUrls.map((u, i) => <img key={i} src={u} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6 }} />)}
+                <label style={{
+                  width: 72, height: 72, borderRadius: 6, border: "1px dashed rgba(200,170,90,0.4)",
+                  display: "flex", alignItems: "center", justifyContent: "center", cursor: uploadingGallery ? "default" : "pointer", opacity: uploadingGallery ? 0.6 : 1,
+                }}>
+                  {uploadingGallery ? <Loader2 size={16} className="animate-spin" style={{ color: GOLD }} /> : <Camera size={16} style={{ color: GOLD }} />}
+                  <input type="file" accept="image/*" multiple disabled={uploadingGallery} style={{ display: "none" }}
+                    onChange={e => { if (e.target.files && e.target.files.length > 0) handleBulkGalleryUpload(e.target.files); e.target.value = ""; }} />
+                </label>
+              </div>
+              {uploadingGallery && galleryProgress && (
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8 }}>
+                  Uploading photo {Math.min(galleryProgress.done + 1, galleryProgress.total)} of {galleryProgress.total}…
+                </p>
+              )}
+            </div>
             {navButtons({ onBack: () => setStep("prep"), onNext: handlePreviewNext, nextBusy: saving })}
           </>
         )}
@@ -417,29 +637,14 @@ export function ListingConsultSheet({
           </>
         )}
 
-        {step === "pricing" && (
-          <>
-            {header("CMA Pricing & Pay-at-Close Reno", "Reference tiers — walk the client through the tradeoffs")}
-            <div style={cardStyle}>
-              {PRICING_TIERS.map(t => (
-                <div key={t.tier} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 700, color: "#fff", margin: 0 }}>{t.tier}</p>
-                    <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", margin: "2px 0 0" }}>{t.desc} · {t.reno}</p>
-                  </div>
-                  <span style={{ fontSize: 11, color: GOLD, fontWeight: 600, whiteSpace: "nowrap", marginLeft: 10 }}>{t.note}</span>
-                </div>
-              ))}
-            </div>
-            <label style={labelStyle}>Recommended List Price (optional)</label>
-            <input style={inputStyle} value={recommendedPrice} onChange={e => setRecommendedPrice(e.target.value)} placeholder="$" />
-            {navButtons({ onBack: () => setStep("presentation"), onNext: handlePricingNext, nextBusy: saving })}
-          </>
-        )}
-
         {step === "close" && (
           <>
-            {header("Close the Deal", "Ready to get started?")}
+            {header("Price & Close", "What they agreed to, and are they ready?")}
+            <Chip label="Reviewed Comps with Client" checked={reviewedComps} onToggle={() => setReviewedComps(!reviewedComps)} />
+            <label style={labelStyle}>Recommended List Price (optional)</label>
+            <input style={{ ...inputStyle, marginBottom: 14 }} value={recommendedPrice} onChange={e => setRecommendedPrice(e.target.value)} placeholder="$" />
+            <label style={labelStyle}>Final Listing Price (what the seller agreed to)</label>
+            <input style={{ ...inputStyle, marginBottom: 14 }} value={finalListingPrice} onChange={e => setFinalListingPrice(e.target.value)} placeholder="$" />
             <label style={labelStyle}>Ready to Get Started?</label>
             <div style={{ marginBottom: 14 }}>
               {segmented(readyToStart, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setReadyToStart(v as any))}
@@ -454,7 +659,7 @@ export function ListingConsultSheet({
             </div>
             <label style={labelStyle}>What's Holding Them Back?</label>
             <textarea style={textareaStyle} value={holdingBack} onChange={e => setHoldingBack(e.target.value)} placeholder="Only if not moving forward yet" />
-            {navButtons({ onBack: () => setStep("pricing"), onNext: handleCloseNext, nextBusy: saving, nextLabel: readyToStart === "yes" ? "Lock It In" : "Continue to Debrief" })}
+            {navButtons({ onBack: () => setStep("presentation"), onNext: handleCloseNext, nextBusy: saving, nextLabel: readyToStart === "yes" ? "Lock It In" : "Continue to Debrief" })}
           </>
         )}
 
@@ -463,14 +668,31 @@ export function ListingConsultSheet({
             {header("Lock It In", "Schedule + access — moves fast once signed")}
             <label style={labelStyle}>Schedule</label>
             {LOCKIN_SCHEDULE_ITEMS.map(item => (
-              <Chip key={item} label={item} checked={!!lockinSchedule[item]} onToggle={() => toggleChip(lockinSchedule, setLockinSchedule, item)} />
+              <div key={item} style={{ marginBottom: 8 }}>
+                <Chip label={item} checked={!!lockinSchedule[item]} onToggle={() => toggleChip(lockinSchedule, setLockinSchedule, item)} />
+                <input
+                  type="date"
+                  style={{ ...inputStyle, marginTop: -2 }}
+                  value={lockinScheduleDates[item] || ""}
+                  onChange={e => setLockinScheduleDates(prev => ({ ...prev, [item]: e.target.value }))}
+                  placeholder="Date (optional)"
+                />
+              </div>
             ))}
             <label style={{ ...labelStyle, marginTop: 10 }}>Access</label>
             <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
               <input style={inputStyle} value={accessKeyOrCode} onChange={e => setAccessKeyOrCode(e.target.value)} placeholder="Key or Code?" />
               <input style={inputStyle} value={gateCode} onChange={e => setGateCode(e.target.value)} placeholder="Gate Code?" />
             </div>
-            <input style={{ ...inputStyle, marginBottom: 10 }} value={ownerNames} onChange={e => setOwnerNames(e.target.value)} placeholder="Owner Names" />
+            <input style={{ ...inputStyle, marginBottom: showOwner2 ? 8 : 6 }} value={ownerNames} onChange={e => setOwnerNames(e.target.value)} placeholder={showOwner2 ? "Owner 1 Full Legal Name" : "Owner Full Legal Name"} />
+            {showOwner2 ? (
+              <input style={{ ...inputStyle, marginBottom: 10 }} value={ownerNames2} onChange={e => setOwnerNames2(e.target.value)} placeholder="Owner 2 Full Legal Name" />
+            ) : (
+              <button type="button" onClick={() => setShowOwner2(true)} style={{
+                background: "none", border: "none", color: GOLD, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                padding: 0, marginBottom: 12, display: "block",
+              }}>+ Add Second Owner</button>
+            )}
             <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
               <input style={inputStyle} value={accessPhone} onChange={e => setAccessPhone(e.target.value)} placeholder="Phone" />
               <input style={inputStyle} value={accessEmail} onChange={e => setAccessEmail(e.target.value)} placeholder="Email" />

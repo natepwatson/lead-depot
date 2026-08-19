@@ -76,6 +76,8 @@ import { currentDailyKey, currentWeeklyKey } from "./challenges";
 import { registerZillowRoutes } from "./zillow_intel";
 import { registerRepairConsultRoutes } from "./repairConsult";
 import { registerListingConsultRoutes } from "./listingConsult";
+import { registerFubContactsRoutes } from "./fubContacts";
+import { registerWriteOfferRoutes } from "./writeOffer";
 // v15.11.10 — web push module removed; replaced by prime-email-scheduler.
 import { checkPassword } from "../shared/password-rules";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
@@ -84,7 +86,29 @@ import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-impor
 import multer from "multer";
 // v18.0 — DBPR pipeline import removed with recruiting system.
 import { EXPIRED_SCRIPT_V14_16 } from "./expired-script";
-import { getTerritoryForZip, TERRITORIES as TERRITORY_META } from "./territories";
+import { getTerritoryForZip, TERRITORIES as TERRITORY_META, ALL_NE_FLORIDA_ZIPS_ARRAY } from "./territories";
+
+// v20.14.4 — Team Map territory gate. Brothers Group only operates leads in
+// Nassau/Duval/St Johns (NE Florida). Bad/placeholder addresses (e.g. "N/A")
+// have occasionally geocoded to bogus fallback coordinates far outside our
+// footprint (seen: a fixed Miami-area point). Gate pins two ways:
+//   1. If the lead has a zip, it must be one of our NE Florida territory zips.
+//   2. Regardless of zip, the pin's lat/lng must fall inside a generous
+//      bounding box around our actual Nassau/Duval/St Johns service area.
+// A pin must pass the box check always, and pass the zip check whenever a
+// zip is present. This keeps legitimate pins that are merely missing a zip
+// field while rejecting anything geocoded outside our territory.
+const NE_FL_ZIP_SET = new Set(ALL_NE_FLORIDA_ZIPS_ARRAY);
+const NE_FL_MAP_BOUNDS = { minLat: 29.5, maxLat: 31.0, minLng: -82.3, maxLng: -81.0 };
+function isInTerritory(zip: string | null | undefined, lat: number, lng: number): boolean {
+  const inBox =
+    lat >= NE_FL_MAP_BOUNDS.minLat && lat <= NE_FL_MAP_BOUNDS.maxLat &&
+    lng >= NE_FL_MAP_BOUNDS.minLng && lng <= NE_FL_MAP_BOUNDS.maxLng;
+  if (!inBox) return false;
+  const z = (zip || "").trim().slice(0, 5);
+  if (z && !NE_FL_ZIP_SET.has(z)) return false;
+  return true;
+}
 import { normalizeFirstName, normalizeFullName, normalizeAddressCasual } from "./normalize";
 // v14.46 — LandVoice OAuth module removed. LandVoice exports come in via CSV upload only.
 import fs from "node:fs";
@@ -236,7 +260,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.14.2 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.14.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -465,7 +489,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.14.2 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.14.4 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -524,7 +548,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.14.2 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.14.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -572,7 +596,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.14.2 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.14.4 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -655,6 +679,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   registerZillowRoutes(app);
   registerRepairConsultRoutes(app);
   registerListingConsultRoutes(app);
+  registerFubContactsRoutes(app);
+  registerWriteOfferRoutes(app);
 
   // ─── v15.11.11 — Emergency force-reset endpoint (INGEST_SECRET-guarded) ───
   // Reason: reset-password emails weren't reaching some agents; this bypasses email
@@ -1816,7 +1842,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.14.2</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.14.4</p>
             </div>
           `,
         });
@@ -1976,7 +2002,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.14.2 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.14.4 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -2879,6 +2905,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         const key = geoKey(l.fullAddr);
         if (getCached(key)) continue;
         if (!l.address) continue;
+        // v20.14.4 — placeholder addresses ("N/A", "TBD", "Unknown", etc.) have no
+        // real location. Geocoding them has previously returned a bogus fixed
+        // fallback point (seen: a Miami-area coordinate) that then shows up on
+        // the Team Map far outside our NE Florida territory. Skip entirely.
+        if (/^(n\/?a|tbd|unknown|none|--*)$/i.test(l.address.trim())) continue;
         const street = l.address.split(",")[0].trim();
         uncached.push({ id: l.id, addr: l.fullAddr, street, city: l.city, state: l.state, zip: l.zip, fullAddr: l.fullAddr });
       }
@@ -3227,8 +3258,11 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     // Emit one pin per lead at its REAL coords. No jitter, no aggregation. The
     // agent should see exactly where the lead sits so the map feels authentic.
+    // v20.14.4 — territory gate: drop any lead whose zip (when present) isn't
+    // one of ours, or whose coords fall outside the NE Florida service box.
     const pins = rows
       .filter(r => typeof r.lat === "number" && typeof r.lng === "number")
+      .filter(r => isInTerritory(r.zip, r.lat, r.lng))
       .map(r => {
         const tier = bucket(r.status);
         const base = {
@@ -8463,7 +8497,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.14.2 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.14.4 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -9583,7 +9617,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.14.2",
+      version: "v20.14.4",
       services: results,
     });
   });
@@ -10997,7 +11031,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.14.2</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.14.4</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

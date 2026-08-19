@@ -27,6 +27,15 @@
 import type { Express, Request, Response } from "express";
 import { rawDb } from "./db";
 import { Resend } from "resend";
+import fs from "node:fs";
+import path from "node:path";
+
+const IS_PROD = process.env.NODE_ENV === "production";
+function listingPhotosDir(): string {
+  const dir = IS_PROD ? "/app/data/listing-photos" : path.resolve(__dirname, "public", "listing-photos");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -51,6 +60,8 @@ export function ensureListingConsultSchema() {
       client_email TEXT,
       client_phone TEXT,
       property_address TEXT NOT NULL,
+      hero_photo_url TEXT,
+      gallery_photos TEXT,                        -- JSON array of walkthrough photo URLs
       status TEXT NOT NULL DEFAULT 'in_progress', -- in_progress | debriefed
       data TEXT NOT NULL DEFAULT '{}',            -- JSON blob of every step's answers
       debrief_sent_at TEXT,
@@ -58,10 +69,19 @@ export function ensureListingConsultSchema() {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // v20.14.4 — front-of-house hero photo + walkthrough gallery, added to an
+  // already-live table. ALTER TABLE is safe to run repeatedly — guarded by
+  // PRAGMA table_info check, same pattern as server/db.ts and repairConsult.ts.
+  const lcCols = (rawDb.prepare(`PRAGMA table_info(listing_consults)`).all() as any[]).map((c: any) => c.name);
+  if (!lcCols.includes("hero_photo_url"))  rawDb.prepare("ALTER TABLE listing_consults ADD COLUMN hero_photo_url TEXT").run();
+  if (!lcCols.includes("gallery_photos"))  rawDb.prepare("ALTER TABLE listing_consults ADD COLUMN gallery_photos TEXT").run();
 }
 
 function getRow(id: number): any {
-  return rawDb.prepare(`SELECT * FROM listing_consults WHERE id = ?`).get(id);
+  const r: any = rawDb.prepare(`SELECT * FROM listing_consults WHERE id = ?`).get(id);
+  if (r && r.gallery_photos) { try { r.gallery_photos = JSON.parse(r.gallery_photos); } catch { r.gallery_photos = []; } }
+  return r;
 }
 
 function getAgentName(agentId: number | null): string {
@@ -151,13 +171,45 @@ export function registerListingConsultRoutes(app: Express) {
 
   // ── Create consult ──
   app.post("/api/listing-consult", (req: any, res: Response) => {
-    const { leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress } = req.body || {};
+    const { leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress, heroPhotoUrl } = req.body || {};
     if (!propertyAddress) return res.status(400).json({ error: "propertyAddress is required" });
     const result = rawDb.prepare(`
-      INSERT INTO listing_consults (lead_id, agent_id, client_name, client_email, client_phone, property_address)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(leadId || null, agentId || req.currentAgent?.id || null, clientName || null, clientEmail || null, clientPhone || null, propertyAddress);
+      INSERT INTO listing_consults (lead_id, agent_id, client_name, client_email, client_phone, property_address, hero_photo_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(leadId || null, agentId || req.currentAgent?.id || null, clientName || null, clientEmail || null, clientPhone || null, propertyAddress, heroPhotoUrl || null);
     res.json({ id: result.lastInsertRowid });
+  });
+
+  // ── Upload a photo (hero or gallery). Returns a URL. Mirrors Repair Consult's
+  //    /photo endpoint exactly — same compression pass, same response shape. ──
+  app.post("/api/listing-consult/:id/photo", async (req: any, res: Response) => {
+    const consultId = parseInt(req.params.id);
+    const { imageData, mimeType, kind } = req.body || {}; // kind: 'hero' | 'gallery'
+    if (!imageData || !mimeType) return res.status(400).json({ error: "Missing imageData or mimeType" });
+    if (imageData.length > 28000000) return res.status(413).json({ error: "Image too large. Max 20MB." });
+    try {
+      const sharp = require("sharp");
+      const inputBuf = Buffer.from(imageData, "base64");
+      const rotated = await sharp(inputBuf).rotate().toBuffer();
+      const processed = await sharp(rotated).resize(1600, 1600, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85, progressive: true }).toBuffer();
+      const dir = listingPhotosDir();
+      const filename = `${consultId}-${kind || "photo"}-${Date.now()}.jpg`;
+      fs.writeFileSync(path.join(dir, filename), processed);
+      const url = `/listing-photos/${filename}`;
+
+      if (kind === "hero") {
+        rawDb.prepare(`UPDATE listing_consults SET hero_photo_url = ?, updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
+      } else if (kind === "gallery") {
+        const row = rawDb.prepare(`SELECT gallery_photos FROM listing_consults WHERE id = ?`).get(consultId) as any;
+        const arr = row?.gallery_photos ? JSON.parse(row.gallery_photos) : [];
+        arr.push(url);
+        rawDb.prepare(`UPDATE listing_consults SET gallery_photos = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(arr), consultId);
+      }
+      res.json({ url });
+    } catch (err: any) {
+      console.error("Listing consult photo processing error:", err);
+      res.status(500).json({ error: "Failed to process image." });
+    }
   });
 
   // ── Fetch a consult ──

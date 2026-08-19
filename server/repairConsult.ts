@@ -1083,13 +1083,16 @@ export function registerRepairConsultRoutes(app: Express) {
   });
 
   // ── Create consult ──
+  // v20.14.4 — accepts an optional heroPhotoUrl so Listing Consult can hand
+  // off its already-captured front-of-house photo directly at creation time,
+  // instead of the agent re-taking the same photo for Repair Consult.
   app.post("/api/repair-consult", (req: any, res: Response) => {
-    const { leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress } = req.body || {};
+    const { leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress, heroPhotoUrl } = req.body || {};
     if (!propertyAddress) return res.status(400).json({ error: "propertyAddress is required" });
     const result = rawDb.prepare(`
-      INSERT INTO repair_consults (lead_id, agent_id, client_name, client_email, client_phone, property_address)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(leadId || null, agentId || req.currentAgent?.id || null, clientName || null, clientEmail || null, clientPhone || null, propertyAddress);
+      INSERT INTO repair_consults (lead_id, agent_id, client_name, client_email, client_phone, property_address, hero_photo_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(leadId || null, agentId || req.currentAgent?.id || null, clientName || null, clientEmail || null, clientPhone || null, propertyAddress, heroPhotoUrl || null);
     res.json({ id: result.lastInsertRowid });
   });
 

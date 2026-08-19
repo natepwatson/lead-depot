@@ -113,6 +113,7 @@ async function fileToImageData(file: File, opts: { maxDim?: number; quality?: nu
 
 export function RepairConsultSheet({
   leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose, manageNavVisibility = true,
+  nestedFromListing = false, prefillHeroPhotoUrl = null,
 }: {
   leadId?: number | null; agentId?: number | null;
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
@@ -125,8 +126,16 @@ export function RepairConsultSheet({
   // closing this overlay doesn't prematurely reveal the nav while the parent
   // sheet is still open underneath.
   manageNavVisibility?: boolean;
+  // v20.14.4 — when launched FROM Listing Consult, property/client info and
+  // the front-of-house hero photo were already captured on Listing Consult's
+  // own first page. Skip re-asking for any of it here — jump straight to the
+  // repair checklist so this feels like a continuation of the same
+  // consultation, not a separate tool. prefillHeroPhotoUrl is handed to the
+  // repair_consult record directly at creation time.
+  nestedFromListing?: boolean;
+  prefillHeroPhotoUrl?: string | null;
 }) {
-  const [step, setStep] = useState<"info" | "photos" | "checklist" | "gallery" | "review">("info");
+  const [step, setStep] = useState<"info" | "checklist" | "gallery" | "review">(nestedFromListing ? "checklist" : "info");
   const [consultId, setConsultId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -135,7 +144,7 @@ export function RepairConsultSheet({
   const [clientPhone, setClientPhone] = useState(initialClientPhone || "");
   const [propertyAddress, setPropertyAddress] = useState(initialAddress || "");
 
-  const [heroPhotoUrl, setHeroPhotoUrl] = useState<string | null>(null);
+  const [heroPhotoUrl, setHeroPhotoUrl] = useState<string | null>(prefillHeroPhotoUrl || null);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [uploadingHero, setUploadingHero] = useState(false);
   const [uploadingGallery, setUploadingGallery] = useState(false);
@@ -171,6 +180,13 @@ export function RepairConsultSheet({
       .finally(() => setCatalogLoading(false));
   }, []);
 
+  // v20.14.4 — nested-from-listing: create the linked repair_consult record
+  // immediately on mount (carrying over the already-known info + hero photo)
+  // instead of waiting for an "info" step the agent never sees.
+  useEffect(() => {
+    if (nestedFromListing) { ensureConsult().catch(e => setError(e.message || "Failed to start repair consult.")); }
+  }, [nestedFromListing]);
+
   const inHouseItems = useMemo(() => catalog.filter(i => i.category === "in_house").sort((a, b) => a.sequence_order - b.sequence_order), [catalog]);
   const vendorItems = useMemo(() => catalog.filter(i => i.category === "vendor").sort((a, b) => a.sequence_order - b.sequence_order), [catalog]);
 
@@ -197,7 +213,7 @@ export function RepairConsultSheet({
     try {
       const d = await fetchJson("/api/repair-consult", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress }),
+        body: JSON.stringify({ leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress, heroPhotoUrl: prefillHeroPhotoUrl || null }),
       });
       setConsultId(d.id);
       return d.id;
@@ -207,7 +223,7 @@ export function RepairConsultSheet({
   const handleInfoNext = async () => {
     if (!propertyAddress.trim()) { setError("Property address is required."); return; }
     setError("");
-    try { await ensureConsult(); setStep("photos"); }
+    try { await ensureConsult(); setStep("checklist"); }
     catch (e: any) { setError(e.message || "Failed to start consult."); }
   };
 
@@ -315,7 +331,7 @@ export function RepairConsultSheet({
   const hasVendorSelections = Object.entries(checked).some(([k, v]) => v.checked && vendorItems.some(vi => vi.key === k));
   const hasInHouseSelections = Object.entries(checked).some(([k, v]) => v.checked && inHouseItems.some(ii => ii.key === k));
 
-  const stepIndex = { info: 0, photos: 1, checklist: 2, schedule: 3, gallery: 4, review: 5 }[step];
+  const stepIndex = { info: 0, checklist: 1, gallery: 2, review: 3 }[step];
 
   const header = (title: string, sub: string) => (
     <div style={{ marginBottom: 18 }}>
@@ -326,7 +342,7 @@ export function RepairConsultSheet({
         </div>
       </div>
       <div style={{ display: "flex", gap: 4, marginTop: 14 }}>
-        {["Info", "Photo", "Checklist", "Schedule", "Gallery", "Review"].map((s, i) => (
+        {["Info", "Checklist", "Gallery", "Review"].map((s, i) => (
           <div key={s} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= stepIndex ? GOLD : "rgba(255,255,255,0.1)" }} />
         ))}
       </div>
@@ -381,12 +397,12 @@ export function RepairConsultSheet({
 
         {step === "info" && (
           <>
-            {header("Repair Consult", "Property + client info")}
+            {header("Repair Consult", "Property + client info, front of house photo")}
             <label style={labelStyle}>Property Address</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
             <label style={labelStyle}>Client Name</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Client full name" />
-            <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
               <div style={{ flex: 1 }}>
                 <label style={labelStyle}>Client Email</label>
                 <input style={inputStyle} value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="client@email.com" type="email" />
@@ -396,13 +412,6 @@ export function RepairConsultSheet({
                 <input style={inputStyle} value={clientPhone} onChange={e => setClientPhone(e.target.value)} placeholder="(904) 555-0100" />
               </div>
             </div>
-            {navButtons({ onNext: handleInfoNext, nextBusy: creating, nextDisabled: !propertyAddress.trim() })}
-          </>
-        )}
-
-        {step === "photos" && (
-          <>
-            {header("Front of House Photo", "This is the hero photo used on the branded quote — all other photos come at the end")}
             <div style={cardStyle}>
               <label style={labelStyle}>Front of House (Hero Photo)</label>
               {heroPhotoUrl ? (
@@ -410,7 +419,10 @@ export function RepairConsultSheet({
                   <img src={heroPhotoUrl} style={{ width: "100%", height: 160, objectFit: "cover", borderRadius: 8 }} />
                   <label style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(0,0,0,0.7)", borderRadius: 8, padding: "6px 10px", fontSize: 11, color: "#fff", cursor: "pointer" }}>
                     Retake
-                    <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files?.[0] && handlePhotoPick(e.target.files[0], "hero")} />
+                    {/* v20.14.4 — no `capture` attr: lets the agent pick an already-taken photo
+                        from their camera roll (full-scope-later workflow) OR take a new one live —
+                        OS shows both options. */}
+                    <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => e.target.files?.[0] && handlePhotoPick(e.target.files[0], "hero")} />
                   </label>
                 </div>
               ) : (
@@ -419,15 +431,15 @@ export function RepairConsultSheet({
                   height: 120, borderRadius: 8, border: "1px dashed rgba(200,170,90,0.4)", cursor: "pointer", gap: 6,
                 }}>
                   {uploadingHero ? <Loader2 size={22} className="animate-spin" style={{ color: GOLD }} /> : <Camera size={22} style={{ color: GOLD }} />}
-                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>{uploadingHero ? "Uploading…" : "Tap to take photo"}</span>
-                  <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => e.target.files?.[0] && handlePhotoPick(e.target.files[0], "hero")} />
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>{uploadingHero ? "Uploading…" : "Tap to take or choose a photo"}</span>
+                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => e.target.files?.[0] && handlePhotoPick(e.target.files[0], "hero")} />
                 </label>
               )}
             </div>
             <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 4 }}>
-              Snap interior and detail photos with your phone's camera as you walk through — you'll bulk-upload all of them together at the end, right before sending the quote.
+              Snap interior and detail photos as you walk through, or shoot them all with your phone's own camera and pick them from your camera roll later — either way, you'll bulk-upload the full set together at the end, right before sending the quote.
             </p>
-            {navButtons({ onBack: () => setStep("info"), onNext: () => setStep("checklist"), nextBusy: uploadingHero })}
+            {navButtons({ onNext: handleInfoNext, nextBusy: creating, nextDisabled: !propertyAddress.trim() })}
           </>
         )}
 
@@ -504,7 +516,7 @@ export function RepairConsultSheet({
                 ))}
               </>
             )}
-            {navButtons({ onBack: () => setStep("photos"), onNext: handleChecklistNext, nextDisabled: selectedCount === 0, nextBusy: submittingItems, nextLabel: "Continue to Photos" })}
+            {navButtons({ onBack: nestedFromListing ? undefined : () => setStep("info"), onNext: handleChecklistNext, nextDisabled: selectedCount === 0, nextBusy: submittingItems, nextLabel: "Continue to Photos" })}
           </>
         )}
 

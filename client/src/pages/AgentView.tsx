@@ -17,7 +17,7 @@ import {
   RefreshCw, Briefcase, Clock, PhoneCall, Star, UserCircle2,
   Home, Voicemail, Layers, Calendar, FileText,
   Camera, DoorOpen, Zap, X, ArrowLeft, Plus,
-  Share2, Instagram, Target, Shield, Package, Wrench, ClipboardCheck,
+  Share2, Instagram, Target, Shield, Package, Wrench, ClipboardCheck, FileSignature,
 } from "lucide-react";
 import ProfilePage from "./ProfilePage";
 import TeamMap from "./TeamMap";
@@ -29,6 +29,7 @@ import PermissionGate, { shouldPromptPermissions } from "../components/ld/Permis
 import { BookOpenHouseSheet } from "../components/ld/BookOpenHouseSheet";
 import { RepairConsultSheet } from "../components/ld/RepairConsultSheet";
 import { ListingConsultSheet } from "../components/ld/ListingConsultSheet";
+import { WriteOfferSheet } from "../components/ld/WriteOfferSheet";
 import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
@@ -6067,7 +6068,7 @@ export const WARM_LEAD_INTENTS: {
 // v18.4 — Leaderboard slot swapped for Challenges. Home tab still renders the
 // leaderboard content (that's the dashboard). "leaderboard" id kept in the union
 // to gracefully fall through for anyone with a stale initialTab or bookmark.
-type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home" | "inventory" | "repairQuote" | "listingConsult";
+type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home" | "inventory" | "repairQuote" | "listingConsult" | "placeOffer";
 // v20.6.8 — Profile removed from bottom nav (moved to header profile circle).
 // v20.10.0 — Inventory tab replaced with Repair Quote. "inventory" kept in the
 // Tab union so a stale bookmark/initialTab doesn't hard-crash; it just renders
@@ -6078,11 +6079,15 @@ type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "ho
 // Home toggle instead — see HomeShell). Pipeline moved from slot 2 into the
 // vacated slot 5, slot 2 now opens Listing Consultation, and the middle Lead
 // Gen label is spelled out in full now that there's room.
+// v20.8.0 — "Repair Quote" nav slot replaced with "Place an Offer" now that
+// Repair Consult is reachable nested inside Listing Consult. The standalone
+// Repair Consult tab (id "repairQuote") and its Lead Gen edge bubble are
+// left intact for now — only the bottom-nav slot changes, per Alex's ask.
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "home",          label: "Home",               icon: Home },
   { id: "listingConsult", label: "Listing Consultation", icon: ClipboardCheck },
   { id: "leads",         label: "Lead Generation",    icon: Phone },
-  { id: "repairQuote",   label: "Repair Quote",       icon: Wrench },
+  { id: "placeOffer",    label: "Place an Offer",     icon: FileSignature },
   { id: "pipeline",      label: "Pipeline",           icon: Layers },
 ];
 
@@ -6109,7 +6114,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   // (with the same address/client prefilled) when it closes, instead of
   // dropping the agent back on Home mid-appointment.
   const [showRepairFromListing, setShowRepairFromListing] = useState(false);
-  const [listingRepairPrefill, setListingRepairPrefill] = useState<{ address: string; name: string; email: string; phone: string } | null>(null);
+  const [listingRepairPrefill, setListingRepairPrefill] = useState<{ address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null } | null>(null);
   const { connected: wsConnected } = useRealtimeUpdates();
   const qc = useQueryClient();
   const { toast } = useToast(); // v15.11.17 — used by CLOSED_STATUSES redirect notice
@@ -6379,7 +6384,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.2</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.4</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6596,6 +6601,19 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             initialClientPhone={listingRepairPrefill?.phone ?? ""}
             onClose={() => setShowRepairFromListing(false)}
             manageNavVisibility={false}
+            nestedFromListing={true}
+            prefillHeroPhotoUrl={listingRepairPrefill?.heroPhotoUrl ?? null}
+          />
+        )}
+
+        {/* v20.8.0 — Place an Offer. Replaces Repair Quote's nav-bar slot.
+            One-page form, no wizard steps — meant to be filled out on the
+            spot when a buyer says they want to write. */}
+        {tab === "placeOffer" && (
+          <WriteOfferSheet
+            agentName={(user as any)?.name ?? ""}
+            initialAddress=""
+            onClose={() => setTab("home")}
           />
         )}
 

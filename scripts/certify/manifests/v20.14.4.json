@@ -1,0 +1,22 @@
+{
+  "version": "v20.14.4",
+  "changes": [
+    "New: 'Place an Offer' tool replaces the standalone 'Repair Quote' bottom-nav slot. Single-page form (client/src/components/ld/WriteOfferSheet.tsx) mirroring Alex's 'AAA WRITE AN OFFER' text template — FUB contact picker + separate Full Legal Name field for up to 2 buyers, financing type/lender selectors, purchase price with computed binder deposit / down payment / seller agent comp dollar amounts, offer-expiration day+time computed to an actual date, assignment and home-sale-contingency toggles, additional terms textarea, and a static docs-to-include list. On submit, POSTs to /api/write-offer which emails the composed offer to the TC (whittney@nextlevelfl.com) with nate@ and alex@ CC'd.",
+    "The standalone Repair Consult flow (Tab id 'repairQuote', its render block, and the Lead Gen radial 'Repairs' edge bubble) is left fully intact — only the bottom NAV array entry was swapped from Repair Quote to Place an Offer, per Alex's explicit instruction to swap the button, not remove the flow.",
+    "New backend module server/writeOffer.ts (registerWriteOfferRoutes) exposing POST /api/write-offer (composes + sends the branded offer email) and GET /api/write-offer/lenders (lender presets + TC contact info), registered in server/routes.ts alongside the existing repairConsult/listingConsult/fubContacts route registrations.",
+    "Carried forward from the prior uncommitted session (shipping together in this release): ListingConsultSheet gallery UI on the preview step, FUB contact picker on the prep step, Lock In phone/email auto-default, and heroPhotoUrl hand-off into the nested Repair Consult (nestedFromListing + prefillHeroPhotoUrl props on RepairConsultSheet)."
+  ],
+  "endpoints": [
+    { "method": "GET", "path": "/api/write-offer/lenders", "expectStatus": 200, "expectKeys": ["lenders", "tc"] },
+    { "method": "GET", "path": "/api/health", "expectStatus": 200, "expectKeys": ["status", "version"] }
+  ],
+  "bundleMustContain": [
+    "Place an Offer",
+    "write-offer",
+    "Full Legal Name",
+    "Buyer May NOT"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "No bundleMustNotContain guards: Repair Quote / repairQuote intentionally remain present elsewhere (standalone flow + radial bubble untouched), so a global-absence check on that string would false-positive.",
+  "mathChecks": []
+}

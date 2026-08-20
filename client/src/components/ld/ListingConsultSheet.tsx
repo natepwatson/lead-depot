@@ -274,6 +274,14 @@ export function ListingConsultSheet({
   const [accessEmail, setAccessEmail] = useState("");
   const [contractSent, setContractSent] = useState(false);
 
+  // v20.15.2 — Owner 1's legal name defaults from the client name captured
+  // (and possibly FUB-picked) back on Prep the first time the agent reaches
+  // Lock In — one less retype, still fully editable since FUB's display
+  // name can be a nickname and the contract needs the full legal name.
+  useEffect(() => {
+    if (step === "lockin" && !ownerNames && clientName) setOwnerNames(clientName);
+  }, [step]);
+
   // v20.15.1 — Owner 2 FUB search. Mirrors the Write Offer buyer pattern:
   // the search box only autofills phone/email, never the legal-name field
   // below it — FUB's display name can be a nickname, but the Lock In step

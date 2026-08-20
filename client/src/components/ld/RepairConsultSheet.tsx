@@ -24,6 +24,17 @@ type CheckedState = {
   photos: string[]; measurementNotes: string;
 };
 
+// v20.19.0 — bundled discount packages. itemKeys are auto-checked in-house
+// items; vendorItemKeys (rare — only smoke_remediation today) are auto-checked
+// vendor trades so they ride along into the same dispatch pass.
+type RepairPackage = {
+  key: string; name: string; description: string; tier: "small" | "medium" | "large" | "largest";
+  discountPct: number; itemKeys: string[]; vendorItemKeys: string[] | null;
+};
+
+const TIER_LABELS: Record<string, string> = { small: "Small", medium: "Medium", large: "Large", largest: "Largest" };
+const TIER_ORDER = ["small", "medium", "large", "largest"];
+
 const fetchJson = async (url: string, opts: RequestInit = {}) => {
   const r = await fetch(url, { credentials: "include", ...opts });
   const body = await r.json().catch(() => ({}));
@@ -114,7 +125,7 @@ async function fileToImageData(file: File, opts: { maxDim?: number; quality?: nu
 
 export function RepairConsultSheet({
   leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose, manageNavVisibility = true,
-  nestedFromListing = false, prefillHeroPhotoUrl = null,
+  nestedFromListing = false, prefillHeroPhotoUrl = null, prefillGalleryUrls = null,
 }: {
   leadId?: number | null; agentId?: number | null;
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
@@ -135,6 +146,12 @@ export function RepairConsultSheet({
   // repair_consult record directly at creation time.
   nestedFromListing?: boolean;
   prefillHeroPhotoUrl?: string | null;
+  // v20.19.0 — Listing Consult's own walkthrough photos, carried over so the
+  // agent isn't asked to shoot/pick the same walkthrough twice. Treated as
+  // Repair Scope evidence by default (they were taken during the same visit
+  // where repairs were flagged). When present + nested, the gallery step is
+  // skipped entirely — straight to Review.
+  prefillGalleryUrls?: string[] | null;
 }) {
   const [step, setStep] = useState<"info" | "checklist" | "gallery" | "review">(nestedFromListing ? "checklist" : "info");
   const [consultId, setConsultId] = useState<number | null>(null);
@@ -186,7 +203,13 @@ export function RepairConsultSheet({
   };
 
   const [heroPhotoUrl, setHeroPhotoUrl] = useState<string | null>(prefillHeroPhotoUrl || null);
-  const [galleryUrls, setGalleryUrls] = useState<{ url: string; tag: "overview" | "repair_scope" }[]>([]);
+  const [galleryUrls, setGalleryUrls] = useState<{ url: string; tag: "overview" | "repair_scope" }[]>(
+    (prefillGalleryUrls || []).map(url => ({ url, tag: "repair_scope" as const }))
+  );
+  // v20.19.0 — true only when the gallery step was auto-skipped because
+  // Listing Consult's own walkthrough photos already cover it. Drives the
+  // "reuse" note on Review and lets the agent still add more if they want.
+  const [gallerySkipped, setGallerySkipped] = useState(false);
   // v20.15.2 — which tag new bulk-uploaded photos get; mirrors ListingConsultSheet.
   const [galleryTagMode, setGalleryTagMode] = useState<"overview" | "repair_scope">("repair_scope");
   const [uploadingHero, setUploadingHero] = useState(false);
@@ -196,6 +219,10 @@ export function RepairConsultSheet({
   const [catalog, setCatalog] = useState<RepairItem[]>([]);
   const [checked, setChecked] = useState<Record<string, CheckedState>>({});
   const [catalogLoading, setCatalogLoading] = useState(true);
+  // v20.19.0 — bundled packages (discount ladder) + free-service incentive.
+  const [packages, setPackages] = useState<RepairPackage[]>([]);
+  const [selectedPackageKey, setSelectedPackageKey] = useState<string | null>(null);
+  const [applyingPackage, setApplyingPackage] = useState(false);
   // v20.16.0 — real usage-frequency map from past consults (item_key -> times
   // actually selected), used to surface a "Frequently Selected" shortlist and
   // to auto-expand trades that have real history. Not AI, not a guess — just
@@ -209,7 +236,7 @@ export function RepairConsultSheet({
   // scheduling happens later from the admin panel once deposit is received.
 
   const [submittingItems, setSubmittingItems] = useState(false);
-  const [totals, setTotals] = useState<{ subtotal: number; total: number } | null>(null);
+  const [totals, setTotals] = useState<{ subtotal: number; total: number; discountAmount?: number; freeItemKey?: string | null } | null>(null);
   const [quoteResult, setQuoteResult] = useState<{ pdfUrl: string; acceptUrl: string; total: number } | null>(null);
   const [generatingQuote, setGeneratingQuote] = useState(false);
   const [sendingToClient, setSendingToClient] = useState(false);
@@ -229,6 +256,9 @@ export function RepairConsultSheet({
       .then(d => { setCatalog(d.items || []); setPopularity(d.popularity || {}); })
       .catch(() => setError("Couldn't load the repair catalog. Try again."))
       .finally(() => setCatalogLoading(false));
+    fetchJson("/api/repair-consult/packages")
+      .then(d => setPackages(d.packages || []))
+      .catch(() => {}); // non-fatal — checklist still works without packages
   }, []);
 
   // v20.14.5 — check for resumable consults on standalone opens only.
@@ -269,6 +299,36 @@ export function RepairConsultSheet({
       const base = prev[key] || DEFAULT_ITEM_STATE;
       return { ...prev, [key]: { ...base, ...patch } };
     });
+  };
+
+  // v20.19.0 — Select (or clear) a package. Selecting auto-checks every item
+  // in the bundle (in-house + the rare vendor trade like smoke_remediation's
+  // v_hvac) so the agent doesn't have to hunt them down individually — they
+  // can still adjust quantities/two-story/notes per item afterward.
+  // Clearing a package does NOT auto-uncheck anything (avoids silently
+  // dropping items the agent may have separately relied on) — it only drops
+  // the discount going forward.
+  const handleSelectPackage = async (pkg: RepairPackage | null) => {
+    setApplyingPackage(true);
+    setError("");
+    try {
+      const id = await ensureConsult();
+      await fetchJson(`/api/repair-consult/${id}/select-package`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageKey: pkg?.key ?? null }),
+      });
+      setSelectedPackageKey(pkg?.key ?? null);
+      if (pkg) {
+        setChecked(prev => {
+          const next = { ...prev };
+          for (const k of [...pkg.itemKeys, ...(pkg.vendorItemKeys || [])]) {
+            next[k] = { ...(next[k] || DEFAULT_ITEM_STATE), checked: true };
+          }
+          return next;
+        });
+      }
+    } catch (e: any) { setError(e.message || "Failed to apply that package."); }
+    finally { setApplyingPackage(false); }
   };
 
   // v20.16.0 — top real-usage items across both categories, for the pinned
@@ -544,8 +604,18 @@ export function RepairConsultSheet({
       const d = await fetchJson(`/api/repair-consult/${id}/items`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }),
       });
-      setTotals({ subtotal: d.subtotal, total: d.total });
-      setStep("gallery");
+      setTotals({ subtotal: d.subtotal, total: d.total, discountAmount: d.discountAmount, freeItemKey: d.freeItemKey });
+      // v20.19.0 — Listing Consult already collected walkthrough photos for
+      // this same visit; if that hand-off carried photos over, don't make the
+      // agent shoot/pick the same set again. Straight to Review. Standalone
+      // consults (or a nested one where Listing Consult had no photos yet)
+      // still get the normal Gallery step.
+      if (nestedFromListing && galleryUrls.length > 0) {
+        setGallerySkipped(true);
+        setStep("review");
+      } else {
+        setStep("gallery");
+      }
     } catch (e: any) { setError(e.message || "Failed to save checklist."); }
     finally { setSubmittingItems(false); }
   };
@@ -582,6 +652,19 @@ export function RepairConsultSheet({
 
   const hasVendorSelections = Object.entries(checked).some(([k, v]) => v.checked && vendorItems.some(vi => vi.key === k));
   const hasInHouseSelections = Object.entries(checked).some(([k, v]) => v.checked && inHouseItems.some(ii => ii.key === k));
+
+  // v20.19.0 — auto-fire both the in-house quote generation AND the vendor
+  // dispatch the instant Review is reached, instead of making the agent tap
+  // two separate buttons. This does NOT touch the Office Approval Gate —
+  // generating the quote PDF and requesting vendor bids never emails the
+  // client; only the separate "Send Branded Quote to Client" button (still
+  // manual, still gated on admin approval) does that.
+  useEffect(() => {
+    if (step !== "review" || !consultId) return;
+    if (hasInHouseSelections && !quoteResult && !generatingQuote) handleGenerateQuote();
+    if (hasVendorSelections && !vendorDispatchResult && !dispatchingVendors) handleDispatchVendors();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, consultId]);
 
   const stepIndex = { info: 0, checklist: 1, gallery: 2, review: 3 }[step];
 
@@ -751,6 +834,42 @@ export function RepairConsultSheet({
               <div style={{ padding: 30, textAlign: "center" }}><Loader2 size={20} className="animate-spin" style={{ color: GOLD }} /></div>
             ) : (
               <>
+                {packages.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px" }}>Packages — Bundle & Save</p>
+                    <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", margin: "0 0 10px" }}>Pick a bundle to auto-check its items and apply the discount below. Tap again to clear.</p>
+                    {TIER_ORDER.map(tier => {
+                      const tierPkgs = packages.filter(p => p.tier === tier);
+                      if (tierPkgs.length === 0) return null;
+                      return (
+                        <div key={tier} style={{ marginBottom: 10 }}>
+                          <p style={{ fontSize: 9.5, fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 6px" }}>{TIER_LABELS[tier]}</p>
+                          {tierPkgs.map(pkg => {
+                            const isSelected = selectedPackageKey === pkg.key;
+                            return (
+                              <button key={pkg.key} type="button" disabled={applyingPackage}
+                                onClick={() => handleSelectPackage(isSelected ? null : pkg)}
+                                style={{
+                                  display: "block", width: "100%", textAlign: "left", cursor: applyingPackage ? "default" : "pointer",
+                                  background: isSelected ? "rgba(200,170,90,0.14)" : "rgba(255,255,255,0.03)",
+                                  border: isSelected ? `1px solid ${GOLD}` : "1px solid rgba(255,255,255,0.08)",
+                                  borderRadius: 10, padding: 12, marginBottom: 8,
+                                }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{pkg.name}</span>
+                                  <span style={{ fontSize: 11.5, fontWeight: 800, color: isSelected ? GOLD : "rgba(255,255,255,0.5)" }}>{Math.round(pkg.discountPct * 100)}% off</span>
+                                </div>
+                                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", margin: "3px 0 0" }}>{pkg.description}</p>
+                                {isSelected && <p style={{ fontSize: 10.5, color: GOLD, margin: "6px 0 0", fontWeight: 600 }}>✓ Applied — items checked below</p>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {frequentItems.length > 0 && (
                   <div style={{ marginBottom: 16, background: "rgba(200,170,90,0.06)", border: `1px solid rgba(200,170,90,0.25)`, borderRadius: 12, padding: 12 }}>
                     <p style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 8px" }}>
@@ -836,16 +955,32 @@ export function RepairConsultSheet({
         {step === "review" && (
           <>
             {header("Review & Send", propertyAddress)}
+            {gallerySkipped && (
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -4, marginBottom: 12 }}>
+                Reused the walkthrough photos already captured during Listing Consult — no need to shoot them twice.
+              </p>
+            )}
             {totals && (
               <div style={{ ...cardStyle, background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.25)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                   <span style={{ fontSize: 12.5, color: "rgba(255,255,255,0.6)" }}>In-House Subtotal</span>
                   <span style={{ fontSize: 12.5, color: "#fff" }}>${totals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
+                {!!totals.discountAmount && (
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 12.5, color: "#7ed49a" }}>Package Discount{selectedPackageKey ? ` (${packages.find(p => p.key === selectedPackageKey)?.name || selectedPackageKey})` : ""}</span>
+                    <span style={{ fontSize: 12.5, color: "#7ed49a" }}>−${totals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Total</span>
                   <span style={{ fontSize: 15, fontWeight: 700, color: GOLD }}>${totals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
+                {totals.freeItemKey && (
+                  <p style={{ fontSize: 11.5, color: GOLD, marginTop: 8, fontWeight: 600 }}>
+                    ✓ Free: {catalog.find(i => i.key === totals.freeItemKey)?.name || totals.freeItemKey} (sign-today incentive)
+                  </p>
+                )}
                 <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 6 }}>50% deposit to begin / 50% on completion</p>
               </div>
             )}
@@ -853,7 +988,9 @@ export function RepairConsultSheet({
             {hasInHouseSelections && (
               <div style={{ marginBottom: 14 }}>
                 {!quoteResult ? (
-                  navButtons({ onNext: handleGenerateQuote, nextBusy: generatingQuote, nextLabel: "Generate In-House Quote" })
+                  <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
+                    <Loader2 size={15} className="animate-spin" style={{ color: GOLD }} /> Generating in-house quote…
+                  </div>
                 ) : (
                   <>
                     <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
@@ -880,14 +1017,9 @@ export function RepairConsultSheet({
               <div style={{ marginBottom: 14 }}>
                 <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Vendor Quote Requests</p>
                 {!vendorDispatchResult ? (
-                  <button onClick={handleDispatchVendors} disabled={dispatchingVendors} style={{
-                    width: "100%", padding: "12px 18px", borderRadius: 10, background: "rgba(255,255,255,0.08)",
-                    border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                  }}>
-                    {dispatchingVendors && <Loader2 size={15} className="animate-spin" />}
-                    Send Vendor Quote Requests
-                  </button>
+                  <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
+                    <Loader2 size={15} className="animate-spin" style={{ color: GOLD }} /> Sending vendor quote requests…
+                  </div>
                 ) : (
                   <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5 }}>
                     Sent {vendorDispatchResult.sent} vendor request{vendorDispatchResult.sent === 1 ? "" : "s"}.

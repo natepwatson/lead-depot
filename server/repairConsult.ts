@@ -62,6 +62,33 @@ function repairPdfDir(): string {
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
+
+// v20.18.0 — Auto front-of-house hero photo via Google Street View Static API,
+// for standalone Repair Consults (not nested from Listing Consult, which
+// already hands off its own captured photo). Mirrors listingConsult.ts's
+// fetchStreetViewPhoto exactly. Entirely optional at the infra level: with no
+// GOOGLE_MAPS_API_KEY set, or no imagery at that address, this quietly
+// returns null and the manual tap-to-photo flow is untouched.
+async function ensureStreetViewHero(address: string): Promise<string | null> {
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (!key || !address?.trim()) return null;
+  const loc = encodeURIComponent(address.trim());
+  try {
+    const metaRes = await fetch(`https://maps.googleapis.com/maps/api/streetview/metadata?location=${loc}&key=${key}`);
+    const meta = await metaRes.json().catch(() => ({} as any));
+    if (meta?.status !== "OK") return null; // ZERO_RESULTS, REQUEST_DENIED, etc.
+    const imgRes = await fetch(`https://maps.googleapis.com/maps/api/streetview?size=640x400&fov=80&location=${loc}&key=${key}`);
+    if (!imgRes.ok) return null;
+    const buf = Buffer.from(await imgRes.arrayBuffer());
+    const dir = repairPhotosDir();
+    const filename = `street-view-${Date.now()}.jpg`;
+    fs.writeFileSync(path.join(dir, filename), buf);
+    return `/repair-photos/${filename}`;
+  } catch (err) {
+    console.error("Repair Consult Street View fetch error:", err);
+    return null;
+  }
+}
 function brandLogoPath(): string {
   const prodPath = "/app/dist/public/brand-logo.jpg";
   const devPath = path.resolve(__dirname, "public", "brand-logo.jpg");
@@ -200,6 +227,37 @@ export function ensureRepairConsultSchema() {
     CREATE INDEX IF NOT EXISTS idx_repair_vendors_trade ON repair_vendors(trade);
     CREATE INDEX IF NOT EXISTS idx_repair_change_orders_consult ON repair_change_orders(consult_id);
     CREATE INDEX IF NOT EXISTS idx_repair_change_orders_status ON repair_change_orders(status);
+
+    -- v20.18.0 — Packages layer. Admin-editable bundles of existing catalog
+    -- items with a marketed discount off THOSE items' in-house subtotal only
+    -- (a la carte add-ons stay full price). item_keys is a JSON array so
+    -- Alex can retune contents/discount from the admin panel with no deploy.
+    CREATE TABLE IF NOT EXISTS repair_packages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT,
+      tier TEXT NOT NULL DEFAULT 'small',   -- small | medium | large | largest — display sort
+      discount_pct REAL NOT NULL DEFAULT 0, -- e.g. 0.10 = 10% off
+      item_keys TEXT NOT NULL,              -- JSON array of repair_items.key (in-house)
+      vendor_item_keys TEXT,                -- JSON array of repair_items.key (vendor, auto-dispatched on select)
+      sort_order INTEGER NOT NULL DEFAULT 100,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- v20.18.0 — Sign-Today free-service incentive. Single admin-editable row
+    -- (id always 1) so Alex can flip it on/off and retune threshold/free item
+    -- from the admin panel with no code deploy.
+    CREATE TABLE IF NOT EXISTS repair_incentive_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      active INTEGER NOT NULL DEFAULT 1,
+      threshold_amount REAL NOT NULL DEFAULT 1500,
+      free_item_key TEXT NOT NULL DEFAULT 'gutter_clean',
+      label TEXT NOT NULL DEFAULT 'Sign today and get Gutter Cleaning free',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // v20.9.0 — signing-method tracking + agreement PDF paths (ALTER TABLE is safe to run
@@ -230,7 +288,18 @@ export function ensureRepairConsultSchema() {
   const rciCols = (rawDb.prepare(`PRAGMA table_info(repair_consult_items)`).all() as any[]).map((c: any) => c.name);
   if (!rciCols.includes("change_order_id")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN change_order_id INTEGER").run();
 
+  // v20.18.0 — Packages + Sign-Today incentive + Street View hero default.
+  if (!rcCols.includes("package_key"))             rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN package_key TEXT").run();
+  if (!rcCols.includes("package_discount_pct"))    rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN package_discount_pct REAL DEFAULT 0").run();
+  if (!rcCols.includes("package_discount_amount")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN package_discount_amount REAL DEFAULT 0").run();
+  if (!rcCols.includes("free_item_applied_key"))   rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN free_item_applied_key TEXT").run();
+  // 'manual' | 'street_view' — manual upload always wins and is never
+  // overwritten by a later auto-fetch (see ensureStreetViewHero below).
+  if (!rcCols.includes("hero_photo_source"))       rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN hero_photo_source TEXT").run();
+
   seedRepairItems();
+  seedRepairPackages();
+  seedIncentiveSettings();
 }
 
 // ─── CATALOG SEED (idempotent — only inserts keys that don't exist yet) ─────
@@ -256,6 +325,18 @@ const IN_HOUSE_ITEMS: SeedItem[] = [
   { key: "screen_repair", category: "in_house", trade: "handyman", name: "Window Screen Repair/Replacement", unit: "each", rate: 45, min: 0, seq: 28, instruction: "Repair/replace {qty} window screen(s)." },
   { key: "outlet_cover", category: "in_house", trade: "handyman", name: "Outlet/Switch Cover Plate Replacement", unit: "each", rate: 8, min: 0, seq: 29, instruction: "Replace {qty} outlet/switch cover plate(s)." },
   { key: "blinds_install", category: "in_house", trade: "handyman", name: "Blinds Installation", unit: "each", rate: 35, min: 0, seq: 30, instruction: "Install {qty} blind(s)." },
+  // v20.18.0 — Instant Repair Quote scope expansion. Every new item carries a
+  // hard cap (Alex's "defined line drawn" rule) so agents never quote beyond
+  // what one visit can safely cover — anything bigger routes to a vendor item.
+  { key: "switch_replace", category: "in_house", trade: "handyman", name: "Light Switch Replacement", unit: "each", rate: 20, min: 0, seq: 31, instruction: "Replace {qty} light switch(es). Standard single-pole/3-way only — no smart-switch rewiring." },
+  { key: "outlet_replace", category: "in_house", trade: "handyman", name: "Outlet Replacement", unit: "each", rate: 22, min: 0, seq: 32, instruction: "Replace {qty} outlet(s). Standard 15/20A only — no GFCI or dedicated-circuit work." },
+  { key: "ceiling_fan_install", category: "in_house", trade: "handyman", name: "Ceiling Fan Replacement/Install", unit: "each", rate: 95, min: 95, seq: 33, instruction: "Replace/install {qty} ceiling fan(s). Requires existing electrical box/wiring — no new circuit run, standard fan up to 5 blades." },
+  { key: "curtain_rod_install", category: "in_house", trade: "handyman", name: "Curtain Rod Install", unit: "each", rate: 35, min: 0, seq: 34, instruction: "Install {qty} curtain rod(s), per window. Drywall/wood mount only — no stone/tile." },
+  { key: "light_fixture_replace", category: "in_house", trade: "handyman", name: "Small Light Fixture Replacement", unit: "each", rate: 65, min: 0, seq: 24.5, instruction: "Replace {qty} light fixture(s). Standard ceiling/wall fixture, existing wiring — nothing over 15 lbs." },
+  { key: "tv_mount_removal", category: "in_house", trade: "handyman", name: "TV Mount Removal & Patch", unit: "each", rate: 95, min: 95, seq: 24.6, instruction: "Remove {qty} TV wall mount(s) and patch the resulting holes. Covers up to 2 sqft of wall patch per mount — paint touch-up not included, add separately if needed." },
+  { key: "carpet_removal", category: "in_house", trade: "cleaning", name: "Carpet Removal & Haul", unit: "sqft", rate: 0.50, min: 200, seq: 67.5, instruction: "Remove and haul carpet — {qty} sqft. Cap 2,000 sqft per job, disposal included." },
+  // NOTE: TV mount INSTALLATION is intentionally never added to this catalog —
+  // out of scope per Alex. Only removal/patch (above) is a service we offer.
   { key: "pressure_wash_ext", category: "in_house", trade: "pressure_washing", name: "Pressure Washing — Exterior (Siding/Brick)", unit: "sqft", rate: 0.20, min: 200, twoStory: true, seq: 35, instruction: "Pressure wash exterior — {qty} sqft.{story}" },
   { key: "soft_wash_roof", category: "in_house", trade: "pressure_washing", name: "Soft Washing — Roof", unit: "sqft", rate: 0.35, min: 250, twoStory: true, seq: 36, instruction: "Soft wash roof — {qty} sqft.{story}" },
   { key: "pressure_wash_hard", category: "in_house", trade: "pressure_washing", name: "Pressure Washing — Driveway/Walkway/Patio", unit: "sqft", rate: 0.22, min: 150, seq: 37, instruction: "Pressure wash driveway/walkway/patio — {qty} sqft." },
@@ -310,6 +391,57 @@ const VENDOR_TRADES: SeedItem[] = [
 ];
 
 export const REPAIR_CATALOG_SEED: SeedItem[] = [...IN_HOUSE_ITEMS, ...VENDOR_TRADES];
+
+// v20.18.0 — Package ladder, small to large. discount is off the in-house
+// subtotal of ONLY the listed itemKeys — a la carte add-ons on top of a
+// package always stay full price. vendorItemKeys (if any) auto-dispatch to
+// that trade's vendor the moment the package is selected — no separate tap.
+interface SeedPackage {
+  key: string; name: string; description: string; tier: "small" | "medium" | "large" | "largest";
+  discountPct: number; itemKeys: string[]; vendorItemKeys?: string[]; sortOrder: number;
+}
+const REPAIR_PACKAGES: SeedPackage[] = [
+  { key: "punch_list", name: "Punch List Package", description: "Switch, outlet, cover plate, small fixture, curtain rod, TV mount removal & patch, drywall patch.", tier: "small", discountPct: 0.10, sortOrder: 10,
+    itemKeys: ["switch_replace", "outlet_replace", "outlet_cover", "light_fixture_replace", "curtain_rod_install", "tv_mount_removal", "drywall_patch"] },
+  { key: "lawn_service", name: "Lawn Service Package", description: "Mow, hedge trim, weed pull, mulching.", tier: "small", discountPct: 0.10, sortOrder: 20,
+    itemKeys: ["lawn_mow", "hedge_trim", "weed_pull", "mulching"] },
+  { key: "fresh_start_clean", name: "Fresh Start Clean", description: "Home clean plus junk out.", tier: "small", discountPct: 0.10, sortOrder: 30,
+    itemKeys: ["rough_clean", "junk_small"] },
+  { key: "deep_clean_pkg", name: "Deep Clean Package", description: "Deep clean plus carpet clean.", tier: "medium", discountPct: 0.10, sortOrder: 40,
+    itemKeys: ["deep_clean", "carpet_clean"] },
+  { key: "curb_refresh", name: "Curb & Refresh", description: "Pressure wash house + driveway, mow, hedge trim, weed pull.", tier: "medium", discountPct: 0.12, sortOrder: 50,
+    itemKeys: ["pressure_wash_ext", "pressure_wash_hard", "lawn_mow", "hedge_trim", "weed_pull"] },
+  { key: "quick_punch_clean", name: "Quick Punch + Clean", description: "Punch list items plus a deep clean.", tier: "medium", discountPct: 0.12, sortOrder: 60,
+    itemKeys: ["switch_replace", "outlet_replace", "outlet_cover", "light_fixture_replace", "curtain_rod_install", "tv_mount_removal", "drywall_patch", "deep_clean"] },
+  { key: "exterior_only", name: "Exterior-Only Package", description: "Pressure wash house + driveway, soft wash roof, mow, hedge trim, weed pull, exterior trim paint.", tier: "large", discountPct: 0.15, sortOrder: 70,
+    itemKeys: ["pressure_wash_ext", "pressure_wash_hard", "soft_wash_roof", "lawn_mow", "hedge_trim", "weed_pull", "paint_ext_trim"] },
+  { key: "interior_only", name: "Interior-Only Package", description: "Deep clean, carpet clean, full interior repaint, punch list items.", tier: "large", discountPct: 0.15, sortOrder: 80,
+    itemKeys: ["deep_clean", "carpet_clean", "paint_int_body", "paint_int_trim", "paint_int_ceiling", "switch_replace", "outlet_replace", "light_fixture_replace"] },
+  { key: "move_in_ready", name: "Move-In Ready", description: "Full interior repaint, deep clean, carpet clean.", tier: "large", discountPct: 0.15, sortOrder: 90,
+    itemKeys: ["paint_int_body", "paint_int_trim", "paint_int_ceiling", "deep_clean", "carpet_clean"] },
+  { key: "vacant_turnover", name: "Vacant Home Turnover", description: "Junk out (large), rough clean, pressure wash, mow, full interior repaint, carpet clean.", tier: "largest", discountPct: 0.18, sortOrder: 100,
+    itemKeys: ["junk_large", "rough_clean", "pressure_wash_ext", "lawn_mow", "paint_int_body", "paint_int_trim", "paint_int_ceiling", "carpet_clean"] },
+  { key: "smoke_remediation", name: "Smoke Remediation Package", description: "Full interior repaint, carpet removal, deep clean — plus HVAC duct cleaning (vendor, auto-dispatched).", tier: "largest", discountPct: 0.15, sortOrder: 110,
+    itemKeys: ["paint_int_body", "paint_int_trim", "paint_int_ceiling", "carpet_removal", "deep_clean"], vendorItemKeys: ["v_hvac"] },
+];
+
+function seedRepairPackages() {
+  const insert = rawDb.prepare(`
+    INSERT INTO repair_packages (key, name, description, tier, discount_pct, item_keys, vendor_item_keys, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(key) DO NOTHING
+  `);
+  const tx = rawDb.transaction(() => {
+    for (const p of REPAIR_PACKAGES) {
+      insert.run(p.key, p.name, p.description, p.tier, p.discountPct, JSON.stringify(p.itemKeys), p.vendorItemKeys ? JSON.stringify(p.vendorItemKeys) : null, p.sortOrder);
+    }
+  });
+  tx();
+}
+
+function seedIncentiveSettings() {
+  rawDb.prepare(`INSERT INTO repair_incentive_settings (id) VALUES (1) ON CONFLICT(id) DO NOTHING`).run();
+}
 
 function seedRepairItems() {
   const insert = rawDb.prepare(`
@@ -836,9 +968,24 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   page.drawText("Subtotal", { x: colAmtX - 70, y, size: 10, font, color: gray });
   page.drawText(`$${consult.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 10, font, color: black });
   y -= 18;
+  // v20.18.0 — show package discount (if any) as its own line before the total.
+  const green = rgb(0, 0.5, 0);
+  if (consult.package_discount_amount && Number(consult.package_discount_amount) > 0) {
+    const pkgRow = REPAIR_PACKAGES.find((p: any) => p.key === consult.package_key);
+    const pkgLabel = pkgRow ? `Package Discount (${pkgRow.name})` : "Package Discount";
+    page.drawText(pkgLabel.slice(0, 55), { x: colAmtX - 210, y, size: 9.5, font, color: green });
+    page.drawText(`-$${Number(consult.package_discount_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 9.5, font, color: green });
+    y -= 18;
+  }
   page.drawText("Total", { x: colAmtX - 70, y, size: 13, font: fontBold, color: black });
   page.drawText(`$${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 13, font: fontBold, color: black });
   y -= 16;
+  // v20.18.0 — sign-today free-item incentive, called out separately from pricing.
+  if (consult.free_item_applied_key) {
+    const freeItem = IN_HOUSE_ITEMS.find(i => i.key === consult.free_item_applied_key);
+    page.drawText(`\u2713 Free: ${freeItem?.name || consult.free_item_applied_key} (sign-today incentive)`, { x: 38, y, size: 9.5, font: fontBold, color: green });
+    y -= 16;
+  }
   page.drawText(`50% deposit: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}   /   50% on completion: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: colAmtX - 210, y, size: 8.5, font, color: gray });
   y -= 20;
   page.drawText(START_MOMENTUM_PDF_LINE, { x: 38, y, size: 9.5, font: fontBold, color: rgb(0, 0.35, 0) });
@@ -1378,14 +1525,36 @@ export function registerRepairConsultRoutes(app: Express) {
   // v20.14.4 — accepts an optional heroPhotoUrl so Listing Consult can hand
   // off its already-captured front-of-house photo directly at creation time,
   // instead of the agent re-taking the same photo for Repair Consult.
-  app.post("/api/repair-consult", (req: any, res: Response) => {
+  // v20.18.0 — when NOT handed a heroPhotoUrl (i.e. a standalone Repair
+  // Consult, not nested from Listing Consult), auto-fetch a Google Street
+  // View front-of-house shot as the default hero. Fully optional — silently
+  // no-ops without GOOGLE_MAPS_API_KEY or if imagery isn't found. Manual
+  // upload always wins and is never overwritten (see photo route below).
+  app.post("/api/repair-consult", async (req: any, res: Response) => {
     const { leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress, heroPhotoUrl } = req.body || {};
     if (!propertyAddress) return res.status(400).json({ error: "propertyAddress is required" });
+    let resolvedHero = heroPhotoUrl || null;
+    let heroSource: string | null = resolvedHero ? "manual" : null;
+    if (!resolvedHero) {
+      const streetViewUrl = await ensureStreetViewHero(propertyAddress);
+      if (streetViewUrl) { resolvedHero = streetViewUrl; heroSource = "street_view"; }
+    }
     const result = rawDb.prepare(`
-      INSERT INTO repair_consults (lead_id, agent_id, client_name, client_email, client_phone, property_address, hero_photo_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(leadId || null, agentId || req.currentAgent?.id || null, clientName || null, clientEmail || null, clientPhone || null, propertyAddress, heroPhotoUrl || null);
-    res.json({ id: result.lastInsertRowid });
+      INSERT INTO repair_consults (lead_id, agent_id, client_name, client_email, client_phone, property_address, hero_photo_url, hero_photo_source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(leadId || null, agentId || req.currentAgent?.id || null, clientName || null, clientEmail || null, clientPhone || null, propertyAddress, resolvedHero, heroSource);
+    res.json({ id: result.lastInsertRowid, heroPhotoUrl: resolvedHero });
+  });
+
+  // ── List active packages (Packages selector, checklist step). MUST be
+  // registered before the "/:id" GET below — same "mine" pitfall (Express
+  // would try to parse "packages" as a numeric id otherwise). ──
+  app.get("/api/repair-consult/packages", (req: any, res: Response) => {
+    const rows = rawDb.prepare(`SELECT * FROM repair_packages WHERE active = 1 ORDER BY sort_order ASC`).all() as any[];
+    res.json({ packages: rows.map(r => ({
+      key: r.key, name: r.name, description: r.description, tier: r.tier,
+      discountPct: r.discount_pct, itemKeys: JSON.parse(r.item_keys), vendorItemKeys: r.vendor_item_keys ? JSON.parse(r.vendor_item_keys) : [],
+    })) });
   });
 
   // ── v20.14.5 — In-progress consults for this agent (resume picker). MUST be
@@ -1444,7 +1613,10 @@ export function registerRepairConsultRoutes(app: Express) {
       const url = `/repair-photos/${filename}`;
 
       if (kind === "hero") {
-        rawDb.prepare(`UPDATE repair_consults SET hero_photo_url = ?, updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
+        // v20.18.0 — manual upload always wins; tag the source so a later
+        // Street View auto-fetch (there isn't one post-creation today, but
+        // this future-proofs it) never overwrites a manual choice.
+        rawDb.prepare(`UPDATE repair_consults SET hero_photo_url = ?, hero_photo_source = 'manual', updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
       } else if (kind === "gallery") {
         // v20.15.2 — each gallery entry is now { url, tag }, mirrors listing-consult pattern.
         const row = rawDb.prepare(`SELECT property_photos FROM repair_consults WHERE id = ?`).get(consultId) as any;
@@ -1475,11 +1647,34 @@ export function registerRepairConsultRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  // ── Select (or clear) a package on a consult. Auto-checked items are
+  // applied client-side; this just records the choice so /items can price
+  // the discount. Passing packageKey: null clears the selection. ──
+  app.post("/api/repair-consult/:id/select-package", (req: any, res: Response) => {
+    const consultId = parseInt(req.params.id);
+    const { packageKey } = req.body || {};
+    if (packageKey) {
+      const pkg = rawDb.prepare(`SELECT * FROM repair_packages WHERE key = ? AND active = 1`).get(packageKey) as any;
+      if (!pkg) return res.status(404).json({ error: "Package not found" });
+    }
+    rawDb.prepare(`UPDATE repair_consults SET package_key = ?, updated_at = datetime('now') WHERE id = ?`).run(packageKey || null, consultId);
+    res.json({ ok: true });
+  });
+
   // ── Submit checklist items in one pass ──
+  // v20.18.0 — applies the selected package's discount (if any) to the
+  // in-house subtotal of ONLY that package's item keys, then checks the
+  // sign-today free-service incentive against the discounted total.
   app.post("/api/repair-consult/:id/items", (req: any, res: Response) => {
     const consultId = parseInt(req.params.id);
     const { items } = req.body || {}; // [{ itemKey, quantity, twoStory, photos: [url], measurementNotes }]
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "items array is required" });
+
+    const consultRow = rawDb.prepare(`SELECT package_key FROM repair_consults WHERE id = ?`).get(consultId) as any;
+    const pkg = consultRow?.package_key
+      ? rawDb.prepare(`SELECT * FROM repair_packages WHERE key = ? AND active = 1`).get(consultRow.package_key) as any
+      : null;
+    const pkgItemKeys: string[] = pkg ? JSON.parse(pkg.item_keys) : [];
 
     const del = rawDb.prepare(`DELETE FROM repair_consult_items WHERE consult_id = ?`);
     const insert = rawDb.prepare(`
@@ -1490,6 +1685,7 @@ export function registerRepairConsultRoutes(app: Express) {
     const catalogStmt = rawDb.prepare(`SELECT * FROM repair_items WHERE key = ? AND active = 1`);
 
     let subtotal = 0;
+    let packageEligibleSubtotal = 0;
     let anyTwoStory = 0;
     const tx = rawDb.transaction(() => {
       del.run(consultId);
@@ -1503,6 +1699,7 @@ export function registerRepairConsultRoutes(app: Express) {
         if (cat.category === "in_house") {
           lineTotal = computeLineTotal(cat.default_rate || 0, qty, cat.min_charge || 0, twoStory, !!cat.two_story_eligible);
           subtotal += lineTotal;
+          if (pkg && pkgItemKeys.includes(cat.key)) packageEligibleSubtotal += lineTotal;
         }
         const instruction = fillInstruction(cat.instruction || cat.name, qty, cat.unit, twoStory);
         insert.run(
@@ -1514,13 +1711,22 @@ export function registerRepairConsultRoutes(app: Express) {
     });
     tx();
 
+    const discountPct = pkg ? Number(pkg.discount_pct) || 0 : 0;
+    const discountAmount = Math.round(packageEligibleSubtotal * discountPct * 100) / 100;
+    const total = Math.round((subtotal - discountAmount) * 100) / 100;
+
+    // Sign-today free-service incentive — evaluated against the discounted total.
+    const incentive = rawDb.prepare(`SELECT * FROM repair_incentive_settings WHERE id = 1`).get() as any;
+    const freeItemKey = (incentive?.active && total >= (incentive?.threshold_amount || Infinity)) ? incentive.free_item_key : null;
+
     rawDb.prepare(`
       UPDATE repair_consults SET subtotal = ?, total = ?, two_story = ?,
+        package_discount_pct = ?, package_discount_amount = ?, free_item_applied_key = ?,
         deposit_amount = ?, final_amount = ?, updated_at = datetime('now')
       WHERE id = ?
-    `).run(subtotal, subtotal, anyTwoStory, subtotal / 2, subtotal / 2, consultId);
+    `).run(subtotal, total, anyTwoStory, discountPct, discountAmount, freeItemKey, total / 2, total / 2, consultId);
 
-    res.json({ ok: true, subtotal, total: subtotal });
+    res.json({ ok: true, subtotal, discountAmount, total, freeItemKey });
   });
 
   // ── Set start window / specific date+time ──

@@ -128,7 +128,7 @@ export function ListingConsultSheet({
   leadId?: number | null; agentId?: number | null;
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
   onClose: () => void;
-  onLaunchRepairConsult: (prefill: { address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null }) => void;
+  onLaunchRepairConsult: (prefill: { address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null; galleryUrls?: string[] }) => void;
 }) {
   // v20.18.0 — four-page flow: prep → walkthrough → close → lockin. Debrief
   // is gone entirely (folded into close's inline "not moving forward" branch).
@@ -480,7 +480,7 @@ export function ListingConsultSheet({
     try {
       await ensureConsult();
       await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: true, mortgageBalance, buyingToo, buyingNotes, timeline });
-      onLaunchRepairConsult({ address: propertyAddress, name: clientName, email: clientEmail, phone: clientPhone, heroPhotoUrl });
+      onLaunchRepairConsult({ address: propertyAddress, name: clientName, email: clientEmail, phone: clientPhone, heroPhotoUrl, galleryUrls });
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
   };

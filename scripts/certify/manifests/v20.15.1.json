@@ -1,0 +1,26 @@
+{
+  "version": "v20.15.1",
+  "changes": [
+    "New: Change Orders for in-progress repair jobs. Agents request additional work found once a job has started (from the accepted-consult row in the admin Consults panel); office must approve in-house before anything reaches the client (mirrors the existing quote office-approval gate); client must always type their full name and e-sign the specific change order before it becomes billable \u2014 no emailed-notice-only path, regardless of dollar amount.",
+    "New table repair_change_orders (status: pending -> office_approved -> signed, or declined) plus nullable change_order_id on repair_consult_items.",
+    "New routes: POST /api/repair-consult/:id/change-orders (agent submit), GET /api/repair-consult/:id/change-orders (history), GET /api/admin/repair-change-orders (admin queue), POST /api/admin/repair-change-orders/:id/office-approve, POST /api/admin/repair-change-orders/:id/decline, GET /api/repair-change-order/:token (public), POST /api/repair-change-order/:token/sign (public e-sign).",
+    "New admin UI tab 'Change Orders' in RepairPricingVendorPanel.tsx with approve/decline actions and a request form reachable from ConsultsPanel's accepted rows.",
+    "New public client page RepairChangeOrderPage.tsx at /#/change-order/:token \u2014 client types full name to sign, same as the existing repair quote accept flow.",
+    "On sign: change order folds into repair_consult_items (category=in_house) and recalcConsultTotals recomputes the consult's subtotal/total/deposit_amount/final_amount \u2014 the existing 50/50 deposit-required gate is untouched."
+  ],
+  "endpoints": [
+    { "method": "GET", "path": "/api/admin/repair-change-orders", "auth": "admin", "expectStatus": 200, "expectKeys": ["changeOrders"] },
+    { "method": "GET", "path": "/api/repair-change-order/nonexistent-token-check", "expectStatus": 404, "expectKeys": ["error"] },
+    { "method": "GET", "path": "/api/health", "expectStatus": 200, "expectKeys": ["status", "version"] }
+  ],
+  "bundleMustContain": [
+    "/api/admin/repair-change-orders",
+    "/api/repair-change-order/",
+    "office-approve",
+    "Change Order",
+    "Sign & Approve"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "Purely additive release (new table, new routes, new admin tab, new public sign page) — nothing removed that needs an absence check. No live change orders exist yet at ship time, so no mathChecks (line_total = quantity * unit_rate, and post-sign newTotal = oldSubtotal + line_total) can run against real data until the first one is submitted and signed — verify those manually on the first real change order.",
+  "mathChecks": []
+}

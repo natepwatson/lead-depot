@@ -245,15 +245,50 @@ export function ListingConsultSheet({
   // v20.14.4 — optional target date per Lock In schedule item, captured live
   // at the appointment so nothing has to be chased down after the fact.
   const [lockinScheduleDates, setLockinScheduleDates] = useState<Record<string, string>>({});
+  // v20.15.1 — optional target time alongside the date, so the schedule row
+  // captures a real appointment window, not just a day.
+  const [lockinScheduleTimes, setLockinScheduleTimes] = useState<Record<string, string>>({});
   const [accessKeyOrCode, setAccessKeyOrCode] = useState("");
   const [gateCode, setGateCode] = useState("");
   const [ownerNames, setOwnerNames] = useState("");
   // v20.14.4 — most listings have two owners on title; second is optional.
   const [ownerNames2, setOwnerNames2] = useState("");
   const [showOwner2, setShowOwner2] = useState(false);
+  // v20.15.1 — Owner 2 phone/email, sourced from FUB search first (same
+  // pattern as the Write Offer buyer search) with manual entry as fallback.
+  const [owner2Query, setOwner2Query] = useState("");
+  const [owner2Results, setOwner2Results] = useState<{ id: number; name: string; email: string | null; phone: string | null }[]>([]);
+  const [owner2Searching, setOwner2Searching] = useState(false);
+  const [owner2Phone, setOwner2Phone] = useState("");
+  const [owner2Email, setOwner2Email] = useState("");
   const [accessPhone, setAccessPhone] = useState("");
   const [accessEmail, setAccessEmail] = useState("");
   const [contractSent, setContractSent] = useState(false);
+
+  // v20.15.1 — Owner 2 FUB search. Mirrors the Write Offer buyer pattern:
+  // the search box only autofills phone/email, never the legal-name field
+  // below it — FUB's display name can be a nickname, but the Lock In step
+  // needs the name exactly as it should appear on the contract.
+  useEffect(() => {
+    if (owner2Query.trim().length < 2) { setOwner2Results([]); return; }
+    const t = setTimeout(async () => {
+      setOwner2Searching(true);
+      try {
+        const r = await fetch(`/api/fub/contacts/search?q=${encodeURIComponent(owner2Query.trim())}`, { credentials: "include" });
+        const body = await r.json().catch(() => ({ results: [] }));
+        setOwner2Results(body.results || []);
+      } catch { setOwner2Results([]); }
+      finally { setOwner2Searching(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [owner2Query]);
+
+  const pickOwner2Contact = (c: { name: string; email: string | null; phone: string | null }) => {
+    setOwner2Phone(c.phone || "");
+    setOwner2Email(c.email || "");
+    setOwner2Query(c.name);
+    setOwner2Results([]);
+  };
 
   const [debriefResult, setDebriefResult] = useState("");
   const [debriefNotes, setDebriefNotes] = useState("");
@@ -400,6 +435,7 @@ export function ListingConsultSheet({
       if (data.lockin) {
         setLockinSchedule(data.lockin.schedule || {});
         setLockinScheduleDates(data.lockin.scheduleDates || {});
+        setLockinScheduleTimes(data.lockin.scheduleTimes || {});
         setContractSent(!!data.lockin.contractSent);
         // v20.14.6 — restore the six granular access fields when present.
         setAccessKeyOrCode(data.lockin.accessKeyOrCode || "");
@@ -407,6 +443,9 @@ export function ListingConsultSheet({
         setOwnerNames(data.lockin.ownerNames || "");
         setOwnerNames2(data.lockin.ownerNames2 || "");
         if (data.lockin.ownerNames2) setShowOwner2(true);
+        // v20.15.1 — restore Owner 2 phone/email.
+        setOwner2Phone(data.lockin.owner2Phone || "");
+        setOwner2Email(data.lockin.owner2Email || "");
         // Use the freshly-fetched row values (d.client_phone/email), not the
         // clientPhone/clientEmail state vars — those setState calls above
         // haven't flushed yet inside this same synchronous function body.
@@ -488,15 +527,25 @@ export function ListingConsultSheet({
   const handleLockinNext = async () => {
     setError(""); setSaving(true);
     try {
+      const owner1Contact = [accessPhone, accessEmail].filter(Boolean).join(" / ");
+      const owner2Contact = [owner2Phone, owner2Email].filter(Boolean).join(" / ");
       await saveSection("lockin", {
         schedule: lockinSchedule,
         scheduleDates: lockinScheduleDates,
+        scheduleTimes: lockinScheduleTimes,
         // v20.14.6 — persist the raw access fields too (not just the derived
         // accessNotes summary) so a resumed consult can refill each input
         // instead of coming back blank. accessNotes stays as-is — it's what
         // the debrief email actually reads.
         accessKeyOrCode, gateCode, ownerNames, ownerNames2, accessPhone, accessEmail,
-        accessNotes: [accessKeyOrCode && `Key/Code: ${accessKeyOrCode}`, gateCode && `Gate: ${gateCode}`, ownerNames && `Owners: ${[ownerNames, ownerNames2].filter(Boolean).join(" & ")}`, accessPhone, accessEmail].filter(Boolean).join(" · "),
+        owner2Phone, owner2Email,
+        accessNotes: [
+          accessKeyOrCode && `Key/Code: ${accessKeyOrCode}`,
+          gateCode && `Gate: ${gateCode}`,
+          ownerNames && `Owners: ${[ownerNames, ownerNames2].filter(Boolean).join(" & ")}`,
+          owner1Contact && `Owner 1: ${owner1Contact}`,
+          showOwner2 && owner2Contact && `Owner 2: ${owner2Contact}`,
+        ].filter(Boolean).join(" · "),
         contractSent,
       });
       setStep("debrief");
@@ -697,17 +746,9 @@ export function ListingConsultSheet({
             {needsRepairs === "yes" && (
               <div style={cardStyle}>
                 <label style={labelStyle}>Quick Repair Notes</label>
-                <input style={{ ...inputStyle, marginBottom: 10 }} value={repairNotes} onChange={e => setRepairNotes(e.target.value)} placeholder="What you're seeing — detail happens in Repair Consult" />
-                <button type="button" onClick={handleOpenRepairConsult} disabled={saving} style={{
-                  width: "100%", padding: "12px 14px", borderRadius: 10, cursor: saving ? "default" : "pointer",
-                  background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
-                  color: "#fff", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                }}>
-                  {saving ? <Loader2 size={15} className="animate-spin" /> : <Wrench size={15} style={{ color: GOLD }} />}
-                  Open Repair Consult
-                </button>
-                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8 }}>
-                  Scope items + generate the repair list there, then come right back here — this listing consult stays open.
+                <input style={{ ...inputStyle }} value={repairNotes} onChange={e => setRepairNotes(e.target.value)} placeholder="What you're seeing — mention the repair program, don't scope it yet" />
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8, marginBottom: 0 }}>
+                  Just a flag for now — the Repair Consult only opens once they say yes to listing, on the Lock It In step.
                 </p>
               </div>
             )}
@@ -798,19 +839,62 @@ export function ListingConsultSheet({
         {step === "lockin" && (
           <>
             {header("Lock It In", "Schedule + access — moves fast once signed")}
-            <label style={labelStyle}>Schedule</label>
-            {LOCKIN_SCHEDULE_ITEMS.map(item => (
-              <div key={item} style={{ marginBottom: 8 }}>
-                <Chip label={item} checked={!!lockinSchedule[item]} onToggle={() => toggleChip(lockinSchedule, setLockinSchedule, item)} />
-                <input
-                  type="date"
-                  style={{ ...inputStyle, marginTop: -2 }}
-                  value={lockinScheduleDates[item] || ""}
-                  onChange={e => setLockinScheduleDates(prev => ({ ...prev, [item]: e.target.value }))}
-                  placeholder="Date (optional)"
-                />
+            {needsRepairs === "yes" && (
+              <div style={cardStyle}>
+                <label style={labelStyle}>Repairs Flagged During Walkthrough</label>
+                {repairNotes && (
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginTop: -2, marginBottom: 10 }}>{repairNotes}</p>
+                )}
+                <button type="button" onClick={handleOpenRepairConsult} disabled={saving} style={{
+                  width: "100%", padding: "12px 14px", borderRadius: 10, cursor: saving ? "default" : "pointer",
+                  background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
+                  color: "#fff", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}>
+                  {saving ? <Loader2 size={15} className="animate-spin" /> : <Wrench size={15} style={{ color: GOLD }} />}
+                  Open Repair Consult
+                </button>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8, marginBottom: 0 }}>
+                  They said yes — scope items and build an instant quote to help close while you're still in the room. Nate or Alex still has to approve it before it goes to the client.
+                </p>
               </div>
-            ))}
+            )}
+            <label style={labelStyle}>Schedule</label>
+            {LOCKIN_SCHEDULE_ITEMS.map(item => {
+              const checked = !!lockinSchedule[item];
+              return (
+                <div key={item} style={{ display: "flex", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
+                  <button type="button" onClick={() => toggleChip(lockinSchedule, setLockinSchedule, item)} style={{
+                    display: "flex", alignItems: "center", gap: 6, flex: "1 1 42%", minWidth: 0, textAlign: "left",
+                    padding: "8px 8px", borderRadius: 8, cursor: "pointer",
+                    background: checked ? "rgba(200,170,90,0.14)" : "rgba(255,255,255,0.04)",
+                    border: checked ? "1px solid rgba(200,170,90,0.5)" : "1px solid rgba(255,255,255,0.1)",
+                    color: checked ? GOLD : "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: checked ? 700 : 500,
+                  }}>
+                    <span style={{
+                      width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+                      border: checked ? "none" : "1.5px solid rgba(255,255,255,0.3)",
+                      background: checked ? GOLD : "transparent",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {checked && <CheckCircle2 size={10} style={{ color: "#0c0b0a" }} />}
+                    </span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item}</span>
+                  </button>
+                  <input
+                    type="date"
+                    style={{ ...inputStyle, flex: "1 1 30%", minWidth: 0, padding: "7px 6px", fontSize: 11.5 }}
+                    value={lockinScheduleDates[item] || ""}
+                    onChange={e => setLockinScheduleDates(prev => ({ ...prev, [item]: e.target.value }))}
+                  />
+                  <input
+                    type="time"
+                    style={{ ...inputStyle, flex: "1 1 28%", minWidth: 0, padding: "7px 6px", fontSize: 11.5 }}
+                    value={lockinScheduleTimes[item] || ""}
+                    onChange={e => setLockinScheduleTimes(prev => ({ ...prev, [item]: e.target.value }))}
+                  />
+                </div>
+              );
+            })}
             <label style={{ ...labelStyle, marginTop: 10 }}>Access</label>
             <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
               <input style={inputStyle} value={accessKeyOrCode} onChange={e => setAccessKeyOrCode(e.target.value)} placeholder="Key or Code?" />
@@ -818,7 +902,37 @@ export function ListingConsultSheet({
             </div>
             <input style={{ ...inputStyle, marginBottom: showOwner2 ? 8 : 6 }} value={ownerNames} onChange={e => setOwnerNames(e.target.value)} placeholder={showOwner2 ? "Owner 1 Full Legal Name" : "Owner Full Legal Name"} />
             {showOwner2 ? (
-              <input style={{ ...inputStyle, marginBottom: 10 }} value={ownerNames2} onChange={e => setOwnerNames2(e.target.value)} placeholder="Owner 2 Full Legal Name" />
+              <>
+                <label style={{ ...labelStyle, marginTop: 2 }}>Find Owner 2 in FUB</label>
+                <div style={{ position: "relative", marginBottom: 8 }}>
+                  <input style={inputStyle} value={owner2Query} onChange={e => setOwner2Query(e.target.value)} placeholder="Type owner name to search Follow Up Boss…" />
+                  {owner2Searching && (
+                    <Loader2 size={14} className="animate-spin" style={{ position: "absolute", right: 12, top: 13, color: GOLD }} />
+                  )}
+                  {owner2Results.length > 0 && (
+                    <div style={{
+                      position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20,
+                      background: "#1a1815", border: "1px solid rgba(200,170,90,0.35)", borderRadius: 8,
+                      maxHeight: 200, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                    }}>
+                      {owner2Results.map(c => (
+                        <button key={c.id} type="button" onClick={() => pickOwner2Contact(c)} style={{
+                          display: "block", width: "100%", textAlign: "left", padding: "9px 12px", cursor: "pointer",
+                          background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#fff",
+                        }}>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{[c.phone, c.email].filter(Boolean).join(" · ") || "No phone/email on file"}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <input style={{ ...inputStyle, marginBottom: 8 }} value={ownerNames2} onChange={e => setOwnerNames2(e.target.value)} placeholder="Owner 2 Full Legal Name" />
+                <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                  <input style={inputStyle} value={owner2Phone} onChange={e => setOwner2Phone(e.target.value)} placeholder="Owner 2 Phone" />
+                  <input style={inputStyle} value={owner2Email} onChange={e => setOwner2Email(e.target.value)} placeholder="Owner 2 Email" />
+                </div>
+              </>
             ) : (
               <button type="button" onClick={() => setShowOwner2(true)} style={{
                 background: "none", border: "none", color: GOLD, fontSize: 12, fontWeight: 600, cursor: "pointer",

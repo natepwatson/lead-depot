@@ -5,7 +5,7 @@
 // The repair-scoping question lives inside Step 2 (Preview the Home) and can
 // hand off into the existing Repair Consult tool mid-appointment; the parent
 // (AgentView) is responsible for swapping back to this sheet when that closes.
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { CheckCircle2, ChevronRight, ChevronLeft, X, Wrench, Loader2, Camera } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 
@@ -120,7 +120,12 @@ export function ListingConsultSheet({
   onClose: () => void;
   onLaunchRepairConsult: (prefill: { address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null }) => void;
 }) {
-  const [step, setStep] = useState<"prep" | "preview" | "intel" | "presentation" | "close" | "lockin" | "debrief">("prep");
+  // v20.16.0 — Streamline: "presentation" was a standalone step that was
+  // just a 6-item checklist with no other fields — its own full Next tap +
+  // network save for content that belongs right alongside the pricing
+  // conversation. Folded into the top of "close" (now "Present & Close"),
+  // cutting total steps from 7 to 6 per Alex's "takes too long" feedback.
+  const [step, setStep] = useState<"prep" | "preview" | "intel" | "close" | "lockin" | "debrief">("prep");
   const [consultId, setConsultId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -316,17 +321,36 @@ export function ListingConsultSheet({
   const [debriefSent, setDebriefSent] = useState(false);
   const [sendingDebrief, setSendingDebrief] = useState(false);
 
+  // v20.16.0 — Fix for the duplicate-consult creation bug (double POST on the
+  // very first "Next" tap): handlePrepNext calls `ensureConsult()` directly,
+  // then `saveSection("prep", ...)`, which internally falls back to its own
+  // `ensureConsult()` call. Both closures were reading the React `consultId`
+  // STATE variable, which is frozen to this render's value (null) — state
+  // updates from the first call don't mutate that already-captured variable,
+  // so the second call always saw null and POSTed a second row, every time.
+  // Refs mutate in place and are shared across every closure regardless of
+  // which render created them, so gating on a ref instead of state closes the
+  // race. The in-flight-promise ref also collapses truly concurrent calls
+  // (e.g. a fast double-tap) into a single POST.
+  const consultIdRef = useRef<number | null>(null);
+  const creatingPromiseRef = useRef<Promise<number> | null>(null);
   const ensureConsult = async (): Promise<number> => {
-    if (consultId) return consultId;
-    setCreating(true);
-    try {
-      const d = await fetchJson("/api/listing-consult", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress }),
-      });
-      setConsultId(d.id);
-      return d.id;
-    } finally { setCreating(false); }
+    if (consultIdRef.current) return consultIdRef.current;
+    if (creatingPromiseRef.current) return creatingPromiseRef.current;
+    const p = (async () => {
+      setCreating(true);
+      try {
+        const d = await fetchJson("/api/listing-consult", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress }),
+        });
+        consultIdRef.current = d.id;
+        setConsultId(d.id);
+        return d.id as number;
+      } finally { setCreating(false); creatingPromiseRef.current = null; }
+    })();
+    creatingPromiseRef.current = p;
+    return p;
   };
 
   const saveSection = async (section: string, patch: Record<string, any>, id?: number) => {
@@ -425,6 +449,7 @@ export function ListingConsultSheet({
     setResumePhase("ready"); setError("");
     try {
       const d = await fetchJson(`/api/listing-consult/${id}`);
+      consultIdRef.current = d.id;
       setConsultId(d.id);
       setClientName(d.client_name || "");
       setClientEmail(d.client_email || "");
@@ -450,9 +475,14 @@ export function ListingConsultSheet({
         setBuyingToo(data.intel.buyingToo || "");
         setBuyingNotes(data.intel.buyingNotes || "");
         setTimeline(data.intel.timeline || "");
-        nextStep = "presentation";
+        nextStep = "close";
       }
-      if (data.presentation) { setPresentationChecklist(data.presentation.covered || {}); nextStep = "close"; }
+      // v20.16.0 — "presentation" is no longer its own step (folded into
+      // "close"), so hydrating it no longer advances nextStep — only
+      // data.close (the step that now actually gets saved last) does. A
+      // consult saved under the old 7-step flow with presentation done but
+      // close not yet saved will correctly resume on the merged close step.
+      if (data.presentation) { setPresentationChecklist(data.presentation.covered || {}); }
       if (data.pricing) {
         setRecommendedPrice(data.pricing.recommendedPrice || "");
         setReviewedComps(!!data.pricing.reviewedComps);
@@ -543,15 +573,6 @@ export function ListingConsultSheet({
     setError(""); setSaving(true);
     try {
       await saveSection("intel", { desiredPrice, motivation, mortgageBalance, buyingToo, buyingNotes, timeline });
-      setStep("presentation");
-    } catch (e: any) { setError(e.message || "Failed to save."); }
-    finally { setSaving(false); }
-  };
-
-  const handlePresentationNext = async () => {
-    setError(""); setSaving(true);
-    try {
-      await saveSection("presentation", { covered: presentationChecklist });
       setStep("close");
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
@@ -561,9 +582,12 @@ export function ListingConsultSheet({
   // (Pricing tiers reference page, then Close) for what is really one
   // decision point in the appointment: what price did they agree to, and
   // are they ready to move.
+  // v20.16.0 — presentation checklist now saves here too (folded into this
+  // step's single Next tap instead of its own separate step + save).
   const handleCloseNext = async () => {
     setError(""); setSaving(true);
     try {
+      await saveSection("presentation", { covered: presentationChecklist });
       await saveSection("pricing", { recommendedPrice, reviewedComps });
       await saveSection("close", { readyToStart, startTiming, repairsOrReady, holdingBack, finalListingPrice });
       setStep(readyToStart === "yes" ? "lockin" : "debrief");
@@ -613,8 +637,8 @@ export function ListingConsultSheet({
     finally { setSendingDebrief(false); }
   };
 
-  const stepOrder = ["prep", "preview", "intel", "presentation", "close", readyToStart === "yes" ? "lockin" : null, "debrief"].filter(Boolean) as string[];
-  const stepLabels: Record<string, string> = { prep: "Prep", preview: "Preview", intel: "Intel", presentation: "Present", close: "Close", lockin: "Lock In", debrief: "Debrief" };
+  const stepOrder = ["prep", "preview", "intel", "close", readyToStart === "yes" ? "lockin" : null, "debrief"].filter(Boolean) as string[];
+  const stepLabels: Record<string, string> = { prep: "Prep", preview: "Preview", intel: "Intel", close: "Present & Close", lockin: "Lock In", debrief: "Debrief" };
   const stepIdx = stepOrder.indexOf(step);
 
   const header = (title: string, sub: string) => (
@@ -865,23 +889,27 @@ export function ListingConsultSheet({
           </>
         )}
 
-        {step === "presentation" && (
+        {step === "close" && (
           <>
-            {header("Sales Presentation", "What you covered with the client")}
+            {header("Present & Close", "What you covered, the price, and are they ready?")}
+            <label style={labelStyle}>Sales Presentation — What You Covered</label>
             {PRESENTATION_ITEMS.map(item => (
               <Chip key={item} label={item} checked={!!presentationChecklist[item]} onToggle={() => toggleChip(presentationChecklist, setPresentationChecklist, item)} />
             ))}
-            {navButtons({ onBack: () => setStep("intel"), onNext: handlePresentationNext, nextBusy: saving })}
-          </>
-        )}
-
-        {step === "close" && (
-          <>
-            {header("Price & Close", "What they agreed to, and are they ready?")}
+            <div style={{ height: 6 }} />
             <Chip label="Reviewed Comps with Client" checked={reviewedComps} onToggle={() => setReviewedComps(!reviewedComps)} />
             <label style={labelStyle}>Recommended List Price (optional)</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={recommendedPrice} onChange={e => setRecommendedPrice(e.target.value)} placeholder="$" />
-            <label style={labelStyle}>Final Listing Price (what the seller agreed to)</label>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>Final Listing Price (what the seller agreed to)</label>
+              {/* v20.16.0 — most closes agree at the recommended number; one tap
+                  copies it over instead of retyping the same figure. */}
+              {!!recommendedPrice.trim() && (
+                <button type="button" onClick={() => setFinalListingPrice(recommendedPrice)} style={{
+                  background: "none", border: "none", color: GOLD, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0,
+                }}>Same as Recommended</button>
+              )}
+            </div>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={finalListingPrice} onChange={e => setFinalListingPrice(e.target.value)} placeholder="$" />
             <label style={labelStyle}>Ready to Get Started?</label>
             <div style={{ marginBottom: 14 }}>
@@ -897,7 +925,7 @@ export function ListingConsultSheet({
             </div>
             <label style={labelStyle}>What's Holding Them Back?</label>
             <textarea style={textareaStyle} value={holdingBack} onChange={e => setHoldingBack(e.target.value)} placeholder="Only if not moving forward yet" />
-            {navButtons({ onBack: () => setStep("presentation"), onNext: handleCloseNext, nextBusy: saving, nextLabel: readyToStart === "yes" ? "Lock It In" : "Continue to Debrief" })}
+            {navButtons({ onBack: () => setStep("intel"), onNext: handleCloseNext, nextBusy: saving, nextLabel: readyToStart === "yes" ? "Lock It In" : "Continue to Debrief" })}
           </>
         )}
 

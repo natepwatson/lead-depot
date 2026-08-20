@@ -1352,9 +1352,26 @@ export function registerRepairConsultRoutes(app: Express) {
   ensureRepairConsultSchema();
 
   // ── Catalog (agent-facing checklist source) ──
+  // v20.16.0 — also returns a `popularity` map of item_key -> times actually
+  // selected across real past consults, so the client can surface a
+  // "Frequently Selected" shortlist at the top of the checklist instead of
+  // forcing every walkthrough through the full 62-item, 39-trade list.
+  // Genuine usage data only — excludes archived rows and anything from a
+  // TEST-DELETE-ME gate-verification consult so QA runs never pollute what
+  // agents see as "commonly picked."
   app.get("/api/repair-items", (_req: Request, res: Response) => {
     const items = rawDb.prepare(`SELECT * FROM repair_items WHERE active = 1 ORDER BY category, sequence_order ASC`).all();
-    res.json({ items });
+    const popRows = rawDb.prepare(`
+      SELECT rci.item_key AS key, COUNT(*) AS n
+      FROM repair_consult_items rci
+      JOIN repair_consults rc ON rc.id = rci.consult_id
+      WHERE (rc.property_address NOT LIKE '%TEST-DELETE-ME%' OR rc.property_address IS NULL)
+        AND rc.status <> 'archived'
+      GROUP BY rci.item_key
+    `).all() as { key: string; n: number }[];
+    const popularity: Record<string, number> = {};
+    for (const r of popRows) popularity[r.key] = r.n;
+    res.json({ items, popularity });
   });
 
   // ── Create consult ──

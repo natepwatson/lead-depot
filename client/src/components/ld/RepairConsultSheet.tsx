@@ -8,8 +8,8 @@
 // Alex+Nate+Denise immediately; "Send to Client" delivers the branded
 // proposal + accept link; "Request Vendor Quotes" fires trade-specific
 // quote-request emails with photos to our preferred vendors.
-import { useEffect, useMemo, useState } from "react";
-import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, X } from "lucide-react";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 
 type RepairItem = {
@@ -196,6 +196,14 @@ export function RepairConsultSheet({
   const [catalog, setCatalog] = useState<RepairItem[]>([]);
   const [checked, setChecked] = useState<Record<string, CheckedState>>({});
   const [catalogLoading, setCatalogLoading] = useState(true);
+  // v20.16.0 — real usage-frequency map from past consults (item_key -> times
+  // actually selected), used to surface a "Frequently Selected" shortlist and
+  // to auto-expand trades that have real history. Not AI, not a guess — just
+  // a count of what agents have actually picked before.
+  const [popularity, setPopularity] = useState<Record<string, number>>({});
+  // v20.16.0 — default-collapsed trade accordions cut the scroll/tap count on
+  // first load; a trade auto-expands once it has a checked item in it (below).
+  const [expandedTrades, setExpandedTrades] = useState<Record<string, boolean>>({});
 
   // v20.13.0 — start window/date/time are no longer captured in this wizard;
   // scheduling happens later from the admin panel once deposit is received.
@@ -218,7 +226,7 @@ export function RepairConsultSheet({
 
   useEffect(() => {
     fetchJson("/api/repair-items")
-      .then(d => setCatalog(d.items || []))
+      .then(d => { setCatalog(d.items || []); setPopularity(d.popularity || {}); })
       .catch(() => setError("Couldn't load the repair catalog. Try again."))
       .finally(() => setCatalogLoading(false));
   }, []);
@@ -263,17 +271,125 @@ export function RepairConsultSheet({
     });
   };
 
+  // v20.16.0 — top real-usage items across both categories, for the pinned
+  // "Frequently Selected" shortlist. Genuine counts from past consults only
+  // (server already excludes archived + TEST-DELETE-ME gate runs) — this is
+  // NOT AI-guessed, it's what agents have actually picked before.
+  const frequentItems = useMemo(
+    () => catalog.filter(it => (popularity[it.key] || 0) > 0).sort((a, b) => (popularity[b.key] || 0) - (popularity[a.key] || 0)).slice(0, 6),
+    [catalog, popularity]
+  );
+  const toggleTrade = (trade: string) => setExpandedTrades(prev => ({ ...prev, [trade]: !isTradeExpanded(trade) }));
+  const isTradeExpanded = (trade: string) => {
+    if (trade in expandedTrades) return expandedTrades[trade];
+    // auto-expand a trade group that already has a checked item in it
+    // (e.g. resuming a saved consult) so nothing looks hidden/lost.
+    return catalog.some(it => it.trade === trade && checked[it.key]?.checked);
+  };
+  const tradeHeaderRow = (trade: string, items: RepairItem[]) => {
+    const checkedCount = items.filter(it => checked[it.key]?.checked).length;
+    const expanded = isTradeExpanded(trade);
+    return (
+      <button type="button" onClick={() => toggleTrade(trade)} style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+        background: "none", border: "none", cursor: "pointer", padding: "4px 0 6px", textAlign: "left",
+      }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: "rgba(255,255,255,0.4)", fontWeight: 700, letterSpacing: "0.06em" }}>
+          {TRADE_LABELS[trade] || trade}
+          {checkedCount > 0 && (
+            <span style={{ background: GOLD, color: "#0c0b0a", borderRadius: 8, fontSize: 9.5, fontWeight: 800, padding: "1px 6px" }}>{checkedCount} selected</span>
+          )}
+        </span>
+        <ChevronDown size={14} style={{ color: "rgba(255,255,255,0.4)", transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+      </button>
+    );
+  };
+
+  // v20.16.0 — factored out of the trade-group loop so the same card can also
+  // render inside the pinned "Frequently Selected" shortlist without
+  // duplicating markup or risking the two views drifting out of sync (both
+  // read/write the same `checked` state by key, so toggling either copy
+  // toggles the one underlying selection).
+  const renderInHouseCard = (it: RepairItem) => {
+    const st = checked[it.key];
+    return (
+      <div key={it.key} style={cardStyle}>
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!st?.checked} onChange={e => setItemState(it.key, { checked: e.target.checked })} style={{ marginTop: 3, width: 18, height: 18, accentColor: GOLD }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 13.5, color: "#fff", fontWeight: 600, margin: 0 }}>{it.name}</p>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", margin: "2px 0 0" }}>
+              {it.unit === "flat" ? `$${it.default_rate?.toFixed(2)} flat` : `$${it.default_rate?.toFixed(2)}/${it.unit === "each" ? "ea" : it.unit.replace("_", " ")} · min $${it.min_charge}`}
+            </p>
+          </div>
+        </label>
+        {st?.checked && (
+          <div style={{ marginTop: 10, paddingLeft: 28 }}>
+            {it.unit !== "flat" && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                <input type="number" min={0} step="any" value={st.quantity} onChange={e => setItemState(it.key, { quantity: e.target.value })}
+                  style={{ ...inputStyle, width: 90 }} />
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>{it.unit === "each" ? "count" : it.unit.replace("_", " ")}</span>
+              </div>
+            )}
+            {!!it.two_story_eligible && (
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 12, color: "rgba(255,255,255,0.6)" }}>
+                <input type="checkbox" checked={st.twoStory} onChange={e => setItemState(it.key, { twoStory: e.target.checked })} style={{ accentColor: GOLD }} />
+                Two-story (+25% surcharge)
+              </label>
+            )}
+            <input placeholder="Measurement notes (optional)" value={st.measurementNotes} onChange={e => setItemState(it.key, { measurementNotes: e.target.value })}
+              style={{ ...inputStyle, fontSize: 12.5 }} />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderVendorCard = (it: RepairItem) => {
+    const st = checked[it.key];
+    return (
+      <div key={it.key} style={cardStyle}>
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!st?.checked} onChange={e => setItemState(it.key, { checked: e.target.checked })} style={{ marginTop: 3, width: 18, height: 18, accentColor: "rgba(255,255,255,0.6)" }} />
+          <p style={{ fontSize: 13.5, color: "#fff", fontWeight: 600, margin: 0 }}>{TRADE_LABELS[it.trade] || it.name}</p>
+        </label>
+        {st?.checked && (
+          <div style={{ marginTop: 10, paddingLeft: 28 }}>
+            <input placeholder="Notes for the vendor (scope, measurements, etc.)" value={st.measurementNotes} onChange={e => setItemState(it.key, { measurementNotes: e.target.value })}
+              style={{ ...inputStyle, fontSize: 12.5 }} />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // v20.16.0 — same ref-based fix as ListingConsultSheet: gate on a ref
+  // (updates in place, visible to every closure) instead of the `consultId`
+  // state variable (frozen per-render), and collapse concurrent calls into
+  // one in-flight promise. Defensive here since no call site currently
+  // chains ensureConsult()+another ensureConsult()-calling function the way
+  // ListingConsultSheet's handlePrepNext did, but this closes the same class
+  // of bug against a fast double-tap and any future call site.
+  const consultIdRef = useRef<number | null>(null);
+  const creatingPromiseRef = useRef<Promise<number> | null>(null);
   const ensureConsult = async (): Promise<number> => {
-    if (consultId) return consultId;
-    setCreating(true);
-    try {
-      const d = await fetchJson("/api/repair-consult", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress, heroPhotoUrl: prefillHeroPhotoUrl || null }),
-      });
-      setConsultId(d.id);
-      return d.id;
-    } finally { setCreating(false); }
+    if (consultIdRef.current) return consultIdRef.current;
+    if (creatingPromiseRef.current) return creatingPromiseRef.current;
+    const p = (async () => {
+      setCreating(true);
+      try {
+        const d = await fetchJson("/api/repair-consult", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress, heroPhotoUrl: prefillHeroPhotoUrl || null }),
+        });
+        consultIdRef.current = d.id;
+        setConsultId(d.id);
+        return d.id as number;
+      } finally { setCreating(false); creatingPromiseRef.current = null; }
+    })();
+    creatingPromiseRef.current = p;
+    return p;
   };
 
   // v20.14.6 — Archive (soft-delete) a consult straight from the resume
@@ -296,6 +412,7 @@ export function RepairConsultSheet({
     setResumePhase("ready"); setError("");
     try {
       const d = await fetchJson(`/api/repair-consult/${id}`);
+      consultIdRef.current = d.id;
       setConsultId(d.id);
       setClientName(d.client_name || "");
       setClientEmail(d.client_email || "");
@@ -634,68 +751,29 @@ export function RepairConsultSheet({
               <div style={{ padding: 30, textAlign: "center" }}><Loader2 size={20} className="animate-spin" style={{ color: GOLD }} /></div>
             ) : (
               <>
+                {frequentItems.length > 0 && (
+                  <div style={{ marginBottom: 16, background: "rgba(200,170,90,0.06)", border: `1px solid rgba(200,170,90,0.25)`, borderRadius: 12, padding: 12 }}>
+                    <p style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 8px" }}>
+                      <Star size={12} style={{ fill: GOLD }} /> Frequently Selected
+                    </p>
+                    <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", margin: "-4px 0 8px" }}>Based on what's actually been picked on past consults — not a guess.</p>
+                    {frequentItems.map(it => it.category === "in_house" ? renderInHouseCard(it) : renderVendorCard(it))}
+                  </div>
+                )}
+
                 <p style={{ fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: "0.08em", textTransform: "uppercase", margin: "4px 0 10px" }}>In-House (Instant Quote)</p>
                 {groupedByTrade(inHouseItems).map(([trade, items]) => (
-                  <div key={trade} style={{ marginBottom: 12 }}>
-                    <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", marginBottom: 6, fontWeight: 700, letterSpacing: "0.06em" }}>{TRADE_LABELS[trade] || trade}</p>
-                    {items.map(it => {
-                      const st = checked[it.key];
-                      return (
-                        <div key={it.key} style={cardStyle}>
-                          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                            <input type="checkbox" checked={!!st?.checked} onChange={e => setItemState(it.key, { checked: e.target.checked })} style={{ marginTop: 3, width: 18, height: 18, accentColor: GOLD }} />
-                            <div style={{ flex: 1 }}>
-                              <p style={{ fontSize: 13.5, color: "#fff", fontWeight: 600, margin: 0 }}>{it.name}</p>
-                              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", margin: "2px 0 0" }}>
-                                {it.unit === "flat" ? `$${it.default_rate?.toFixed(2)} flat` : `$${it.default_rate?.toFixed(2)}/${it.unit === "each" ? "ea" : it.unit.replace("_", " ")} · min $${it.min_charge}`}
-                              </p>
-                            </div>
-                          </label>
-                          {st?.checked && (
-                            <div style={{ marginTop: 10, paddingLeft: 28 }}>
-                              {it.unit !== "flat" && (
-                                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                                  <input type="number" min={0} step="any" value={st.quantity} onChange={e => setItemState(it.key, { quantity: e.target.value })}
-                                    style={{ ...inputStyle, width: 90 }} />
-                                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>{it.unit === "each" ? "count" : it.unit.replace("_", " ")}</span>
-                                </div>
-                              )}
-                              {!!it.two_story_eligible && (
-                                <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 12, color: "rgba(255,255,255,0.6)" }}>
-                                  <input type="checkbox" checked={st.twoStory} onChange={e => setItemState(it.key, { twoStory: e.target.checked })} style={{ accentColor: GOLD }} />
-                                  Two-story (+25% surcharge)
-                                </label>
-                              )}
-                              <input placeholder="Measurement notes (optional)" value={st.measurementNotes} onChange={e => setItemState(it.key, { measurementNotes: e.target.value })}
-                                style={{ ...inputStyle, fontSize: 12.5 }} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                  <div key={trade} style={{ marginBottom: 8 }}>
+                    {tradeHeaderRow(trade, items)}
+                    {isTradeExpanded(trade) && items.map(renderInHouseCard)}
                   </div>
                 ))}
 
                 <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", textTransform: "uppercase", margin: "16px 0 10px" }}>Needs a Licensed Vendor</p>
                 {groupedByTrade(vendorItems).map(([trade, items]) => (
-                  <div key={trade} style={{ marginBottom: 12 }}>
-                    {items.map(it => {
-                      const st = checked[it.key];
-                      return (
-                        <div key={it.key} style={cardStyle}>
-                          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                            <input type="checkbox" checked={!!st?.checked} onChange={e => setItemState(it.key, { checked: e.target.checked })} style={{ marginTop: 3, width: 18, height: 18, accentColor: "rgba(255,255,255,0.6)" }} />
-                            <p style={{ fontSize: 13.5, color: "#fff", fontWeight: 600, margin: 0 }}>{TRADE_LABELS[trade] || it.name}</p>
-                          </label>
-                          {st?.checked && (
-                            <div style={{ marginTop: 10, paddingLeft: 28 }}>
-                              <input placeholder="Notes for the vendor (scope, measurements, etc.)" value={st.measurementNotes} onChange={e => setItemState(it.key, { measurementNotes: e.target.value })}
-                                style={{ ...inputStyle, fontSize: 12.5 }} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                  <div key={trade} style={{ marginBottom: 8 }}>
+                    {tradeHeaderRow(trade, items)}
+                    {isTradeExpanded(trade) && items.map(renderVendorCard)}
                   </div>
                 ))}
               </>

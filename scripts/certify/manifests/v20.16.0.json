@@ -1,0 +1,35 @@
+{
+  "version": "v20.16.0",
+  "changes": [
+    "Fixed duplicate-consult creation bug: ensureConsult() in ListingConsultSheet.tsx and RepairConsultSheet.tsx now gates on a useRef (updates in place, visible to every closure) instead of the stale `consultId` React state, and dedupes concurrent calls via an in-flight promise ref. Root cause: rapid Next-taps could read stale state before the first create's setState committed, firing two POST /api/listing-consult calls and creating two rows for the same walkthrough (confirmed live for Luke Hunt / 1731 Dockside Drive, id 16 archived as the empty duplicate).",
+    "Streamlined Listing Consult: merged the standalone 'Present' step (a bare 6-item checklist with no other fields) into the top of the 'Close' step, now titled 'Present & Close'. Cuts the wizard from 7 steps to 6.",
+    "Added a 'Same as Recommended' one-tap quick-fill next to Final Listing Price on the Close step, copying the already-captured Recommended Price — removes a duplicate manual-entry tap when the agent is listing at the recommended number (the common case).",
+    "Streamlined Repair Consult: added a real-usage-data 'Frequently Selected' pinned shortlist at the top of the checklist (server now returns a `popularity` map of item_key -> times actually picked on past non-test consults from GET /api/repair-items), and collapsed each trade group into a default-collapsed accordion (auto-expands if it already has a checked item) to cut scroll/taps through the 62-item, 39-trade catalog."
+  ],
+  "endpoints": [
+    { "method": "GET", "path": "/api/repair-items", "auth": "admin", "expectStatus": 200, "expectKeys": ["items", "popularity"] },
+    { "method": "GET", "path": "/api/health", "expectStatus": 200, "expectKeys": ["status", "version"] }
+  ],
+  "bundleMustContain": [
+    "Present & Close",
+    "Same as Recommended",
+    "Frequently Selected",
+    "Based on what"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "Old standalone 'Present' step label was the bare word 'Present', too common/ambiguous to use as a bundleMustNotContain guard (false-positive risk). Confirmed instead via direct grep of the built asset pre-deploy: 'Present & Close', 'Same as Recommended', 'Frequently Selected', and 'Based on what' each appear exactly once in dist/public/assets/index-DT7V7IB5.js.",
+  "mathChecks": [
+    {
+      "name": "repair-items popularity is an object keyed by real item_keys",
+      "path": "/api/repair-items",
+      "auth": "admin",
+      "expr": "typeof body.popularity === 'object' && body.popularity !== null && !Array.isArray(body.popularity)"
+    },
+    {
+      "name": "repair-items catalog unchanged at 62 active items",
+      "path": "/api/repair-items",
+      "auth": "admin",
+      "expr": "Array.isArray(body.items) && body.items.length === 62"
+    }
+  ]
+}

@@ -6083,7 +6083,7 @@ type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "ho
 // Repair Consult is reachable nested inside Listing Consult. The standalone
 // Repair Consult tab (id "repairQuote") is left intact for now — only the
 // bottom-nav slot changes, per Alex's ask.
-// v20.14.9 — Repairs/Listing edge bubbles removed from the Lead Gen chooser.
+// v20.15.0 — Repairs/Listing edge bubbles removed from the Lead Gen chooser.
 // Both are already reachable via the bottom nav (Listing Consultation slot)
 // and the repairQuote tab, so the chooser shortcuts were redundant.
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
@@ -6387,7 +6387,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.9</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.15.0</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6554,7 +6554,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           Dial button up top + Leads tab in bottom nav make it redundant. */}
 
       {/* ── Main ── */}
-      {/* v20.14.9 — .ld-bg-wrap > * forces position:relative + z-index:2 on every
+      {/* v20.15.0 — .ld-bg-wrap > * forces position:relative + z-index:2 on every
           direct child (see index.css), which traps ANY full-screen sheet
           rendered inside <main> — no matter its own internal z-index — in a
           stacking context capped at 2. That's below the sticky header
@@ -7356,7 +7356,7 @@ function LeadGenSheet(props: {
     const HERO_LIFT = 20;
     // v20.7.4 — 5 arc bubbles across ~160°. Center = 90° (Dial hero), step = 30°.
     // Angles: 150 / 120 / 90 / 60 / 30. Symmetric around DIAL.
-    // v20.14.9 — Repairs/Listing edge bubbles removed from this chooser.
+    // v20.15.0 — Repairs/Listing edge bubbles removed from this chooser.
     // Alex found better entry points for both elsewhere in the app; this
     // arc goes back to the original 5 lead-gen bubbles only.
     const bubbles: Array<{

@@ -168,8 +168,12 @@ export function ListingConsultSheet({
   // continuous consultation.
   const [heroPhotoUrl, setHeroPhotoUrl] = useState<string | null>(null);
   const [uploadingHero, setUploadingHero] = useState(false);
-  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryUrls, setGalleryUrls] = useState<{ url: string; tag: "overview" | "repair_scope" }[]>([]);
   const [uploadingGallery, setUploadingGallery] = useState(false);
+  // v20.15.2 — which tag new bulk-uploaded photos get. Agent flips this toggle
+  // before selecting a batch so overview shots and repair-pricing shots land
+  // pre-sorted without any AI step.
+  const [galleryTagMode, setGalleryTagMode] = useState<"overview" | "repair_scope">("overview");
   const [galleryProgress, setGalleryProgress] = useState<{ done: number; total: number } | null>(null);
 
   // v20.15.0 — live FUB contact picker. Agent types a name, we search FUB's
@@ -334,10 +338,10 @@ export function ListingConsultSheet({
       if (!conv) { setError("Couldn't read that photo. Try another."); setBusy(false); return; }
       const d = await fetchJson(`/api/listing-consult/${id}/photo`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind }),
+        body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind, tag: kind === "gallery" ? galleryTagMode : undefined }),
       });
       if (kind === "hero") setHeroPhotoUrl(d.url);
-      else setGalleryUrls(prev => [...prev, d.url]);
+      else setGalleryUrls(prev => [...prev, { url: d.url, tag: galleryTagMode }]);
     } catch (e: any) { setError(e.message || "Photo upload failed."); }
     finally { setBusy(false); }
   };
@@ -346,6 +350,7 @@ export function ListingConsultSheet({
     const id = await ensureConsult();
     const fileArr = Array.from(files);
     if (fileArr.length === 0) return;
+    const tag = galleryTagMode;
     setUploadingGallery(true);
     setGalleryProgress({ done: 0, total: fileArr.length });
     for (let i = 0; i < fileArr.length; i++) {
@@ -354,15 +359,30 @@ export function ListingConsultSheet({
         if (conv) {
           const d = await fetchJson(`/api/listing-consult/${id}/photo`, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery" }),
+            body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery", tag }),
           });
-          setGalleryUrls(prev => [...prev, d.url]);
+          setGalleryUrls(prev => [...prev, { url: d.url, tag }]);
         }
       } catch (e: any) { setError(e.message || `Photo ${i + 1} of ${fileArr.length} failed to upload — the rest kept going.`); }
       setGalleryProgress({ done: i + 1, total: fileArr.length });
     }
     setUploadingGallery(false);
     setGalleryProgress(null);
+  };
+
+  // v20.15.2 — re-tag a photo after the fact (agent taps its badge to flip
+  // Overview ↔ Repair Scope without re-uploading).
+  const handleToggleGalleryTag = async (url: string) => {
+    const current = galleryUrls.find(p => p.url === url);
+    if (!current || !consultId) return;
+    const nextTag: "overview" | "repair_scope" = current.tag === "repair_scope" ? "overview" : "repair_scope";
+    setGalleryUrls(prev => prev.map(p => p.url === url ? { ...p, tag: nextTag } : p));
+    try {
+      await fetchJson(`/api/listing-consult/${consultId}/photo-tag`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, tag: nextTag }),
+      });
+    } catch { setGalleryUrls(prev => prev.map(p => p.url === url ? { ...p, tag: current.tag } : p)); }
   };
 
   // v20.14.5 — Hydrate every field from a previously-started consult (the
@@ -398,7 +418,7 @@ export function ListingConsultSheet({
       setClientPhone(d.client_phone || "");
       setPropertyAddress(d.property_address || "");
       setHeroPhotoUrl(d.hero_photo_url || null);
-      setGalleryUrls(Array.isArray(d.gallery_photos) ? d.gallery_photos : []);
+      setGalleryUrls(Array.isArray(d.gallery_photos) ? d.gallery_photos.map((p: any) => typeof p === "string" ? { url: p, tag: "overview" } : p) : []);
 
       const data = d.data || {};
       let nextStep: typeof step = "prep";
@@ -490,6 +510,20 @@ export function ListingConsultSheet({
       onLaunchRepairConsult({ address: propertyAddress, name: clientName, email: clientEmail, phone: clientPhone, heroPhotoUrl });
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
+  };
+
+  // v20.15.2 — second chance to flag repairs on Lock It In. Covers the case
+  // where nothing looked obvious during Preview but something came up by the
+  // end of the appointment — right when they're saying yes is the best moment
+  // to also sell the instant-quote repair program. Flips the same needsRepairs
+  // state the Preview-step ask uses, so the button-card above swaps in
+  // automatically once set to "yes".
+  const handleLockinRepairFlag = async (v: "yes" | "no") => {
+    setNeedsRepairs(v);
+    if (v === "yes") {
+      try { await saveSection("preview", { notes: previewNotes, needsRepairs: true, repairNotes }); }
+      catch (e: any) { setError(e.message || "Failed to save."); }
+    }
   };
 
   const handleIntelNext = async () => {
@@ -755,10 +789,26 @@ export function ListingConsultSheet({
             <div style={cardStyle}>
               <label style={labelStyle}>Walkthrough Photos ({galleryUrls.length})</label>
               <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>
-                Get one of every room, plus close-ups of anything you'd flag in the repair notes above. Shoot them live as you walk, or with your own camera and add them here after — either way, bulk-select and upload as many at once as you want.
+                All 4 sides + yard, every room, then close-up + wide shots of anything you're flagging above. Shoot live as you walk or add from your camera after — bulk-select and upload as many at once as you want. Rule of thumb: if it's not photographed, it can't be quoted.
               </p>
+              <div style={{ marginBottom: 10 }}>
+                <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginBottom: 6 }}>Tag next photos as</p>
+                {segmented(galleryTagMode, [{ key: "overview", label: "Overview" }, { key: "repair_scope", label: "Repair Scope" }], v => setGalleryTagMode(v as any))}
+              </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {galleryUrls.map((u, i) => <img key={i} src={u} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6 }} />)}
+                {galleryUrls.map((p, i) => (
+                  <button key={i} type="button" onClick={() => handleToggleGalleryTag(p.url)} title="Tap to switch Overview / Repair Scope" style={{
+                    position: "relative", width: 72, height: 72, padding: 0, border: "none", borderRadius: 6, cursor: "pointer", background: "none",
+                  }}>
+                    <img src={p.url} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6, display: "block" }} />
+                    <span style={{
+                      position: "absolute", bottom: 3, left: 3, right: 3, borderRadius: 4, padding: "2px 0",
+                      fontSize: 8.5, fontWeight: 700, textAlign: "center", letterSpacing: "0.02em",
+                      background: p.tag === "repair_scope" ? "rgba(200,60,40,0.85)" : "rgba(0,0,0,0.6)",
+                      color: p.tag === "repair_scope" ? "#fff" : "rgba(255,255,255,0.8)",
+                    }}>{p.tag === "repair_scope" ? "REPAIR" : "OVERVIEW"}</span>
+                  </button>
+                ))}
                 <label style={{
                   width: 72, height: 72, borderRadius: 6, border: "1px dashed rgba(200,170,90,0.4)",
                   display: "flex", alignItems: "center", justifyContent: "center", cursor: uploadingGallery ? "default" : "pointer", opacity: uploadingGallery ? 0.6 : 1,
@@ -856,6 +906,15 @@ export function ListingConsultSheet({
                 <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8, marginBottom: 0 }}>
                   They said yes — scope items and build an instant quote to help close while you're still in the room. Nate or Alex still has to approve it before it goes to the client.
                 </p>
+              </div>
+            )}
+            {needsRepairs !== "yes" && (
+              <div style={cardStyle}>
+                <label style={labelStyle}>Anything Come Up Needing Repair?</label>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>
+                  Didn't flag anything during the walkthrough — if something came up by the end of the visit, flag it now while they're still saying yes.
+                </p>
+                {segmented(needsRepairs, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => handleLockinRepairFlag(v as "yes" | "no"))}
               </div>
             )}
             <label style={labelStyle}>Schedule</label>

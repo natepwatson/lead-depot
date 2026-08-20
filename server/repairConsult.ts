@@ -1065,7 +1065,13 @@ function getConsultRow(id: number): any {
     LEFT JOIN agents a ON a.id = rc.agent_id
     WHERE rc.id = ?
   `).get(id) as any;
-  if (row && row.property_photos) { try { row.property_photos = JSON.parse(row.property_photos); } catch { row.property_photos = []; } }
+  if (row && row.property_photos) {
+    try {
+      const parsed = JSON.parse(row.property_photos);
+      // v20.15.2 — normalize legacy plain-string entries to { url, tag } shape.
+      row.property_photos = parsed.map((entry: any) => typeof entry === "string" ? { url: entry, tag: "overview" } : entry);
+    } catch { row.property_photos = []; }
+  }
   return row;
 }
 function getConsultItems(consultId: number): any[] {
@@ -1138,7 +1144,7 @@ export function registerRepairConsultRoutes(app: Express) {
   // ── Upload a photo (hero, gallery, or per-item). Returns a URL. ──
   app.post("/api/repair-consult/:id/photo", async (req: any, res: Response) => {
     const consultId = parseInt(req.params.id);
-    const { imageData, mimeType, kind } = req.body || {}; // kind: 'hero' | 'gallery' | 'item'
+    const { imageData, mimeType, kind, tag } = req.body || {}; // kind: 'hero' | 'gallery' | 'item'; tag (gallery only): 'overview' | 'repair_scope'
     if (!imageData || !mimeType) return res.status(400).json({ error: "Missing imageData or mimeType" });
     if (imageData.length > 28000000) return res.status(413).json({ error: "Image too large. Max 20MB." });
     try {
@@ -1154,9 +1160,11 @@ export function registerRepairConsultRoutes(app: Express) {
       if (kind === "hero") {
         rawDb.prepare(`UPDATE repair_consults SET hero_photo_url = ?, updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
       } else if (kind === "gallery") {
+        // v20.15.2 — each gallery entry is now { url, tag }, mirrors listing-consult pattern.
         const row = rawDb.prepare(`SELECT property_photos FROM repair_consults WHERE id = ?`).get(consultId) as any;
-        const arr = row?.property_photos ? JSON.parse(row.property_photos) : [];
-        arr.push(url);
+        const raw = row?.property_photos ? JSON.parse(row.property_photos) : [];
+        const arr = raw.map((entry: any) => typeof entry === "string" ? { url: entry, tag: "overview" } : entry);
+        arr.push({ url, tag: tag === "repair_scope" ? "repair_scope" : "overview" });
         rawDb.prepare(`UPDATE repair_consults SET property_photos = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(arr), consultId);
       }
       res.json({ url });
@@ -1164,6 +1172,21 @@ export function registerRepairConsultRoutes(app: Express) {
       console.error("Repair photo processing error:", err);
       res.status(500).json({ error: "Failed to process image." });
     }
+  });
+
+  // v20.15.2 — update an existing gallery photo's tag. Body: { url, tag }.
+  app.post("/api/repair-consult/:id/photo-tag", (req: any, res: Response) => {
+    const consultId = parseInt(req.params.id);
+    const { url, tag } = req.body || {};
+    if (!url || (tag !== "overview" && tag !== "repair_scope")) return res.status(400).json({ error: "url and a valid tag are required" });
+    const row = rawDb.prepare(`SELECT property_photos FROM repair_consults WHERE id = ?`).get(consultId) as any;
+    const raw = row?.property_photos ? JSON.parse(row.property_photos) : [];
+    const arr = raw.map((entry: any) => {
+      const normalized = typeof entry === "string" ? { url: entry, tag: "overview" } : entry;
+      return normalized.url === url ? { ...normalized, tag } : normalized;
+    });
+    rawDb.prepare(`UPDATE repair_consults SET property_photos = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(arr), consultId);
+    res.json({ ok: true });
   });
 
   // ── Submit checklist items in one pass ──
@@ -1396,7 +1419,7 @@ export function registerRepairConsultRoutes(app: Express) {
         propertyAddress: consult.property_address,
         clientName: consult.client_name,
         heroPhotoUrl: consult.hero_photo_url,
-        propertyPhotos: consult.property_photos ? JSON.parse(consult.property_photos) : [],
+        propertyPhotos: consult.property_photos ? JSON.parse(consult.property_photos).map((e: any) => typeof e === "string" ? { url: e, tag: "overview" } : e) : [],
         subtotal: consult.subtotal, total: consult.total,
         depositAmount: consult.deposit_amount, finalAmount: consult.final_amount,
         startWindow: consult.start_window, startDate: consult.start_date, startTime: consult.start_time,

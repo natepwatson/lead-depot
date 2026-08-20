@@ -153,7 +153,9 @@ export function RepairConsultSheet({
   const [propertyAddress, setPropertyAddress] = useState(initialAddress || "");
 
   const [heroPhotoUrl, setHeroPhotoUrl] = useState<string | null>(prefillHeroPhotoUrl || null);
-  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [galleryUrls, setGalleryUrls] = useState<{ url: string; tag: "overview" | "repair_scope" }[]>([]);
+  // v20.15.2 — which tag new bulk-uploaded photos get; mirrors ListingConsultSheet.
+  const [galleryTagMode, setGalleryTagMode] = useState<"overview" | "repair_scope">("repair_scope");
   const [uploadingHero, setUploadingHero] = useState(false);
   const [uploadingGallery, setUploadingGallery] = useState(false);
   const [galleryProgress, setGalleryProgress] = useState<{ done: number; total: number } | null>(null);
@@ -267,7 +269,7 @@ export function RepairConsultSheet({
       setClientPhone(d.client_phone || "");
       setPropertyAddress(d.property_address || "");
       setHeroPhotoUrl(d.hero_photo_url || null);
-      setGalleryUrls(Array.isArray(d.property_photos) ? d.property_photos : []);
+      setGalleryUrls(Array.isArray(d.property_photos) ? d.property_photos.map((p: any) => typeof p === "string" ? { url: p, tag: "overview" } : p) : []);
 
       const items: any[] = d.items || [];
       if (items.length > 0) {
@@ -321,10 +323,10 @@ export function RepairConsultSheet({
       if (!conv) { setError("Couldn't read that photo. Try another."); setBusy(false); return; }
       const d = await fetchJson(`/api/repair-consult/${id}/photo`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind }),
+        body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind, tag: kind === "gallery" ? galleryTagMode : undefined }),
       });
       if (kind === "hero") setHeroPhotoUrl(d.url);
-      else setGalleryUrls(prev => [...prev, d.url]);
+      else setGalleryUrls(prev => [...prev, { url: d.url, tag: galleryTagMode }]);
     } catch (e: any) { setError(e.message || "Photo upload failed."); }
     finally { setBusy(false); }
   };
@@ -337,6 +339,7 @@ export function RepairConsultSheet({
     const id = await ensureConsult();
     const fileArr = Array.from(files);
     if (fileArr.length === 0) return;
+    const tag = galleryTagMode;
     setUploadingGallery(true);
     setGalleryProgress({ done: 0, total: fileArr.length });
     for (let i = 0; i < fileArr.length; i++) {
@@ -345,15 +348,29 @@ export function RepairConsultSheet({
         if (conv) {
           const d = await fetchJson(`/api/repair-consult/${id}/photo`, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery" }),
+            body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery", tag }),
           });
-          setGalleryUrls(prev => [...prev, d.url]);
+          setGalleryUrls(prev => [...prev, { url: d.url, tag }]);
         }
       } catch (e: any) { setError(e.message || `Photo ${i + 1} of ${fileArr.length} failed to upload — the rest kept going.`); }
       setGalleryProgress({ done: i + 1, total: fileArr.length });
     }
     setUploadingGallery(false);
     setGalleryProgress(null);
+  };
+
+  // v20.15.2 — re-tag a photo after the fact (tap its badge to flip Overview ↔ Repair Scope).
+  const handleToggleGalleryTag = async (url: string) => {
+    const current = galleryUrls.find(p => p.url === url);
+    if (!current || !consultId) return;
+    const nextTag: "overview" | "repair_scope" = current.tag === "repair_scope" ? "overview" : "repair_scope";
+    setGalleryUrls(prev => prev.map(p => p.url === url ? { ...p, tag: nextTag } : p));
+    try {
+      await fetchJson(`/api/repair-consult/${consultId}/photo-tag`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, tag: nextTag }),
+      });
+    } catch { setGalleryUrls(prev => prev.map(p => p.url === url ? { ...p, tag: current.tag } : p)); }
   };
 
   const selectedCount = Object.values(checked).filter(c => c.checked).length;
@@ -625,8 +642,33 @@ export function RepairConsultSheet({
             {header("Walkthrough Photos", "Bulk-upload everything you shot on your phone — right before the quote goes out")}
             <div style={cardStyle}>
               <label style={labelStyle}>Interior / Additional Photos ({galleryUrls.length})</label>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>
+                Close-up + wide shot of every item you're pricing, plus general room/exterior context. Rule of thumb: if it's not photographed, it can't be quoted.
+              </p>
+              <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                {(["repair_scope", "overview"] as const).map(t => (
+                  <button key={t} type="button" onClick={() => setGalleryTagMode(t)} style={{
+                    flex: 1, padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700,
+                    background: galleryTagMode === t ? GOLD : "rgba(255,255,255,0.06)",
+                    border: galleryTagMode === t ? "none" : "1px solid rgba(255,255,255,0.15)",
+                    color: galleryTagMode === t ? "#0c0b0a" : "rgba(255,255,255,0.75)",
+                  }}>{t === "repair_scope" ? "Tag next as: Repair Scope" : "Tag next as: Overview"}</button>
+                ))}
+              </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {galleryUrls.map((u, i) => <img key={i} src={u} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6 }} />)}
+                {galleryUrls.map((p, i) => (
+                  <button key={i} type="button" onClick={() => handleToggleGalleryTag(p.url)} title="Tap to switch Overview / Repair Scope" style={{
+                    position: "relative", width: 72, height: 72, padding: 0, border: "none", borderRadius: 6, cursor: "pointer", background: "none",
+                  }}>
+                    <img src={p.url} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6, display: "block" }} />
+                    <span style={{
+                      position: "absolute", bottom: 3, left: 3, right: 3, borderRadius: 4, padding: "2px 0",
+                      fontSize: 8.5, fontWeight: 700, textAlign: "center", letterSpacing: "0.02em",
+                      background: p.tag === "repair_scope" ? "rgba(200,60,40,0.85)" : "rgba(0,0,0,0.6)",
+                      color: p.tag === "repair_scope" ? "#fff" : "rgba(255,255,255,0.8)",
+                    }}>{p.tag === "repair_scope" ? "REPAIR" : "OVERVIEW"}</span>
+                  </button>
+                ))}
                 <label style={{
                   width: 72, height: 72, borderRadius: 6, border: "1px dashed rgba(200,170,90,0.4)",
                   display: "flex", alignItems: "center", justifyContent: "center", cursor: uploadingGallery ? "default" : "pointer", opacity: uploadingGallery ? 0.6 : 1,

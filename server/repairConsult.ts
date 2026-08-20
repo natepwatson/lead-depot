@@ -159,9 +159,47 @@ export function ensureRepairConsultSchema() {
       status TEXT NOT NULL DEFAULT 'pending'
     );
 
+    -- v20.15.1 — Change Orders. Additional work discovered/requested once a
+    -- consult has been signed and work is underway (Agreement Section 5
+    -- already promises this). Every change order requires (1) admin office
+    -- approval BEFORE the client ever sees it, and (2) the client's own
+    -- e-sign on the specific change order BEFORE it becomes billable —
+    -- always, no dollar threshold, per Alex's "no mistakes" standard.
+    -- Approved+signed change orders flow into repair_consult_items (via
+    -- change_order_id) so totals/PDFs/invoices use the exact same math and
+    -- code path as the original quote — no parallel pricing logic.
+    CREATE TABLE IF NOT EXISTS repair_change_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      consult_id INTEGER NOT NULL REFERENCES repair_consults(id),
+      requested_by_agent_id INTEGER REFERENCES agents(id),
+      item_key TEXT,                      -- catalog key, if selected from the in-house catalog
+      custom_description TEXT,            -- free-text description, if off-catalog
+      unit TEXT NOT NULL DEFAULT 'flat',
+      quantity REAL NOT NULL DEFAULT 1,
+      unit_rate REAL NOT NULL DEFAULT 0,
+      line_total REAL NOT NULL DEFAULT 0,
+      reason TEXT NOT NULL,
+      photos TEXT,                        -- JSON array of URLs (evidence)
+      status TEXT NOT NULL DEFAULT 'pending', -- pending | office_approved | declined | signed
+      requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+      decided_at TEXT,
+      decided_by TEXT,
+      decline_reason TEXT,
+      sign_token TEXT UNIQUE,
+      sign_token_expires_at TEXT,
+      signed_at TEXT,
+      signature_name TEXT,
+      signed_ip TEXT,
+      consult_item_id INTEGER REFERENCES repair_consult_items(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_repair_consult_items_consult ON repair_consult_items(consult_id);
     CREATE INDEX IF NOT EXISTS idx_repair_vendor_dispatches_consult ON repair_vendor_dispatches(consult_id);
     CREATE INDEX IF NOT EXISTS idx_repair_vendors_trade ON repair_vendors(trade);
+    CREATE INDEX IF NOT EXISTS idx_repair_change_orders_consult ON repair_change_orders(consult_id);
+    CREATE INDEX IF NOT EXISTS idx_repair_change_orders_status ON repair_change_orders(status);
   `);
 
   // v20.9.0 — signing-method tracking + agreement PDF paths (ALTER TABLE is safe to run
@@ -186,6 +224,11 @@ export function ensureRepairConsultSchema() {
   // until an admin has approved it in-house first.
   if (!rcCols.includes("office_approved_at"))        rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN office_approved_at TEXT").run();
   if (!rcCols.includes("office_approved_by"))        rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN office_approved_by TEXT").run();
+
+  // v20.15.1 — Change Orders: trace which consult_item row (if any) a signed
+  // change order produced, so admin UI / PDFs can show provenance.
+  const rciCols = (rawDb.prepare(`PRAGMA table_info(repair_consult_items)`).all() as any[]).map((c: any) => c.name);
+  if (!rciCols.includes("change_order_id")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN change_order_id INTEGER").run();
 
   seedRepairItems();
 }
@@ -1078,6 +1121,232 @@ function getConsultItems(consultId: number): any[] {
   return rawDb.prepare(`SELECT * FROM repair_consult_items WHERE consult_id = ? ORDER BY sequence_order ASC, id ASC`).all(consultId) as any[];
 }
 
+// ─── CHANGE ORDERS (v20.15.1) ────────────────────────────────────────────────
+// Flow: agent/admin requests -> admin office-approves (or declines) -> client
+// e-signs -> line item inserted into repair_consult_items + consult totals
+// recalculated -> "Change Order Approved" email fires showing the delta.
+// Declining a change order has zero financial impact — it just closes the row.
+function getChangeOrderRow(id: number): any {
+  return rawDb.prepare(`
+    SELECT co.*, rc.property_address, rc.client_name, rc.client_email, rc.client_phone,
+           rc.total AS consult_total_before, rc.hero_photo_url,
+           a.name AS requested_by_name
+    FROM repair_change_orders co
+    JOIN repair_consults rc ON rc.id = co.consult_id
+    LEFT JOIN agents a ON a.id = co.requested_by_agent_id
+    WHERE co.id = ?
+  `).get(id) as any;
+}
+
+function getChangeOrdersForConsult(consultId: number): any[] {
+  return rawDb.prepare(`SELECT * FROM repair_change_orders WHERE consult_id = ? ORDER BY requested_at DESC`).all(consultId) as any[];
+}
+
+function changeOrderDescription(co: any): string {
+  return co.custom_description || co.item_key || "Additional work";
+}
+
+// Recompute repair_consults subtotal/total/deposit/final from its in_house
+// line items — the exact same math as the /items endpoint. Called after a
+// signed change order inserts a new consult_item row, so a change order never
+// has its own parallel pricing path.
+function recalcConsultTotals(consultId: number) {
+  const items = rawDb.prepare(`SELECT line_total FROM repair_consult_items WHERE consult_id = ? AND category = 'in_house'`).all(consultId) as any[];
+  const subtotal = items.reduce((sum, it) => sum + (Number(it.line_total) || 0), 0);
+  rawDb.prepare(`
+    UPDATE repair_consults SET subtotal = ?, total = ?, deposit_amount = ?, final_amount = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(subtotal, subtotal, subtotal / 2, subtotal / 2, consultId);
+}
+
+// ─── PDF: Change Order (simple one-pager, mirrors brand styling) ───────────
+async function generateChangeOrderPdf(changeOrderId: number): Promise<string> {
+  const co = getChangeOrderRow(changeOrderId);
+  if (!co) throw new Error("Change order not found");
+
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([612, 792]);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+  const black = rgb(0, 0, 0);
+  const gray = rgb(0.5, 0.5, 0.5);
+  const green = rgb(0, 0.5, 0);
+  const PAGE_W = 612, PAGE_H = 792;
+  let y = PAGE_H - 40;
+
+  try {
+    const logoBytes = fs.readFileSync(brandLogoPath());
+    const logoImg = await pdfDoc.embedJpg(logoBytes);
+    const w = 180;
+    const h = w * (logoImg.height / logoImg.width);
+    page.drawImage(logoImg, { x: (PAGE_W - w) / 2, y: y - h, width: w, height: h });
+    y -= h + 14;
+  } catch { y -= 6; }
+
+  const title = "Change Order";
+  const titleW = fontBold.widthOfTextAtSize(title, 18);
+  page.drawText(title, { x: (PAGE_W - titleW) / 2, y, size: 18, font: fontBold, color: black });
+  y -= 26;
+
+  page.drawRectangle({ x: 38, y: y - 20, width: 536, height: 20, color: black });
+  page.drawText(co.property_address || "Property TBD", { x: 43, y: y - 14, size: 10, font: fontBold, color: rgb(1, 1, 1) });
+  y -= 40;
+
+  const rows: [string, string][] = [
+    ["Client", co.client_name || "\u2014"],
+    ["Description", changeOrderDescription(co)],
+    ["Quantity", `${co.quantity} ${co.unit === "each" ? "ea" : co.unit === "flat" ? "" : co.unit.replace("_", " ")}`],
+    ["Reason", co.reason || "\u2014"],
+    ["Requested By", co.requested_by_name || "Office"],
+    ["Office Approved", co.decided_by ? `${co.decided_by} \u2014 ${co.decided_at}` : "\u2014"],
+  ];
+  for (const [label, value] of rows) {
+    const lines = wrapText(value, font, 9.5, 400);
+    page.drawText(label, { x: 38, y, size: 9, font: fontBold, color: gray });
+    for (const l of lines) {
+      page.drawText(l, { x: 170, y, size: 9.5, font, color: black });
+      y -= 13;
+    }
+    y -= 2;
+  }
+
+  y -= 10;
+  page.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 0.75, color: black });
+  y -= 20;
+  page.drawText("Change Order Amount", { x: 38, y, size: 12, font: fontBold, color: black });
+  page.drawText(`$${Number(co.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: 460, y, size: 12, font: fontBold, color: black });
+  y -= 18;
+  page.drawText("New Contract Total", { x: 38, y, size: 10, font, color: gray });
+  const newTotal = Number(co.consult_total_before || 0);
+  page.drawText(`$${newTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: 460, y, size: 10, font, color: gray });
+  y -= 30;
+
+  page.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 0.5, color: gray });
+  y -= 20;
+
+  if (co.signed_at) {
+    page.drawText("CLIENT \u2014 Signed Electronically", { x: 38, y, size: 8, font: fontBold, color: green });
+    y -= 13;
+    page.drawText(`${co.signature_name}`, { x: 38, y, size: 11, font: fontItalic, color: black });
+    page.drawText(`Signed: ${co.signed_at}  \u00b7  IP: ${co.signed_ip || "\u2014"}`, { x: 300, y: y + 1, size: 7, font, color: gray });
+  } else {
+    page.drawText("Client Signature:", { x: 38, y, size: 8.5, font, color: gray });
+    page.drawLine({ start: { x: 130, y: y - 2 }, end: { x: 400, y: y - 2 }, thickness: 0.75, color: black });
+    page.drawText("Date:", { x: 410, y, size: 8.5, font, color: gray });
+    page.drawLine({ start: { x: 440, y: y - 2 }, end: { x: 574, y: y - 2 }, thickness: 0.75, color: black });
+  }
+  y -= 30;
+  const disclaimer = "This Change Order supplements and becomes part of the Repair & Renovation Agreement between the client and Nathaniel Peter Watson LLC / Alexander Gabriel Watson LLC (\u201cBGRE Home Touchups and Repairs\u201d). No additional work described above will be performed, and no additional charge will apply, until the client signs this Change Order.";
+  const discLines = wrapText(disclaimer, fontItalic, 7.5, 536);
+  for (const l of discLines) { page.drawText(l, { x: 38, y, size: 7.5, font: fontItalic, color: gray }); y -= 10; }
+
+  const bytes = await pdfDoc.save();
+  const outDir = repairPdfDir();
+  const filename = `change-order-${changeOrderId}-${Date.now()}.pdf`;
+  fs.writeFileSync(path.join(outDir, filename), bytes);
+  const url = `/repair-quotes/${filename}`;
+  rawDb.prepare(`UPDATE repair_change_orders SET updated_at = datetime('now') WHERE id = ?`).run(changeOrderId);
+  return url;
+}
+
+// ─── EMAIL: Change Order requested (internal, fires the moment it's submitted) ─
+async function sendChangeOrderRequestedEmail(changeOrderId: number) {
+  if (!resend) return;
+  const co = getChangeOrderRow(changeOrderId);
+  if (!co) return;
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("New Change Order \u2014 Needs Office Approval", co.property_address)}
+    <div style="padding:22px 32px">
+      <table style="width:100%;font-size:12.5px;color:#333;margin-bottom:10px">
+        <tr><td style="padding:4px 0;color:${BRAND.gray};width:130px">Client</td><td style="font-weight:600">${co.client_name || "\u2014"}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Description</td><td>${changeOrderDescription(co)}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Reason</td><td>${co.reason}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Requested By</td><td>${co.requested_by_name || "Office"}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Amount</td><td style="font-weight:700">$${Number(co.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+      </table>
+      <div style="margin-top:12px;padding:14px 16px;background:${BRAND.lightGray};border-radius:8px;font-size:12px;color:#333">
+        This change order has NOT been sent to the client. Open Lead Depot \u2192 Repair Program \u2192 Change Orders to approve or decline it first.
+      </div>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  await resend.emails.send({
+    from: FROM, to: ADMIN_EMAILS,
+    subject: `Change Order Requested \u2014 ${co.property_address} \u2014 $${Number(co.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+    html,
+  });
+}
+
+// ─── EMAIL: Change Order ready for client e-sign (fires after office approval) ─
+async function sendChangeOrderSignEmail(changeOrderId: number) {
+  if (!resend) return;
+  const co = getChangeOrderRow(changeOrderId);
+  if (!co || !co.client_email) return;
+  const signUrl = `${APP_URL}/#/change-order/${co.sign_token}`;
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Change Order \u2014 Signature Needed", co.property_address)}
+    <div style="padding:24px 32px">
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${co.client_name || "there"} \u2014 while working on your property, we found something that needs your approval before we continue. Nothing further will be done, and nothing further will be charged, until you review and sign below.</p>
+      <table style="width:100%;font-size:12.5px;color:#333;margin:14px 0">
+        <tr><td style="padding:4px 0;color:${BRAND.gray};width:120px">Description</td><td style="font-weight:600">${changeOrderDescription(co)}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Why</td><td>${co.reason}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Additional Amount</td><td style="font-weight:700">$${Number(co.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+      </table>
+      <div style="text-align:center;margin:26px 0 10px">
+        <a href="${signUrl}" style="background:${BRAND.black};color:#fff;text-decoration:none;padding:14px 36px;border-radius:6px;font-size:14px;font-weight:700;display:inline-block">Review &amp; Sign Change Order</a>
+      </div>
+      <p style="font-size:10.5px;color:${BRAND.gray};text-align:center">Or open on your phone: <a href="${signUrl}" style="color:${BRAND.gray}">${signUrl}</a></p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  await resend.emails.send({
+    from: FROM, to: [co.client_email], cc: ADMIN_EMAILS,
+    subject: `Change Order \u2014 Signature Needed \u2014 ${co.property_address}`,
+    html,
+  });
+  rawDb.prepare(`UPDATE repair_change_orders SET updated_at = datetime('now') WHERE id = ?`).run(changeOrderId);
+}
+
+// ─── EMAIL: Change Order approved by client (fires the moment they sign) ───
+async function sendChangeOrderApprovedEmail(changeOrderId: number, newTotal: number) {
+  if (!resend) return;
+  const co = getChangeOrderRow(changeOrderId);
+  if (!co) return;
+  const pdfUrl = await generateChangeOrderPdf(changeOrderId).catch(() => null);
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("\u2705 Change Order Signed", co.property_address)}
+    <div style="padding:22px 32px">
+      <table style="width:100%;font-size:12.5px;color:#333;margin-bottom:14px">
+        <tr><td style="padding:3px 0;color:${BRAND.gray};width:150px">Description</td><td style="font-weight:600">${changeOrderDescription(co)}</td></tr>
+        <tr><td style="padding:3px 0;color:${BRAND.gray}">Signed By</td><td>${co.signature_name}</td></tr>
+        <tr><td style="padding:3px 0;color:${BRAND.gray}">Signed</td><td>${co.signed_at}</td></tr>
+        <tr><td style="padding:3px 0;color:${BRAND.gray}">Change Order Amount</td><td style="font-weight:700">$${Number(co.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+        <tr><td style="padding:3px 0;color:${BRAND.gray}">New Contract Total</td><td style="font-weight:700">$${newTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+        <tr><td style="padding:3px 0;color:${BRAND.gray}">New Final Payment Due (50%)</td><td>$${(newTotal / 2).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+      </table>
+      ${pdfUrl ? `<div style="text-align:center;margin:16px 0"><a href="${APP_URL}${pdfUrl}" style="background:${BRAND.black};color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:13px;font-weight:700;display:inline-block">Download Signed Change Order</a></div>` : ""}
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  const to = co.client_email ? [co.client_email] : ADMIN_EMAILS;
+  const cc = co.client_email ? ADMIN_EMAILS : undefined;
+  await resend.emails.send({
+    from: FROM, to, ...(cc ? { cc } : {}),
+    subject: `\u2705 Change Order Signed \u2014 ${co.property_address} \u2014 New Total $${newTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+    html,
+  });
+}
+
 // ─── ROUTES ──────────────────────────────────────────────────────────────────
 export function registerRepairConsultRoutes(app: Express) {
   ensureRepairConsultSchema();
@@ -1517,5 +1786,169 @@ export function registerRepairConsultRoutes(app: Express) {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
     rawDb.prepare(`DELETE FROM repair_vendors WHERE id = ?`).run(req.params.id);
     res.json({ ok: true });
+  });
+
+  // ── CHANGE ORDERS (v20.15.1) ──────────────────────────────────────────────
+
+  // Agent/admin submits a change order request for an in-progress consult.
+  // Always starts as 'pending' — never auto-approved, never sent to the
+  // client until an admin office-approves it first.
+  app.post("/api/repair-consult/:id/change-orders", async (req: any, res: Response) => {
+    const consultId = parseInt(req.params.id);
+    const consult = getConsultRow(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+    const { itemKey, customDescription, quantity, unitRate, unit, reason, photos } = req.body || {};
+    if (!itemKey && (!customDescription || !String(customDescription).trim())) {
+      return res.status(400).json({ error: "Select a catalog item or enter a custom description" });
+    }
+    if (!reason || !String(reason).trim()) return res.status(400).json({ error: "A reason is required" });
+    const qty = Number(quantity) > 0 ? Number(quantity) : 1;
+    let rate = Number(unitRate) || 0;
+    let unitLabel = unit || "flat";
+    if (itemKey) {
+      const cat = rawDb.prepare(`SELECT * FROM repair_items WHERE key = ? AND active = 1`).get(itemKey) as any;
+      if (cat) {
+        if (!unitRate && unitRate !== 0) rate = cat.default_rate || 0;
+        unitLabel = cat.unit;
+      }
+    }
+    const lineTotal = rate * qty;
+    try {
+      const result = rawDb.prepare(`
+        INSERT INTO repair_change_orders
+          (consult_id, requested_by_agent_id, item_key, custom_description, unit, quantity, unit_rate, line_total, reason, photos, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+      `).run(
+        consultId, req.currentAgent?.id || null, itemKey || null, customDescription ? String(customDescription).trim() : null,
+        unitLabel, qty, rate, lineTotal, String(reason).trim(), JSON.stringify(Array.isArray(photos) ? photos : [])
+      );
+      const id = Number(result.lastInsertRowid);
+      try { await sendChangeOrderRequestedEmail(id); } catch (e) { console.error("change-order requested email failed:", e); }
+      res.json({ ok: true, id });
+    } catch (err: any) {
+      console.error("create change-order error:", err);
+      res.status(500).json({ error: "Failed to create change order", detail: err?.message });
+    }
+  });
+
+  // List change orders for a specific consult (agent-facing history/status).
+  app.get("/api/repair-consult/:id/change-orders", (req: any, res: Response) => {
+    const consultId = parseInt(req.params.id);
+    const orders = getChangeOrdersForConsult(consultId).map((co: any) => ({ ...co, photos: co.photos ? JSON.parse(co.photos) : [] }));
+    res.json({ changeOrders: orders });
+  });
+
+  // Admin: queue of ALL change orders across every consult.
+  app.get("/api/admin/repair-change-orders", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const rows = rawDb.prepare(`
+      SELECT co.*, rc.property_address, rc.client_name, a.name AS requested_by_name
+      FROM repair_change_orders co
+      JOIN repair_consults rc ON rc.id = co.consult_id
+      LEFT JOIN agents a ON a.id = co.requested_by_agent_id
+      ORDER BY co.requested_at DESC LIMIT 200
+    `).all() as any[];
+    res.json({ changeOrders: rows.map((r: any) => ({ ...r, photos: r.photos ? JSON.parse(r.photos) : [] })) });
+  });
+
+  // Admin office-approve: generates the client sign token/link and emails it.
+  // This is the SAME two-step pattern as the main quote's office-approve gate
+  // — nothing reaches the client until an admin has signed off in-house.
+  app.post("/api/admin/repair-change-orders/:id/office-approve", async (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const id = parseInt(req.params.id);
+    const co = getChangeOrderRow(id);
+    if (!co) return res.status(404).json({ error: "Change order not found" });
+    if (co.status !== "pending") return res.status(409).json({ error: `Change order is already ${co.status}` });
+    const token = randomBytes(20).toString("hex");
+    const expires = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
+    rawDb.prepare(`
+      UPDATE repair_change_orders
+      SET status = 'office_approved', decided_at = datetime('now'), decided_by = ?,
+          sign_token = ?, sign_token_expires_at = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(req.currentAgent.name || req.currentAgent.email || "Admin", token, expires, id);
+    try { await sendChangeOrderSignEmail(id); } catch (e) { console.error("change-order sign email failed:", e); }
+    res.json({ ok: true, signToken: token });
+  });
+
+  // Admin decline: zero financial impact, just closes the row.
+  app.post("/api/admin/repair-change-orders/:id/decline", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const id = parseInt(req.params.id);
+    const co = getChangeOrderRow(id);
+    if (!co) return res.status(404).json({ error: "Change order not found" });
+    if (co.status !== "pending") return res.status(409).json({ error: `Change order is already ${co.status}` });
+    const { reason } = req.body || {};
+    rawDb.prepare(`
+      UPDATE repair_change_orders
+      SET status = 'declined', decided_at = datetime('now'), decided_by = ?, decline_reason = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(req.currentAgent.name || req.currentAgent.email || "Admin", reason || null, id);
+    res.json({ ok: true });
+  });
+
+  // Public: fetch change order by sign token (client sign page).
+  app.get("/api/repair-change-order/:token", (req: Request, res: Response) => {
+    const co = rawDb.prepare(`SELECT * FROM repair_change_orders WHERE sign_token = ?`).get(req.params.token) as any;
+    if (!co) return res.status(404).json({ error: "Change order not found" });
+    const consult = getConsultRow(co.consult_id);
+    res.json({
+      changeOrder: {
+        description: changeOrderDescription(co),
+        quantity: co.quantity, unit: co.unit, unitRate: co.unit_rate, lineTotal: co.line_total,
+        reason: co.reason, photos: co.photos ? JSON.parse(co.photos) : [],
+        status: co.status, signedAt: co.signed_at, signatureName: co.signature_name,
+      },
+      consult: {
+        propertyAddress: consult?.property_address, clientName: consult?.client_name,
+        heroPhotoUrl: consult?.hero_photo_url, currentTotal: consult?.total,
+      },
+    });
+  });
+
+  // Public: client types their name to e-sign. On success, folds the change
+  // order into repair_consult_items (same category/pricing path as the
+  // original quote) and recalculates the consult's subtotal/total/deposit.
+  app.post("/api/repair-change-order/:token/sign", async (req: Request, res: Response) => {
+    const co = rawDb.prepare(`SELECT * FROM repair_change_orders WHERE sign_token = ?`).get(req.params.token) as any;
+    if (!co) return res.status(404).json({ error: "Change order not found" });
+    if (co.status === "signed") return res.status(409).json({ error: "This change order has already been signed." });
+    if (co.status !== "office_approved") return res.status(409).json({ error: "This change order is not ready to sign." });
+    if (co.sign_token_expires_at && new Date(co.sign_token_expires_at) < new Date()) {
+      return res.status(410).json({ error: "This sign link has expired \u2014 ask your Brothers Group contact to resend it." });
+    }
+    const { signatureName } = req.body || {};
+    if (!signatureName || String(signatureName).trim().length < 2) return res.status(400).json({ error: "Full name required to sign" });
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+
+    try {
+      const catalogItem = co.item_key ? (rawDb.prepare(`SELECT * FROM repair_items WHERE key = ?`).get(co.item_key) as any) : null;
+      const insertResult = rawDb.prepare(`
+        INSERT INTO repair_consult_items
+          (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order, change_order_id)
+        VALUES (?, ?, 'in_house', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 999, ?)
+      `).run(
+        co.consult_id, co.item_key || `change-order-${co.id}`, catalogItem?.trade || "change_order",
+        changeOrderDescription(co), co.unit, co.quantity, co.unit_rate, co.line_total,
+        `Change Order: ${co.reason}`, co.photos || "[]", `Change Order #${co.id}`, co.id
+      );
+
+      rawDb.prepare(`
+        UPDATE repair_change_orders
+        SET status = 'signed', signed_at = datetime('now'), signature_name = ?, signed_ip = ?,
+            consult_item_id = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(String(signatureName).trim(), ip, Number(insertResult.lastInsertRowid), co.id);
+
+      recalcConsultTotals(co.consult_id);
+      const updatedConsult = getConsultRow(co.consult_id);
+      try { await sendChangeOrderApprovedEmail(co.id, updatedConsult.total); } catch (e) { console.error("change-order approved email failed:", e); }
+
+      res.json({ ok: true, newTotal: updatedConsult.total });
+    } catch (err: any) {
+      console.error("sign change-order error:", err);
+      res.status(500).json({ error: "Failed to sign change order", detail: err?.message });
+    }
   });
 }

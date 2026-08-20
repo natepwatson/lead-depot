@@ -4,7 +4,7 @@
 // (auto-emailed from the Repair Consult client flow when an item needs a licensed trade).
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2 } from "lucide-react";
+import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2, FilePlus2, XCircle } from "lucide-react";
 
 type PricingItem = {
   id: number;
@@ -62,8 +62,31 @@ type Consult = {
 
 const unitLabel = (u: string) => (u === "linear_ft" ? "linear ft" : u === "sqft" ? "sqft" : u === "each" ? "each" : "flat");
 
+type ChangeOrder = {
+  id: number;
+  consult_id: number;
+  property_address: string;
+  client_name: string | null;
+  requested_by_name: string | null;
+  item_key: string | null;
+  custom_description: string | null;
+  unit: string;
+  quantity: number;
+  unit_rate: number;
+  line_total: number;
+  reason: string;
+  photos: string[];
+  status: "pending" | "office_approved" | "declined" | "signed";
+  requested_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  decline_reason: string | null;
+  signed_at: string | null;
+  signature_name: string | null;
+};
+
 export function RepairPricingVendorPanel() {
-  const [tab, setTab] = useState<"pricing" | "vendors" | "consults">("pricing");
+  const [tab, setTab] = useState<"pricing" | "vendors" | "consults" | "changeorders">("pricing");
 
   return (
     <div style={{ marginTop: 24 }}>
@@ -72,6 +95,7 @@ export function RepairPricingVendorPanel() {
           { key: "pricing", label: "Pricing Catalog", icon: DollarSign },
           { key: "vendors", label: "Vendor Directory", icon: Users2 },
           { key: "consults", label: "Consults", icon: FileSignature },
+          { key: "changeorders", label: "Change Orders", icon: FilePlus2 },
         ].map(t => (
           <button
             key={t.key}
@@ -89,7 +113,7 @@ export function RepairPricingVendorPanel() {
           </button>
         ))}
       </div>
-      {tab === "pricing" ? <PricingCatalogPanel /> : tab === "vendors" ? <VendorDirectoryPanel /> : <ConsultsPanel />}
+      {tab === "pricing" ? <PricingCatalogPanel /> : tab === "vendors" ? <VendorDirectoryPanel /> : tab === "consults" ? <ConsultsPanel /> : <ChangeOrdersPanel />}
     </div>
   );
 }
@@ -388,6 +412,7 @@ function ConsultsPanel() {
   const [consults, setConsults] = useState<Consult[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
+  const [changeOrderFor, setChangeOrderFor] = useState<Consult | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -582,7 +607,251 @@ function ConsultsPanel() {
                         <button disabled={busy === c.id} onClick={() => scheduleStart(c)} title="Schedule Start Date"
                           style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.08)" }}>Schedule</button>
                       )}
+                      {c.status === "accepted" && (
+                        <button disabled={busy === c.id} onClick={() => setChangeOrderFor(c)} title="Request a Change Order — additional work found once work began"
+                          style={{ ...actionBtnStyle, color: "#c8aa5a", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><FilePlus2 size={11} /> Change Order</button>
+                      )}
                     </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {changeOrderFor && (
+        <RequestChangeOrderModal
+          consult={changeOrderFor}
+          onClose={() => setChangeOrderFor(null)}
+          onSaved={() => { setChangeOrderFor(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── CHANGE ORDER REQUEST MODAL (used from ConsultsPanel, accepted rows only) ──
+function RequestChangeOrderModal({ consult, onClose, onSaved }: { consult: Consult; onClose: () => void; onSaved: () => void }) {
+  const [catalog, setCatalog] = useState<PricingItem[]>([]);
+  const [mode, setMode] = useState<"catalog" | "custom">("catalog");
+  const [itemKey, setItemKey] = useState("");
+  const [customDescription, setCustomDescription] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [unitRate, setUnitRate] = useState("");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const r = await fetch("/api/admin/repair-pricing", { credentials: "include" });
+      const d = await r.json();
+      setCatalog((d.items || []).filter((i: PricingItem) => i.category === "in_house" && i.active));
+    })();
+  }, []);
+
+  const selectedCat = catalog.find(c => c.key === itemKey);
+  const effectiveRate = unitRate !== "" ? parseFloat(unitRate) || 0 : (selectedCat?.default_rate || 0);
+  const effectiveQty = parseFloat(quantity) || 0;
+  const lineTotal = effectiveRate * effectiveQty;
+
+  const submit = async () => {
+    setError("");
+    if (mode === "catalog" && !itemKey) return setError("Select an item from the catalog");
+    if (mode === "custom" && !customDescription.trim()) return setError("Enter a description");
+    if (!reason.trim()) return setError("Explain why this additional work is needed");
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/repair-consult/${consult.id}/change-orders`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemKey: mode === "catalog" ? itemKey : null,
+          customDescription: mode === "custom" ? customDescription.trim() : null,
+          quantity: effectiveQty || 1,
+          unitRate: effectiveRate,
+          unit: selectedCat?.unit || "flat",
+          reason: reason.trim(),
+        }),
+      });
+      const b = await r.json();
+      if (!r.ok) { setError(b?.error || "Failed to submit change order"); return; }
+      onSaved();
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
+      <div style={{ width: 460, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto", background: "#141312", border: "1px solid rgba(200,170,90,0.3)", borderRadius: 12, padding: 20 }}>
+        <h3 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.2rem", fontWeight: 300, color: "#fff", marginBottom: 2 }}>
+          Request Change Order
+        </h3>
+        <p style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 14 }}>{consult.property_address}</p>
+
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          <button onClick={() => setMode("catalog")} style={{ flex: 1, padding: "6px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer",
+            background: mode === "catalog" ? "rgba(200,170,90,0.12)" : "rgba(255,255,255,0.03)",
+            border: `1px solid ${mode === "catalog" ? "rgba(200,170,90,0.45)" : "rgba(255,255,255,0.10)"}`,
+            color: mode === "catalog" ? "#e8d8a8" : "#94a3b8" }}>Catalog Item</button>
+          <button onClick={() => setMode("custom")} style={{ flex: 1, padding: "6px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer",
+            background: mode === "custom" ? "rgba(200,170,90,0.12)" : "rgba(255,255,255,0.03)",
+            border: `1px solid ${mode === "custom" ? "rgba(200,170,90,0.45)" : "rgba(255,255,255,0.10)"}`,
+            color: mode === "custom" ? "#e8d8a8" : "#94a3b8" }}>Custom / Off-Catalog</button>
+        </div>
+
+        {mode === "catalog" ? (
+          <select value={itemKey} onChange={e => setItemKey(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 10 }}>
+            <option value="">Select an item…</option>
+            {catalog.map(c => (
+              <option key={c.key} value={c.key}>{c.name} — ${c.default_rate}/{unitLabel(c.unit)}</option>
+            ))}
+          </select>
+        ) : (
+          <textarea placeholder="Describe the additional work…" value={customDescription} onChange={e => setCustomDescription(e.target.value)}
+            rows={2} style={{ ...inputStyle, width: "100%", marginBottom: 10, resize: "vertical" }} />
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+          <div>
+            <label style={{ fontSize: 10, color: "#94a3b8", display: "block", marginBottom: 3 }}>Quantity</label>
+            <input type="number" step="0.01" value={quantity} onChange={e => setQuantity(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, color: "#94a3b8", display: "block", marginBottom: 3 }}>Rate {mode === "catalog" && selectedCat ? `(default $${selectedCat.default_rate})` : ""}</label>
+            <input type="number" step="0.01" placeholder={selectedCat ? String(selectedCat.default_rate) : "0.00"} value={unitRate} onChange={e => setUnitRate(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+          </div>
+        </div>
+
+        <label style={{ fontSize: 10, color: "#94a3b8", display: "block", marginBottom: 3 }}>Reason (what was found, why it's needed)</label>
+        <textarea placeholder="e.g. Found termite damage under the back deck boards during demo…" value={reason} onChange={e => setReason(e.target.value)}
+          rows={3} style={{ ...inputStyle, width: "100%", marginBottom: 10, resize: "vertical" }} />
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "rgba(200,170,90,0.06)", borderRadius: 6, marginBottom: 12 }}>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>Change Order Amount</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#e8d8a8" }}>${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+        </div>
+
+        {error && <div style={{ fontSize: 11, color: "#f87171", marginBottom: 10 }}>{error}</div>}
+
+        <p style={{ fontSize: 10, color: "#64748b", marginBottom: 14, lineHeight: 1.5 }}>
+          This submits for office approval only — nothing is sent to the client yet, and no charge applies until
+          the client reviews and e-signs the specific change order.
+        </p>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ padding: "7px 14px", borderRadius: 6, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.10)", color: "#94a3b8", fontSize: 11.5, cursor: "pointer" }}>Cancel</button>
+          <button onClick={submit} disabled={saving} style={{ padding: "7px 16px", borderRadius: 6, background: "rgba(200,170,90,0.15)", border: "1px solid rgba(200,170,90,0.5)", color: "#e8d8a8", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
+            {saving ? "Submitting…" : "Submit for Approval"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── CHANGE ORDERS: admin queue, approve/decline/view signed ────────────
+function ChangeOrdersPanel() {
+  const [orders, setOrders] = useState<ChangeOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<number | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/repair-change-orders", { credentials: "include" });
+      const d = await r.json();
+      setOrders(d.changeOrders || []);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const approve = async (co: ChangeOrder) => {
+    if (!confirm(`Office-approve this $${co.line_total.toLocaleString(undefined, { minimumFractionDigits: 2 })} change order for ${co.property_address}?\n\nThis sends an e-sign link to the client — nothing is billed until they sign.`)) return;
+    setBusy(co.id);
+    try {
+      const r = await fetch(`/api/admin/repair-change-orders/${co.id}/office-approve`, { method: "POST", credentials: "include" });
+      const b = await r.json();
+      if (!r.ok) alert(b?.error || "Failed to approve");
+      load();
+    } finally { setBusy(null); }
+  };
+
+  const decline = async (co: ChangeOrder) => {
+    const reason = prompt(`Reason for declining this change order (optional):`, "");
+    if (reason === null) return;
+    setBusy(co.id);
+    try {
+      const r = await fetch(`/api/admin/repair-change-orders/${co.id}/decline`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason || null }),
+      });
+      const b = await r.json();
+      if (!r.ok) alert(b?.error || "Failed to decline");
+      load();
+    } finally { setBusy(null); }
+  };
+
+  const statusColor = (s: ChangeOrder["status"]) =>
+    s === "signed" ? "#5eead4" : s === "office_approved" ? "#e8d8a8" : s === "declined" ? "#f87171" : "#94a3b8";
+
+  return (
+    <div style={{ padding: 16, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+        <h3 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.15rem", fontWeight: 300, color: "#fff" }}>
+          Change Orders
+        </h3>
+        <button onClick={load} style={{
+          display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6,
+          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.10)",
+          color: "#94a3b8", fontSize: 11, cursor: "pointer",
+        }}><RefreshCw size={11} /> Refresh</button>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Additional work found once a job is underway. Every change order requires office approval here BEFORE the
+        client ever sees it, then the client must e-sign that specific change order before it becomes billable —
+        every time, no exceptions.
+      </p>
+
+      {loading ? (
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>Loading change orders…</div>
+      ) : orders.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>No change orders yet.</div>
+      ) : (
+        <div style={{ maxHeight: 520, overflowY: "auto", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6 }}>
+          <table style={{ width: "100%", fontSize: 12, color: "#c7d1dd", borderCollapse: "collapse" }}>
+            <thead style={{ background: "rgba(255,255,255,0.03)", position: "sticky", top: 0 }}>
+              <tr>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Property</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Description</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Reason</th>
+                <th style={{ textAlign: "right", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Amount</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Status</th>
+                <th style={{ textAlign: "center", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map(co => (
+                <tr key={co.id} style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                  <td style={{ padding: "6px 10px", color: "#e5e7eb" }}>{co.property_address}</td>
+                  <td style={{ padding: "6px 10px", color: "#e5e7eb" }}>{co.custom_description || co.item_key}</td>
+                  <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11, maxWidth: 220 }}>{co.reason}</td>
+                  <td style={{ padding: "6px 10px", textAlign: "right", color: "#e5e7eb" }}>${co.line_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  <td style={{ padding: "6px 10px", color: statusColor(co.status), textTransform: "capitalize", fontSize: 11 }}>
+                    {co.status === "signed" ? `Signed · ${co.signature_name}` : co.status === "office_approved" ? "Awaiting client signature" : co.status.replace("_", " ")}
+                  </td>
+                  <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                    {co.status === "pending" ? (
+                      <div style={{ display: "flex", gap: 5, justifyContent: "center" }}>
+                        <button disabled={busy === co.id} onClick={() => approve(co)}
+                          style={{ ...actionBtnStyle, color: "#c8aa5a", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><CheckCircle2 size={11} /> Approve</button>
+                        <button disabled={busy === co.id} onClick={() => decline(co)}
+                          style={{ ...actionBtnStyle, color: "#f87171", borderColor: "rgba(248,113,113,0.4)", background: "rgba(248,113,113,0.08)" }}><XCircle size={11} /> Decline</button>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 10, color: "#64748b" }}>—</span>
+                    )}
                   </td>
                 </tr>
               ))}

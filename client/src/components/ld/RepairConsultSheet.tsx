@@ -152,6 +152,39 @@ export function RepairConsultSheet({
   const [clientPhone, setClientPhone] = useState(initialClientPhone || "");
   const [propertyAddress, setPropertyAddress] = useState(initialAddress || "");
 
+  // v20.15.2 — same live FUB contact picker as Listing Consult's Before You
+  // Arrive step. Only relevant when the agent is starting a standalone Repair
+  // Consult (not nested from a Listing Consult, which already carries this
+  // info) — search a name, autofill everything FUB already knows.
+  const [fubQuery, setFubQuery] = useState("");
+  const [fubResults, setFubResults] = useState<{ id: number; name: string; email: string | null; phone: string | null; address: string | null }[]>([]);
+  const [fubSearching, setFubSearching] = useState(false);
+  const [fubPickedName, setFubPickedName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (fubQuery.trim().length < 2 || fubPickedName) { setFubResults([]); return; }
+    const t = setTimeout(async () => {
+      setFubSearching(true);
+      try {
+        const r = await fetch(`/api/fub/contacts/search?q=${encodeURIComponent(fubQuery.trim())}`, { credentials: "include" });
+        const body = await r.json().catch(() => ({ results: [] }));
+        setFubResults(body.results || []);
+      } catch { setFubResults([]); }
+      finally { setFubSearching(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [fubQuery, fubPickedName]);
+
+  const pickFubContact = (c: { name: string; email: string | null; phone: string | null; address: string | null }) => {
+    setClientName(c.name);
+    if (c.email) setClientEmail(c.email);
+    if (c.phone) setClientPhone(c.phone);
+    if (c.address) setPropertyAddress(c.address);
+    setFubPickedName(c.name);
+    setFubQuery(c.name);
+    setFubResults([]);
+  };
+
   const [heroPhotoUrl, setHeroPhotoUrl] = useState<string | null>(prefillHeroPhotoUrl || null);
   const [galleryUrls, setGalleryUrls] = useState<{ url: string; tag: "overview" | "repair_scope" }[]>([]);
   // v20.15.2 — which tag new bulk-uploaded photos get; mirrors ListingConsultSheet.
@@ -515,10 +548,44 @@ export function RepairConsultSheet({
         {step === "info" && (
           <>
             {header("Repair Consult", "Property + client info, front of house photo")}
+            <label style={labelStyle}>Find in FUB</label>
+            <div style={{ position: "relative", marginBottom: 6 }}>
+              <input
+                style={inputStyle}
+                value={fubQuery}
+                onChange={e => { setFubQuery(e.target.value); setFubPickedName(null); }}
+                placeholder="Type client name to search Follow Up Boss…"
+                autoFocus
+              />
+              {fubSearching && (
+                <Loader2 size={14} className="animate-spin" style={{ position: "absolute", right: 12, top: 13, color: GOLD }} />
+              )}
+              {fubResults.length > 0 && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20,
+                  background: "#1a1815", border: "1px solid rgba(200,170,90,0.35)", borderRadius: 8,
+                  maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                }}>
+                  {fubResults.map(c => (
+                    <button key={c.id} type="button" onClick={() => pickFubContact(c)} style={{
+                      display: "block", width: "100%", textAlign: "left", padding: "9px 12px", cursor: "pointer",
+                      background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#fff",
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{[c.phone, c.email].filter(Boolean).join(" · ") || "No phone/email on file"}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>{c.address || "No address on file"}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 14 }}>
+              Start here — selecting a match autofills name, phone, email, and their current home address below.
+            </p>
             <label style={labelStyle}>Property Address</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
             <label style={labelStyle}>Client Name</label>
-            <input style={{ ...inputStyle, marginBottom: 14 }} value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Client full name" />
+            <input style={{ ...inputStyle, marginBottom: 14 }} value={clientName} onChange={e => { setClientName(e.target.value); setFubPickedName(null); }} placeholder="Client full name" />
             <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
               <div style={{ flex: 1 }}>
                 <label style={labelStyle}>Client Email</label>

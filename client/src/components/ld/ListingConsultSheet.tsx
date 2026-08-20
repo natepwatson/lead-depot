@@ -181,7 +181,7 @@ export function ListingConsultSheet({
   // Full legal name (which may differ from FUB's nickname/display name)
   // stays a separate, always-manual field on the Lock In step.
   const [fubQuery, setFubQuery] = useState("");
-  const [fubResults, setFubResults] = useState<{ id: number; name: string; email: string | null; phone: string | null }[]>([]);
+  const [fubResults, setFubResults] = useState<{ id: number; name: string; email: string | null; phone: string | null; address: string | null }[]>([]);
   const [fubSearching, setFubSearching] = useState(false);
   const [fubPickedName, setFubPickedName] = useState<string | null>(null);
 
@@ -199,10 +199,15 @@ export function ListingConsultSheet({
     return () => clearTimeout(t);
   }, [fubQuery, fubPickedName]);
 
-  const pickFubContact = (c: { name: string; email: string | null; phone: string | null }) => {
+  // v20.15.2 — FUB search is now the FIRST question on Before You Arrive.
+  // Picking a match autofills name, phone, email, AND their on-file current
+  // home address into Property Address — the agent only has to type what
+  // FUB doesn't already know.
+  const pickFubContact = (c: { name: string; email: string | null; phone: string | null; address: string | null }) => {
     setClientName(c.name);
     if (c.email) setClientEmail(c.email);
     if (c.phone) setClientPhone(c.phone);
+    if (c.address) setPropertyAddress(c.address);
     setFubPickedName(c.name);
     setFubQuery(c.name);
     setFubResults([]);
@@ -693,8 +698,54 @@ export function ListingConsultSheet({
         {step === "prep" && (
           <>
             {header("Before You Arrive", "Property + client info, quick prep checklist")}
+            <label style={labelStyle}>Find in FUB</label>
+            <div style={{ position: "relative", marginBottom: 6 }}>
+              <input
+                style={inputStyle}
+                value={fubQuery}
+                onChange={e => { setFubQuery(e.target.value); setFubPickedName(null); }}
+                placeholder="Type client name to search Follow Up Boss…"
+                autoFocus
+              />
+              {fubSearching && (
+                <Loader2 size={14} className="animate-spin" style={{ position: "absolute", right: 12, top: 13, color: GOLD }} />
+              )}
+              {fubResults.length > 0 && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20,
+                  background: "#1a1815", border: "1px solid rgba(200,170,90,0.35)", borderRadius: 8,
+                  maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                }}>
+                  {fubResults.map(c => (
+                    <button key={c.id} type="button" onClick={() => pickFubContact(c)} style={{
+                      display: "block", width: "100%", textAlign: "left", padding: "9px 12px", cursor: "pointer",
+                      background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#fff",
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{[c.phone, c.email].filter(Boolean).join(" · ") || "No phone/email on file"}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>{c.address || "No address on file"}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 14 }}>
+              Start here — selecting a match autofills name, phone, email, and their current home address below. You can still edit any of it. If FUB shows a nickname, you'll enter their full legal name separately on the Lock In step.
+            </p>
             <label style={labelStyle}>Property Address</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
+            <label style={labelStyle}>Client Name</label>
+            <input style={{ ...inputStyle, marginBottom: 14 }} value={clientName} onChange={e => { setClientName(e.target.value); setFubPickedName(null); }} placeholder="Client full name" />
+            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Client Email</label>
+                <input style={inputStyle} value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="client@email.com" type="email" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Client Phone</label>
+                <input style={inputStyle} value={clientPhone} onChange={e => setClientPhone(e.target.value)} placeholder="(904) 555-0100" />
+              </div>
+            </div>
             <label style={labelStyle}>Front of House Photo</label>
             <div style={{ marginBottom: 14 }}>
               {heroPhotoUrl ? (
@@ -715,50 +766,6 @@ export function ListingConsultSheet({
                   <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => e.target.files?.[0] && handlePhotoPick(e.target.files[0], "hero")} />
                 </label>
               )}
-            </div>
-            <label style={labelStyle}>Find in FUB</label>
-            <div style={{ position: "relative", marginBottom: 6 }}>
-              <input
-                style={inputStyle}
-                value={fubQuery}
-                onChange={e => { setFubQuery(e.target.value); setFubPickedName(null); }}
-                placeholder="Type client name to search Follow Up Boss…"
-              />
-              {fubSearching && (
-                <Loader2 size={14} className="animate-spin" style={{ position: "absolute", right: 12, top: 13, color: GOLD }} />
-              )}
-              {fubResults.length > 0 && (
-                <div style={{
-                  position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20,
-                  background: "#1a1815", border: "1px solid rgba(200,170,90,0.35)", borderRadius: 8,
-                  maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-                }}>
-                  {fubResults.map(c => (
-                    <button key={c.id} type="button" onClick={() => pickFubContact(c)} style={{
-                      display: "block", width: "100%", textAlign: "left", padding: "9px 12px", cursor: "pointer",
-                      background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#fff",
-                    }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{[c.phone, c.email].filter(Boolean).join(" · ") || "No phone/email on file"}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 14 }}>
-              Selecting a match autofills name, phone, and email below — you can still edit any of it. If FUB shows a nickname, you'll enter their full legal name separately on the Lock In step.
-            </p>
-            <label style={labelStyle}>Client Name</label>
-            <input style={{ ...inputStyle, marginBottom: 14 }} value={clientName} onChange={e => { setClientName(e.target.value); setFubPickedName(null); }} placeholder="Client full name" />
-            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Client Email</label>
-                <input style={inputStyle} value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="client@email.com" type="email" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>Client Phone</label>
-                <input style={inputStyle} value={clientPhone} onChange={e => setClientPhone(e.target.value)} placeholder="(904) 555-0100" />
-              </div>
             </div>
             <label style={labelStyle}>Before-You-Arrive Checklist</label>
             {PREP_ITEMS.map(item => (

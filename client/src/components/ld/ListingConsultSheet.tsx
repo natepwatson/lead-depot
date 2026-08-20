@@ -1,10 +1,21 @@
 // v20.14.0 — Listing Consult. Full-screen wizard that walks an agent through
-// the entire Seller Meet & Greet appointment (per Brothers Group's printed
-// Listing Flow, page 1) without needing to stay glued to their phone — a
-// handful of quick taps/fields per step, big checklist chips, minimal typing.
-// The repair-scoping question lives inside Step 2 (Preview the Home) and can
-// hand off into the existing Repair Consult tool mid-appointment; the parent
-// (AgentView) is responsible for swapping back to this sheet when that closes.
+// the entire Seller Meet & Greet appointment without needing to stay glued
+// to their phone — a handful of quick taps/fields per step, big checklist
+// chips, minimal typing.
+//
+// v20.18.0 — FOUR-PAGE REDESIGN (Prep → Walkthrough & Intel → Close → Lock In).
+// See server/listingConsult.ts header for the full design rationale. Key
+// frontend changes: Preview + Intel merged into one Walkthrough & Intel
+// step; Close is now a single 3-way "Where are we?" control whose
+// "not moving forward" branch reveals 4 outcomes INLINE (the standalone
+// Debrief page is gone — Consult Result is the only thing that survived
+// from it); Lock In gained Cleaning Y/N (always asked), a direct Repair
+// Date/Time (only when Close said repairs-first — never re-asks a question
+// already answered), a Showing Approval Contact picker (Owner 1 / Owner 2 /
+// Other) that replaces the old free-text Access Phone, a Showing
+// Restrictions field, a derived (read-only) Access Email, and a real
+// validation + summary-card gate behind "Send Listing Contract" instead of
+// a plain checkbox chip.
 import { useState, useEffect, useRef } from "react";
 import { CheckCircle2, ChevronRight, ChevronLeft, X, Wrench, Loader2, Camera } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
@@ -103,14 +114,13 @@ function Chip({ label, checked, onToggle }: { label: string; checked: boolean; o
 type ChecklistState = Record<string, boolean>;
 
 const PREP_ITEMS = ["Generated Sales Package", "Studied $/SF & DOM", "Texted Confirmation", "Arrived Early"];
-const PRESENTATION_ITEMS = ["Accolades", "Reviews", "3x Marketing", "Pay at Close Reno", "Zillow Showcase", "Multiple MLS's"];
-const LOCKIN_SCHEDULE_ITEMS = ["Repairs / Cleaning", "Photos & Video", "Sign + Lockbox", "Go Live", "Open House(s)"];
-// v20.15.0 — removed the standalone "CMA Pricing & Pay-at-Close Reno" step
-// (was an instructional 4-tier reference table). This tool is for quick
-// intel-gathering during the appointment, not for walking the client through
-// educational content on-screen — that conversation happens live, off-app.
-// The functional fields that step actually captured (recommended price,
-// reviewed-comps confirmation) moved into the Close step below.
+
+const NOT_MOVING_OPTIONS: { key: string; label: string }[] = [
+  { key: "pending_repair_quote", label: "Not ready — pending repair quote" },
+  { key: "other_reason", label: "Not ready — other reason" },
+  { key: "listed_other_agent", label: "Listed with another agent" },
+  { key: "not_interested", label: "Not interested" },
+];
 
 export function ListingConsultSheet({
   leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose, onLaunchRepairConsult,
@@ -120,12 +130,9 @@ export function ListingConsultSheet({
   onClose: () => void;
   onLaunchRepairConsult: (prefill: { address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null }) => void;
 }) {
-  // v20.16.0 — Streamline: "presentation" was a standalone step that was
-  // just a 6-item checklist with no other fields — its own full Next tap +
-  // network save for content that belongs right alongside the pricing
-  // conversation. Folded into the top of "close" (now "Present & Close"),
-  // cutting total steps from 7 to 6 per Alex's "takes too long" feedback.
-  const [step, setStep] = useState<"prep" | "preview" | "intel" | "close" | "lockin" | "debrief">("prep");
+  // v20.18.0 — four-page flow: prep → walkthrough → close → lockin. Debrief
+  // is gone entirely (folded into close's inline "not moving forward" branch).
+  const [step, setStep] = useState<"prep" | "walkthrough" | "close" | "lockin">("prep");
   const [consultId, setConsultId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -139,17 +146,12 @@ export function ListingConsultSheet({
 
   // v20.14.2 — nav-bar detach fix. Every other full-screen sheet (Repair
   // Consult, KIT modal, etc.) hides the fixed bottom nav via body.ld-modal-open
-  // while it's mounted. This sheet was missing it, so typing into any of its
-  // many text fields opened the iOS keyboard, which resizes the visualViewport
-  // but not the layout viewport — leaving the nav's position:fixed;bottom:0
-  // to "float" up into the middle of the screen. Matches RepairConsultSheet's
-  // effect exactly.
+  // while it's mounted.
   useEffect(() => {
     document.body.classList.add("ld-modal-open");
     return () => document.body.classList.remove("ld-modal-open");
   }, []);
 
-  // v20.14.5 — check for a resumable in-progress consult on every mount.
   useEffect(() => {
     fetchJson(`/api/listing-consult/mine?agentId=${agentId ?? ""}`)
       .then(d => {
@@ -166,29 +168,23 @@ export function ListingConsultSheet({
   const [clientPhone, setClientPhone] = useState(initialClientPhone || "");
   const [propertyAddress, setPropertyAddress] = useState(initialAddress || "");
   const [prepChecklist, setPrepChecklist] = useState<ChecklistState>({});
-  // v20.15.0 — front-of-house photo captured right on the Prep step (the
-  // first page of the appointment), and the full interior/exterior
-  // walkthrough gallery captured on the Preview step — mirrors
-  // RepairConsultSheet's hero + gallery pattern so both tools feel like one
-  // continuous consultation.
   const [heroPhotoUrl, setHeroPhotoUrl] = useState<string | null>(null);
   const [uploadingHero, setUploadingHero] = useState(false);
-  const [galleryUrls, setGalleryUrls] = useState<{ url: string; tag: "overview" | "repair_scope" }[]>([]);
+  // v20.18.0 — gallery tag toggle UI removed; entries are plain URL strings now.
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [uploadingGallery, setUploadingGallery] = useState(false);
-  // v20.15.2 — which tag new bulk-uploaded photos get. Agent flips this toggle
-  // before selecting a batch so overview shots and repair-pricing shots land
-  // pre-sorted without any AI step.
-  const [galleryTagMode, setGalleryTagMode] = useState<"overview" | "repair_scope">("overview");
   const [galleryProgress, setGalleryProgress] = useState<{ done: number; total: number } | null>(null);
 
   // v20.15.0 — live FUB contact picker. Agent types a name, we search FUB's
   // cached people list server-side, tap a result to autofill phone/email.
-  // Full legal name (which may differ from FUB's nickname/display name)
-  // stays a separate, always-manual field on the Lock In step.
   const [fubQuery, setFubQuery] = useState("");
   const [fubResults, setFubResults] = useState<{ id: number; name: string; email: string | null; phone: string | null; address: string | null }[]>([]);
   const [fubSearching, setFubSearching] = useState(false);
   const [fubPickedName, setFubPickedName] = useState<string | null>(null);
+  // v20.18.0 — the real FUB personId, now actually captured (previously
+  // discarded) so the outcome-routing FUB push can update the exact same
+  // person instead of re-searching by phone/name.
+  const [fubPersonId, setFubPersonId] = useState<number | null>(null);
 
   useEffect(() => {
     if (fubQuery.trim().length < 2 || fubPickedName) { setFubResults([]); return; }
@@ -204,93 +200,71 @@ export function ListingConsultSheet({
     return () => clearTimeout(t);
   }, [fubQuery, fubPickedName]);
 
-  // v20.15.2 — FUB search is now the FIRST question on Before You Arrive.
-  // Picking a match autofills name, phone, email, AND their on-file current
-  // home address into Property Address — the agent only has to type what
-  // FUB doesn't already know.
-  const pickFubContact = (c: { name: string; email: string | null; phone: string | null; address: string | null }) => {
+  const pickFubContact = (c: { id: number; name: string; email: string | null; phone: string | null; address: string | null }) => {
     setClientName(c.name);
     if (c.email) setClientEmail(c.email);
     if (c.phone) setClientPhone(c.phone);
     if (c.address) setPropertyAddress(c.address);
+    setFubPersonId(c.id);
     setFubPickedName(c.name);
     setFubQuery(c.name);
     setFubResults([]);
   };
 
-  // v20.15.0 — Lock In's Access Phone/Email were a separate blank state from
-  // the client contact info gathered on Prep, forcing the agent to retype
-  // what they already entered (or picked from FUB). Default them once, the
-  // first time the agent reaches Lock In, without stomping anything they've
-  // already typed there themselves.
-  useEffect(() => {
-    if (step === "lockin") {
-      if (!accessPhone && clientPhone) setAccessPhone(clientPhone);
-      if (!accessEmail && clientEmail) setAccessEmail(clientEmail);
-    }
-  }, [step]);
-
-  const [previewNotes, setPreviewNotes] = useState("");
+  // ── Walkthrough & Intel (merged) ──
+  const [walkthroughNotes, setWalkthroughNotes] = useState("");
   const [needsRepairs, setNeedsRepairs] = useState<"" | "yes" | "no">("");
-  const [repairNotes, setRepairNotes] = useState("");
-
-  const [desiredPrice, setDesiredPrice] = useState("");
-  const [motivation, setMotivation] = useState("");
   const [mortgageBalance, setMortgageBalance] = useState("");
   const [buyingToo, setBuyingToo] = useState<"" | "yes" | "no">("");
   const [buyingNotes, setBuyingNotes] = useState("");
   const [timeline, setTimeline] = useState("");
 
-  const [presentationChecklist, setPresentationChecklist] = useState<ChecklistState>({});
-
+  // ── Close ──
   const [recommendedPrice, setRecommendedPrice] = useState("");
-  const [reviewedComps, setReviewedComps] = useState(false);
-
-  const [readyToStart, setReadyToStart] = useState<"" | "yes" | "no">("");
-  // v20.14.4 — the price the seller actually agreed to list at, captured once
-  // they say yes — distinct from recommendedPrice above, which is the agent's
-  // CMA-driven suggestion before the negotiation happens.
   const [finalListingPrice, setFinalListingPrice] = useState("");
-  const [startTiming, setStartTiming] = useState<"" | "now" | "later">("");
-  const [repairsOrReady, setRepairsOrReady] = useState<"" | "repairs" | "ready">("");
-  const [holdingBack, setHoldingBack] = useState("");
+  const [commissionTerms, setCommissionTerms] = useState("");
+  const [whereAreWe, setWhereAreWe] = useState<"" | "ready_now" | "ready_repairs" | "not_moving">("");
+  const [notMovingReason, setNotMovingReason] = useState<"" | "pending_repair_quote" | "other_reason" | "listed_other_agent" | "not_interested">("");
+  const [notMovingNotes, setNotMovingNotes] = useState("");
+  const [notMovingFollowUpTiming, setNotMovingFollowUpTiming] = useState("");
+  const [notMovingSubmitted, setNotMovingSubmitted] = useState(false);
+  const [sendingNotMoving, setSendingNotMoving] = useState(false);
 
-  const [lockinSchedule, setLockinSchedule] = useState<ChecklistState>({});
-  // v20.14.4 — optional target date per Lock In schedule item, captured live
-  // at the appointment so nothing has to be chased down after the fact.
-  const [lockinScheduleDates, setLockinScheduleDates] = useState<Record<string, string>>({});
-  // v20.15.1 — optional target time alongside the date, so the schedule row
-  // captures a real appointment window, not just a day.
-  const [lockinScheduleTimes, setLockinScheduleTimes] = useState<Record<string, string>>({});
+  // ── Lock In ──
+  const [needsCleaning, setNeedsCleaning] = useState<"" | "yes" | "no">("");
+  const [cleaningDate, setCleaningDate] = useState("");
+  const [cleaningTime, setCleaningTime] = useState("");
+  const [repairDate, setRepairDate] = useState("");
+  const [repairTime, setRepairTime] = useState("");
   const [accessKeyOrCode, setAccessKeyOrCode] = useState("");
   const [gateCode, setGateCode] = useState("");
   const [ownerNames, setOwnerNames] = useState("");
-  // v20.14.4 — most listings have two owners on title; second is optional.
   const [ownerNames2, setOwnerNames2] = useState("");
   const [showOwner2, setShowOwner2] = useState(false);
-  // v20.15.1 — Owner 2 phone/email, sourced from FUB search first (same
-  // pattern as the Write Offer buyer search) with manual entry as fallback.
   const [owner2Query, setOwner2Query] = useState("");
   const [owner2Results, setOwner2Results] = useState<{ id: number; name: string; email: string | null; phone: string | null }[]>([]);
   const [owner2Searching, setOwner2Searching] = useState(false);
   const [owner2Phone, setOwner2Phone] = useState("");
   const [owner2Email, setOwner2Email] = useState("");
-  const [accessPhone, setAccessPhone] = useState("");
-  const [accessEmail, setAccessEmail] = useState("");
+  // v20.18.0 — replaces the old free-text "Access Phone". Access Email is
+  // derived below from whichever contact is picked here.
+  const [showingApprovalContact, setShowingApprovalContact] = useState<"" | "owner1" | "owner2" | "other">("");
+  const [showingContactOtherName, setShowingContactOtherName] = useState("");
+  const [showingContactOtherPhone, setShowingContactOtherPhone] = useState("");
+  const [showingContactOtherEmail, setShowingContactOtherEmail] = useState("");
+  const [showingRestrictions, setShowingRestrictions] = useState("");
   const [contractSent, setContractSent] = useState(false);
+  const [sendingContract, setSendingContract] = useState(false);
+  const [showContractSummary, setShowContractSummary] = useState(false);
+  const [contractSendError, setContractSendError] = useState("");
 
   // v20.15.2 — Owner 1's legal name defaults from the client name captured
   // (and possibly FUB-picked) back on Prep the first time the agent reaches
-  // Lock In — one less retype, still fully editable since FUB's display
-  // name can be a nickname and the contract needs the full legal name.
+  // Lock In — one less retype, still fully editable.
   useEffect(() => {
     if (step === "lockin" && !ownerNames && clientName) setOwnerNames(clientName);
   }, [step]);
 
-  // v20.15.1 — Owner 2 FUB search. Mirrors the Write Offer buyer pattern:
-  // the search box only autofills phone/email, never the legal-name field
-  // below it — FUB's display name can be a nickname, but the Lock In step
-  // needs the name exactly as it should appear on the contract.
   useEffect(() => {
     if (owner2Query.trim().length < 2) { setOwner2Results([]); return; }
     const t = setTimeout(async () => {
@@ -312,26 +286,18 @@ export function ListingConsultSheet({
     setOwner2Results([]);
   };
 
-  const [debriefResult, setDebriefResult] = useState("");
-  const [debriefNotes, setDebriefNotes] = useState("");
-  const [debriefUpgrades, setDebriefUpgrades] = useState("");
-  const [debriefTempo, setDebriefTempo] = useState("");
-  const [debriefStage, setDebriefStage] = useState("");
-  const [debriefNextSteps, setDebriefNextSteps] = useState("");
-  const [debriefSent, setDebriefSent] = useState(false);
-  const [sendingDebrief, setSendingDebrief] = useState(false);
+  // v20.18.0 — Access Email is no longer a manual field. It's derived from
+  // whichever Showing Approval Contact was picked.
+  const derivedShowingContact =
+    showingApprovalContact === "owner1" ? { name: ownerNames || clientName, phone: clientPhone, email: clientEmail } :
+    showingApprovalContact === "owner2" ? { name: ownerNames2, phone: owner2Phone, email: owner2Email } :
+    showingApprovalContact === "other" ? { name: showingContactOtherName, phone: showingContactOtherPhone, email: showingContactOtherEmail } :
+    { name: "", phone: "", email: "" };
 
   // v20.16.0 — Fix for the duplicate-consult creation bug (double POST on the
-  // very first "Next" tap): handlePrepNext calls `ensureConsult()` directly,
-  // then `saveSection("prep", ...)`, which internally falls back to its own
-  // `ensureConsult()` call. Both closures were reading the React `consultId`
-  // STATE variable, which is frozen to this render's value (null) — state
-  // updates from the first call don't mutate that already-captured variable,
-  // so the second call always saw null and POSTed a second row, every time.
-  // Refs mutate in place and are shared across every closure regardless of
-  // which render created them, so gating on a ref instead of state closes the
-  // race. The in-flight-promise ref also collapses truly concurrent calls
-  // (e.g. a fast double-tap) into a single POST.
+  // very first "Next" tap). Refs mutate in place and are shared across every
+  // closure regardless of which render created them, so gating on a ref
+  // instead of state closes the race.
   const consultIdRef = useRef<number | null>(null);
   const creatingPromiseRef = useRef<Promise<number> | null>(null);
   const ensureConsult = async (): Promise<number> => {
@@ -375,10 +341,10 @@ export function ListingConsultSheet({
       if (!conv) { setError("Couldn't read that photo. Try another."); setBusy(false); return; }
       const d = await fetchJson(`/api/listing-consult/${id}/photo`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind, tag: kind === "gallery" ? galleryTagMode : undefined }),
+        body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind }),
       });
       if (kind === "hero") setHeroPhotoUrl(d.url);
-      else setGalleryUrls(prev => [...prev, { url: d.url, tag: galleryTagMode }]);
+      else setGalleryUrls(prev => [...prev, d.url]);
     } catch (e: any) { setError(e.message || "Photo upload failed."); }
     finally { setBusy(false); }
   };
@@ -387,7 +353,6 @@ export function ListingConsultSheet({
     const id = await ensureConsult();
     const fileArr = Array.from(files);
     if (fileArr.length === 0) return;
-    const tag = galleryTagMode;
     setUploadingGallery(true);
     setGalleryProgress({ done: 0, total: fileArr.length });
     for (let i = 0; i < fileArr.length; i++) {
@@ -396,9 +361,9 @@ export function ListingConsultSheet({
         if (conv) {
           const d = await fetchJson(`/api/listing-consult/${id}/photo`, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery", tag }),
+            body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery" }),
           });
-          setGalleryUrls(prev => [...prev, { url: d.url, tag }]);
+          setGalleryUrls(prev => [...prev, d.url]);
         }
       } catch (e: any) { setError(e.message || `Photo ${i + 1} of ${fileArr.length} failed to upload — the rest kept going.`); }
       setGalleryProgress({ done: i + 1, total: fileArr.length });
@@ -407,33 +372,6 @@ export function ListingConsultSheet({
     setGalleryProgress(null);
   };
 
-  // v20.15.2 — re-tag a photo after the fact (agent taps its badge to flip
-  // Overview ↔ Repair Scope without re-uploading).
-  const handleToggleGalleryTag = async (url: string) => {
-    const current = galleryUrls.find(p => p.url === url);
-    if (!current || !consultId) return;
-    const nextTag: "overview" | "repair_scope" = current.tag === "repair_scope" ? "overview" : "repair_scope";
-    setGalleryUrls(prev => prev.map(p => p.url === url ? { ...p, tag: nextTag } : p));
-    try {
-      await fetchJson(`/api/listing-consult/${consultId}/photo-tag`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, tag: nextTag }),
-      });
-    } catch { setGalleryUrls(prev => prev.map(p => p.url === url ? { ...p, tag: current.tag } : p)); }
-  };
-
-  // v20.14.5 — Hydrate every field from a previously-started consult (the
-  // section-by-section `data` JSON blob + top-level row) so resuming feels
-  // like the appointment never paused. Determines which step to land on by
-  // walking the sections from most-advanced to least.
-  // v20.14.6 — Lock In's six granular access fields are now persisted
-  // individually (see handleLockinNext) and hydrated below, closing the gap
-  // flagged in v20.14.5. Consults saved before v20.14.6 won't have these keys
-  // in their stored `data.lockin` — they'll simply come back blank, same as
-  // before, with no error.
-  // v20.14.6 — Archive (soft-delete) a consult straight from the resume
-  // picker without opening it. Optimistically drops it from the local list;
-  // if the request fails, put it back and surface the error.
   const handleArchiveConsult = async (id: number) => {
     const prev = resumeList;
     setResumeList(list => list.filter(it => it.id !== id));
@@ -445,6 +383,10 @@ export function ListingConsultSheet({
     }
   };
 
+  // v20.18.0 — hydration rewritten for the 4-step flow. No step ever resolves
+  // to "debrief" — it doesn't exist anymore. A consult whose Close outcome
+  // was "not moving forward" has already flipped its DB status away from
+  // in_progress (so /mine won't surface it for resume), but we guard here too.
   const handleResumeConsult = async (id: number) => {
     setResumePhase("ready"); setError("");
     try {
@@ -456,68 +398,56 @@ export function ListingConsultSheet({
       setClientPhone(d.client_phone || "");
       setPropertyAddress(d.property_address || "");
       setHeroPhotoUrl(d.hero_photo_url || null);
-      setGalleryUrls(Array.isArray(d.gallery_photos) ? d.gallery_photos.map((p: any) => typeof p === "string" ? { url: p, tag: "overview" } : p) : []);
+      setGalleryUrls(Array.isArray(d.gallery_photos) ? d.gallery_photos : []);
 
       const data = d.data || {};
       let nextStep: typeof step = "prep";
 
-      if (data.prep) { setPrepChecklist(data.prep.checklist || {}); nextStep = "preview"; }
-      if (data.preview) {
-        setPreviewNotes(data.preview.notes || "");
-        setNeedsRepairs(data.preview.needsRepairs === true ? "yes" : data.preview.needsRepairs === false ? "no" : "");
-        setRepairNotes(data.preview.repairNotes || "");
-        nextStep = "intel";
+      if (data.prep) {
+        setPrepChecklist(data.prep.checklist || {});
+        if (data.prep.fubPersonId) setFubPersonId(data.prep.fubPersonId);
+        nextStep = "walkthrough";
       }
-      if (data.intel) {
-        setDesiredPrice(data.intel.desiredPrice || "");
-        setMotivation(data.intel.motivation || "");
-        setMortgageBalance(data.intel.mortgageBalance || "");
-        setBuyingToo(data.intel.buyingToo || "");
-        setBuyingNotes(data.intel.buyingNotes || "");
-        setTimeline(data.intel.timeline || "");
+      if (data.walkthrough) {
+        setWalkthroughNotes(data.walkthrough.notes || "");
+        setNeedsRepairs(data.walkthrough.needsRepairs === true ? "yes" : data.walkthrough.needsRepairs === false ? "no" : "");
+        setMortgageBalance(data.walkthrough.mortgageBalance || "");
+        setBuyingToo(data.walkthrough.buyingToo || "");
+        setBuyingNotes(data.walkthrough.buyingNotes || "");
+        setTimeline(data.walkthrough.timeline || "");
         nextStep = "close";
       }
-      // v20.16.0 — "presentation" is no longer its own step (folded into
-      // "close"), so hydrating it no longer advances nextStep — only
-      // data.close (the step that now actually gets saved last) does. A
-      // consult saved under the old 7-step flow with presentation done but
-      // close not yet saved will correctly resume on the merged close step.
-      if (data.presentation) { setPresentationChecklist(data.presentation.covered || {}); }
-      if (data.pricing) {
-        setRecommendedPrice(data.pricing.recommendedPrice || "");
-        setReviewedComps(!!data.pricing.reviewedComps);
-      }
       if (data.close) {
-        setReadyToStart(data.close.readyToStart || "");
-        setStartTiming(data.close.startTiming || "");
-        setRepairsOrReady(data.close.repairsOrReady || "");
-        setHoldingBack(data.close.holdingBack || "");
+        setRecommendedPrice(data.close.recommendedPrice || "");
         setFinalListingPrice(data.close.finalListingPrice || "");
-        nextStep = data.close.readyToStart === "yes" ? "lockin" : "debrief";
+        setCommissionTerms(data.close.commissionTerms || "");
+        setWhereAreWe(data.close.whereAreWe || "");
+        if (data.close.whereAreWe === "ready_now" || data.close.whereAreWe === "ready_repairs") {
+          nextStep = "lockin";
+        } else {
+          nextStep = "close";
+        }
       }
       if (data.lockin) {
-        setLockinSchedule(data.lockin.schedule || {});
-        setLockinScheduleDates(data.lockin.scheduleDates || {});
-        setLockinScheduleTimes(data.lockin.scheduleTimes || {});
-        setContractSent(!!data.lockin.contractSent);
-        // v20.14.6 — restore the six granular access fields when present.
+        setNeedsCleaning(data.lockin.needsCleaning || "");
+        setCleaningDate(data.lockin.cleaningDate || "");
+        setCleaningTime(data.lockin.cleaningTime || "");
+        setRepairDate(data.lockin.repairDate || "");
+        setRepairTime(data.lockin.repairTime || "");
         setAccessKeyOrCode(data.lockin.accessKeyOrCode || "");
         setGateCode(data.lockin.gateCode || "");
         setOwnerNames(data.lockin.ownerNames || "");
         setOwnerNames2(data.lockin.ownerNames2 || "");
         if (data.lockin.ownerNames2) setShowOwner2(true);
-        // v20.15.1 — restore Owner 2 phone/email.
         setOwner2Phone(data.lockin.owner2Phone || "");
         setOwner2Email(data.lockin.owner2Email || "");
-        // Use the freshly-fetched row values (d.client_phone/email), not the
-        // clientPhone/clientEmail state vars — those setState calls above
-        // haven't flushed yet inside this same synchronous function body.
-        setAccessPhone(data.lockin.accessPhone || d.client_phone || "");
-        setAccessEmail(data.lockin.accessEmail || d.client_email || "");
-        nextStep = "debrief";
+        setShowingApprovalContact(data.lockin.showingApprovalContact || "");
+        setShowingContactOtherName(data.lockin.showingContactOtherName || "");
+        setShowingContactOtherPhone(data.lockin.showingContactOtherPhone || "");
+        setShowingContactOtherEmail(data.lockin.showingContactOtherEmail || "");
+        setShowingRestrictions(data.lockin.showingRestrictions || "");
+        nextStep = "lockin";
       }
-      // data.debrief is never present on a resumable consult — submitting the
-      // debrief atomically flips status to 'debriefed', which /mine filters out.
 
       setStep(nextStep);
     } catch (e: any) {
@@ -530,17 +460,17 @@ export function ListingConsultSheet({
     setError(""); setSaving(true);
     try {
       await ensureConsult();
-      await saveSection("prep", { checklist: prepChecklist });
-      setStep("preview");
+      await saveSection("prep", { checklist: prepChecklist, fubPersonId });
+      setStep("walkthrough");
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
   };
 
-  const handlePreviewNext = async () => {
+  const handleWalkthroughNext = async () => {
     setError(""); setSaving(true);
     try {
-      await saveSection("preview", { notes: previewNotes, needsRepairs: needsRepairs === "yes", repairNotes });
-      setStep("intel");
+      await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: needsRepairs === "yes", mortgageBalance, buyingToo, buyingNotes, timeline });
+      setStep("close");
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
   };
@@ -549,96 +479,99 @@ export function ListingConsultSheet({
     setError(""); setSaving(true);
     try {
       await ensureConsult();
-      await saveSection("preview", { notes: previewNotes, needsRepairs: true, repairNotes });
+      await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: true, mortgageBalance, buyingToo, buyingNotes, timeline });
       onLaunchRepairConsult({ address: propertyAddress, name: clientName, email: clientEmail, phone: clientPhone, heroPhotoUrl });
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
   };
 
   // v20.15.2 — second chance to flag repairs on Lock It In. Covers the case
-  // where nothing looked obvious during Preview but something came up by the
-  // end of the appointment — right when they're saying yes is the best moment
-  // to also sell the instant-quote repair program. Flips the same needsRepairs
-  // state the Preview-step ask uses, so the button-card above swaps in
-  // automatically once set to "yes".
+  // where nothing looked obvious during the walkthrough but something came
+  // up by the end of the appointment.
   const handleLockinRepairFlag = async (v: "yes" | "no") => {
     setNeedsRepairs(v);
     if (v === "yes") {
-      try { await saveSection("preview", { notes: previewNotes, needsRepairs: true, repairNotes }); }
+      try { await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: true, mortgageBalance, buyingToo, buyingNotes, timeline }); }
       catch (e: any) { setError(e.message || "Failed to save."); }
     }
   };
 
-  const handleIntelNext = async () => {
-    setError(""); setSaving(true);
-    try {
-      await saveSection("intel", { desiredPrice, motivation, mortgageBalance, buyingToo, buyingNotes, timeline });
-      setStep("close");
-    } catch (e: any) { setError(e.message || "Failed to save."); }
-    finally { setSaving(false); }
-  };
-
-  // v20.15.0 — pricing + close merged into one save/step. Was two taps
-  // (Pricing tiers reference page, then Close) for what is really one
-  // decision point in the appointment: what price did they agree to, and
-  // are they ready to move.
-  // v20.16.0 — presentation checklist now saves here too (folded into this
-  // step's single Next tap instead of its own separate step + save).
+  // v20.18.0 — Close only advances to Lock In for the two "ready" paths.
+  // Outcome routing (FUB Active, Lead Depot signed lead, TC notify) does NOT
+  // fire here — it fires only when "Send Listing Contract" is confirmed on
+  // Lock In, since that's the real point of no return.
   const handleCloseNext = async () => {
+    if (whereAreWe !== "ready_now" && whereAreWe !== "ready_repairs") { setError("Select where things stand before continuing."); return; }
     setError(""); setSaving(true);
     try {
-      await saveSection("presentation", { covered: presentationChecklist });
-      await saveSection("pricing", { recommendedPrice, reviewedComps });
-      await saveSection("close", { readyToStart, startTiming, repairsOrReady, holdingBack, finalListingPrice });
-      setStep(readyToStart === "yes" ? "lockin" : "debrief");
+      await saveSection("close", { whereAreWe, recommendedPrice, finalListingPrice, commissionTerms });
+      setStep("lockin");
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
   };
 
-  const handleLockinNext = async () => {
-    setError(""); setSaving(true);
+  // v20.18.0 — inline "not moving forward" submit. Replaces the old
+  // standalone Debrief page entirely. Ends the flow — no Lock In reached.
+  const handleNotMovingSubmit = async () => {
+    if (!notMovingReason) { setError("Select a reason before submitting."); return; }
+    setError(""); setSendingNotMoving(true);
     try {
-      const owner1Contact = [accessPhone, accessEmail].filter(Boolean).join(" / ");
-      const owner2Contact = [owner2Phone, owner2Email].filter(Boolean).join(" / ");
-      await saveSection("lockin", {
-        schedule: lockinSchedule,
-        scheduleDates: lockinScheduleDates,
-        scheduleTimes: lockinScheduleTimes,
-        // v20.14.6 — persist the raw access fields too (not just the derived
-        // accessNotes summary) so a resumed consult can refill each input
-        // instead of coming back blank. accessNotes stays as-is — it's what
-        // the debrief email actually reads.
-        accessKeyOrCode, gateCode, ownerNames, ownerNames2, accessPhone, accessEmail,
-        owner2Phone, owner2Email,
-        accessNotes: [
-          accessKeyOrCode && `Key/Code: ${accessKeyOrCode}`,
-          gateCode && `Gate: ${gateCode}`,
-          ownerNames && `Owners: ${[ownerNames, ownerNames2].filter(Boolean).join(" & ")}`,
-          owner1Contact && `Owner 1: ${owner1Contact}`,
-          showOwner2 && owner2Contact && `Owner 2: ${owner2Contact}`,
-        ].filter(Boolean).join(" · "),
-        contractSent,
-      });
-      setStep("debrief");
-    } catch (e: any) { setError(e.message || "Failed to save."); }
-    finally { setSaving(false); }
-  };
-
-  const handleDebriefSubmit = async () => {
-    if (!consultId) return;
-    setSendingDebrief(true); setError("");
-    try {
-      await fetchJson(`/api/listing-consult/${consultId}/debrief`, {
+      const id = await ensureConsult();
+      await saveSection("close", { whereAreWe: "not_moving", recommendedPrice, finalListingPrice, commissionTerms }, id);
+      await fetchJson(`/api/listing-consult/${id}/not-moving`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ result: debriefResult, notes: debriefNotes, upgrades: debriefUpgrades, tempo: debriefTempo, stage: debriefStage, nextSteps: debriefNextSteps }),
+        body: JSON.stringify({ reason: notMovingReason, notes: notMovingNotes, followUpTiming: notMovingFollowUpTiming }),
       });
-      setDebriefSent(true);
-    } catch (e: any) { setError(e.message || "Failed to send debrief."); }
-    finally { setSendingDebrief(false); }
+      setNotMovingSubmitted(true);
+    } catch (e: any) { setError(e.message || "Failed to submit."); }
+    finally { setSendingNotMoving(false); }
   };
 
-  const stepOrder = ["prep", "preview", "intel", "close", readyToStart === "yes" ? "lockin" : null, "debrief"].filter(Boolean) as string[];
-  const stepLabels: Record<string, string> = { prep: "Prep", preview: "Preview", intel: "Intel", close: "Present & Close", lockin: "Lock In", debrief: "Debrief" };
+  // v20.18.0 — validate required fields, save Lock In section, then show the
+  // summary card. Nothing is sent to FUB/TC/Lead Depot until the summary is
+  // confirmed (handleConfirmSendContract).
+  const handleReviewContract = async () => {
+    const missing: string[] = [];
+    if (!ownerNames.trim()) missing.push("Owner 1 Legal Name");
+    if (!propertyAddress.trim()) missing.push("Property Address");
+    if (!finalListingPrice.trim()) missing.push("Final Listing Price");
+    if (!accessKeyOrCode.trim()) missing.push("Access Key/Code");
+    if (!showingApprovalContact) missing.push("Showing Approval Contact");
+    if (showingApprovalContact === "other" && !showingContactOtherName.trim()) missing.push("Showing Contact Name");
+    if (needsCleaning === "") missing.push("Cleaning Booked? (Yes/No)");
+    if (missing.length) { setContractSendError(`Missing: ${missing.join(", ")}`); return; }
+    setContractSendError(""); setError(""); setSaving(true);
+    try {
+      await saveSection("lockin", {
+        needsCleaning, cleaningDate, cleaningTime,
+        repairDate, repairTime,
+        accessKeyOrCode, gateCode, ownerNames, ownerNames2, owner2Phone, owner2Email,
+        showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail,
+        showingRestrictions,
+        showingContactName: derivedShowingContact.name,
+        accessEmail: derivedShowingContact.email,
+      });
+      setShowContractSummary(true);
+    } catch (e: any) { setError(e.message || "Failed to save."); }
+    finally { setSaving(false); }
+  };
+
+  const handleConfirmSendContract = async () => {
+    if (!consultId) return;
+    setSendingContract(true); setError("");
+    try {
+      await fetchJson(`/api/listing-consult/${consultId}/send-contract`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      setContractSent(true);
+      setShowContractSummary(false);
+    } catch (e: any) { setError(e.message || "Failed to send contract."); }
+    finally { setSendingContract(false); }
+  };
+
+  const stepOrder = ["prep", "walkthrough", "close", (whereAreWe === "ready_now" || whereAreWe === "ready_repairs") ? "lockin" : null].filter(Boolean) as string[];
+  const stepLabels: Record<string, string> = { prep: "Prep", walkthrough: "Walkthrough & Intel", close: "Present & Close", lockin: "Lock In" };
   const stepIdx = stepOrder.indexOf(step);
 
   const header = (title: string, sub: string) => (
@@ -735,7 +668,7 @@ export function ListingConsultSheet({
               <input
                 style={inputStyle}
                 value={fubQuery}
-                onChange={e => { setFubQuery(e.target.value); setFubPickedName(null); }}
+                onChange={e => { setFubQuery(e.target.value); setFubPickedName(null); setFubPersonId(null); }}
                 placeholder="Type client name to search Follow Up Boss…"
                 autoFocus
               />
@@ -807,46 +740,28 @@ export function ListingConsultSheet({
           </>
         )}
 
-        {step === "preview" && (
+        {step === "walkthrough" && (
           <>
-            {header("Preview the Home", "Interior & exterior walkthrough, condition + repairs")}
+            {header("Walkthrough & Intel", "Interior & exterior notes, condition, and the numbers behind the decision")}
             <label style={labelStyle}>Interior / Exterior Notes</label>
-            <textarea style={{ ...textareaStyle, marginBottom: 14 }} value={previewNotes} onChange={e => setPreviewNotes(e.target.value)} placeholder="Condition, updates, anything notable while walking through" />
+            <textarea style={{ ...textareaStyle, marginBottom: 14 }} value={walkthroughNotes} onChange={e => setWalkthroughNotes(e.target.value)} placeholder="Condition, updates, anything notable while walking through" />
             <label style={labelStyle}>Needs Repairs?</label>
             <div style={{ marginBottom: 14 }}>
               {segmented(needsRepairs, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setNeedsRepairs(v as any))}
             </div>
             {needsRepairs === "yes" && (
-              <div style={cardStyle}>
-                <label style={labelStyle}>Quick Repair Notes</label>
-                <input style={{ ...inputStyle }} value={repairNotes} onChange={e => setRepairNotes(e.target.value)} placeholder="What you're seeing — mention the repair program, don't scope it yet" />
-                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8, marginBottom: 0 }}>
-                  Just a flag for now — the Repair Consult only opens once they say yes to listing, on the Lock It In step.
-                </p>
-              </div>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: -6, marginBottom: 14 }}>
+                Just a flag for now — the Repair Consult only opens once they say yes to listing, on the Lock It In step.
+              </p>
             )}
             <div style={cardStyle}>
               <label style={labelStyle}>Walkthrough Photos ({galleryUrls.length})</label>
               <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>
                 All 4 sides + yard, every room, then close-up + wide shots of anything you're flagging above. Shoot live as you walk or add from your camera after — bulk-select and upload as many at once as you want. Rule of thumb: if it's not photographed, it can't be quoted.
               </p>
-              <div style={{ marginBottom: 10 }}>
-                <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "rgba(255,255,255,0.4)", marginBottom: 6 }}>Tag next photos as</p>
-                {segmented(galleryTagMode, [{ key: "overview", label: "Overview" }, { key: "repair_scope", label: "Repair Scope" }], v => setGalleryTagMode(v as any))}
-              </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {galleryUrls.map((p, i) => (
-                  <button key={i} type="button" onClick={() => handleToggleGalleryTag(p.url)} title="Tap to switch Overview / Repair Scope" style={{
-                    position: "relative", width: 72, height: 72, padding: 0, border: "none", borderRadius: 6, cursor: "pointer", background: "none",
-                  }}>
-                    <img src={p.url} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6, display: "block" }} />
-                    <span style={{
-                      position: "absolute", bottom: 3, left: 3, right: 3, borderRadius: 4, padding: "2px 0",
-                      fontSize: 8.5, fontWeight: 700, textAlign: "center", letterSpacing: "0.02em",
-                      background: p.tag === "repair_scope" ? "rgba(200,60,40,0.85)" : "rgba(0,0,0,0.6)",
-                      color: p.tag === "repair_scope" ? "#fff" : "rgba(255,255,255,0.8)",
-                    }}>{p.tag === "repair_scope" ? "REPAIR" : "OVERVIEW"}</span>
-                  </button>
+                {galleryUrls.map((url, i) => (
+                  <img key={i} src={url} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6, display: "block" }} />
                 ))}
                 <label style={{
                   width: 72, height: 72, borderRadius: 6, border: "1px dashed rgba(200,170,90,0.4)",
@@ -863,17 +778,6 @@ export function ListingConsultSheet({
                 </p>
               )}
             </div>
-            {navButtons({ onBack: () => setStep("prep"), onNext: handlePreviewNext, nextBusy: saving })}
-          </>
-        )}
-
-        {step === "intel" && (
-          <>
-            {header("Capture Intel", "LPMAMAB — the numbers behind the decision")}
-            <label style={labelStyle}>Desired Price</label>
-            <input style={{ ...inputStyle, marginBottom: 12 }} value={desiredPrice} onChange={e => setDesiredPrice(e.target.value)} placeholder="$" />
-            <label style={labelStyle}>Motivation</label>
-            <input style={{ ...inputStyle, marginBottom: 12 }} value={motivation} onChange={e => setMotivation(e.target.value)} placeholder="Why they're selling, urgency" />
             <label style={labelStyle}>Mortgage Balance</label>
             <input style={{ ...inputStyle, marginBottom: 12 }} value={mortgageBalance} onChange={e => setMortgageBalance(e.target.value)} placeholder="$" />
             <label style={labelStyle}>Buying Another Home?</label>
@@ -885,25 +789,17 @@ export function ListingConsultSheet({
             )}
             <label style={labelStyle}>Timeline / Deadline</label>
             <input style={inputStyle} value={timeline} onChange={e => setTimeline(e.target.value)} placeholder="When they need to be moved" />
-            {navButtons({ onBack: () => setStep("preview"), onNext: handleIntelNext, nextBusy: saving })}
+            {navButtons({ onBack: () => setStep("prep"), onNext: handleWalkthroughNext, nextBusy: saving })}
           </>
         )}
 
         {step === "close" && (
           <>
-            {header("Present & Close", "What you covered, the price, and are they ready?")}
-            <label style={labelStyle}>Sales Presentation — What You Covered</label>
-            {PRESENTATION_ITEMS.map(item => (
-              <Chip key={item} label={item} checked={!!presentationChecklist[item]} onToggle={() => toggleChip(presentationChecklist, setPresentationChecklist, item)} />
-            ))}
-            <div style={{ height: 6 }} />
-            <Chip label="Reviewed Comps with Client" checked={reviewedComps} onToggle={() => setReviewedComps(!reviewedComps)} />
+            {header("Present & Close", "The price, and where things stand")}
             <label style={labelStyle}>Recommended List Price (optional)</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={recommendedPrice} onChange={e => setRecommendedPrice(e.target.value)} placeholder="$" />
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
               <label style={{ ...labelStyle, marginBottom: 0 }}>Final Listing Price (what the seller agreed to)</label>
-              {/* v20.16.0 — most closes agree at the recommended number; one tap
-                  copies it over instead of retyping the same figure. */}
               {!!recommendedPrice.trim() && (
                 <button type="button" onClick={() => setFinalListingPrice(recommendedPrice)} style={{
                   background: "none", border: "none", color: GOLD, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0,
@@ -911,33 +807,105 @@ export function ListingConsultSheet({
               )}
             </div>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={finalListingPrice} onChange={e => setFinalListingPrice(e.target.value)} placeholder="$" />
-            <label style={labelStyle}>Ready to Get Started?</label>
-            <div style={{ marginBottom: 14 }}>
-              {segmented(readyToStart, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setReadyToStart(v as any))}
+            <label style={labelStyle}>Commission Terms (optional)</label>
+            <input style={{ ...inputStyle, marginBottom: 18 }} value={commissionTerms} onChange={e => setCommissionTerms(e.target.value)} placeholder="e.g. 6% total (3% / 3%)" />
+
+            <label style={labelStyle}>Where Are We?</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+              {[
+                { key: "ready_now", label: "Ready — start now" },
+                { key: "ready_repairs", label: "Ready — repairs first" },
+                { key: "not_moving", label: "Not moving forward" },
+              ].map(o => (
+                <button key={o.key} type="button" onClick={() => setWhereAreWe(o.key as any)} style={{
+                  textAlign: "left", padding: "12px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13.5, fontWeight: 700,
+                  background: whereAreWe === o.key ? "rgba(200,170,90,0.14)" : "rgba(255,255,255,0.04)",
+                  border: whereAreWe === o.key ? "1px solid rgba(200,170,90,0.5)" : "1px solid rgba(255,255,255,0.1)",
+                  color: whereAreWe === o.key ? GOLD : "rgba(255,255,255,0.8)",
+                }}>{o.label}</button>
+              ))}
             </div>
-            <label style={labelStyle}>Timing</label>
-            <div style={{ marginBottom: 14 }}>
-              {segmented(startTiming, [{ key: "now", label: "Now" }, { key: "later", label: "Later" }], v => setStartTiming(v as any))}
-            </div>
-            <label style={labelStyle}>Repairs or Ready?</label>
-            <div style={{ marginBottom: 14 }}>
-              {segmented(repairsOrReady, [{ key: "repairs", label: "Repairs First" }, { key: "ready", label: "Ready Now" }], v => setRepairsOrReady(v as any))}
-            </div>
-            <label style={labelStyle}>What's Holding Them Back?</label>
-            <textarea style={textareaStyle} value={holdingBack} onChange={e => setHoldingBack(e.target.value)} placeholder="Only if not moving forward yet" />
-            {navButtons({ onBack: () => setStep("intel"), onNext: handleCloseNext, nextBusy: saving, nextLabel: readyToStart === "yes" ? "Lock It In" : "Continue to Debrief" })}
+
+            {whereAreWe === "not_moving" && !notMovingSubmitted && (
+              <div style={cardStyle}>
+                <label style={labelStyle}>Consult Result</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                  {NOT_MOVING_OPTIONS.map(o => (
+                    <button key={o.key} type="button" onClick={() => setNotMovingReason(o.key as any)} style={{
+                      textAlign: "left", padding: "10px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600,
+                      background: notMovingReason === o.key ? "rgba(200,170,90,0.14)" : "rgba(255,255,255,0.04)",
+                      border: notMovingReason === o.key ? "1px solid rgba(200,170,90,0.5)" : "1px solid rgba(255,255,255,0.1)",
+                      color: notMovingReason === o.key ? GOLD : "rgba(255,255,255,0.8)",
+                    }}>{o.label}</button>
+                  ))}
+                </div>
+                {(notMovingReason === "pending_repair_quote" || notMovingReason === "other_reason") && (
+                  <>
+                    <label style={labelStyle}>Follow-up Timing</label>
+                    <input style={{ ...inputStyle, marginBottom: 12 }} value={notMovingFollowUpTiming} onChange={e => setNotMovingFollowUpTiming(e.target.value)} placeholder="e.g. 2 weeks, after repair quote, next spring" />
+                  </>
+                )}
+                <label style={labelStyle}>Notes (optional)</label>
+                <textarea style={textareaStyle} value={notMovingNotes} onChange={e => setNotMovingNotes(e.target.value)} placeholder="Anything worth remembering for next time" />
+                <button type="button" onClick={handleNotMovingSubmit} disabled={!notMovingReason || sendingNotMoving} style={{
+                  width: "100%", marginTop: 14, padding: "12px 18px", borderRadius: 10,
+                  background: GOLD, border: "none", color: "#0c0b0a", fontSize: 13.5, fontWeight: 700,
+                  cursor: !notMovingReason || sendingNotMoving ? "not-allowed" : "pointer", opacity: !notMovingReason || sendingNotMoving ? 0.5 : 1,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}>
+                  {sendingNotMoving ? <Loader2 size={15} className="animate-spin" /> : null}
+                  Submit
+                </button>
+              </div>
+            )}
+
+            {whereAreWe === "not_moving" && notMovingSubmitted && (
+              <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                <CheckCircle2 size={16} /> Logged. Office has been notified.
+              </div>
+            )}
+
+            {whereAreWe === "not_moving" ? (
+              notMovingSubmitted && (
+                <button onClick={onClose} style={{
+                  width: "100%", padding: "12px 18px", borderRadius: 10, background: "transparent",
+                  border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                }}>Done</button>
+              )
+            ) : (
+              navButtons({ onBack: () => setStep("walkthrough"), onNext: handleCloseNext, nextBusy: saving, nextDisabled: !whereAreWe, nextLabel: "Lock It In" })
+            )}
           </>
         )}
 
         {step === "lockin" && (
           <>
-            {header("Lock It In", "Schedule + access — moves fast once signed")}
-            {needsRepairs === "yes" && (
+            {header("Lock It In", "Cleaning, access, and the final contract send")}
+
+            <label style={labelStyle}>Does This Listing Need a Cleaning Booked Before Photos?</label>
+            <div style={{ marginBottom: 14 }}>
+              {segmented(needsCleaning, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setNeedsCleaning(v as any))}
+            </div>
+            {needsCleaning === "yes" && (
+              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                <input type="date" style={inputStyle} value={cleaningDate} onChange={e => setCleaningDate(e.target.value)} />
+                <input type="time" style={inputStyle} value={cleaningTime} onChange={e => setCleaningTime(e.target.value)} />
+              </div>
+            )}
+
+            {whereAreWe === "ready_repairs" && (
+              <div style={cardStyle}>
+                <label style={labelStyle}>Repair Date/Time</label>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <input type="date" style={inputStyle} value={repairDate} onChange={e => setRepairDate(e.target.value)} />
+                  <input type="time" style={inputStyle} value={repairTime} onChange={e => setRepairTime(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            {needsRepairs === "yes" ? (
               <div style={cardStyle}>
                 <label style={labelStyle}>Repairs Flagged During Walkthrough</label>
-                {repairNotes && (
-                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginTop: -2, marginBottom: 10 }}>{repairNotes}</p>
-                )}
                 <button type="button" onClick={handleOpenRepairConsult} disabled={saving} style={{
                   width: "100%", padding: "12px 14px", borderRadius: 10, cursor: saving ? "default" : "pointer",
                   background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
@@ -950,8 +918,7 @@ export function ListingConsultSheet({
                   They said yes — scope items and build an instant quote to help close while you're still in the room. Nate or Alex still has to approve it before it goes to the client.
                 </p>
               </div>
-            )}
-            {needsRepairs !== "yes" && (
+            ) : (
               <div style={cardStyle}>
                 <label style={labelStyle}>Anything Come Up Needing Repair?</label>
                 <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>
@@ -960,43 +927,7 @@ export function ListingConsultSheet({
                 {segmented(needsRepairs, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => handleLockinRepairFlag(v as "yes" | "no"))}
               </div>
             )}
-            <label style={labelStyle}>Schedule</label>
-            {LOCKIN_SCHEDULE_ITEMS.map(item => {
-              const checked = !!lockinSchedule[item];
-              return (
-                <div key={item} style={{ display: "flex", gap: 6, alignItems: "stretch", marginBottom: 8 }}>
-                  <button type="button" onClick={() => toggleChip(lockinSchedule, setLockinSchedule, item)} style={{
-                    display: "flex", alignItems: "center", gap: 6, flex: "1 1 42%", minWidth: 0, textAlign: "left",
-                    padding: "8px 8px", borderRadius: 8, cursor: "pointer",
-                    background: checked ? "rgba(200,170,90,0.14)" : "rgba(255,255,255,0.04)",
-                    border: checked ? "1px solid rgba(200,170,90,0.5)" : "1px solid rgba(255,255,255,0.1)",
-                    color: checked ? GOLD : "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: checked ? 700 : 500,
-                  }}>
-                    <span style={{
-                      width: 15, height: 15, borderRadius: 4, flexShrink: 0,
-                      border: checked ? "none" : "1.5px solid rgba(255,255,255,0.3)",
-                      background: checked ? GOLD : "transparent",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>
-                      {checked && <CheckCircle2 size={10} style={{ color: "#0c0b0a" }} />}
-                    </span>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item}</span>
-                  </button>
-                  <input
-                    type="date"
-                    style={{ ...inputStyle, flex: "1 1 30%", minWidth: 0, padding: "7px 6px", fontSize: 11.5 }}
-                    value={lockinScheduleDates[item] || ""}
-                    onChange={e => setLockinScheduleDates(prev => ({ ...prev, [item]: e.target.value }))}
-                  />
-                  <input
-                    type="time"
-                    style={{ ...inputStyle, flex: "1 1 28%", minWidth: 0, padding: "7px 6px", fontSize: 11.5 }}
-                    value={lockinScheduleTimes[item] || ""}
-                    onChange={e => setLockinScheduleTimes(prev => ({ ...prev, [item]: e.target.value }))}
-                  />
-                </div>
-              );
-            })}
+
             <label style={{ ...labelStyle, marginTop: 10 }}>Access</label>
             <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
               <input style={inputStyle} value={accessKeyOrCode} onChange={e => setAccessKeyOrCode(e.target.value)} placeholder="Key or Code?" />
@@ -1041,44 +972,39 @@ export function ListingConsultSheet({
                 padding: 0, marginBottom: 12, display: "block",
               }}>+ Add Second Owner</button>
             )}
-            <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-              <input style={inputStyle} value={accessPhone} onChange={e => setAccessPhone(e.target.value)} placeholder="Phone" />
-              <input style={inputStyle} value={accessEmail} onChange={e => setAccessEmail(e.target.value)} placeholder="Email" />
-            </div>
-            <Chip label="Send Listing Contract" checked={contractSent} onToggle={() => setContractSent(!contractSent)} />
-            {navButtons({ onBack: () => setStep("close"), onNext: handleLockinNext, nextBusy: saving, nextLabel: "Continue to Debrief" })}
-          </>
-        )}
 
-        {step === "debrief" && (
-          <>
-            {header("Debrief", "Send the office admin your summary")}
-            {!debriefSent ? (
+            <label style={{ ...labelStyle, marginTop: 12 }}>Showing Approval Contact</label>
+            <div style={{ marginBottom: 10 }}>
+              {segmented(showingApprovalContact, [
+                { key: "owner1", label: "Owner 1" },
+                ...(showOwner2 ? [{ key: "owner2", label: "Owner 2" }] : []),
+                { key: "other", label: "Other" },
+              ], v => setShowingApprovalContact(v as any))}
+            </div>
+            {showingApprovalContact === "other" && (
               <>
-                <label style={labelStyle}>Consult Result</label>
-                <select style={{ ...inputStyle, marginBottom: 12 }} value={debriefResult} onChange={e => setDebriefResult(e.target.value)}>
-                  <option value="">Select…</option>
-                  <option value="Signed">Signed</option>
-                  <option value="Follow-up needed">Follow-up needed</option>
-                  <option value="Not ready">Not ready</option>
-                  <option value="Lost">Lost</option>
-                </select>
-                <label style={labelStyle}>Notes</label>
-                <textarea style={{ ...textareaStyle, marginBottom: 12 }} value={debriefNotes} onChange={e => setDebriefNotes(e.target.value)} />
-                <label style={labelStyle}>Upgrades Noted</label>
-                <input style={{ ...inputStyle, marginBottom: 12 }} value={debriefUpgrades} onChange={e => setDebriefUpgrades(e.target.value)} placeholder="Kitchen remodel 2022, new roof, etc." />
-                <label style={labelStyle}>Tempo</label>
-                <input style={{ ...inputStyle, marginBottom: 12 }} value={debriefTempo} onChange={e => setDebriefTempo(e.target.value)} placeholder="How fast this needs to move" />
-                <label style={labelStyle}>Stage</label>
-                <input style={{ ...inputStyle, marginBottom: 12 }} value={debriefStage} onChange={e => setDebriefStage(e.target.value)} placeholder="Pipeline stage" />
-                <label style={labelStyle}>Next Steps</label>
-                <textarea style={textareaStyle} value={debriefNextSteps} onChange={e => setDebriefNextSteps(e.target.value)} />
-                {navButtons({ onBack: () => setStep(readyToStart === "yes" ? "lockin" : "close"), onNext: handleDebriefSubmit, nextBusy: sendingDebrief, nextLabel: "Send Debrief" })}
+                <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
+                  <input style={inputStyle} value={showingContactOtherName} onChange={e => setShowingContactOtherName(e.target.value)} placeholder="Name" />
+                  <input style={inputStyle} value={showingContactOtherPhone} onChange={e => setShowingContactOtherPhone(e.target.value)} placeholder="Phone" />
+                </div>
+                <input style={{ ...inputStyle, marginBottom: 10 }} value={showingContactOtherEmail} onChange={e => setShowingContactOtherEmail(e.target.value)} placeholder="Email" />
               </>
+            )}
+            <label style={labelStyle}>Showing Restrictions (optional)</label>
+            <input style={{ ...inputStyle, marginBottom: 10 }} value={showingRestrictions} onChange={e => setShowingRestrictions(e.target.value)} placeholder="e.g. 24-hr notice, no showings after 6pm, dog on premises" />
+            <label style={labelStyle}>Access Email</label>
+            <input style={{ ...inputStyle, marginBottom: 16, opacity: 0.6 }} value={derivedShowingContact.email} readOnly placeholder="Auto-filled from Showing Approval Contact" />
+
+            {contractSendError && (
+              <div style={{ padding: 10, marginBottom: 12, borderRadius: 8, background: "rgba(255,120,120,0.1)", color: "#ffb0b0", fontSize: 12.5 }}>{contractSendError}</div>
+            )}
+
+            {!contractSent ? (
+              navButtons({ onBack: () => setStep("close"), onNext: handleReviewContract, nextBusy: saving, nextLabel: "Review & Send Listing Contract" })
             ) : (
               <>
                 <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
-                  <CheckCircle2 size={16} /> Debrief sent to Alex, Nate & Denise.
+                  <CheckCircle2 size={16} /> Contract sent — TC notified to open the file.
                 </div>
                 <button onClick={onClose} style={{
                   width: "100%", padding: "12px 18px", borderRadius: 10, background: "transparent",
@@ -1091,6 +1017,38 @@ export function ListingConsultSheet({
         </>
         )}
       </div>
+
+      {showContractSummary && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={() => setShowContractSummary(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.8)" }} />
+          <div style={{ position: "relative", zIndex: 1, background: "#141414", border: "1px solid rgba(200,170,90,0.4)", borderRadius: 16, padding: 22, maxWidth: 380, width: "100%", maxHeight: "80dvh", overflowY: "auto" }}>
+            <h3 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 20, color: "#fff", margin: "0 0 12px" }}>Confirm & Send</h3>
+            <table style={{ width: "100%", fontSize: 12.5, color: "rgba(255,255,255,0.85)", borderCollapse: "collapse" }}>
+              <tbody>
+                <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", width: 100, verticalAlign: "top" }}>Address</td><td style={{ padding: "5px 0" }}>{propertyAddress}</td></tr>
+                <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Owner(s)</td><td style={{ padding: "5px 0" }}>{[ownerNames, ownerNames2].filter(Boolean).join(" & ") || "—"}</td></tr>
+                <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Final Price</td><td style={{ padding: "5px 0" }}>{finalListingPrice || "—"}</td></tr>
+                <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Commission</td><td style={{ padding: "5px 0" }}>{commissionTerms || "—"}</td></tr>
+                <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Timeline</td><td style={{ padding: "5px 0" }}>{timeline || "—"}</td></tr>
+                <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Path</td><td style={{ padding: "5px 0" }}>{whereAreWe === "ready_repairs" ? "Ready — repairs first" : "Ready — start now"}</td></tr>
+              </tbody>
+            </table>
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button onClick={() => setShowContractSummary(false)} style={{
+                flex: "0 0 auto", padding: "12px 18px", borderRadius: 10, background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}>Back</button>
+              <button onClick={handleConfirmSendContract} disabled={sendingContract} style={{
+                flex: 1, padding: "12px 18px", borderRadius: 10, background: GOLD, border: "none", color: "#0c0b0a",
+                fontSize: 13.5, fontWeight: 700, cursor: sendingContract ? "not-allowed" : "pointer", opacity: sendingContract ? 0.6 : 1,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}>
+                {sendingContract ? <Loader2 size={15} className="animate-spin" /> : null} Confirm & Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

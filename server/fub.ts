@@ -162,7 +162,7 @@ export async function scheduleFubEmailEvidence(opts: {
   }, delay);
 }
 
-async function fubRequest(
+export async function fubRequest(
   method: string,
   path: string,
   body?: unknown

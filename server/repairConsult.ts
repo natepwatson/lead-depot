@@ -1113,6 +1113,18 @@ export function registerRepairConsultRoutes(app: Express) {
     res.json({ consults: rows });
   });
 
+  // ── v20.14.6 — Archive an unfinished consult (soft-delete). Same pattern as
+  //    the listing-consult archive route — flips status to 'archived' so it
+  //    drops out of /mine and the resume picker, without deleting the row
+  //    or its checklist items. ──
+  app.post("/api/repair-consult/:id/archive", (req: any, res: Response) => {
+    const id = parseInt(req.params.id);
+    const consult = getConsultRow(id);
+    if (!consult) return res.status(404).json({ error: "Not found" });
+    rawDb.prepare(`UPDATE repair_consults SET status = 'archived', updated_at = datetime('now') WHERE id = ?`).run(id);
+    res.json({ archived: true });
+  });
+
   // ── v20.14.5 — Fetch a consult in full (row + checklist items) for the resume
   //    picker to hydrate the wizard's local state on mount. ──
   app.get("/api/repair-consult/:id", (req: any, res: Response) => {

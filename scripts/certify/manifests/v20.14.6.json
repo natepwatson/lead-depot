@@ -1,0 +1,22 @@
+{
+  "version": "v20.14.6",
+  "changes": [
+    "Fix: Listing Consult's Lock In step now persists its six granular access fields (accessKeyOrCode, gateCode, ownerNames, ownerNames2, accessPhone, accessEmail) individually in data.lockin, alongside the existing derived accessNotes summary. Resuming into the lockin step now refills every field instead of coming back blank. Consults saved before v20.14.6 simply have no stored values for these keys and hydrate blank, same as before \u2014 no migration needed.",
+    "New: archive (soft-delete) option for unfinished consults, surfaced as a trash icon with an inline confirm/cancel on each row of the resume picker (ConsultResumePicker.tsx). New endpoints POST /api/listing-consult/:id/archive and POST /api/repair-consult/:id/archive set status='archived', which drops the row out of /mine and the resume picker without deleting the underlying record or its checklist items.",
+    "ConsultResumePicker.tsx gained an optional onArchive prop; both sheets wire it to an optimistic-remove-then-archive handler that restores the row and surfaces an error if the request fails."
+  ],
+  "endpoints": [
+    { "method": "GET", "path": "/api/listing-consult/mine?agentId=1", "expectStatus": 200, "expectKeys": ["consults"] },
+    { "method": "GET", "path": "/api/repair-consult/mine?agentId=1", "expectStatus": 200, "expectKeys": ["consults"] },
+    { "method": "GET", "path": "/api/health", "expectStatus": 200, "expectKeys": ["status", "version"] }
+  ],
+  "bundleMustContain": [
+    "listing-consult/mine",
+    "repair-consult/mine",
+    "/archive",
+    "Start New"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "Purely additive release (new persisted fields + new archive routes/UI) \u2014 nothing removed that needs an absence check.",
+  "mathChecks": []
+}

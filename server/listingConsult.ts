@@ -228,6 +228,20 @@ export function registerListingConsultRoutes(app: Express) {
     res.json({ consults: rows });
   });
 
+  // ── v20.14.6 — Archive an unfinished consult (soft-delete). Sets status to
+  //    'archived' so it drops out of /mine and the resume picker without
+  //    losing the underlying record — same pattern as every other soft-
+  //    delete in this app (agents, leads). Registered before the "/:id" GET
+  //    below for consistency, though the more specific path wouldn't
+  //    conflict either way. ──
+  app.post("/api/listing-consult/:id/archive", (req: any, res: Response) => {
+    const id = parseInt(req.params.id);
+    const row = getRow(id);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    rawDb.prepare(`UPDATE listing_consults SET status = 'archived', updated_at = datetime('now') WHERE id = ?`).run(id);
+    res.json({ archived: true });
+  });
+
   // ── Fetch a consult ──
   app.get("/api/listing-consult/:id", (req: any, res: Response) => {
     const r = getRow(parseInt(req.params.id));

@@ -241,6 +241,20 @@ export function RepairConsultSheet({
     } finally { setCreating(false); }
   };
 
+  // v20.14.6 — Archive (soft-delete) a consult straight from the resume
+  // picker without opening it. Optimistically drops it from the local list;
+  // if the request fails, put it back and surface the error.
+  const handleArchiveConsult = async (id: number) => {
+    const prev = resumeList;
+    setResumeList(list => list.filter(it => it.id !== id));
+    try {
+      await fetchJson(`/api/repair-consult/${id}/archive`, { method: "POST" });
+    } catch (e: any) {
+      setResumeList(prev);
+      setError(e.message || "Failed to remove that consult.");
+    }
+  };
+
   // v20.14.5 — Hydrate every wizard field from a previously-started consult
   // (row + checklist items) so resuming feels like the tab never closed.
   const handleResumeConsult = async (id: number) => {
@@ -475,6 +489,7 @@ export function RepairConsultSheet({
             items={resumeList}
             onResume={handleResumeConsult}
             onStartNew={() => setResumePhase("ready")}
+            onArchive={handleArchiveConsult}
           />
         )}
 

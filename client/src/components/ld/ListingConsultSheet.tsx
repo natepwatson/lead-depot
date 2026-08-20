@@ -334,13 +334,25 @@ export function ListingConsultSheet({
   // section-by-section `data` JSON blob + top-level row) so resuming feels
   // like the appointment never paused. Determines which step to land on by
   // walking the sections from most-advanced to least.
-  // KNOWN LIMITATION: Lock In's granular access fields (accessKeyOrCode,
-  // gateCode, ownerNames, ownerNames2, accessPhone, accessEmail) are never
-  // persisted individually — only the derived `accessNotes` string is saved
-  // for the debrief email. On resume into the lockin step these six fields
-  // come back blank even if previously filled; only schedule, scheduleDates,
-  // and contractSent survive. Pre-existing architecture gap — not solved here
-  // by reverse-parsing accessNotes.
+  // v20.14.6 — Lock In's six granular access fields are now persisted
+  // individually (see handleLockinNext) and hydrated below, closing the gap
+  // flagged in v20.14.5. Consults saved before v20.14.6 won't have these keys
+  // in their stored `data.lockin` — they'll simply come back blank, same as
+  // before, with no error.
+  // v20.14.6 — Archive (soft-delete) a consult straight from the resume
+  // picker without opening it. Optimistically drops it from the local list;
+  // if the request fails, put it back and surface the error.
+  const handleArchiveConsult = async (id: number) => {
+    const prev = resumeList;
+    setResumeList(list => list.filter(it => it.id !== id));
+    try {
+      await fetchJson(`/api/listing-consult/${id}/archive`, { method: "POST" });
+    } catch (e: any) {
+      setResumeList(prev);
+      setError(e.message || "Failed to remove that consult.");
+    }
+  };
+
   const handleResumeConsult = async (id: number) => {
     setResumePhase("ready"); setError("");
     try {
@@ -389,6 +401,17 @@ export function ListingConsultSheet({
         setLockinSchedule(data.lockin.schedule || {});
         setLockinScheduleDates(data.lockin.scheduleDates || {});
         setContractSent(!!data.lockin.contractSent);
+        // v20.14.6 — restore the six granular access fields when present.
+        setAccessKeyOrCode(data.lockin.accessKeyOrCode || "");
+        setGateCode(data.lockin.gateCode || "");
+        setOwnerNames(data.lockin.ownerNames || "");
+        setOwnerNames2(data.lockin.ownerNames2 || "");
+        if (data.lockin.ownerNames2) setShowOwner2(true);
+        // Use the freshly-fetched row values (d.client_phone/email), not the
+        // clientPhone/clientEmail state vars — those setState calls above
+        // haven't flushed yet inside this same synchronous function body.
+        setAccessPhone(data.lockin.accessPhone || d.client_phone || "");
+        setAccessEmail(data.lockin.accessEmail || d.client_email || "");
         nextStep = "debrief";
       }
       // data.debrief is never present on a resumable consult — submitting the
@@ -468,6 +491,11 @@ export function ListingConsultSheet({
       await saveSection("lockin", {
         schedule: lockinSchedule,
         scheduleDates: lockinScheduleDates,
+        // v20.14.6 — persist the raw access fields too (not just the derived
+        // accessNotes summary) so a resumed consult can refill each input
+        // instead of coming back blank. accessNotes stays as-is — it's what
+        // the debrief email actually reads.
+        accessKeyOrCode, gateCode, ownerNames, ownerNames2, accessPhone, accessEmail,
         accessNotes: [accessKeyOrCode && `Key/Code: ${accessKeyOrCode}`, gateCode && `Gate: ${gateCode}`, ownerNames && `Owners: ${[ownerNames, ownerNames2].filter(Boolean).join(" & ")}`, accessPhone, accessEmail].filter(Boolean).join(" · "),
         contractSent,
       });
@@ -573,6 +601,7 @@ export function ListingConsultSheet({
             items={resumeList}
             onResume={handleResumeConsult}
             onStartNew={() => setResumePhase("ready")}
+            onArchive={handleArchiveConsult}
           />
         )}
 

@@ -1,0 +1,22 @@
+{
+  "version": "v20.15.3",
+  "changes": [
+    "Listing Consult 'Before You Arrive' (Prep) step reordered: 'Find in FUB' name search is now the FIRST question, above Property Address/Client Name/Photo — matches Alex's request to search-first instead of type-first.",
+    "Picking a FUB match on the Prep step now also autofills Property Address from that contact's on-file FUB address (their current home), in addition to the existing name/email/phone autofill.",
+    "Repair Consult standalone 'info' step (only shown when NOT nested from a Listing Consult) gained the same live FUB search-first pattern: search box is the first field, picking a match autofills name/email/phone/address.",
+    "Lock In step: Owner 1's legal-name field now defaults from the client name captured (and possibly FUB-picked) back on Prep, the first time the agent reaches Lock In — mirrors the existing Access Phone/Email default-once pattern. Still fully editable, never overwrites something the agent already typed.",
+    "server/fubContacts.ts and its /api/fub/contacts/search response shape are unchanged — this release only consumes the address field it was already returning (added back in v20.14.7) from two additional call sites."
+  ],
+  "endpoints": [
+    { "method": "GET", "path": "/api/fub/contacts/search?q=al", "auth": "admin", "expectStatus": 200, "expectKeys": ["results"] },
+    { "method": "GET", "path": "/api/health", "expectStatus": 200, "expectKeys": ["status", "version"] }
+  ],
+  "bundleMustContain": [
+    "Find in FUB",
+    "current home address",
+    "Type client name to search Follow Up Boss"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "Purely additive/reordering release inside existing components — no removed code paths, so no bundleMustNotContain entries. 'Find in FUB' and 'current home address' each appear twice in the live bundle (ListingConsultSheet + RepairConsultSheet), confirmed by direct grep of the built asset before this manifest was authored.",
+  "mathChecks": []
+}

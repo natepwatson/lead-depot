@@ -6081,8 +6081,11 @@ type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "ho
 // Gen label is spelled out in full now that there's room.
 // v20.8.0 — "Repair Quote" nav slot replaced with "Place an Offer" now that
 // Repair Consult is reachable nested inside Listing Consult. The standalone
-// Repair Consult tab (id "repairQuote") and its Lead Gen edge bubble are
-// left intact for now — only the bottom-nav slot changes, per Alex's ask.
+// Repair Consult tab (id "repairQuote") is left intact for now — only the
+// bottom-nav slot changes, per Alex's ask.
+// v20.14.8 — Repairs/Listing edge bubbles removed from the Lead Gen chooser.
+// Both are already reachable via the bottom nav (Listing Consultation slot)
+// and the repairQuote tab, so the chooser shortcuts were redundant.
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "home",          label: "Home",               icon: Home },
   { id: "listingConsult", label: "Listing Consultation", icon: ClipboardCheck },
@@ -6384,7 +6387,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.7</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.8</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6551,7 +6554,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           Dial button up top + Leads tab in bottom nav make it redundant. */}
 
       {/* ── Main ── */}
-      {/* v20.14.7 — .ld-bg-wrap > * forces position:relative + z-index:2 on every
+      {/* v20.14.8 — .ld-bg-wrap > * forces position:relative + z-index:2 on every
           direct child (see index.css), which traps ANY full-screen sheet
           rendered inside <main> — no matter its own internal z-index — in a
           stacking context capped at 2. That's below the sticky header
@@ -7117,8 +7120,6 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           motivationalQuote={leadGenQuote}
           close={() => { setLeadGenOpen(false); setLeadGenView("root"); }}
           goToDial={() => { setLeadGenOpen(false); setLeadGenView("root"); setTab("leads"); }}
-          openRepairConsult={() => { setLeadGenOpen(false); setLeadGenView("root"); setTab("repairQuote"); }}
-          openListingConsult={() => { setLeadGenOpen(false); setLeadGenView("root"); setTab("listingConsult"); }}
           user={user}
           toast={toast}
         />
@@ -7203,10 +7204,6 @@ function LeadGenSheet(props: {
   setView: (v: any) => void;
   close: () => void;
   goToDial: () => void;
-  // v20.14.0 — edge bubbles. Quick-access into Repair Consult / Listing
-  // Consult straight from the chooser, same pattern as goToDial.
-  openRepairConsult: () => void;
-  openListingConsult: () => void;
   user: any;
   toast: any;
   // v20.6.9 — curated motivational quote to display on the arc backdrop when
@@ -7214,7 +7211,7 @@ function LeadGenSheet(props: {
   // backdrop takes over, centered editorial serif type, no bounce/shimmer.
   motivationalQuote?: MotivationalQuote | null;
 }) {
-  const { view, setView, close, goToDial, openRepairConsult, openListingConsult, user, toast, motivationalQuote } = props;
+  const { view, setView, close, goToDial, user, toast, motivationalQuote } = props;
 
   // Lock body scroll while sheet is open
   useEffect(() => {
@@ -7357,38 +7354,20 @@ function LeadGenSheet(props: {
     const VERTICAL_CAP = vh - 300;
     const ARC_RADIUS = Math.max(160, Math.min(260, MAX_RADIUS, VERTICAL_CAP));
     const HERO_LIFT = 20;
-    // v20.14.0 — Two "edge" bubbles (Repair Consult left, Listing Consult
-    // right), positioned outside the 150°/30° arc bubbles, closer to the
-    // screen edge but still fully on-screen with margin. Sized down from the
-    // regular arc bubbles (medium, not full-size) so they fit without
-    // overlapping their neighbors or clipping the viewport edge, verified via
-    // chord-distance math against ARC_RADIUS's real-device floor of 160.
-    const EDGE_SIZE = Math.round(BUBBLE_SIZE * 0.85);
-    const EDGE_RADIUS = ARC_RADIUS - 10;
-    // v20.14.1 — Alex correction: horizontal position was right, vertical was
-    // not — 175°/5° is near-horizontal on the arc's circle, which naturally
-    // lands dy near zero (bottom of the circle), not level with Dial. Override
-    // edge-bubble dy directly to Dial's own vertical center so Repairs/Listing
-    // sit in the blank area flanking Dial at the same height, instead of
-    // computing dy from the angle/radius like the rest of the arc.
-    const EDGE_DY = -(ARC_RADIUS + HERO_LIFT);
-
     // v20.7.4 — 5 arc bubbles across ~160°. Center = 90° (Dial hero), step = 30°.
     // Angles: 150 / 120 / 90 / 60 / 30. Symmetric around DIAL.
-    // v20.14.0 — 175°/5° edge bubbles added outside that arc (25° gap from the
-    // outermost 150°/30° bubbles — enough clearance at the smaller EDGE_SIZE
-    // to avoid overlap while staying on-screen at real iPhone widths).
+    // v20.14.8 — Repairs/Listing edge bubbles removed from this chooser.
+    // Alex found better entry points for both elsewhere in the app; this
+    // arc goes back to the original 5 lead-gen bubbles only.
     const bubbles: Array<{
       key: string; label: string; icon: React.ReactNode;
-      angleDeg: number; hero?: boolean; edge?: boolean; radius?: number; onClick: () => void;
+      angleDeg: number; hero?: boolean; onClick: () => void;
     }> = [
-      { key: "repairs", label: "Repairs", icon: <Wrench size={17} />, angleDeg: 175, edge: true, radius: EDGE_RADIUS, onClick: openRepairConsult },
       { key: "mail",   label: "Direct Mail", icon: <Mail size={20} />,     angleDeg: 150, onClick: () => setView("direct-mail" as any) },
       { key: "oh",     label: "Open House",  icon: <Home size={20} />,     angleDeg: 120, onClick: () => setView("open-house") },
       { key: "dial",   label: "Dial",        icon: <Phone size={28} />,    angleDeg: 90,  hero: true, onClick: goToDial },
       { key: "social", label: "Social", icon: <Share2 size={20} />,   angleDeg: 60,  onClick: () => setView("social" as any) },
       { key: "knock",  label: "Door Knock",  icon: <DoorOpen size={20} />, angleDeg: 30,  onClick: () => setView("door-knock" as any) },
-      { key: "listing", label: "Listing", icon: <ClipboardCheck size={17} />, angleDeg: 5, edge: true, radius: EDGE_RADIUS, onClick: openListingConsult },
     ];
 
     // v20.7.4 — Shelf bubbles (Network Lead, Refer Agent) rendered separately
@@ -7468,19 +7447,11 @@ function LeadGenSheet(props: {
             const rad = (b.angleDeg * Math.PI) / 180;
             // v20.7.13 — All arc bubbles at original positions. Labels sit
             // directly above each bubble at a fixed gap from the rim.
-            // v20.14.0 — edge bubbles (Repairs/Listing) use their own smaller
-            // radius + size + lift so they sit closer to the screen edge
-            // without overlapping the 150°/30° arc bubbles.
-            const bubbleRadius = b.radius ?? ARC_RADIUS;
-            const dx = Math.cos(rad) * bubbleRadius;
-            const dy = b.edge ? EDGE_DY : -Math.sin(rad) * bubbleRadius - (b.hero ? HERO_LIFT : 0);
-            const size = b.hero ? HERO_SIZE : b.edge ? EDGE_SIZE : BUBBLE_SIZE;
+            const dx = Math.cos(rad) * ARC_RADIUS;
+            const dy = -Math.sin(rad) * ARC_RADIUS - (b.hero ? HERO_LIFT : 0);
+            const size = b.hero ? HERO_SIZE : BUBBLE_SIZE;
             const LABEL_GAP = 12; // px gap between bubble rim and label
-            // v20.14.0 — edge-bubble labels nudge 14px TOWARD screen center
-            // (decoupled from bubble position) for extra edge-clipping safety
-            // margin on narrow phones, since label width is the tighter
-            // constraint than the bubble circle itself.
-            const labelDx = b.edge ? (dx < 0 ? 14 : -14) : 0;
+            const labelDx = 0;
             const labelDy = -(size / 2) - LABEL_GAP;
             // v20.4.2.1 — sequential LEFT→RIGHT stagger by index.
             // idx 0 (Social, leftmost) fires first, idx 6 (Refer, rightmost) last.

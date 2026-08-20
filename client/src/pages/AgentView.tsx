@@ -6384,7 +6384,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.6</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.14.7</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6551,7 +6551,22 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           Dial button up top + Leads tab in bottom nav make it redundant. */}
 
       {/* ── Main ── */}
-      <main ref={mainRef} style={{ flex: 1, overflowY: "auto", padding: "16px 12px 90px" }}>
+      {/* v20.14.7 — .ld-bg-wrap > * forces position:relative + z-index:2 on every
+          direct child (see index.css), which traps ANY full-screen sheet
+          rendered inside <main> — no matter its own internal z-index — in a
+          stacking context capped at 2. That's below the sticky header
+          (z-index 20) and, worse, below OnAirBanner (z-index 9999), so those
+          bars painted over the top of Write Offer / Listing Consult / Repair
+          Consult regardless of their own zIndex:200. Fix: when one of those
+          full-screen sheet tabs is active, lift <main>'s own z-index above
+          9999 so its whole subtree (including the sheet) outranks the
+          header and banner in paint order. Otherwise keep it at 2 to match
+          prior/default scroll behavior. */}
+      <main ref={mainRef} style={{
+        flex: 1, overflowY: "auto", padding: "16px 12px 90px",
+        position: "relative",
+        zIndex: (tab === "placeOffer" || tab === "listingConsult" || tab === "repairQuote") ? 10000 : 2,
+      }}>
         {/* v17.2 — Both roles land on Home first. Home currently reuses the
             LeaderboardTab body (which already includes Prime Time / Team Pot /
             Live On Air / KPIs / challenges). Phase 3d will split them: Home stays

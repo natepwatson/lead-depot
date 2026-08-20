@@ -10,6 +10,10 @@ type FubContact = {
   name: string;
   email: string | null;
   phone: string | null;
+  // v20.14.7 — on-file address, used by the "Contingent on Home Sale" FUB
+  // lookup in Place an Offer to pull a buyer's current home address when
+  // it's already logged in FUB, instead of retyping it.
+  address: string | null;
 };
 
 let cache: FubContact[] = [];
@@ -34,7 +38,7 @@ async function fetchAllContacts(): Promise<FubContact[]> {
   const start = Date.now();
   for (let page = 0; page < MAX_PAGES; page++) {
     if (Date.now() - start > FETCH_BUDGET_MS) break;
-    const url = `https://api.followupboss.com/v1/people?limit=${PAGE_LIMIT}&offset=${offset}&fields=id,name,firstName,lastName,emails,phones`;
+    const url = `https://api.followupboss.com/v1/people?limit=${PAGE_LIMIT}&offset=${offset}&fields=id,name,firstName,lastName,emails,phones,addresses`;
     let res: globalThis.Response;
     try {
       res = await fetch(url, {
@@ -54,11 +58,18 @@ async function fetchAllContacts(): Promise<FubContact[]> {
       const phones: any[] = p.phones || [];
       const primaryEmail = emails.find((e) => e.isPrimary) || emails[0];
       const primaryPhone = phones.find((ph) => ph.isPrimary) || phones[0];
+      const addresses: any[] = p.addresses || [];
+      const primaryAddress = addresses.find((a) => a.isPrimary) || addresses[0];
+      const addressStr = primaryAddress
+        ? [primaryAddress.street, [primaryAddress.city, primaryAddress.state].filter(Boolean).join(", "), primaryAddress.code]
+            .filter(Boolean).join(", ")
+        : null;
       out.push({
         id: p.id,
         name,
         email: primaryEmail?.value || null,
         phone: primaryPhone?.value || null,
+        address: addressStr || null,
       });
     }
     const total = body?._metadata?.total ?? 0;

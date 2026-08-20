@@ -2,10 +2,11 @@
 // tab. One-page form (not a multi-step wizard — this is meant to be filled
 // out on the spot in a couple minutes once a buyer says they want to write)
 // covering every field in Alex's "AAA WRITE AN OFFER" text template. On
-// Send, composes the offer and emails it to the TC (Whittney Rocha) with
-// Nate + Alex CC'd — matches server/writeOffer.ts exactly.
+// Send, composes the offer and emails it to the TC (temporarily Nate Watson
+// — see TEMPORARY note in server/writeOffer.ts) with Alex CC'd — matches
+// server/writeOffer.ts exactly.
 import { useState, useEffect } from "react";
-import { CheckCircle2, X, Loader2, FileSignature } from "lucide-react";
+import { CheckCircle2, X, Loader2, FileSignature, Lock } from "lucide-react";
 
 const fetchJson = async (url: string, opts: RequestInit = {}) => {
   const r = await fetch(url, { credentials: "include", ...opts });
@@ -36,7 +37,10 @@ const sectionTitleStyle: React.CSSProperties = {
 
 const FINANCING_TYPES = ["Cash", "Conventional", "FHA", "VA", "USDA", "Other"];
 const LENDER_PRESETS = ["Tyler Payne", "Matt Sapienza", "John O'Leary"];
-const TC_LABEL = "Whittney (TC)";
+// TEMPORARY (as of v20.14.7) — Nate stands in as TC while this flow is
+// still being built/tested. Swap back to "Whittney (TC)" once Alex confirms
+// Whittney's ready to take real offers through this tool.
+const TC_LABEL = "Nate (TC)";
 
 function segmented(value: string, options: { key: string; label: string }[], onPick: (k: string) => void) {
   return (
@@ -103,11 +107,25 @@ export function WriteOfferSheet({
   const [sellersAgentCompensationPct, setSellersAgentCompensationPct] = useState("3");
   const [appliancesIncluded, setAppliancesIncluded] = useState("All in the home at the time of the sale");
 
-  const [offerExpireDays, setOfferExpireDays] = useState("2");
-  const [offerExpireTime, setOfferExpireTime] = useState("18:00");
+  // v20.14.7 — Offer expiration is a mandatory house rule, not an agent
+  // choice: every offer expires exactly 2 days after it's sent, at 6:00 PM
+  // ET. No input, no override — see the matching server-side lock in
+  // server/writeOffer.ts's buildOfferHtml (ignores any payload value).
+  const OFFER_EXPIRE_DAYS = 2;
+  const OFFER_EXPIRE_TIME = "18:00";
 
   const [assignmentAllowed, setAssignmentAllowed] = useState<"yes" | "no">("no");
   const [contingentOnHomeSale, setContingentOnHomeSale] = useState<"yes" | "no">("no");
+
+  // v20.14.7 — When contingent on a home sale, the agent either finds that
+  // home already logged in FUB (pulls its on-file address) or types in a
+  // property that isn't in FUB at all.
+  const [homeSaleMode, setHomeSaleMode] = useState<"fub" | "manual">("fub");
+  const [homeSaleQuery, setHomeSaleQuery] = useState("");
+  const [homeSaleResults, setHomeSaleResults] = useState<{ id: number; name: string; email: string | null; phone: string | null; address: string | null }[]>([]);
+  const [homeSaleSearching, setHomeSaleSearching] = useState(false);
+  const [homeSalePickedName, setHomeSalePickedName] = useState("");
+  const [contingentHomeSaleAddress, setContingentHomeSaleAddress] = useState("");
 
   const [additionalTerms, setAdditionalTerms] = useState(
     "Seller to compensate buyer's brokerage Momentum Realty 3.0% of the purchase price at closing."
@@ -154,6 +172,28 @@ export function WriteOfferSheet({
     return () => clearTimeout(t);
   }, [buyer2Query]);
 
+  // ── FUB search — Contingent Home Sale property owner ──────────────────
+  useEffect(() => {
+    if (homeSaleMode !== "fub" || homeSaleQuery.trim().length < 2) { setHomeSaleResults([]); return; }
+    const t = setTimeout(async () => {
+      setHomeSaleSearching(true);
+      try {
+        const r = await fetch(`/api/fub/contacts/search?q=${encodeURIComponent(homeSaleQuery.trim())}`, { credentials: "include" });
+        const d = await r.json().catch(() => ({ results: [] }));
+        setHomeSaleResults(d.results || []);
+      } catch { setHomeSaleResults([]); }
+      finally { setHomeSaleSearching(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [homeSaleQuery, homeSaleMode]);
+
+  const pickHomeSaleContact = (c: { name: string; email: string | null; phone: string | null; address: string | null }) => {
+    setHomeSalePickedName(c.name);
+    setHomeSaleQuery(c.name);
+    setContingentHomeSaleAddress(c.address || "");
+    setHomeSaleResults([]);
+  };
+
   const pickBuyer1 = (c: { name: string; email: string | null; phone: string | null }) => {
     setBuyer1Phone(c.phone || ""); setBuyer1Email(c.email || "");
     setBuyer1Query(c.name); setBuyer1Results([]);
@@ -163,10 +203,18 @@ export function WriteOfferSheet({
     setBuyer2Query(c.name); setBuyer2Results([]);
   };
 
-  const canSend = propertyAddress.trim() && purchasePrice && buyer1LegalName.trim();
+  const canSend = propertyAddress.trim() && purchasePrice && buyer1LegalName.trim()
+    && (contingentOnHomeSale === "no" || contingentHomeSaleAddress.trim().length > 0);
 
   const handleSend = async () => {
-    if (!canSend) { setError("Property address, purchase price, and at least Buyer 1's full legal name are required."); return; }
+    if (!canSend) {
+      setError(
+        contingentOnHomeSale === "yes" && !contingentHomeSaleAddress.trim()
+          ? "Contingent on Home Sale is set to Yes — search FUB or enter the property address before sending."
+          : "Property address, purchase price, and at least Buyer 1's full legal name are required."
+      );
+      return;
+    }
     setError(""); setSending(true);
     try {
       await fetchJson("/api/write-offer", {
@@ -186,9 +234,10 @@ export function WriteOfferSheet({
           possession,
           sellersAgentCompensationPct: parseFloat(sellersAgentCompensationPct) || 0,
           appliancesIncluded,
-          offerExpireDays: parseInt(offerExpireDays, 10) || 2,
-          offerExpireTime,
+          offerExpireDays: OFFER_EXPIRE_DAYS,
+          offerExpireTime: OFFER_EXPIRE_TIME,
           assignmentAllowed, contingentOnHomeSale,
+          contingentHomeSaleAddress: contingentOnHomeSale === "yes" ? contingentHomeSaleAddress.trim() : "",
           additionalTerms,
           lender, lenderOther,
         }),
@@ -200,6 +249,36 @@ export function WriteOfferSheet({
       setSending(false);
     }
   };
+
+  // v20.14.7 — Same dropdown shape as fubDropdown below, but shows the
+  // on-file address instead of phone/email — that's the field the agent is
+  // actually looking for when finding the contingent home-sale property.
+  const homeSaleFubDropdown = (
+    results: { id: number; name: string; email: string | null; phone: string | null; address: string | null }[],
+    onPick: (c: any) => void,
+    searching: boolean
+  ) => (
+    <>
+      {searching && <Loader2 size={14} className="animate-spin" style={{ position: "absolute", right: 12, top: 13, color: GOLD }} />}
+      {results.length > 0 && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 20,
+          background: "#1a1815", border: "1px solid rgba(200,170,90,0.35)", borderRadius: 8,
+          maxHeight: 200, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+        }}>
+          {results.map(c => (
+            <button key={c.id} type="button" onClick={() => onPick(c)} style={{
+              display: "block", width: "100%", textAlign: "left", padding: "9px 12px", cursor: "pointer",
+              background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#fff",
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{c.address || "No address on file for this contact"}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
 
   const fubDropdown = (
     results: { id: number; name: string; email: string | null; phone: string | null }[],
@@ -250,7 +329,7 @@ export function WriteOfferSheet({
             <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 24, fontWeight: 400, color: "#fff", margin: 0 }}>Place an Offer</h2>
           </div>
           <p style={{ fontSize: 12.5, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>
-            Fill this out with the buyer on the spot — sends straight to {TC_LABEL} with Nate &amp; Alex CC'd.
+            Fill this out with the buyer on the spot — sends straight to {TC_LABEL} with Alex CC'd.
           </p>
         </div>
 
@@ -382,13 +461,14 @@ export function WriteOfferSheet({
               <input style={{ ...inputStyle, marginBottom: 14 }} value={appliancesIncluded} onChange={e => setAppliancesIncluded(e.target.value)} />
 
               <label style={labelStyle}>Offer to Expire</label>
-              <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <input style={inputStyle} value={offerExpireDays} onChange={e => setOfferExpireDays(e.target.value)} inputMode="numeric" placeholder="Days" />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <input type="time" style={inputStyle} value={offerExpireTime} onChange={e => setOfferExpireTime(e.target.value)} />
-                </div>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8, marginBottom: 14,
+                padding: "10px 12px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.1)",
+              }}>
+                <Lock size={13} style={{ color: "rgba(255,255,255,0.4)", flexShrink: 0 }} />
+                <p style={{ fontSize: 12.5, color: "rgba(255,255,255,0.65)", margin: 0 }}>
+                  Fixed at 2 days after send, 6:00 PM ET — not adjustable.
+                </p>
               </div>
 
               <label style={labelStyle}>Assignment</label>
@@ -397,9 +477,53 @@ export function WriteOfferSheet({
               </div>
 
               <label style={labelStyle}>Contingent on Home Sale?</label>
-              <div>
+              <div style={{ marginBottom: contingentOnHomeSale === "yes" ? 12 : 0 }}>
                 {segmented(contingentOnHomeSale, [{ key: "no", label: "No" }, { key: "yes", label: "Yes" }], v => setContingentOnHomeSale(v as any))}
               </div>
+
+              {contingentOnHomeSale === "yes" && (
+                <div style={{ paddingTop: 4 }}>
+                  <div style={{ marginBottom: 10 }}>
+                    {segmented(
+                      homeSaleMode,
+                      [{ key: "fub", label: "Search FUB" }, { key: "manual", label: "Enter Manually" }],
+                      v => {
+                        setHomeSaleMode(v as any);
+                        setHomeSaleQuery(""); setHomeSaleResults([]); setHomeSalePickedName("");
+                        setContingentHomeSaleAddress("");
+                      }
+                    )}
+                  </div>
+
+                  {homeSaleMode === "fub" ? (
+                    <div style={{ position: "relative", marginBottom: 4 }}>
+                      <label style={{ ...labelStyle, fontSize: 10.5 }}>Find the Home Being Sold in FUB</label>
+                      <input
+                        style={inputStyle}
+                        value={homeSaleQuery}
+                        onChange={e => { setHomeSaleQuery(e.target.value); setContingentHomeSaleAddress(""); }}
+                        placeholder="Type owner/contact name to search Follow Up Boss..."
+                      />
+                      {homeSaleFubDropdown(homeSaleResults, pickHomeSaleContact, homeSaleSearching)}
+                      {contingentHomeSaleAddress && (
+                        <p style={{ fontSize: 12, color: "#7ed49a", marginTop: 6 }}>
+                          Using: {contingentHomeSaleAddress}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ marginBottom: 4 }}>
+                      <label style={{ ...labelStyle, fontSize: 10.5 }}>Property Address Being Sold</label>
+                      <input
+                        style={inputStyle}
+                        value={contingentHomeSaleAddress}
+                        onChange={e => setContingentHomeSaleAddress(e.target.value)}
+                        placeholder="e.g. 456 Oak St, Fernandina Beach, FL"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={sectionTitleStyle}>Additional Terms</div>
@@ -433,7 +557,7 @@ export function WriteOfferSheet({
         ) : (
           <>
             <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
-              <CheckCircle2 size={16} /> Offer sent to {TC_LABEL} — Nate &amp; Alex CC'd.
+              <CheckCircle2 size={16} /> Offer sent to {TC_LABEL} — Alex CC'd.
             </div>
             <button onClick={onClose} style={{
               width: "100%", padding: "12px 18px", borderRadius: 10, background: "transparent",

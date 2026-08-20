@@ -2,9 +2,11 @@
 // v20.8.0 — "Place an Offer" tool. Replaces the standalone Repair Quote nav
 // tab. Lets an agent fill out Alex's exact "AAA WRITE AN OFFER" text template
 // on the spot once a buyer says they want to write, then fires one email to
-// the transaction coordinator (Whittney Rocha / Next Level) with Alex + Nate
-// CC'd — same text Alex would have typed out by hand, just faster and with
-// zero missed fields.
+// the transaction coordinator — TEMPORARILY Nate Watson while this flow is
+// still being built (see TEMPORARY note below), with Alex CC'd. Will revert
+// to the real TC (Whittney Rocha / Next Level) once Alex confirms — same
+// text Alex would have typed out by hand, just faster and with zero missed
+// fields.
 //
 // No DB table — this is a one-shot compose-and-send, not a saved consult.
 // ────────────────────────────────────────────────────────────────────────────
@@ -25,14 +27,17 @@ const BRAND = {
   contactLine: "Alex & Nate Watson — (904) 504-3794 — www.brothersgroup.realestate",
 };
 
-// TC — Whittney Rocha, Next Level FL — plus Alex & Nate CC'd. This is a
-// standalone recipient list (NOT the shared ADMIN_EMAILS used elsewhere,
-// which also includes Denise — Alex's instruction here was specifically
-// "TC, Nate and Alex").
-const TC_EMAIL = "whittney@nextlevelfl.com";
-const TC_NAME = "Whittney Rocha";
-const TC_PHONE = "(904) 703-8023";
-const CC_EMAILS = ["nate@watsonbrothersgroup.com", "alex@watsonbrothersgroup.com"];
+// TEMPORARY (as of v20.14.7) — Nate is standing in as TC while this offer
+// flow is still being built and tested. Whittney Rocha is the real outside
+// TC (Next Level FL) and will take this role back once Alex confirms the
+// app is ready — don't bog down her actual business with test/in-progress
+// offers in the meantime. Keeping her info here (commented) so switching
+// back is a one-line change, not a re-discovery:
+//   Real TC: Whittney Rocha — whittney@nextlevelfl.com — (904) 703-8023
+const TC_EMAIL = "nate@watsonbrothersgroup.com";
+const TC_NAME = "Nate Watson";
+const TC_PHONE = "(904) 504-3794";
+const CC_EMAILS = ["alex@watsonbrothersgroup.com"];
 
 // Preset lender list — Alex's main lenders. "Other" lets the agent type in
 // anyone else on the spot.
@@ -100,11 +105,19 @@ interface WriteOfferPayload {
   sellersAgentCompensationPct?: number;
   appliancesIncluded?: string;
 
+  // v20.14.7 — kept optional so old clients don't break the type, but the
+  // server now IGNORES these two fields entirely (see buildOfferHtml) and
+  // always uses the hardcoded 2-day / 6:00 PM ET rule. Never re-read these
+  // from the payload for the actual expiry calculation.
   offerExpireDays?: number;
   offerExpireTime?: string; // "18:00"
 
   assignmentAllowed?: "yes" | "no";
   contingentOnHomeSale?: "yes" | "no";
+  // v20.14.7 — resolved address when contingentOnHomeSale === "yes", either
+  // pulled from a FUB contact's on-file address or typed manually by the
+  // agent for a property that isn't in FUB.
+  contingentHomeSaleAddress?: string;
 
   additionalTerms?: string;
 
@@ -135,8 +148,12 @@ function buildOfferHtml(p: WriteOfferPayload): string {
   const financingLabel = p.financingType === "Other" ? (p.financingTypeOther || "Other") : p.financingType;
   const isCash = p.financingType === "Cash";
   const lenderLabel = p.lender === "Other" ? (p.lenderOther || "—") : (p.lender || "—");
-  const expireDays = p.offerExpireDays ?? 2;
-  const expireTime = p.offerExpireTime ?? "18:00";
+  // v20.14.7 — MANDATORY house rule, not agent-adjustable: every offer
+  // expires exactly 2 days after send, at 6:00 PM ET. Hardcoded here so it
+  // can never be overridden via a direct API call, even if a client sends
+  // offerExpireDays/offerExpireTime in the payload.
+  const expireDays = 2;
+  const expireTime = "18:00";
   const { label: expiryLabel } = computeExpiry(expireDays, expireTime);
   const proofDocLabel = isCash ? "Proof of Funds" : "Pre-Approval Letter";
 
@@ -178,9 +195,11 @@ function buildOfferHtml(p: WriteOfferPayload): string {
         ${row("Seller to Pay", "Customaries")}
         ${row("Seller to Pay — Buyer's Agent Compensation", `${sellerCompPct}% — ${money(sellerCompAmt)}`)}
         ${row("Appliances Included", esc(p.appliancesIncluded || "All in the home at the time of the sale"))}
-        ${row("Offer Expires", `${expiryLabel} (${expireDays} day${expireDays === 1 ? "" : "s"} from send, ${expireTime})`, { bold: true })}
+        ${row("Offer Expires", `${expiryLabel} (${expireDays} days from send, ${expireTime})`, { bold: true })}
         ${row("Assignment", p.assignmentAllowed === "yes" ? "Buyer May assign" : "Buyer May NOT assign")}
-        ${row("Contingent on Home Sale?", p.contingentOnHomeSale === "yes" ? "Yes" : "No")}
+        ${row("Contingent on Home Sale?", p.contingentOnHomeSale === "yes"
+          ? `Yes — ${esc(p.contingentHomeSaleAddress || "address not provided")}`
+          : "No")}
 
         ${p.additionalTerms ? section("Additional Terms") : ""}
         ${p.additionalTerms ? `<tr><td colspan="2" style="padding:8px 0;font-size:12.5px;color:#1a1a1a;line-height:1.55">${esc(p.additionalTerms)}</td></tr>` : ""}

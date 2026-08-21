@@ -906,16 +906,9 @@ export function ListingConsultSheet({
             {needsRepairs === "yes" ? (
               <div style={cardStyle}>
                 <label style={labelStyle}>Repairs Flagged During Walkthrough</label>
-                <button type="button" onClick={handleOpenRepairConsult} disabled={saving} style={{
-                  width: "100%", padding: "12px 14px", borderRadius: 10, cursor: saving ? "default" : "pointer",
-                  background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
-                  color: "#fff", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                }}>
-                  {saving ? <Loader2 size={15} className="animate-spin" /> : <Wrench size={15} style={{ color: GOLD }} />}
-                  Open Repair Consult
-                </button>
-                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8, marginBottom: 0 }}>
-                  They said yes — scope items and build an instant quote to help close while you're still in the room. Nate or Alex still has to approve it before it goes to the client.
+                <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)", marginTop: -2, marginBottom: 0 }}>
+                  Noted — the home will need at least some touch-up (pressure wash, deep clean, lawn cut, or more) to show its best.
+                  {" "}We'll scope it and build the real quote once they've signed on and believe the plan — right after the contract sends below.
                 </p>
               </div>
             ) : (
@@ -1006,6 +999,22 @@ export function ListingConsultSheet({
                 <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
                   <CheckCircle2 size={16} /> Contract sent — TC notified to open the file.
                 </div>
+                {needsRepairs === "yes" && (
+                  <div style={{ ...cardStyle, marginBottom: 14 }}>
+                    <label style={labelStyle}>They're Committed — Price The Touch-Up</label>
+                    <button type="button" onClick={handleOpenRepairConsult} disabled={saving} style={{
+                      width: "100%", padding: "12px 14px", borderRadius: 10, cursor: saving ? "default" : "pointer",
+                      background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
+                      color: "#fff", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    }}>
+                      {saving ? <Loader2 size={15} className="animate-spin" /> : <Wrench size={15} style={{ color: GOLD }} />}
+                      Open Repair Consult
+                    </button>
+                    <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8, marginBottom: 0 }}>
+                      Now that the listing agreement is sent, scope items and build the real instant quote. Nate or Alex still has to approve it before it goes to the client.
+                    </p>
+                  </div>
+                )}
                 <button onClick={onClose} style={{
                   width: "100%", padding: "12px 18px", borderRadius: 10, background: "transparent",
                   border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: 600, cursor: "pointer",

@@ -35,6 +35,48 @@ type RepairPackage = {
 const TIER_LABELS: Record<string, string> = { small: "Small", medium: "Medium", large: "Large", largest: "Largest" };
 const TIER_ORDER = ["small", "medium", "large", "largest"];
 
+// v20.22.0 — Predetermined catalog mappings, one per walkthrough pillar tier
+// (key matches ListingConsultSheet's PillarKey; tier is "small"/"medium"/
+// "large" from the walkthrough). Quantities are sensible stated-maximum
+// DEFAULTS for an average ~2,000 sqft single-story home — not a measurement
+// of the actual property. They give the agent a fast, defined starting
+// point (per the standing every-item-needs-a-defined-line rule) that gets
+// auto-checked into the checklist below; the agent still adjusts quantities
+// to match what they actually saw before generating the quote. Flooring has
+// no entry on purpose: the walkthrough tier alone (1-2 rooms / several
+// rooms / whole house) doesn't tell us LVP vs. carpet vs. wood refinish,
+// and those are vendor-quoted items never summed into our own total —
+// guessing the type would misdirect a vendor dispatch, so flooring stays
+// guidance-only (banner below) until the agent picks the right vendor item.
+const PILLAR_ITEM_MAP: Record<string, Record<string, { itemKey: string; qty: number }[]>> = {
+  pressure_wash: {
+    small: [{ itemKey: "pressure_wash_hard", qty: 700 }],
+    medium: [{ itemKey: "pressure_wash_hard", qty: 700 }, { itemKey: "pressure_wash_ext", qty: 1800 }],
+    large: [{ itemKey: "pressure_wash_hard", qty: 700 }, { itemKey: "pressure_wash_ext", qty: 1800 }, { itemKey: "soft_wash_roof", qty: 2200 }],
+  },
+  lawn: {
+    small: [{ itemKey: "lawn_mow", qty: 8000 }],
+    medium: [{ itemKey: "lawn_mow", qty: 8000 }, { itemKey: "hedge_trim", qty: 150 }, { itemKey: "weed_pull", qty: 200 }],
+    large: [{ itemKey: "lawn_mow", qty: 8000 }, { itemKey: "hedge_trim", qty: 150 }, { itemKey: "weed_pull", qty: 200 }, { itemKey: "mulching", qty: 300 }, { itemKey: "tree_hedge_removal", qty: 1 }],
+  },
+  paint: {
+    small: [{ itemKey: "paint_int_body", qty: 350 }, { itemKey: "paint_int_trim", qty: 50 }],
+    medium: [{ itemKey: "paint_int_body", qty: 1000 }, { itemKey: "paint_int_trim", qty: 150 }],
+    large: [{ itemKey: "paint_int_body", qty: 2400 }, { itemKey: "paint_int_trim", qty: 300 }, { itemKey: "paint_int_ceiling", qty: 2000 }],
+  },
+  deep_clean: {
+    small: [{ itemKey: "rough_clean", qty: 2000 }],
+    medium: [{ itemKey: "deep_clean", qty: 2000 }],
+    large: [{ itemKey: "deep_clean", qty: 2500 }, { itemKey: "carpet_clean", qty: 800 }],
+  },
+  junk_out: {
+    small: [{ itemKey: "junk_small", qty: 1 }],
+    medium: [{ itemKey: "junk_small", qty: 2 }],
+    large: [{ itemKey: "junk_large", qty: 1 }],
+  },
+  flooring: {},
+};
+
 const fetchJson = async (url: string, opts: RequestInit = {}) => {
   const r = await fetch(url, { credentials: "include", ...opts });
   const body = await r.json().catch(() => ({}));
@@ -125,7 +167,7 @@ async function fileToImageData(file: File, opts: { maxDim?: number; quality?: nu
 
 export function RepairConsultSheet({
   leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose, manageNavVisibility = true,
-  nestedFromListing = false, prefillHeroPhotoUrl = null, prefillGalleryUrls = null,
+  nestedFromListing = false, prefillHeroPhotoUrl = null, prefillGalleryUrls = null, prefillFlaggedPillars = null,
 }: {
   leadId?: number | null; agentId?: number | null;
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
@@ -152,6 +194,12 @@ export function RepairConsultSheet({
   // where repairs were flagged). When present + nested, the gallery step is
   // skipped entirely — straight to Review.
   prefillGalleryUrls?: string[] | null;
+  // v20.21.0 — the Condition Check pillars flagged during Listing Consult's
+  // walkthrough step (checked pillar + size tier + note). Guidance only —
+  // does NOT auto-check any catalog item, since the exact tier-to-catalog
+  // mapping is still Alex's call. Rendered as a banner atop the checklist so
+  // the agent isn't re-diagnosing condition they already looked at minutes ago.
+  prefillFlaggedPillars?: { key: string; label: string; tier: string; notes: string }[] | null;
 }) {
   const [step, setStep] = useState<"info" | "checklist" | "gallery" | "review">(nestedFromListing ? "checklist" : "info");
   const [consultId, setConsultId] = useState<number | null>(null);
@@ -281,8 +329,72 @@ export function RepairConsultSheet({
     if (nestedFromListing) { ensureConsult().catch(e => setError(e.message || "Failed to start repair consult.")); }
   }, [nestedFromListing]);
 
+  // v20.22.0 — One-shot auto-check: apply PILLAR_ITEM_MAP defaults for every
+  // pillar flagged during the walkthrough, so the checklist opens already
+  // populated instead of blank. Runs once on mount only — never re-fires, so
+  // it never clobbers quantities the agent has since edited by hand.
+  const appliedPillarPrefillRef = useRef(false);
+  useEffect(() => {
+    if (appliedPillarPrefillRef.current) return;
+    if (!prefillFlaggedPillars || prefillFlaggedPillars.length === 0) return;
+    appliedPillarPrefillRef.current = true;
+    setChecked(prev => {
+      const next = { ...prev };
+      for (const flagged of prefillFlaggedPillars) {
+        const mapped = PILLAR_ITEM_MAP[flagged.key]?.[flagged.tier] || [];
+        for (const { itemKey, qty } of mapped) {
+          next[itemKey] = { ...(next[itemKey] || DEFAULT_ITEM_STATE), checked: true, quantity: String(qty) };
+        }
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillFlaggedPillars]);
+
   const inHouseItems = useMemo(() => catalog.filter(i => i.category === "in_house").sort((a, b) => a.sequence_order - b.sequence_order), [catalog]);
   const vendorItems = useMemo(() => catalog.filter(i => i.category === "vendor").sort((a, b) => a.sequence_order - b.sequence_order), [catalog]);
+
+  // v20.21.0 — Sign-Today incentive settings, fetched once so the sticky
+  // live-total on the checklist step can preview the free-item threshold
+  // before the agent ever hits "Generate Quote".
+  const [incentiveSettings, setIncentiveSettings] = useState<{ active: boolean; thresholdAmount?: number; freeItemKey?: string; label?: string }>({ active: false });
+  useEffect(() => {
+    fetchJson("/api/repair-consult/incentive-settings").then(setIncentiveSettings).catch(() => {});
+  }, []);
+
+  // v20.21.0 — Sticky Live Total. Mirrors server computeLineTotal exactly
+  // (rate × qty, +25% two-story surcharge if eligible, floored at min_charge)
+  // plus the same package-discount-on-eligible-subtotal logic, so the agent
+  // sees the real number update live as they check items — no more waiting
+  // for "Generate Quote" to find out the total. In-house items ONLY (vendor
+  // trades are quoted separately and never summed in here).
+  const TWO_STORY_SURCHARGE_PCT = 0.25;
+  const computeLineTotalClient = (rate: number, qty: number, min: number, twoStory: boolean, twoStoryEligible: boolean) => {
+    let total = rate * qty;
+    if (twoStory && twoStoryEligible) total *= 1 + TWO_STORY_SURCHARGE_PCT;
+    return Math.max(total, min || 0);
+  };
+  const liveTotals = useMemo(() => {
+    const pkg = selectedPackageKey ? packages.find(p => p.key === selectedPackageKey) : null;
+    let subtotal = 0;
+    let packageEligibleSubtotal = 0;
+    for (const item of inHouseItems) {
+      const st = checked[item.key];
+      if (!st?.checked) continue;
+      const qty = Number(st.quantity) || 0;
+      const twoStory = !!st.twoStory && !!item.two_story_eligible;
+      const lineTotal = computeLineTotalClient(item.default_rate || 0, qty, item.min_charge || 0, twoStory, !!item.two_story_eligible);
+      subtotal += lineTotal;
+      if (pkg && pkg.itemKeys.includes(item.key)) packageEligibleSubtotal += lineTotal;
+    }
+    const discountPct = pkg ? pkg.discountPct : 0;
+    const discountAmount = Math.round(packageEligibleSubtotal * discountPct * 100) / 100;
+    const total = Math.round((subtotal - discountAmount) * 100) / 100;
+    const threshold = incentiveSettings.active ? incentiveSettings.thresholdAmount || 0 : null;
+    const freeItemHit = threshold !== null && total >= threshold;
+    const remainingToFreeItem = threshold !== null && !freeItemHit ? Math.max(threshold - total, 0) : 0;
+    return { subtotal, discountAmount, total, threshold, freeItemHit, remainingToFreeItem };
+  }, [checked, inHouseItems, selectedPackageKey, packages, incentiveSettings]);
 
   const groupedByTrade = (items: RepairItem[]) => {
     const map = new Map<string, RepairItem[]>();
@@ -830,6 +942,25 @@ export function RepairConsultSheet({
         {step === "checklist" && (
           <>
             {header("Repair Checklist", `${selectedCount} item${selectedCount === 1 ? "" : "s"} selected`)}
+            {prefillFlaggedPillars && prefillFlaggedPillars.length > 0 && (
+              <div style={{ marginBottom: 16, background: "rgba(200,170,90,0.08)", border: `1px solid rgba(200,170,90,0.3)`, borderRadius: 12, padding: 12 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 8px" }}>
+                  Flagged During Walkthrough
+                </p>
+                {prefillFlaggedPillars.map(p => (
+                  <div key={p.key} style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <span style={{ fontWeight: 700 }}>{p.label}</span>
+                    {p.tier && <span style={{ marginLeft: 6, textTransform: "uppercase", fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{p.tier}</span>}
+                    {p.notes && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 1 }}>{p.notes}</div>}
+                  </div>
+                ))}
+                <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", margin: "8px 0 0" }}>
+                  {prefillFlaggedPillars.some(p => p.key !== "flooring")
+                    ? "Matching items below are already checked with default quantities — adjust them to the actual scope you're seeing now."
+                    : "Guidance only — check the matching items below at the actual scope you're seeing now."}
+                </p>
+              </div>
+            )}
             {catalogLoading ? (
               <div style={{ padding: 30, textAlign: "center" }}><Loader2 size={20} className="animate-spin" style={{ color: GOLD }} /></div>
             ) : (
@@ -896,6 +1027,29 @@ export function RepairConsultSheet({
                   </div>
                 ))}
               </>
+            )}
+            {liveTotals.subtotal > 0 && (
+              <div style={{
+                position: "sticky", bottom: 8, zIndex: 5, marginTop: 12, marginBottom: 4,
+                background: "rgba(20,18,14,0.97)", border: `1px solid rgba(200,170,90,0.4)`, borderRadius: 12,
+                padding: "10px 14px", boxShadow: "0 6px 20px rgba(0,0,0,0.5)", backdropFilter: "blur(6px)",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", fontWeight: 600 }}>
+                    In-House Subtotal{!!liveTotals.discountAmount && ` \u2212 $${liveTotals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} discount`}
+                  </span>
+                  <span style={{ fontSize: 17, fontWeight: 800, color: GOLD }}>
+                    ${liveTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                {liveTotals.threshold !== null && (
+                  <p style={{ fontSize: 10.5, margin: "4px 0 0", color: liveTotals.freeItemHit ? "#7ed49a" : "rgba(255,255,255,0.4)", fontWeight: liveTotals.freeItemHit ? 700 : 500 }}>
+                    {liveTotals.freeItemHit
+                      ? `\u2713 ${incentiveSettings.label || "Sign-today incentive"} unlocked`
+                      : `$${liveTotals.remainingToFreeItem.toLocaleString(undefined, { minimumFractionDigits: 2 })} more to unlock: ${incentiveSettings.label || "sign-today incentive"}`}
+                  </p>
+                )}
+              </div>
             )}
             {navButtons({ onBack: nestedFromListing ? undefined : () => setStep("info"), onNext: handleChecklistNext, nextDisabled: selectedCount === 0, nextBusy: submittingItems, nextLabel: "Continue to Photos" })}
           </>

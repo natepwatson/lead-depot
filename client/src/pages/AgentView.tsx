@@ -6117,7 +6117,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   // (with the same address/client prefilled) when it closes, instead of
   // dropping the agent back on Home mid-appointment.
   const [showRepairFromListing, setShowRepairFromListing] = useState(false);
-  const [listingRepairPrefill, setListingRepairPrefill] = useState<{ address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null; galleryUrls?: string[] } | null>(null);
+  const [listingRepairPrefill, setListingRepairPrefill] = useState<{ address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null; galleryUrls?: string[]; flaggedPillars?: { key: string; label: string; tier: string; notes: string }[] } | null>(null);
   const { connected: wsConnected } = useRealtimeUpdates();
   const qc = useQueryClient();
   const { toast } = useToast(); // v15.11.17 — used by CLOSED_STATUSES redirect notice
@@ -6387,7 +6387,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.20.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.22.0</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6622,6 +6622,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             nestedFromListing={true}
             prefillHeroPhotoUrl={listingRepairPrefill?.heroPhotoUrl ?? null}
             prefillGalleryUrls={listingRepairPrefill?.galleryUrls ?? null}
+            prefillFlaggedPillars={listingRepairPrefill?.flaggedPillars ?? null}
           />
         )}
 

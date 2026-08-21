@@ -1649,6 +1649,19 @@ export function registerRepairConsultRoutes(app: Express) {
     })) });
   });
 
+  // ── v20.21.0 — read-only incentive settings (sticky live-total preview on
+  // the checklist step needs to know the threshold/free-item without any
+  // admin auth). Never exposes anything the admin panel doesn't already
+  // show publicly on the quote itself once the incentive is active. ──
+  app.get("/api/repair-consult/incentive-settings", (req: any, res: Response) => {
+    const row = rawDb.prepare(`SELECT * FROM repair_incentive_settings WHERE id = 1`).get() as any;
+    if (!row) return res.json({ active: false });
+    res.json({
+      active: !!row.active, thresholdAmount: row.threshold_amount,
+      freeItemKey: row.free_item_key, label: row.label,
+    });
+  });
+
   // ── v20.14.5 — In-progress consults for this agent (resume picker). MUST be
   //    registered before the "/:id" GET below — otherwise Express would try
   //    to parse "mine" as a numeric id and 404. Resumable = not yet accepted

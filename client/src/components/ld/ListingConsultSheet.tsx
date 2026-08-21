@@ -218,13 +218,77 @@ const NOT_MOVING_OPTIONS: { key: string; label: string }[] = [
   { key: "not_interested", label: "Not interested" },
 ];
 
+// v20.21.0 — Condition Capture. Replaces the old plain Yes/No "Needs Repairs?"
+// toggle. The agent is standing in the house right now looking at actual
+// condition — capture real scope data per pillar on the spot (checked + a
+// size tier + a free-text note) instead of a bare flag. This feeds the
+// Repair Consult prefill so the follow-up quote starts pre-scoped instead of
+// from zero. The four "pillar" trades are Alex's core money-makers; Junk Out
+// and Flooring ride along as the next-easiest add-ons — same walkthrough,
+// same data capture, no extra step for the agent.
+type PillarTier = "small" | "medium" | "large";
+type PillarKey = "pressure_wash" | "lawn" | "paint" | "deep_clean" | "junk_out" | "flooring";
+type PillarState = { checked: boolean; tier: PillarTier | ""; notes: string };
+const EMPTY_PILLAR: PillarState = { checked: false, tier: "", notes: "" };
+
+const PILLAR_DEFS: { key: PillarKey; label: string; group: "pillar" | "addon"; tiers: { key: PillarTier; label: string }[] }[] = [
+  {
+    key: "pressure_wash", label: "Pressure / Soft Washing", group: "pillar",
+    tiers: [
+      { key: "small", label: "Small — driveway & walkways only" },
+      { key: "medium", label: "Medium — house + driveway + walkways" },
+      { key: "large", label: "Large — full property incl. roof soft wash" },
+    ],
+  },
+  {
+    key: "lawn", label: "Lawn & Landscaping", group: "pillar",
+    tiers: [
+      { key: "small", label: "Small — mow / edge / blow" },
+      { key: "medium", label: "Medium — + hedge trim & bed weeding" },
+      { key: "large", label: "Large — full reset: mulch, dead plant removal" },
+    ],
+  },
+  {
+    key: "paint", label: "Touch-Up / Painting", group: "pillar",
+    tiers: [
+      { key: "small", label: "Small — 1 room touch-up (walls + trim + door)" },
+      { key: "medium", label: "Medium — 3-room touch-up package" },
+      { key: "large", label: "Large — whole-house touch-up or full repaint" },
+    ],
+  },
+  {
+    key: "deep_clean", label: "Deep Cleaning", group: "pillar",
+    tiers: [
+      { key: "small", label: "Small — standard tidy-up clean" },
+      { key: "medium", label: "Medium — deep clean (baseboards, cabinets, windows)" },
+      { key: "large", label: "Large — move-out level, incl. garage/patio" },
+    ],
+  },
+  {
+    key: "junk_out", label: "Junk Out", group: "addon",
+    tiers: [
+      { key: "small", label: "Small — partial load, single room" },
+      { key: "medium", label: "Medium — full truck load" },
+      { key: "large", label: "Large — multiple loads / whole-house clear-out" },
+    ],
+  },
+  {
+    key: "flooring", label: "Flooring", group: "addon",
+    tiers: [
+      { key: "small", label: "Small — 1–2 rooms" },
+      { key: "medium", label: "Medium — several rooms / one level" },
+      { key: "large", label: "Large — whole house" },
+    ],
+  },
+];
+
 export function ListingConsultSheet({
   leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose, onLaunchRepairConsult,
 }: {
   leadId?: number | null; agentId?: number | null;
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
   onClose: () => void;
-  onLaunchRepairConsult: (prefill: { address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null; galleryUrls?: string[] }) => void;
+  onLaunchRepairConsult: (prefill: { address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null; galleryUrls?: string[]; flaggedPillars?: { key: PillarKey; label: string; tier: PillarTier | ""; notes: string }[] }) => void;
 }) {
   // v20.18.0 — four-page flow: prep → walkthrough → close → lockin. Debrief
   // is gone entirely (folded into close's inline "not moving forward" branch).
@@ -310,6 +374,20 @@ export function ListingConsultSheet({
   // ── Walkthrough & Intel (merged) ──
   const [walkthroughNotes, setWalkthroughNotes] = useState("");
   const [needsRepairs, setNeedsRepairs] = useState<"" | "yes" | "no">("");
+  const [pillarFlags, setPillarFlags] = useState<Record<PillarKey, PillarState>>({
+    pressure_wash: { ...EMPTY_PILLAR }, lawn: { ...EMPTY_PILLAR }, paint: { ...EMPTY_PILLAR },
+    deep_clean: { ...EMPTY_PILLAR }, junk_out: { ...EMPTY_PILLAR }, flooring: { ...EMPTY_PILLAR },
+  });
+  const togglePillar = (key: PillarKey) =>
+    setPillarFlags(prev => ({ ...prev, [key]: prev[key].checked ? { ...EMPTY_PILLAR } : { ...prev[key], checked: true } }));
+  const setPillarTier = (key: PillarKey, tier: PillarTier) =>
+    setPillarFlags(prev => ({ ...prev, [key]: { ...prev[key], tier } }));
+  const setPillarNotes = (key: PillarKey, notes: string) =>
+    setPillarFlags(prev => ({ ...prev, [key]: { ...prev[key], notes } }));
+  const flaggedPillarList = () =>
+    PILLAR_DEFS.filter(d => pillarFlags[d.key]?.checked).map(d => ({
+      key: d.key, label: d.label, tier: pillarFlags[d.key].tier, notes: pillarFlags[d.key].notes,
+    }));
   const [mortgageBalance, setMortgageBalance] = useState("");
   const [buyingToo, setBuyingToo] = useState<"" | "yes" | "no">("");
   const [buyingNotes, setBuyingNotes] = useState("");
@@ -545,6 +623,9 @@ export function ListingConsultSheet({
       if (data.walkthrough) {
         setWalkthroughNotes(data.walkthrough.notes || "");
         setNeedsRepairs(data.walkthrough.needsRepairs === true ? "yes" : data.walkthrough.needsRepairs === false ? "no" : "");
+        if (data.walkthrough.pillars) {
+          setPillarFlags(prev => ({ ...prev, ...data.walkthrough.pillars }));
+        }
         setMortgageBalance(data.walkthrough.mortgageBalance || "");
         setBuyingToo(data.walkthrough.buyingToo || "");
         setBuyingNotes(data.walkthrough.buyingNotes || "");
@@ -602,7 +683,8 @@ export function ListingConsultSheet({
   const handleWalkthroughNext = async () => {
     setError(""); setSaving(true);
     try {
-      await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: needsRepairs === "yes", mortgageBalance, buyingToo, buyingNotes, timeline });
+      const anyFlagged = Object.values(pillarFlags).some(p => p.checked);
+      await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: anyFlagged || needsRepairs === "yes", pillars: pillarFlags, mortgageBalance, buyingToo, buyingNotes, timeline });
       setStep("close");
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
@@ -612,19 +694,21 @@ export function ListingConsultSheet({
     setError(""); setSaving(true);
     try {
       await ensureConsult();
-      await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: true, mortgageBalance, buyingToo, buyingNotes, timeline });
-      onLaunchRepairConsult({ address: propertyAddress, name: clientName, email: clientEmail, phone: clientPhone, heroPhotoUrl, galleryUrls });
+      await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: true, pillars: pillarFlags, mortgageBalance, buyingToo, buyingNotes, timeline });
+      onLaunchRepairConsult({ address: propertyAddress, name: clientName, email: clientEmail, phone: clientPhone, heroPhotoUrl, galleryUrls, flaggedPillars: flaggedPillarList() });
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
   };
 
   // v20.15.2 — second chance to flag repairs on Lock It In. Covers the case
   // where nothing looked obvious during the walkthrough but something came
-  // up by the end of the appointment.
+  // up by the end of the appointment. v20.21.0 — no specific pillar to check
+  // here (walkthrough is over), so this stays a plain flag; the Repair
+  // Consult agent will ask the follow-up questions live.
   const handleLockinRepairFlag = async (v: "yes" | "no") => {
     setNeedsRepairs(v);
     if (v === "yes") {
-      try { await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: true, mortgageBalance, buyingToo, buyingNotes, timeline }); }
+      try { await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: true, pillars: pillarFlags, mortgageBalance, buyingToo, buyingNotes, timeline }); }
       catch (e: any) { setError(e.message || "Failed to save."); }
     }
   };
@@ -888,15 +972,57 @@ export function ListingConsultSheet({
             {header("Walkthrough & Intel", "Interior & exterior notes, condition, and the numbers behind the decision")}
             <label style={labelStyle}>Interior / Exterior Notes</label>
             <textarea style={{ ...textareaStyle, marginBottom: 14 }} value={walkthroughNotes} onChange={e => setWalkthroughNotes(e.target.value)} placeholder="Condition, updates, anything notable while walking through" />
-            <label style={labelStyle}>Needs Repairs?</label>
-            <div style={{ marginBottom: 14 }}>
-              {segmented(needsRepairs, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setNeedsRepairs(v as any))}
-            </div>
-            {needsRepairs === "yes" && (
-              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: -6, marginBottom: 14 }}>
-                Just a flag for now — the Repair Consult only opens once they say yes to listing, on the Lock It In step.
-              </p>
-            )}
+            <label style={labelStyle}>Condition Check — What Does This Home Need?</label>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>
+              Check anything you're seeing right now and pick a size — this is scoping, not a quote. The Repair Consult (once they sign) is where we lock in real numbers.
+            </p>
+            {PILLAR_DEFS.map(def => {
+              const st = pillarFlags[def.key];
+              return (
+                <div key={def.key} style={{ ...cardStyle, marginBottom: 10, padding: 12 }}>
+                  <button type="button" onClick={() => togglePillar(def.key)} style={{
+                    display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                    background: "none", border: "none", cursor: "pointer", padding: 0,
+                    color: st.checked ? GOLD : "rgba(255,255,255,0.85)", fontSize: 13.5, fontWeight: st.checked ? 700 : 600,
+                  }}>
+                    <span style={{
+                      width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                      border: st.checked ? "none" : "1.5px solid rgba(255,255,255,0.3)",
+                      background: st.checked ? GOLD : "transparent",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {st.checked && <CheckCircle2 size={14} style={{ color: "#0c0b0a" }} />}
+                    </span>
+                    {def.label}
+                    {def.group === "addon" && (
+                      <span style={{ fontSize: 9.5, color: "rgba(255,255,255,0.35)", fontWeight: 600, marginLeft: "auto", textTransform: "uppercase" }}>Add-On</span>
+                    )}
+                  </button>
+                  {st.checked && (
+                    <div style={{ marginTop: 10, paddingLeft: 28 }}>
+                      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                        {def.tiers.map(t => (
+                          <button key={t.key} type="button" onClick={() => setPillarTier(def.key, t.key)} title={t.label} style={{
+                            flex: 1, padding: "8px 6px", borderRadius: 7, cursor: "pointer", fontSize: 10.5, fontWeight: 700,
+                            background: st.tier === t.key ? GOLD : "rgba(255,255,255,0.06)",
+                            border: st.tier === t.key ? "none" : "1px solid rgba(255,255,255,0.15)",
+                            color: st.tier === t.key ? "#0c0b0a" : "rgba(255,255,255,0.75)",
+                          }}>{t.key === "small" ? "S" : t.key === "medium" ? "M" : "L"}</button>
+                        ))}
+                      </div>
+                      {st.tier && (
+                        <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", margin: "0 0 8px" }}>
+                          {def.tiers.find(t => t.key === st.tier)?.label}
+                        </p>
+                      )}
+                      <input style={{ ...inputStyle, fontSize: 12 }} value={st.notes} onChange={e => setPillarNotes(def.key, e.target.value)}
+                        placeholder="Specifics — which rooms, sqft, condition notes…" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div style={{ marginBottom: 4 }} />
             <div style={cardStyle}>
               <label style={labelStyle}>Walkthrough Photos ({galleryUrls.length})</label>
               <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>
@@ -1089,10 +1215,25 @@ export function ListingConsultSheet({
             {needsRepairs === "yes" ? (
               <div style={cardStyle}>
                 <label style={labelStyle}>Repairs Flagged During Walkthrough</label>
-                <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)", marginTop: -2, marginBottom: 0 }}>
-                  Noted — the home will need at least some touch-up (pressure wash, deep clean, lawn cut, or more) to show its best.
-                  {" "}We'll scope it and build the real quote once they've signed on and believe the plan — right after the contract sends below.
-                </p>
+                {flaggedPillarList().length > 0 ? (
+                  <div style={{ marginTop: 2 }}>
+                    {flaggedPillarList().map(p => (
+                      <div key={p.key} style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <span style={{ color: GOLD, fontWeight: 700 }}>{p.label}</span>
+                        {p.tier && <span style={{ marginLeft: 6, textTransform: "uppercase", fontSize: 10, color: "rgba(255,255,255,0.45)" }}>{p.tier}</span>}
+                        {p.notes && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 1 }}>{p.notes}</div>}
+                      </div>
+                    ))}
+                    <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 8, marginBottom: 0 }}>
+                      We'll scope it and build the real quote once they've signed on — right after the contract sends below.
+                    </p>
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)", marginTop: -2, marginBottom: 0 }}>
+                    Noted — the home will need at least some touch-up (pressure wash, deep clean, lawn cut, or more) to show its best.
+                    {" "}We'll scope it and build the real quote once they've signed on — right after the contract sends below.
+                  </p>
+                )}
               </div>
             ) : (
               <div style={cardStyle}>

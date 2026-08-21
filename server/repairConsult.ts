@@ -983,7 +983,9 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   // v20.18.0 — sign-today free-item incentive, called out separately from pricing.
   if (consult.free_item_applied_key) {
     const freeItem = IN_HOUSE_ITEMS.find(i => i.key === consult.free_item_applied_key);
-    page.drawText(`\u2713 Free: ${freeItem?.name || consult.free_item_applied_key} (sign-today incentive)`, { x: 38, y, size: 9.5, font: fontBold, color: green });
+    // Plain "FREE:" prefix, not a unicode checkmark — WinAnsi (pdf-lib's default
+    // Helvetica encoding) can't encode U+2713 and throws at render time.
+    page.drawText(`FREE: ${freeItem?.name || consult.free_item_applied_key} (sign-today incentive)`, { x: 38, y, size: 9.5, font: fontBold, color: green });
     y -= 16;
   }
   page.drawText(`50% deposit: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}   /   50% on completion: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: colAmtX - 210, y, size: 8.5, font, color: gray });

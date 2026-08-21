@@ -1,17 +1,43 @@
 {
-  "version": "v20.18.0",
+  "version": "v20.18.1",
   "changes": [
     "New in-house catalog items with defined scope caps: Light Switch Replacement, Outlet Replacement, Ceiling Fan Replacement/Install, Curtain Rod Install, Small Light Fixture Replacement, TV Mount Removal & Patch, Carpet Removal & Haul.",
     "Packages layer: 11 bundle packages grouped by tier in a new repair_packages table, selectable in the checklist step (auto-checks underlying items), applies a marketed discount computed server-side on POST /api/repair-consult/:id/items.",
     "Sign-today free-item incentive (repair_incentive_settings: threshold + free item), computed alongside the discount and surfaced on the Review step totals card and on the client-facing quote PDF.",
-    "Quote generation and vendor dispatch now auto-fire once the Review step is reached (no more double-tap) — the Office Approval Gate for the client-facing send is unchanged and still requires an explicit tap.",
+    "Quote generation and vendor dispatch now auto-fire once the Review step is reached (no more double-tap) \u2014 the Office Approval Gate for the client-facing send is unchanged and still requires an explicit tap.",
     "Skips the redundant whole-home gallery step when nested from Listing Consult and photos already exist; gallery URLs now flow from ListingConsultSheet -> AgentView -> RepairConsultSheet.",
-    "Standalone Repair Consult creation now auto-fetches a Google Street View front-of-house photo as the default hero photo (no-ops safely without GOOGLE_MAPS_API_KEY); any manual hero upload always wins and is tagged hero_photo_source='manual' so it is never overwritten."
+    "Standalone Repair Consult creation now auto-fetches a Google Street View front-of-house photo as the default hero photo (no-ops safely without GOOGLE_MAPS_API_KEY); any manual hero upload always wins and is tagged hero_photo_source='manual' so it is never overwritten.",
+    "Bugfix: quote PDF generation was throwing a 500 (WinAnsi cannot encode U+2713) whenever a sign-today free-item incentive was applied, because the checkmark glyph in the free-item PDF line is not in pdf-lib default Helvetica WinAnsi encoding. Replaced the unicode checkmark with a plain \"FREE:\" text prefix."
   ],
   "endpoints": [
-    { "method": "GET", "path": "/api/repair-consult/packages", "auth": "admin", "expectStatus": 200, "expectKeys": ["packages"] },
-    { "method": "GET", "path": "/api/repair-items", "auth": "admin", "expectStatus": 200, "expectKeys": ["items", "popularity"] },
-    { "method": "GET", "path": "/api/health", "expectStatus": 200, "expectKeys": ["status", "version"] }
+    {
+      "method": "GET",
+      "path": "/api/repair-consult/packages",
+      "auth": "admin",
+      "expectStatus": 200,
+      "expectKeys": [
+        "packages"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/repair-items",
+      "auth": "admin",
+      "expectStatus": 200,
+      "expectKeys": [
+        "items",
+        "popularity"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "expectStatus": 200,
+      "expectKeys": [
+        "status",
+        "version"
+      ]
+    }
   ],
   "bundleMustContain": [
     "Bundle & Save",
@@ -20,7 +46,7 @@
     "Package Discount"
   ],
   "bundleMustNotContain": [],
-  "__bundleNotes": "New catalog item names (Ceiling Fan Replacement/Install, Curtain Rod Install, etc.) are server-provided data fetched at runtime, not string literals in the client bundle — verified via mathChecks against the live /api/repair-items payload instead of bundle substring matching, per the v20.7.53 manifest gotcha about server-provided values.",
+  "__bundleNotes": "New catalog item names (Ceiling Fan Replacement/Install, Curtain Rod Install, etc.) are server-provided data fetched at runtime, not string literals in the client bundle \u2014 verified via mathChecks against the live /api/repair-items payload instead of bundle substring matching, per the v20.7.53 manifest gotcha about server-provided values. v20.18.1 also fixes a server-side PDF generation crash (WinAnsi checkmark encoding) found via a live functional smoke test (package select + items post + generate-quote) against a disposable TEST-DELETE-ME consult on the v20.18.0 deploy \u2014 verified manually via curl, not re-encoded as an automated mathCheck since generate-quote returns a binary PDF stream rather than JSON.",
   "mathChecks": [
     {
       "name": "repair-items catalog grew to 69 active items (62 baseline + 7 new)",

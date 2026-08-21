@@ -684,6 +684,13 @@ export function ListingConsultSheet({
     setError(""); setSaving(true);
     try {
       const anyFlagged = Object.values(pillarFlags).some(p => p.checked);
+      // v20.23.0 — pillars flagged in the walkthrough must flip the LOCAL
+      // needsRepairs state too, not just the saved payload. Lock-It-In's
+      // "Repairs Flagged During Walkthrough" banner AND its "Launch Repair
+      // Consult" button both gate on this local state — without this, an
+      // agent who flags pillars but never touches the Lock-It-In Yes/No
+      // toggle would see neither, with no way to reach Repair Consult at all.
+      if (anyFlagged && needsRepairs !== "yes") setNeedsRepairs("yes");
       await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: anyFlagged || needsRepairs === "yes", pillars: pillarFlags, mortgageBalance, buyingToo, buyingNotes, timeline });
       setStep("close");
     } catch (e: any) { setError(e.message || "Failed to save."); }

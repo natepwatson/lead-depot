@@ -544,12 +544,12 @@ export function registerListingConsultRoutes(app: Express) {
     // suspenders in case the client check is ever bypassed.
     const lockin = data.lockin || {};
     const missing: string[] = [];
-    if (!lockin.ownerName) missing.push("Owner 1 Legal Name");
+    if (!lockin.ownerNames) missing.push("Owner 1 Legal Name");
     if (!r.property_address) missing.push("Property Address");
     if (!close.finalListingPrice) missing.push("Final Listing Price");
     if (!lockin.accessKeyOrCode) missing.push("Access Key/Code");
     if (!lockin.showingApprovalContact) missing.push("Showing Approval Contact");
-    if (missing.length) return res.status(400).json({ error: "Missing required fields", missing });
+    if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.join(", ")}`, missing });
 
     rawDb.prepare(`
       UPDATE listing_consults SET data = ?, status = 'signed', debrief_sent_at = datetime('now'), updated_at = datetime('now')

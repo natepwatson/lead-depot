@@ -1042,6 +1042,9 @@ export function ListingConsultSheet({
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Path</td><td style={{ padding: "5px 0" }}>{whereAreWe === "ready_repairs" ? "Ready — repairs first" : "Ready — start now"}</td></tr>
               </tbody>
             </table>
+            {error && (
+              <div style={{ padding: 10, marginTop: 12, borderRadius: 8, background: "rgba(255,120,120,0.1)", color: "#ffb0b0", fontSize: 12.5 }}>{error}</div>
+            )}
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
               <button onClick={() => setShowContractSummary(false)} style={{
                 flex: "0 0 auto", padding: "12px 18px", borderRadius: 10, background: "rgba(255,255,255,0.06)",

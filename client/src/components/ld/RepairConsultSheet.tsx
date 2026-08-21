@@ -237,7 +237,7 @@ export function RepairConsultSheet({
 
   const [submittingItems, setSubmittingItems] = useState(false);
   const [totals, setTotals] = useState<{ subtotal: number; total: number; discountAmount?: number; freeItemKey?: string | null } | null>(null);
-  const [quoteResult, setQuoteResult] = useState<{ pdfUrl: string; acceptUrl: string; total: number } | null>(null);
+  const [quoteResult, setQuoteResult] = useState<{ pdfUrl: string; agreementPdfUrl: string; acceptUrl: string; total: number } | null>(null);
   const [generatingQuote, setGeneratingQuote] = useState(false);
   const [sendingToClient, setSendingToClient] = useState(false);
   const [clientSent, setClientSent] = useState(false);
@@ -504,7 +504,7 @@ export function RepairConsultSheet({
         // Quote already generated — jump to Review with the send/dispatch
         // actions available. pdfUrl/acceptUrl aren't persisted server-side
         // (only the total is needed to render this card), so leave them blank.
-        setQuoteResult({ pdfUrl: "", acceptUrl: "", total: d.total || 0 });
+        setQuoteResult({ pdfUrl: "", agreementPdfUrl: d.agreementPdfUrl || "", acceptUrl: "", total: d.total || 0 });
         if (d.status === "sent") setClientSent(true);
         setStep("review");
       } else if (items.length > 0) {
@@ -625,7 +625,7 @@ export function RepairConsultSheet({
     setGeneratingQuote(true); setError("");
     try {
       const d = await fetchJson(`/api/repair-consult/${consultId}/generate-quote`, { method: "POST" });
-      setQuoteResult({ pdfUrl: d.pdfUrl, acceptUrl: d.acceptUrl, total: d.total });
+      setQuoteResult({ pdfUrl: d.pdfUrl, agreementPdfUrl: d.agreementPdfUrl, acceptUrl: d.acceptUrl, total: d.total });
     } catch (e: any) { setError(e.message || "Failed to generate quote."); }
     finally { setGeneratingQuote(false); }
   };
@@ -981,7 +981,19 @@ export function RepairConsultSheet({
                     ✓ Free: {catalog.find(i => i.key === totals.freeItemKey)?.name || totals.freeItemKey} (sign-today incentive)
                   </p>
                 )}
-                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 6 }}>50% deposit to begin / 50% on completion</p>
+                {totals.total > 0 && (
+                  <div style={{ marginTop: 12, background: "#0a0a0a", borderRadius: 8, padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ textAlign: "center", flex: 1 }}>
+                      <div style={{ fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase", color: "rgba(255,255,255,0.5)", fontWeight: 700 }}>50% To Start</div>
+                      <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", marginTop: 2 }}>${(totals.total / 2).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div style={{ width: 1, background: "rgba(255,255,255,0.15)" }} />
+                    <div style={{ textAlign: "center", flex: 1 }}>
+                      <div style={{ fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase", color: "rgba(255,255,255,0.5)", fontWeight: 700 }}>50% On Completion</div>
+                      <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", marginTop: 2 }}>${(totals.total / 2).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -996,6 +1008,16 @@ export function RepairConsultSheet({
                     <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
                       <CheckCircle2 size={16} /> Quote generated — sent to Alex & Nate for review.
                     </div>
+                    {quoteResult.agreementPdfUrl && (
+                      <a
+                        href={quoteResult.agreementPdfUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ display: "block", textAlign: "center", padding: "10px 14px", borderRadius: 8, border: `1px solid ${GOLD}`, color: GOLD, fontSize: 12.5, fontWeight: 700, marginBottom: 10, textDecoration: "none" }}
+                      >
+                        View Signature-Ready Agreement (2-page PDF)
+                      </a>
+                    )}
                     {clientEmail ? (
                       <button onClick={handleSendToClient} disabled={sendingToClient || clientSent} style={{
                         width: "100%", padding: "12px 18px", borderRadius: 10, background: clientSent ? "rgba(126,212,154,0.15)" : GOLD,

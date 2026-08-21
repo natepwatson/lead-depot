@@ -57,6 +57,7 @@ const FORECAST_RULES = {
   photoEditCalendarDays: 2,     // 48-hour edit turnaround after the shoot
 };
 
+type MilestoneKey = "repairStart" | "repairEnd" | "cleaningDay" | "photosScheduled" | "photosBack" | "goLive" | "openHouse";
 type TimelineForecast = {
   showRepairWindow: boolean;
   repairStart: Date | null; repairEnd: Date | null;
@@ -64,25 +65,54 @@ type TimelineForecast = {
   photosScheduled: Date; photosBack: Date;
   goLive: Date; showingsBegin: Date; openHouse: Date;
 };
-const computeTimelineForecast = (startISO: string, showRepairWindow: boolean, cleaningNeeded: boolean): TimelineForecast | null => {
+// Full ordered sequence this milestone key can appear in (used to know what
+// "everything after" means when an agent overrides one date by hand).
+const milestoneSequence = (showRepairWindow: boolean, cleaningNeeded: boolean): MilestoneKey[] => {
+  const order: MilestoneKey[] = [];
+  if (showRepairWindow) order.push("repairStart", "repairEnd");
+  if (cleaningNeeded) order.push("cleaningDay");
+  order.push("photosScheduled", "photosBack", "goLive", "openHouse");
+  return order;
+};
+// v20.19.x — every forecasted date is agent-editable. The chain still starts
+// from forecastStartDate and applies the rule-of-thumb gaps by default ("the
+// quickest we can do it"), but any manual override for a milestone becomes
+// the new anchor for everything scheduled after it — sellers who need more
+// breathing room in one phase don't have to fight the calculator, and later
+// dates cascade forward automatically from wherever they land it.
+const computeTimelineForecast = (
+  startISO: string,
+  showRepairWindow: boolean,
+  cleaningNeeded: boolean,
+  overrides: Partial<Record<MilestoneKey, string>> = {}
+): TimelineForecast | null => {
   if (!startISO) return null;
+  const pick = (key: MilestoneKey, computed: Date): Date => {
+    const ov = overrides[key];
+    return ov ? parseISODate(ov) : computed;
+  };
+
   let cursor = parseISODate(startISO);
   let repairStart: Date | null = null, repairEnd: Date | null = null;
   if (showRepairWindow) {
-    repairStart = cursor;
-    cursor = addBusinessDays(cursor, FORECAST_RULES.repairBusinessDays);
-    repairEnd = cursor;
+    repairStart = pick("repairStart", cursor);
+    cursor = repairStart;
+    repairEnd = pick("repairEnd", addBusinessDays(cursor, FORECAST_RULES.repairBusinessDays));
+    cursor = repairEnd;
   }
   let cleaningDay: Date | null = null;
   if (cleaningNeeded) {
-    cleaningDay = addBusinessDays(cursor, FORECAST_RULES.cleaningBusinessDays);
+    cleaningDay = pick("cleaningDay", addBusinessDays(cursor, FORECAST_RULES.cleaningBusinessDays));
     cursor = cleaningDay;
   }
-  const photosScheduled = addBusinessDays(cursor, FORECAST_RULES.photoScheduleBusinessDays);
-  const photosBack = addCalendarDays(photosScheduled, FORECAST_RULES.photoEditCalendarDays);
-  const goLive = photosBack;
+  const photosScheduled = pick("photosScheduled", addBusinessDays(cursor, FORECAST_RULES.photoScheduleBusinessDays));
+  cursor = photosScheduled;
+  const photosBack = pick("photosBack", addCalendarDays(photosScheduled, FORECAST_RULES.photoEditCalendarDays));
+  cursor = photosBack;
+  const goLive = pick("goLive", photosBack);
+  cursor = goLive;
   const showingsBegin = goLive;
-  const openHouse = nextSaturdayOnOrAfter(goLive);
+  const openHouse = pick("openHouse", nextSaturdayOnOrAfter(goLive));
   return { showRepairWindow, repairStart, repairEnd, cleaningDay, photosScheduled, photosBack, goLive, showingsBegin, openHouse };
 };
 
@@ -308,6 +338,10 @@ export function ListingConsultSheet({
   // whole forward-calculated runway (defaults to today, editable if this
   // consult isn't happening the same day the seller signs).
   const [forecastStartDate, setForecastStartDate] = useState(toISO(new Date()));
+  // Per-milestone manual overrides (ISO strings). Empty until an agent drags
+  // a specific forecasted date — everything computes off the rule-of-thumb
+  // gaps until then.
+  const [forecastOverrides, setForecastOverrides] = useState<Partial<Record<MilestoneKey, string>>>({});
   const [accessKeyOrCode, setAccessKeyOrCode] = useState("");
   const [gateCode, setGateCode] = useState("");
   const [ownerNames, setOwnerNames] = useState("");
@@ -369,9 +403,30 @@ export function ListingConsultSheet({
   // v20.19.x — Timeline Forecast: recomputed live as the agent changes the
   // start date, the repairs-first path, or the cleaning flag.
   const timelineForecast = useMemo(
-    () => computeTimelineForecast(forecastStartDate, whereAreWe === "ready_repairs", needsCleaning === "yes"),
-    [forecastStartDate, whereAreWe, needsCleaning]
+    () => computeTimelineForecast(forecastStartDate, whereAreWe === "ready_repairs", needsCleaning === "yes", forecastOverrides),
+    [forecastStartDate, whereAreWe, needsCleaning, forecastOverrides]
   );
+
+  // Start date is the master anchor ("it all starts with today's date") —
+  // changing it resets to the quickest-possible chain from the new date.
+  const handleForecastStartChange = (v: string) => {
+    setForecastStartDate(v);
+    setForecastOverrides({});
+  };
+
+  // Editing one forecasted date keeps everything BEFORE it untouched and
+  // clears any manual overrides AFTER it, so the rest of the chain cascades
+  // forward fresh from wherever this date landed.
+  const handleForecastDateEdit = (key: MilestoneKey, value: string) => {
+    const order = milestoneSequence(whereAreWe === "ready_repairs", needsCleaning === "yes");
+    const idx = order.indexOf(key);
+    setForecastOverrides(prev => {
+      const next = { ...prev };
+      for (let i = idx; i < order.length; i++) delete next[order[i]];
+      next[key] = value;
+      return next;
+    });
+  };
 
   // v20.16.0 — Fix for the duplicate-consult creation bug (double POST on the
   // very first "Next" tap). Refs mutate in place and are shared across every

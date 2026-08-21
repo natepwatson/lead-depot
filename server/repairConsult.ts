@@ -342,7 +342,7 @@ const IN_HOUSE_ITEMS: SeedItem[] = [
   { key: "pressure_wash_hard", category: "in_house", trade: "pressure_washing", name: "Pressure Washing — Driveway/Walkway/Patio", unit: "sqft", rate: 0.22, min: 150, seq: 37, instruction: "Pressure wash driveway/walkway/patio — {qty} sqft." },
   { key: "paint_ext_body", category: "in_house", trade: "painting_exterior", name: "Exterior Painting — Body", unit: "sqft", rate: 2.25, min: 800, twoStory: true, seq: 40, instruction: "Paint exterior body — {qty} sqft. Color-matched to existing.{story}", notes: "Color match is visual-sample only; slight sheen/tone variance vs. original is possible." },
   { key: "paint_ext_trim", category: "in_house", trade: "painting_exterior", name: "Exterior Painting — Trim & Doors", unit: "linear_ft", rate: 3.50, min: 150, twoStory: true, seq: 41, instruction: "Paint exterior trim & doors — {qty} linear ft. Color-matched.{story}" },
-  { key: "lawn_mow", category: "in_house", trade: "landscaping", name: "Lawn Mowing / Cut", unit: "sqft", rate: 0.03, min: 75, seq: 45, instruction: "Mow/cut lawn — {qty} sqft." },
+  { key: "lawn_mow", category: "in_house", trade: "landscaping", name: "Lawn Mowing / Cut", unit: "sqft", rate: 0.03, min: 300, seq: 45, instruction: "Mow/cut lawn — {qty} sqft. (4-hour crew minimum)" },
   { key: "tree_hedge_removal", category: "in_house", trade: "landscaping", name: "Small Tree & Hedge Removal (up to 10 ft)", unit: "each", rate: 95, min: 0, seq: 46, instruction: "Remove {qty} small tree(s)/hedge(s)." },
   { key: "hedge_trim", category: "in_house", trade: "landscaping", name: "Hedge/Shrub Trimming", unit: "linear_ft", rate: 3.00, min: 100, seq: 47, instruction: "Trim hedges/shrubs — {qty} linear ft." },
   { key: "weed_pull", category: "in_house", trade: "landscaping", name: "Weed Pulling — Beds", unit: "sqft", rate: 1.25, min: 100, seq: 48, instruction: "Pull weeds in beds — {qty} sqft." },
@@ -621,10 +621,59 @@ function brandedFooter(): string {
   </div>`;
 }
 
+// v20.20.0 — the 50/50 payment terms used to be a single 12px gray line under
+// the total. Alex wants it big and unmissable so clients see up front how
+// affordable the split is — this renders as a bold black banner with the two
+// dollar amounts large and legible.
+function depositSplitHtml(consult: any): string {
+  return `
+  <div style="margin-top:14px;background:${BRAND.black};border-radius:8px;padding:16px 18px;display:flex;justify-content:space-between;gap:10px">
+    <div style="text-align:center;flex:1">
+      <p style="margin:0;color:rgba(255,255,255,0.55);font-size:10.5px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">50% To Start</p>
+      <p style="margin:4px 0 0;color:#fff;font-size:20px;font-weight:800">$${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+    </div>
+    <div style="width:1px;background:rgba(255,255,255,0.15)"></div>
+    <div style="text-align:center;flex:1">
+      <p style="margin:0;color:rgba(255,255,255,0.55);font-size:10.5px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">50% On Completion</p>
+      <p style="margin:4px 0 0;color:#fff;font-size:20px;font-weight:800">$${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+    </div>
+  </div>`;
+}
+
+// v20.20.0 — shows the full "one-stop-shop" scope by listing vendor-coordinated
+// (licensed trade) service NAMES ONLY — never a dollar amount, and never
+// summed into Brothers Group's total/deposit math. Standing rule from Alex:
+// vendor pricing is always separate.
+function vendorScopeHtml(vendorItems: any[]): string {
+  if (!vendorItems || vendorItems.length === 0) return "";
+  const names = vendorItems.map((v: any) => `<li style="margin-bottom:4px">${v.name}</li>`).join("");
+  return `
+  <div style="margin-top:16px;padding:14px 16px;background:${BRAND.lightGray};border-radius:8px">
+    <p style="margin:0 0 6px;font-size:11px;color:${BRAND.gray};text-transform:uppercase;letter-spacing:0.06em;font-weight:700">Also Coordinating For You (Licensed Trade — One Stop Shop)</p>
+    <ul style="margin:0;padding-left:18px;font-size:12.5px;color:#333">${names}</ul>
+    <p style="margin:8px 0 0;font-size:10.5px;color:${BRAND.gray};font-style:italic">These are quoted and billed separately by our vetted vendor partners — not included in the Brothers Group total above.</p>
+  </div>`;
+}
+
+// v20.20.0 — reads the blank (unsigned) 2-page Agreement PDF off disk and
+// base64-encodes it for a Resend attachment, so every client email carries a
+// physical, printable copy with the signature page — not just the web link.
+function agreementAttachment(consult: any): { filename: string; content: string }[] {
+  if (!consult.agreement_pdf_url) return [];
+  try {
+    const filePath = path.join(repairPdfDir(), path.basename(consult.agreement_pdf_url));
+    if (!fs.existsSync(filePath)) return [];
+    const bytes = fs.readFileSync(filePath);
+    return [{ filename: "Repair-Renovation-Agreement.pdf", content: bytes.toString("base64") }];
+  } catch { return []; }
+}
+
 export async function sendInHouseQuoteInternal(consultId: number) {
   if (!resend) return;
   const consult = getConsultRow(consultId);
-  const items = getConsultItems(consultId).filter((i: any) => i.category === "in_house");
+  const allItems = getConsultItems(consultId);
+  const items = allItems.filter((i: any) => i.category === "in_house");
+  const vendorItems = allItems.filter((i: any) => i.category === "vendor");
   if (!consult || items.length === 0) return;
 
   const html = `
@@ -641,8 +690,10 @@ export async function sendInHouseQuoteInternal(consultId: number) {
       <table style="width:100%;margin-top:12px">
         <tr><td style="padding:4px 10px;text-align:right;font-size:12.5px;color:${BRAND.gray}">Subtotal</td><td style="padding:4px 10px;text-align:right;font-size:12.5px;width:110px">$${consult.subtotal.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
         <tr><td style="padding:4px 10px;text-align:right;font-size:14px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:14px;font-weight:700;width:110px">$${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
-        <tr><td style="padding:4px 10px;text-align:right;font-size:11.5px;color:${BRAND.gray}">Deposit (50%) / Final (50%)</td><td style="padding:4px 10px;text-align:right;font-size:11.5px;color:${BRAND.gray};width:110px">$${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})} / $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
       </table>
+      ${depositSplitHtml(consult)}
+      ${vendorScopeHtml(vendorItems)}
+      ${consult.agreement_pdf_url ? `<p style="margin-top:14px;font-size:12px"><a href="${consult.agreement_pdf_url.startsWith("http") ? consult.agreement_pdf_url : APP_URL + consult.agreement_pdf_url}" style="color:${BRAND.black};font-weight:700">View the signature-ready Agreement PDF (2 pages, w/ Terms &amp; signature lines) →</a></p>` : ""}
       <div style="margin-top:18px;padding:14px 16px;background:${BRAND.lightGray};border-radius:8px;font-size:12px;color:#333">
         This quote has NOT been sent to the client yet. Open the consult in Lead Depot to review, then tap <strong>Send to Client</strong> to deliver the branded quote with the accept link.
       </div>
@@ -663,7 +714,9 @@ export async function sendInHouseQuoteInternal(consultId: number) {
 export async function sendClientQuoteEmail(consultId: number) {
   if (!resend) return;
   const consult = getConsultRow(consultId);
-  const items = getConsultItems(consultId).filter((i: any) => i.category === "in_house");
+  const allItems = getConsultItems(consultId);
+  const items = allItems.filter((i: any) => i.category === "in_house");
+  const vendorItems = allItems.filter((i: any) => i.category === "vendor");
   if (!consult || !consult.client_email) return;
 
   const acceptUrl = `${APP_URL}/#/repair-quote/${consult.quote_token}`;
@@ -683,7 +736,8 @@ export async function sendClientQuoteEmail(consultId: number) {
         <tr><td style="padding:4px 10px;text-align:right;font-size:13px;color:${BRAND.gray}">Subtotal</td><td style="padding:4px 10px;text-align:right;font-size:13px;width:110px">$${consult.subtotal.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
         <tr><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700;width:110px">$${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
       </table>
-      <p style="font-size:12px;color:${BRAND.gray};text-align:right;margin-top:2px">50% deposit ($${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) to begin · 50% ($${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) on completion</p>
+      ${depositSplitHtml(consult)}
+      ${vendorScopeHtml(vendorItems)}
       <div style="margin-top:16px;padding:14px 16px;background:#f0f9f0;border:1px solid #cfe8cf;border-radius:6px">
         <p style="font-size:13px;color:#1a1a1a;line-height:1.55;margin:0"><strong style="color:${BRAND.green}">${START_MOMENTUM_HTML}</strong></p>
       </div>
@@ -691,6 +745,7 @@ export async function sendClientQuoteEmail(consultId: number) {
         <a href="${acceptUrl}" style="background:${BRAND.black};color:#fff;text-decoration:none;padding:14px 36px;border-radius:6px;font-size:14px;font-weight:700;display:inline-block">Review &amp; Accept Proposal</a>
       </div>
       <p style="font-size:10.5px;color:${BRAND.gray};text-align:center">Or open on your phone: <a href="${acceptUrl}" style="color:${BRAND.gray}">${acceptUrl}</a></p>
+      <p style="font-size:11px;color:${BRAND.gray};text-align:center;margin-top:10px">The full signature-ready Repair &amp; Renovation Agreement (with Terms &amp; signature page) is attached to this email as a PDF.</p>
       <div style="margin-top:22px;border-top:1px solid ${BRAND.border};padding-top:14px">
         <p style="font-size:10px;color:${BRAND.gray};line-height:1.6">${IN_HOUSE_TERMS.join(" ")}</p>
       </div>
@@ -705,6 +760,7 @@ export async function sendClientQuoteEmail(consultId: number) {
     cc: ADMIN_EMAILS,
     subject: `Your Repair Proposal — ${consult.property_address}`,
     html,
+    attachments: agreementAttachment(consult),
   });
 
   rawDb.prepare(`UPDATE repair_consults SET status = 'sent', updated_at = datetime('now') WHERE id = ?`).run(consultId);
@@ -714,7 +770,9 @@ export async function sendClientQuoteEmail(consultId: number) {
 export async function sendApprovalEmail(consultId: number) {
   if (!resend) return;
   const consult = getConsultRow(consultId);
-  const items = getConsultItems(consultId).filter((i: any) => i.category === "in_house");
+  const allItems = getConsultItems(consultId);
+  const items = allItems.filter((i: any) => i.category === "in_house");
+  const vendorItems = allItems.filter((i: any) => i.category === "vendor");
   if (!consult || !consult.client_email) return;
   if (!consult.quote_token) throw new Error("Quote must be generated before sending an approval email");
 
@@ -734,7 +792,8 @@ export async function sendApprovalEmail(consultId: number) {
       <table style="width:100%;margin-top:14px">
         <tr><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700;width:110px">$${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
       </table>
-      <p style="font-size:12px;color:${BRAND.gray};text-align:right;margin-top:2px">50% deposit ($${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) to begin · 50% ($${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) on completion</p>
+      ${depositSplitHtml(consult)}
+      ${vendorScopeHtml(vendorItems)}
       <div style="margin-top:16px;padding:14px 16px;background:#f0f9f0;border:1px solid #cfe8cf;border-radius:6px">
         <p style="font-size:13px;color:#1a1a1a;line-height:1.55;margin:0"><strong style="color:${BRAND.green}">${START_MOMENTUM_HTML}</strong></p>
       </div>
@@ -742,7 +801,7 @@ export async function sendApprovalEmail(consultId: number) {
         <a href="${approveUrl}" style="background:${BRAND.green};color:#fff;text-decoration:none;padding:16px 44px;border-radius:6px;font-size:15px;font-weight:700;display:inline-block">✓ Approve Proposal</a>
       </div>
       <p style="font-size:10.5px;color:${BRAND.gray};text-align:center">Or open on your phone: <a href="${approveUrl}" style="color:${BRAND.gray}">${approveUrl}</a></p>
-      <p style="font-size:11px;color:${BRAND.gray};text-align:center;margin-top:10px">Full Terms &amp; Conditions are shown on the approval page before you approve.</p>
+      <p style="font-size:11px;color:${BRAND.gray};text-align:center;margin-top:10px">Full Terms &amp; Conditions are shown on the approval page before you approve. The full signature-ready Agreement is also attached to this email as a PDF.</p>
     </div>
     ${brandedFooter()}
   </div>
@@ -754,6 +813,7 @@ export async function sendApprovalEmail(consultId: number) {
     cc: ADMIN_EMAILS,
     subject: `Approve Your Repair Proposal — ${consult.property_address}`,
     html,
+    attachments: agreementAttachment(consult),
   });
 
   rawDb.prepare(`UPDATE repair_consults SET approval_email_sent_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(consultId);
@@ -895,16 +955,20 @@ function drawContainedImage(
 // ─── PDF QUOTE (pdf-lib, matches Brothers Group letterhead) ────────────────
 export async function generateQuotePdf(consultId: number): Promise<string> {
   const consult = getConsultRow(consultId);
-  const items = getConsultItems(consultId).filter((i: any) => i.category === "in_house");
+  const allItems = getConsultItems(consultId);
+  const items = allItems.filter((i: any) => i.category === "in_house");
+  const vendorItems = allItems.filter((i: any) => i.category === "vendor");
   if (!consult) throw new Error("Consult not found");
 
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([612, 792]);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
   const black = rgb(0, 0, 0);
   const gray = rgb(0.5, 0.5, 0.5);
   const lightGray = rgb(0.95, 0.95, 0.95);
+  const green = rgb(0, 0.5, 0);
 
   let y = 792 - 40;
   // Logo
@@ -952,7 +1016,7 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
 
   let rowIdx = 0;
   for (const it of items) {
-    if (y < 140) { break; } // guard against overflow on very long scopes (v1 — single page)
+    if (y < 195) { break; } // guard against overflow on very long scopes (v20.20.0 — raised to fit the boxed 50/50 + vendor callout)
     if (rowIdx % 2 === 1) page.drawRectangle({ x: 38, y: y - 4, width: 536, height: 16, color: lightGray });
     const label = it.two_story ? `${it.name} (2-story)` : it.name;
     page.drawText(label.slice(0, 60), { x: colLabelX, y: y, size: 9, font, color: black });
@@ -969,7 +1033,6 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   page.drawText(`$${consult.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 10, font, color: black });
   y -= 18;
   // v20.18.0 — show package discount (if any) as its own line before the total.
-  const green = rgb(0, 0.5, 0);
   if (consult.package_discount_amount && Number(consult.package_discount_amount) > 0) {
     const pkgRow = REPAIR_PACKAGES.find((p: any) => p.key === consult.package_key);
     const pkgLabel = pkgRow ? `Package Discount (${pkgRow.name})` : "Package Discount";
@@ -988,9 +1051,33 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
     page.drawText(`FREE: ${freeItem?.name || consult.free_item_applied_key} (sign-today incentive)`, { x: 38, y, size: 9.5, font: fontBold, color: green });
     y -= 16;
   }
-  page.drawText(`50% deposit: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}   /   50% on completion: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: colAmtX - 210, y, size: 8.5, font, color: gray });
-  y -= 20;
+  // v20.20.0 — 50/50 payment terms made large, bold, and boxed so it reads as
+  // the headline affordability message, not fine print.
+  y -= 4;
+  page.drawRectangle({ x: 38, y: y - 30, width: 536, height: 30, color: rgb(0.94, 0.98, 0.94) });
+  page.drawText("50% DEPOSIT TO START", { x: 48, y: y - 12, size: 10, font: fontBold, color: green });
+  page.drawText(`$${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 48, y: y - 25, size: 13, font: fontBold, color: black });
+  page.drawText("50% ON COMPLETION", { x: 320, y: y - 12, size: 10, font: fontBold, color: green });
+  page.drawText(`$${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 320, y: y - 25, size: 13, font: fontBold, color: black });
+  y -= 42;
   page.drawText(START_MOMENTUM_PDF_LINE, { x: 38, y, size: 9.5, font: fontBold, color: rgb(0, 0.35, 0) });
+  y -= 14;
+
+  // v20.20.0 — Additional (vendor-coordinated) services, shown with NO price so
+  // the client sees the full one-stop-shop scope without vendor $ ever being
+  // summed into Brothers Group's total/deposit math (standing rule).
+  if (vendorItems.length > 0 && y > 95) {
+    page.drawText("ALSO COORDINATING (licensed trade — quoted separately by our vendor partners):", { x: 38, y, size: 7.5, font: fontBold, color: gray });
+    y -= 10;
+    const vendorNames = vendorItems.map((v: any) => v.name).join("  ·  ");
+    for (const line of wrapText(vendorNames, font, 7.5, 536).slice(0, 2)) {
+      page.drawText(line, { x: 38, y, size: 7.5, font, color: rgb(0.3, 0.3, 0.3) });
+      y -= 9;
+    }
+  }
+  if (y > 78) {
+    page.drawText("Full signature-ready Repair & Renovation Agreement (2 pages, with Terms & signature lines) provided separately.", { x: 38, y, size: 6.8, font: fontItalic, color: gray });
+  }
 
   // Footer terms (small print)
   const footerY = 70;
@@ -1117,7 +1204,7 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   y -= 13;
 
   let rowIdx = 0;
-  const rowFloor = 230; // leave room for totals + signature block below
+  const rowFloor = 248; // leave room for totals + signature block below (grew slightly in v20.20.0 for the boxed 50/50 line)
   for (const it of items) {
     if (y < rowFloor) break;
     if (rowIdx % 2 === 1) p1.drawRectangle({ x: 38, y: y - 3, width: 536, height: 14, color: lightGray });
@@ -1138,8 +1225,11 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   p1.drawText("Total", { x: colAmtX - 70, y, size: 12, font: fontBold, color: black });
   p1.drawText(`$${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 12, font: fontBold, color: black });
   y -= 14;
-  p1.drawText(`50% deposit: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}   /   50% on completion: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: colAmtX - 210, y, size: 8, font, color: gray });
-  y -= 16;
+  // v20.20.0 — 50/50 terms enlarged + boxed to match the client quote PDF (was tiny gray text).
+  p1.drawRectangle({ x: 38, y: y - 24, width: 536, height: 24, color: rgb(0.94, 0.98, 0.94) });
+  p1.drawText(`50% DEPOSIT TO START: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 46, y: y - 16, size: 10, font: fontBold, color: green });
+  p1.drawText(`50% ON COMPLETION: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 320, y: y - 16, size: 10, font: fontBold, color: green });
+  y -= 34;
   p1.drawText(START_MOMENTUM_PDF_LINE, { x: 38, y, size: 8.5, font: fontBold, color: rgb(0, 0.35, 0) });
   y -= 14;
   p1.drawText("Full Terms & Conditions (Sections 1–13) on the reverse — part of this Agreement by reference.", { x: 38, y, size: 7.5, font: fontItalic, color: gray });
@@ -1595,7 +1685,7 @@ export function registerRepairConsultRoutes(app: Express) {
     const consult = getConsultRow(id);
     if (!consult) return res.status(404).json({ error: "Not found" });
     const items = getConsultItems(id);
-    res.json({ ...consult, items });
+    res.json({ ...consult, items, agreementPdfUrl: consult.agreement_pdf_url || null });
   });
 
   // ── Upload a photo (hero, gallery, or per-item). Returns a URL. ──
@@ -1907,7 +1997,9 @@ export function registerRepairConsultRoutes(app: Express) {
   app.get("/api/repair-quote/:token", (req: Request, res: Response) => {
     const consult = rawDb.prepare(`SELECT * FROM repair_consults WHERE quote_token = ?`).get(req.params.token) as any;
     if (!consult) return res.status(404).json({ error: "Quote not found" });
-    const items = getConsultItems(consult.id).filter((i: any) => i.category === "in_house");
+    const allItems = getConsultItems(consult.id);
+    const items = allItems.filter((i: any) => i.category === "in_house");
+    const vendorItems = allItems.filter((i: any) => i.category === "vendor").map((v: any) => ({ name: v.name }));
     res.json({
       consult: {
         propertyAddress: consult.property_address,
@@ -1921,8 +2013,10 @@ export function registerRepairConsultRoutes(app: Express) {
         status: consult.status, acceptedAt: consult.accepted_at,
         quoteExpiresAt: consult.quote_expires_at,
         signatureMethod: consult.signature_method,
+        agreementPdfUrl: consult.agreement_pdf_url || null,
       },
       items,
+      vendorItems,
       terms: IN_HOUSE_TERMS,
       agreementSections: AGREEMENT_SECTIONS,
     });

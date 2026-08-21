@@ -315,6 +315,7 @@ async function pushListingConsultStageToFub(opts: {
   name?: string;
   stageName: "Active" | "Hot Prospect" | "Nurture" | "Trash";
   note: string;
+  subject?: string;
 }): Promise<{ ok: boolean; personId: number | null }> {
   let personId = await resolveFubPersonId(opts);
 
@@ -350,7 +351,7 @@ async function pushListingConsultStageToFub(opts: {
     await fubRequest("PUT", `/people/${personId}`, { stage: opts.stageName });
   }
 
-  await fubRequest("POST", "/notes", { personId, subject: "Listing Consult", body: opts.note });
+  await fubRequest("POST", "/notes", { personId, subject: opts.subject || "Listing Consult", body: opts.note, isHtml: false });
 
   return { ok: true, personId };
 }

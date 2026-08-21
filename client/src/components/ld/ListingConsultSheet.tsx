@@ -16,9 +16,75 @@
 // Restrictions field, a derived (read-only) Access Email, and a real
 // validation + summary-card gate behind "Send Listing Contract" instead of
 // a plain checkbox chip.
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { CheckCircle2, ChevronRight, ChevronLeft, X, Wrench, Loader2, Camera } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
+
+// v20.19.x — Timeline Forecaster. Cleaning and repairs are never scheduled
+// to a hard date/time in Lock In anymore (that's an after-the-contract
+// conversation, once the seller believes the plan and books the real instant
+// quote). Instead we forecast the whole runway forward from a start date
+// (defaults to today) using rule-of-thumb durations, so the seller sees a
+// realistic Go-Live and Open House date on the spot without anyone being
+// pinned to a specific cleaning/repair appointment today.
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const toISO = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const parseISODate = (s: string) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, (m || 1) - 1, d || 1); };
+const addCalendarDays = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+const addBusinessDays = (d: Date, n: number) => {
+  let r = new Date(d);
+  let remaining = n;
+  while (remaining > 0) {
+    r = addCalendarDays(r, 1);
+    const dow = r.getDay();
+    if (dow !== 0 && dow !== 6) remaining--;
+  }
+  return r;
+};
+const nextSaturdayOnOrAfter = (d: Date) => {
+  const r = new Date(d);
+  const diff = (6 - r.getDay() + 7) % 7;
+  r.setDate(r.getDate() + diff);
+  return r;
+};
+const fmtShort = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+
+// Rule-of-thumb durations (adjust here if the real world proves different):
+const FORECAST_RULES = {
+  repairBusinessDays: 5,   // typical touch-up/turnover window when repairs-first was chosen
+  cleaningBusinessDays: 1, // cleaning happens last, right before photos
+  photoScheduleBusinessDays: 2, // time to get on the photographer's schedule
+  photoEditCalendarDays: 2,     // 48-hour edit turnaround after the shoot
+};
+
+type TimelineForecast = {
+  showRepairWindow: boolean;
+  repairStart: Date | null; repairEnd: Date | null;
+  cleaningDay: Date | null;
+  photosScheduled: Date; photosBack: Date;
+  goLive: Date; showingsBegin: Date; openHouse: Date;
+};
+const computeTimelineForecast = (startISO: string, showRepairWindow: boolean, cleaningNeeded: boolean): TimelineForecast | null => {
+  if (!startISO) return null;
+  let cursor = parseISODate(startISO);
+  let repairStart: Date | null = null, repairEnd: Date | null = null;
+  if (showRepairWindow) {
+    repairStart = cursor;
+    cursor = addBusinessDays(cursor, FORECAST_RULES.repairBusinessDays);
+    repairEnd = cursor;
+  }
+  let cleaningDay: Date | null = null;
+  if (cleaningNeeded) {
+    cleaningDay = addBusinessDays(cursor, FORECAST_RULES.cleaningBusinessDays);
+    cursor = cleaningDay;
+  }
+  const photosScheduled = addBusinessDays(cursor, FORECAST_RULES.photoScheduleBusinessDays);
+  const photosBack = addCalendarDays(photosScheduled, FORECAST_RULES.photoEditCalendarDays);
+  const goLive = photosBack;
+  const showingsBegin = goLive;
+  const openHouse = nextSaturdayOnOrAfter(goLive);
+  return { showRepairWindow, repairStart, repairEnd, cleaningDay, photosScheduled, photosBack, goLive, showingsBegin, openHouse };
+};
 
 // v20.14.4 — same compress-before-upload helper as RepairConsultSheet. Keeps
 // front-of-house + walkthrough photos small before they hit the server, on
@@ -222,7 +288,12 @@ export function ListingConsultSheet({
   // ── Close ──
   const [recommendedPrice, setRecommendedPrice] = useState("");
   const [finalListingPrice, setFinalListingPrice] = useState("");
-  const [commissionTerms, setCommissionTerms] = useState("");
+  // v20.19.x — commission is two separate, auto-filled entries instead of one
+  // free-text field, standard splits Brothers Group offers by default:
+  // 3.0% listing side / 2.5% buyer side. Still editable per-deal.
+  const [listingAgentCommission, setListingAgentCommission] = useState("3.0");
+  const [buyerAgentCommission, setBuyerAgentCommission] = useState("2.5");
+  const [additionalTerms, setAdditionalTerms] = useState("");
   const [whereAreWe, setWhereAreWe] = useState<"" | "ready_now" | "ready_repairs" | "not_moving">("");
   const [notMovingReason, setNotMovingReason] = useState<"" | "pending_repair_quote" | "other_reason" | "listed_other_agent" | "not_interested">("");
   const [notMovingNotes, setNotMovingNotes] = useState("");
@@ -232,10 +303,11 @@ export function ListingConsultSheet({
 
   // ── Lock In ──
   const [needsCleaning, setNeedsCleaning] = useState<"" | "yes" | "no">("");
-  const [cleaningDate, setCleaningDate] = useState("");
-  const [cleaningTime, setCleaningTime] = useState("");
-  const [repairDate, setRepairDate] = useState("");
-  const [repairTime, setRepairTime] = useState("");
+  // v20.19.x — replaced by the Timeline Forecaster: no hard cleaning/repair
+  // date+time is ever locked in at this step. forecastStartDate anchors the
+  // whole forward-calculated runway (defaults to today, editable if this
+  // consult isn't happening the same day the seller signs).
+  const [forecastStartDate, setForecastStartDate] = useState(toISO(new Date()));
   const [accessKeyOrCode, setAccessKeyOrCode] = useState("");
   const [gateCode, setGateCode] = useState("");
   const [ownerNames, setOwnerNames] = useState("");
@@ -293,6 +365,13 @@ export function ListingConsultSheet({
     showingApprovalContact === "owner2" ? { name: ownerNames2, phone: owner2Phone, email: owner2Email } :
     showingApprovalContact === "other" ? { name: showingContactOtherName, phone: showingContactOtherPhone, email: showingContactOtherEmail } :
     { name: "", phone: "", email: "" };
+
+  // v20.19.x — Timeline Forecast: recomputed live as the agent changes the
+  // start date, the repairs-first path, or the cleaning flag.
+  const timelineForecast = useMemo(
+    () => computeTimelineForecast(forecastStartDate, whereAreWe === "ready_repairs", needsCleaning === "yes"),
+    [forecastStartDate, whereAreWe, needsCleaning]
+  );
 
   // v20.16.0 — Fix for the duplicate-consult creation bug (double POST on the
   // very first "Next" tap). Refs mutate in place and are shared across every
@@ -420,7 +499,9 @@ export function ListingConsultSheet({
       if (data.close) {
         setRecommendedPrice(data.close.recommendedPrice || "");
         setFinalListingPrice(data.close.finalListingPrice || "");
-        setCommissionTerms(data.close.commissionTerms || "");
+        setListingAgentCommission(data.close.listingAgentCommission ?? "3.0");
+        setBuyerAgentCommission(data.close.buyerAgentCommission ?? "2.5");
+        setAdditionalTerms(data.close.additionalTerms || "");
         setWhereAreWe(data.close.whereAreWe || "");
         if (data.close.whereAreWe === "ready_now" || data.close.whereAreWe === "ready_repairs") {
           nextStep = "lockin";
@@ -430,10 +511,7 @@ export function ListingConsultSheet({
       }
       if (data.lockin) {
         setNeedsCleaning(data.lockin.needsCleaning || "");
-        setCleaningDate(data.lockin.cleaningDate || "");
-        setCleaningTime(data.lockin.cleaningTime || "");
-        setRepairDate(data.lockin.repairDate || "");
-        setRepairTime(data.lockin.repairTime || "");
+        setForecastStartDate(data.lockin.forecastStartDate || toISO(new Date()));
         setAccessKeyOrCode(data.lockin.accessKeyOrCode || "");
         setGateCode(data.lockin.gateCode || "");
         setOwnerNames(data.lockin.ownerNames || "");
@@ -504,7 +582,7 @@ export function ListingConsultSheet({
     if (whereAreWe !== "ready_now" && whereAreWe !== "ready_repairs") { setError("Select where things stand before continuing."); return; }
     setError(""); setSaving(true);
     try {
-      await saveSection("close", { whereAreWe, recommendedPrice, finalListingPrice, commissionTerms });
+      await saveSection("close", { whereAreWe, recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms });
       setStep("lockin");
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
@@ -517,7 +595,7 @@ export function ListingConsultSheet({
     setError(""); setSendingNotMoving(true);
     try {
       const id = await ensureConsult();
-      await saveSection("close", { whereAreWe: "not_moving", recommendedPrice, finalListingPrice, commissionTerms }, id);
+      await saveSection("close", { whereAreWe: "not_moving", recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms }, id);
       await fetchJson(`/api/listing-consult/${id}/not-moving`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: notMovingReason, notes: notMovingNotes, followUpTiming: notMovingFollowUpTiming }),
@@ -543,8 +621,18 @@ export function ListingConsultSheet({
     setContractSendError(""); setError(""); setSaving(true);
     try {
       await saveSection("lockin", {
-        needsCleaning, cleaningDate, cleaningTime,
-        repairDate, repairTime,
+        needsCleaning, forecastStartDate,
+        // Forecasted runway — informational only, never a hard commitment.
+        // Saved as plain ISO dates so the TC email and any future summary can
+        // render them without recomputing.
+        repairWindowStart: timelineForecast?.repairStart ? toISO(timelineForecast.repairStart) : null,
+        repairWindowEnd: timelineForecast?.repairEnd ? toISO(timelineForecast.repairEnd) : null,
+        forecastCleaningDate: timelineForecast?.cleaningDay ? toISO(timelineForecast.cleaningDay) : null,
+        photosScheduledDate: timelineForecast ? toISO(timelineForecast.photosScheduled) : null,
+        photosBackDate: timelineForecast ? toISO(timelineForecast.photosBack) : null,
+        goLiveDate: timelineForecast ? toISO(timelineForecast.goLive) : null,
+        showingsBeginDate: timelineForecast ? toISO(timelineForecast.showingsBegin) : null,
+        openHouseDate: timelineForecast ? toISO(timelineForecast.openHouse) : null,
         accessKeyOrCode, gateCode, ownerNames, ownerNames2, owner2Phone, owner2Email,
         showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail,
         showingRestrictions,
@@ -807,8 +895,27 @@ export function ListingConsultSheet({
               )}
             </div>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={finalListingPrice} onChange={e => setFinalListingPrice(e.target.value)} placeholder="$" />
-            <label style={labelStyle}>Commission Terms (optional)</label>
-            <input style={{ ...inputStyle, marginBottom: 18 }} value={commissionTerms} onChange={e => setCommissionTerms(e.target.value)} placeholder="e.g. 6% total (3% / 3%)" />
+
+            <div style={{ display: "flex", gap: 10, marginBottom: 6 }}>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Listing Agent Commission</label>
+                <div style={{ position: "relative" }}>
+                  <input style={{ ...inputStyle, paddingRight: 26 }} value={listingAgentCommission} onChange={e => setListingAgentCommission(e.target.value)} placeholder="3.0" inputMode="decimal" />
+                  <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.4)", fontSize: 13, pointerEvents: "none" }}>%</span>
+                </div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Buyer's Agent Commission</label>
+                <div style={{ position: "relative" }}>
+                  <input style={{ ...inputStyle, paddingRight: 26 }} value={buyerAgentCommission} onChange={e => setBuyerAgentCommission(e.target.value)} placeholder="2.5" inputMode="decimal" />
+                  <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.4)", fontSize: 13, pointerEvents: "none" }}>%</span>
+                </div>
+              </div>
+            </div>
+            <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: "0 0 18px" }}>Auto-filled at the Brothers Group standard split — adjust here if this deal is different.</p>
+
+            <label style={labelStyle}>Additional Terms & Conditions (optional)</label>
+            <textarea style={{ ...textareaStyle, marginBottom: 18 }} value={additionalTerms} onChange={e => setAdditionalTerms(e.target.value)} placeholder="Anything else that needs to be written into the listing agreement" />
 
             <label style={labelStyle}>Where Are We?</label>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
@@ -882,24 +989,45 @@ export function ListingConsultSheet({
           <>
             {header("Lock It In", "Cleaning, access, and the final contract send")}
 
-            <label style={labelStyle}>Does This Listing Need a Cleaning Booked Before Photos?</label>
-            <div style={{ marginBottom: 14 }}>
+            <label style={labelStyle}>Does This Listing Need a Cleaning Before Photos?</label>
+            <div style={{ marginBottom: 8 }}>
               {segmented(needsCleaning, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setNeedsCleaning(v as any))}
             </div>
             {needsCleaning === "yes" && (
-              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-                <input type="date" style={inputStyle} value={cleaningDate} onChange={e => setCleaningDate(e.target.value)} />
-                <input type="time" style={inputStyle} value={cleaningTime} onChange={e => setCleaningTime(e.target.value)} />
-              </div>
+              <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.4)", margin: "0 0 14px" }}>
+                Noted — cleaning will show up as an option on the instant quote once the contract sends. We're realtors, not cleaning schedulers.
+              </p>
             )}
+            {needsCleaning === "no" && <div style={{ marginBottom: 14 }} />}
 
             {whereAreWe === "ready_repairs" && (
+              <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.4)", margin: "0 0 14px" }}>
+                Repairs are locked in — we'll send the instant quote for what we feel the home needs. Scheduling the actual work happens after the contract, not here.
+              </p>
+            )}
+
+            {timelineForecast && (
               <div style={cardStyle}>
-                <label style={labelStyle}>Repair Date/Time</label>
-                <div style={{ display: "flex", gap: 10 }}>
-                  <input type="date" style={inputStyle} value={repairDate} onChange={e => setRepairDate(e.target.value)} />
-                  <input type="time" style={inputStyle} value={repairTime} onChange={e => setRepairTime(e.target.value)} />
+                <label style={labelStyle}>Timeline Forecast</label>
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ ...labelStyle, fontSize: 10.5 }}>Start Date</label>
+                  <input type="date" style={inputStyle} value={forecastStartDate} onChange={e => setForecastStartDate(e.target.value)} />
                 </div>
+                <table style={{ width: "100%", fontSize: 12.5, color: "rgba(255,255,255,0.85)", borderCollapse: "collapse" }}>
+                  <tbody>
+                    {timelineForecast.showRepairWindow && (
+                      <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Repairs Window</td><td style={{ padding: "4px 0" }}>{fmtShort(timelineForecast.repairStart!)} – {fmtShort(timelineForecast.repairEnd!)}</td></tr>
+                    )}
+                    {needsCleaning === "yes" && timelineForecast.cleaningDay && (
+                      <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Cleaning</td><td style={{ padding: "4px 0" }}>{fmtShort(timelineForecast.cleaningDay)}</td></tr>
+                    )}
+                    <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Photos Scheduled</td><td style={{ padding: "4px 0" }}>{fmtShort(timelineForecast.photosScheduled)}</td></tr>
+                    <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Photos Back</td><td style={{ padding: "4px 0" }}>{fmtShort(timelineForecast.photosBack)}</td></tr>
+                    <tr><td style={{ color: GOLD, padding: "6px 0", fontWeight: 700 }}>Go-Live</td><td style={{ padding: "6px 0", fontWeight: 700, color: GOLD }}>{fmtShort(timelineForecast.goLive)}</td></tr>
+                    <tr><td style={{ color: GOLD, padding: "6px 0", fontWeight: 700 }}>Open House</td><td style={{ padding: "6px 0", fontWeight: 700, color: GOLD }}>{fmtShort(timelineForecast.openHouse)}</td></tr>
+                  </tbody>
+                </table>
+                <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", margin: "8px 0 0", fontStyle: "italic" }}>Forecasted from the start date above — this goes out with the contract, nothing here is booked yet.</p>
               </div>
             )}
 
@@ -1037,7 +1165,10 @@ export function ListingConsultSheet({
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", width: 100, verticalAlign: "top" }}>Address</td><td style={{ padding: "5px 0" }}>{propertyAddress}</td></tr>
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Owner(s)</td><td style={{ padding: "5px 0" }}>{[ownerNames, ownerNames2].filter(Boolean).join(" & ") || "—"}</td></tr>
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Final Price</td><td style={{ padding: "5px 0" }}>{finalListingPrice || "—"}</td></tr>
-                <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Commission</td><td style={{ padding: "5px 0" }}>{commissionTerms || "—"}</td></tr>
+                <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Commission</td><td style={{ padding: "5px 0" }}>{listingAgentCommission || "3.0"}% listing / {buyerAgentCommission || "2.5"}% buyer's</td></tr>
+                {!!additionalTerms.trim() && (
+                  <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Add'l Terms</td><td style={{ padding: "5px 0" }}>{additionalTerms}</td></tr>
+                )}
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Timeline</td><td style={{ padding: "5px 0" }}>{timeline || "—"}</td></tr>
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Path</td><td style={{ padding: "5px 0" }}>{whereAreWe === "ready_repairs" ? "Ready — repairs first" : "Ready — start now"}</td></tr>
               </tbody>

@@ -132,6 +132,38 @@ function row(label: string, value: string): string {
   return `<tr><td style="padding:4px 0;color:${BRAND.gray};width:170px;font-size:12.5px;vertical-align:top">${label}</td><td style="padding:4px 0;font-size:12.5px;color:#222">${value || "—"}</td></tr>`;
 }
 
+// v20.19.x — Timeline Forecast rendering for the signed-TC email. Dates are
+// saved as plain ISO strings by the client; format here without pulling in a
+// date library.
+function fmtDateShort(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return "—";
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+function timelineForecastTable(lockin: any): string {
+  const rows: Array<[string, string]> = [];
+  if (lockin.repairWindowStart && lockin.repairWindowEnd) {
+    rows.push(["Repairs Window", `${fmtDateShort(lockin.repairWindowStart)} – ${fmtDateShort(lockin.repairWindowEnd)}`]);
+  }
+  if (lockin.forecastCleaningDate) rows.push(["Cleaning", fmtDateShort(lockin.forecastCleaningDate)]);
+  if (lockin.photosScheduledDate) rows.push(["Photos Scheduled", fmtDateShort(lockin.photosScheduledDate)]);
+  if (lockin.photosBackDate) rows.push(["Photos Back", fmtDateShort(lockin.photosBackDate)]);
+  if (!rows.length && !lockin.goLiveDate && !lockin.openHouseDate) return "";
+  const bodyRows = rows.map(([label, value]) => `
+      <tr><td style="padding:3px 0;color:${BRAND.gray};width:170px;font-size:12.5px;vertical-align:top">${label}</td><td style="padding:3px 0;font-size:12.5px;color:#222">${value}</td></tr>`).join("");
+  const goLive = lockin.goLiveDate ? `<tr><td style="padding:6px 0;color:${BRAND.gray};width:170px;font-size:12.5px;font-weight:700">Go-Live</td><td style="padding:6px 0;font-size:13px;font-weight:700;color:#8a6d1d">${fmtDateShort(lockin.goLiveDate)}</td></tr>` : "";
+  const openHouse = lockin.openHouseDate ? `<tr><td style="padding:6px 0;color:${BRAND.gray};width:170px;font-size:12.5px;font-weight:700">Open House</td><td style="padding:6px 0;font-size:13px;font-weight:700;color:#8a6d1d">${fmtDateShort(lockin.openHouseDate)}</td></tr>` : "";
+  return `
+    <div style="padding:0 32px 8px">
+      <p style="font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:${BRAND.gray};margin:14px 0 6px;font-weight:700">Timeline Forecast${lockin.forecastStartDate ? ` (from ${fmtDateShort(lockin.forecastStartDate)})` : ""}</p>
+      <table style="width:100%">${bodyRows}${goLive}${openHouse}</table>
+      <p style="font-size:10.5px;color:${BRAND.gray};margin:6px 0 0;font-style:italic">Forecasted, not booked — repairs and cleaning are scheduled separately once the instant quote is confirmed.</p>
+    </div>`;
+}
+
 const NOT_MOVING_LABELS: Record<string, string> = {
   pending_repair_quote: "Not ready — pending repair quote",
   other_reason: "Not ready — other reason",
@@ -186,6 +218,7 @@ async function sendSignedTcEmail(consultId: number) {
   const close = d.close || {};
   const lockin = d.lockin || {};
 
+  const commissionLine = `${close.listingAgentCommission || "3.0"}% listing / ${close.buyerAgentCommission || "2.5"}% buyer's`;
   const html = `
   <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
   <div style="max-width:600px;margin:0 auto;background:#fff">
@@ -193,19 +226,20 @@ async function sendSignedTcEmail(consultId: number) {
     <div style="padding:20px 32px">
       <table style="width:100%">
         ${row("Listing Agent", getAgentName(r.agent_id))}
-        ${row("Owner(s)", [lockin.ownerName, lockin.ownerName2].filter(Boolean).join(" & ") || r.client_name || "—")}
+        ${row("Owner(s)", [lockin.ownerNames, lockin.ownerNames2].filter(Boolean).join(" & ") || r.client_name || "—")}
         ${row("Client Contact", [r.client_email, r.client_phone].filter(Boolean).join(" · ") || "—")}
         ${row("Final Listing Price", close.finalListingPrice || "—")}
-        ${row("Commission Terms", close.commissionTerms || "—")}
+        ${row("Commission", commissionLine)}
+        ${close.additionalTerms ? row("Additional Terms", close.additionalTerms) : ""}
         ${row("Timeline", d.walkthrough?.timeline || "—")}
         ${row("Access Key/Code", lockin.accessKeyOrCode || "—")}
         ${row("Gate Code", lockin.gateCode || "—")}
         ${row("Showing Approval Contact", lockin.showingContactName || "—")}
         ${row("Showing Restrictions", lockin.showingRestrictions || "—")}
-        ${row("Cleaning Booked", lockin.needsCleaning === "yes" ? `Yes — ${lockin.cleaningDate || "date TBD"} ${lockin.cleaningTime || ""}` : "No")}
-        ${close.whereAreWe === "ready_repairs" ? row("Repairs Scheduled", `${lockin.repairDate || "date TBD"} ${lockin.repairTime || ""}`) : ""}
+        ${row("Cleaning Needed", lockin.needsCleaning === "yes" ? "Yes — see forecast below" : "No")}
       </table>
     </div>
+    ${timelineForecastTable(lockin)}
     ${brandedFooter()}
   </div>
   </body></html>`;
@@ -353,7 +387,7 @@ function createSignedLeadFromConsult(r: any, data: any): number {
   const lead = storage.createLead({
     leadType: "listing_consult",
     address: r.property_address || "Unknown address",
-    ownerName: [lockin.ownerName, lockin.ownerName2].filter(Boolean).join(" & ") || r.client_name || null,
+    ownerName: [lockin.ownerNames, lockin.ownerNames2].filter(Boolean).join(" & ") || r.client_name || null,
     phone: r.client_phone || null,
     email: r.client_email || null,
     motivation: `Signed — final price ${close.finalListingPrice || "—"}`,

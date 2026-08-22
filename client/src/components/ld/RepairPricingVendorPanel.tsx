@@ -32,8 +32,10 @@ type Vendor = {
   id: number;
   trade: string;
   name: string;
+  contact_name: string | null;
   email: string;
   phone: string | null;
+  address: string | null;
   notes: string | null;
   active: number;
   created_at: string;
@@ -288,7 +290,7 @@ function VendorDirectoryPanel() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ trade: "", name: "", email: "", phone: "", notes: "" });
+  const [form, setForm] = useState({ trade: "", name: "", contact_name: "", email: "", phone: "", address: "", notes: "" });
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
@@ -311,7 +313,7 @@ function VendorDirectoryPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      setForm({ trade: "", name: "", email: "", phone: "", notes: "" });
+      setForm({ trade: "", name: "", contact_name: "", email: "", phone: "", address: "", notes: "" });
       setShowAdd(false);
       load();
     } finally { setSaving(false); }
@@ -365,12 +367,18 @@ function VendorDirectoryPanel() {
           <input placeholder="Vendor / company name" value={form.name}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
             style={inputStyle} />
+          <input placeholder="Contact name (optional)" value={form.contact_name}
+            onChange={e => setForm(f => ({ ...f, contact_name: e.target.value }))}
+            style={inputStyle} />
           <input placeholder="Email (required — quote requests go here)" value={form.email}
             onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
             style={inputStyle} />
           <input placeholder="Phone (optional)" value={form.phone}
             onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
             style={inputStyle} />
+          <input placeholder="Company address (optional)" value={form.address}
+            onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+            style={{ ...inputStyle, gridColumn: "1 / -1" }} />
           <input placeholder="Notes (optional)" value={form.notes}
             onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
             style={{ ...inputStyle, gridColumn: "1 / -1" }} />
@@ -394,7 +402,9 @@ function VendorDirectoryPanel() {
               <tr>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Trade</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Vendor</th>
-                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Contact</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Contact Name</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Email / Phone</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Address</th>
                 <th style={{ textAlign: "center", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Active</th>
                 <th style={{ textAlign: "center", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}></th>
               </tr>
@@ -404,9 +414,11 @@ function VendorDirectoryPanel() {
                 <tr key={v.id} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", opacity: v.active ? 1 : 0.45 }}>
                   <td style={{ padding: "6px 10px", color: "#c8aa5a", textTransform: "capitalize" }}>{v.trade.replace(/_/g, " ")}</td>
                   <td style={{ padding: "6px 10px", color: "#e5e7eb" }}>{v.name}</td>
+                  <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11 }}>{v.contact_name || "—"}</td>
                   <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11 }}>
                     {v.email}{v.phone ? ` · ${v.phone}` : ""}
                   </td>
+                  <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11 }}>{v.address || "—"}</td>
                   <td style={{ padding: "6px 10px", textAlign: "center" }}>
                     <input type="checkbox" checked={!!v.active} onChange={() => toggleActive(v)} />
                   </td>

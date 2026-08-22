@@ -338,6 +338,13 @@ export function ensureRepairConsultSchema() {
   if (!rcCols.includes("work_order_pdf_url"))       rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN work_order_pdf_url TEXT").run();
   if (!rcCols.includes("target_completion_date"))   rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN target_completion_date TEXT").run();
 
+  // v20.32.7 — Vendor Directory: separate on-site contact person from the
+  // company name, plus a company mailing address. Both optional/nullable —
+  // existing vendor rows (there are none live yet) just get NULLs.
+  const rvCols = (rawDb.prepare(`PRAGMA table_info(repair_vendors)`).all() as any[]).map((c: any) => c.name);
+  if (!rvCols.includes("contact_name")) rawDb.prepare("ALTER TABLE repair_vendors ADD COLUMN contact_name TEXT").run();
+  if (!rvCols.includes("address"))      rawDb.prepare("ALTER TABLE repair_vendors ADD COLUMN address TEXT").run();
+
   // v20.32.0 — permanent, un-deletable archive of every fully-executed
   // (countersigned or print-sign-confirmed) contract. Delete never touches
   // this table — see DELETE /api/repair-consult/:id below.
@@ -931,12 +938,13 @@ export async function dispatchVendorEmails(consultId: number) {
     <div style="max-width:600px;margin:0 auto;background:#fff">
       ${brandedHeader("Quote Request", consult.property_address)}
       <div style="padding:24px 32px">
-        <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi${vendor.name ? " " + vendor.name : ""} — we walked a listing today and would like a quote on the following:</p>
+        <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi${(vendor.contact_name || vendor.name) ? " " + (vendor.contact_name || vendor.name) : ""} — we walked a listing today and would like a quote on the following:</p>
         <ul style="padding-left:18px">${itemsHtml}</ul>
         ${photosHtml}
         <p style="font-size:13px;color:#333;margin-top:16px"><strong>Property:</strong> ${consult.property_address}</p>
         <p style="font-size:13px;color:#333"><strong>Desired Start:</strong> ${startWindowLabel(consult)}</p>
         <p style="font-size:12.5px;color:#333;margin-top:14px">Please email your quote and earliest availability to <strong>alex@watsonbrothersgroup.com</strong> and <strong>nate@watsonbrothersgroup.com</strong> at Brothers Group. As one of our preferred vendors, our standard payout-at-close arrangement applies where offered — happy to discuss.</p>
+        <p style="font-size:12.5px;color:#333;margin-top:10px">If you'd like to schedule a time to come take a look in person before quoting, just give us a call at <strong>(904) 504-3794</strong> or reply to this email to coordinate.</p>
       </div>
       ${brandedFooter()}
     </div>
@@ -2603,19 +2611,21 @@ export function registerRepairConsultRoutes(app: Express) {
   });
   app.post("/api/admin/repair-vendors", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
-    const { trade, name, email, phone, notes } = req.body || {};
+    const { trade, name, email, phone, notes, contact_name, address } = req.body || {};
     if (!trade || !name || !email) return res.status(400).json({ error: "trade, name, and email are required" });
-    const result = rawDb.prepare(`INSERT INTO repair_vendors (trade, name, email, phone, notes) VALUES (?, ?, ?, ?, ?)`).run(trade, name, email, phone || null, notes || null);
+    const result = rawDb.prepare(`INSERT INTO repair_vendors (trade, name, email, phone, notes, contact_name, address) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(trade, name, email, phone || null, notes || null, contact_name || null, address || null);
     res.json({ id: result.lastInsertRowid });
   });
   app.patch("/api/admin/repair-vendors/:id", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
-    const { name, email, phone, notes, active } = req.body || {};
+    const { name, email, phone, notes, active, contact_name, address } = req.body || {};
     const fields: string[] = []; const vals: any[] = [];
     if (name !== undefined) { fields.push("name = ?"); vals.push(name); }
     if (email !== undefined) { fields.push("email = ?"); vals.push(email); }
     if (phone !== undefined) { fields.push("phone = ?"); vals.push(phone); }
     if (notes !== undefined) { fields.push("notes = ?"); vals.push(notes); }
+    if (contact_name !== undefined) { fields.push("contact_name = ?"); vals.push(contact_name); }
+    if (address !== undefined) { fields.push("address = ?"); vals.push(address); }
     if (active !== undefined) { fields.push("active = ?"); vals.push(active ? 1 : 0); }
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
     rawDb.prepare(`UPDATE repair_vendors SET ${fields.join(", ")} WHERE id = ?`).run(...vals, req.params.id);

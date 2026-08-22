@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-08-22T18:38:36.851Z",
-  "finishedAt": "2026-08-22T18:39:39.537Z",
-  "durationMs": 62685,
+  "startedAt": "2026-08-22T18:54:39.481Z",
+  "finishedAt": "2026-08-22T18:55:42.320Z",
+  "durationMs": 62838,
   "tier": "post-deploy",
   "plan": [
     "T1",
@@ -9,7 +9,7 @@
     "T4",
     "TV"
   ],
-  "version": "v20.32.4",
+  "version": "v20.32.5",
   "summary": {
     "passed": 39,
     "failed": 0,
@@ -23,16 +23,16 @@
       "name": "health · /api/health returns healthy",
       "status": "pass",
       "critical": true,
-      "detail": "ver=v20.32.4 status=healthy services=7",
-      "durationMs": 471
+      "detail": "ver=v20.32.5 status=healthy services=7",
+      "durationMs": 476
     },
     {
       "tier": "Tier 1 · Backend",
       "name": "health · /api/boot-info returns diagnostics",
       "status": "pass",
       "critical": false,
-      "detail": "uptime=39s node=v22.23.2 lastFatal=null",
-      "durationMs": 157
+      "detail": "uptime=70s node=v22.23.2 lastFatal=null",
+      "durationMs": 132
     },
     {
       "tier": "Tier 1 · Backend",
@@ -40,7 +40,7 @@
       "status": "pass",
       "critical": true,
       "detail": "http=401",
-      "durationMs": 170
+      "durationMs": 145
     },
     {
       "tier": "Tier 1 · Backend",
@@ -48,7 +48,7 @@
       "status": "pass",
       "critical": true,
       "detail": "cookie-len=54",
-      "durationMs": 137
+      "durationMs": 140
     },
     {
       "tier": "Tier 1 · Backend",
@@ -56,7 +56,7 @@
       "status": "pass",
       "critical": true,
       "detail": "http=200 agents=8",
-      "durationMs": 92
+      "durationMs": 87
     },
     {
       "tier": "Tier 1 · Backend",
@@ -64,7 +64,7 @@
       "status": "pass",
       "critical": false,
       "detail": "profileField=true tutorialField=true tutorialAt=set",
-      "durationMs": 136
+      "durationMs": 140
     },
     {
       "tier": "Tier 1 · Backend",
@@ -72,7 +72,7 @@
       "status": "pass",
       "critical": false,
       "detail": "post-logout http=200",
-      "durationMs": 347
+      "durationMs": 339
     },
     {
       "tier": "Tier 1 · Backend",
@@ -80,7 +80,7 @@
       "status": "pass",
       "critical": true,
       "detail": "count=8",
-      "durationMs": 85
+      "durationMs": 82
     },
     {
       "tier": "Tier 1 · Backend",
@@ -88,7 +88,7 @@
       "status": "pass",
       "critical": false,
       "detail": "active=8 dups=none",
-      "durationMs": 122
+      "durationMs": 126
     },
     {
       "tier": "Tier 1 · Backend",
@@ -96,7 +96,7 @@
       "status": "pass",
       "critical": false,
       "detail": "rows=8",
-      "durationMs": 168
+      "durationMs": 164
     },
     {
       "tier": "Tier 1 · Backend",
@@ -104,7 +104,7 @@
       "status": "pass",
       "critical": false,
       "detail": "http=200 count=38",
-      "durationMs": 79
+      "durationMs": 82
     },
     {
       "tier": "Tier 1 · Backend",
@@ -112,7 +112,7 @@
       "status": "pass",
       "critical": false,
       "detail": "http=200",
-      "durationMs": 81
+      "durationMs": 80
     },
     {
       "tier": "Tier 1 · Backend",
@@ -120,7 +120,7 @@
       "status": "pass",
       "critical": false,
       "detail": "http=200",
-      "durationMs": 83
+      "durationMs": 89
     },
     {
       "tier": "Tier 1 · Backend",
@@ -128,7 +128,7 @@
       "status": "pass",
       "critical": false,
       "detail": "sampled=8 stuck=0",
-      "durationMs": 867
+      "durationMs": 1123
     },
     {
       "tier": "Tier 1 · Backend",
@@ -144,7 +144,7 @@
       "status": "pass",
       "critical": false,
       "detail": "http=200 keys=3",
-      "durationMs": 84
+      "durationMs": 124
     },
     {
       "tier": "Tier 1 · Backend",
@@ -152,7 +152,7 @@
       "status": "pass",
       "critical": false,
       "detail": "http=200 count=2",
-      "durationMs": 78
+      "durationMs": 81
     },
     {
       "tier": "Tier 1 · Backend",
@@ -160,7 +160,7 @@
       "status": "pass",
       "critical": false,
       "detail": "http=200",
-      "durationMs": 777
+      "durationMs": 912
     },
     {
       "tier": "Tier 1 · Backend",
@@ -168,7 +168,7 @@
       "status": "pass",
       "critical": false,
       "detail": "http=200",
-      "durationMs": 113
+      "durationMs": 120
     },
     {
       "tier": "Tier 1 · Backend",
@@ -176,7 +176,7 @@
       "status": "pass",
       "critical": false,
       "detail": "http=200",
-      "durationMs": 84
+      "durationMs": 86
     },
     {
       "tier": "Tier 1 · Backend",
@@ -184,15 +184,15 @@
       "status": "pass",
       "critical": false,
       "detail": "http=200",
-      "durationMs": 78
+      "durationMs": 125
     },
     {
       "tier": "Tier 1 · Backend",
       "name": "fub · connector reports connected in /api/health",
       "status": "pass",
       "critical": false,
-      "detail": "fub={\"ok\":true,\"latencyMs\":105,\"detail\":\"Connected\"}",
-      "durationMs": 360
+      "detail": "fub={\"ok\":true,\"latencyMs\":109,\"detail\":\"Connected\"}",
+      "durationMs": 350
     },
     {
       "tier": "Tier 1 · Backend",
@@ -200,7 +200,7 @@
       "status": "pass",
       "critical": false,
       "detail": "cycles=0",
-      "durationMs": 83
+      "durationMs": 80
     },
     {
       "tier": "Tier 1 · Backend",
@@ -208,15 +208,15 @@
       "status": "pass",
       "critical": false,
       "detail": "http=200",
-      "durationMs": 79
+      "durationMs": 81
     },
     {
       "tier": "Tier 2 · UI Journeys",
       "name": "J1 · admin login + landing render",
       "status": "pass",
       "critical": true,
-      "detail": "root=98469 errs=0 verOk=true",
-      "durationMs": 3435
+      "detail": "root=98466 errs=0 verOk=true",
+      "durationMs": 3223
     },
     {
       "tier": "Tier 2 · UI Journeys",
@@ -224,7 +224,7 @@
       "status": "pass",
       "critical": false,
       "detail": "names=0 dups=0",
-      "durationMs": 4654
+      "durationMs": 4810
     },
     {
       "tier": "Tier 2 · UI Journeys",
@@ -232,23 +232,23 @@
       "status": "pass",
       "critical": true,
       "detail": "errs=0 sample=",
-      "durationMs": 34235
+      "durationMs": 33960
     },
     {
       "tier": "Tier 2 · UI Journeys",
       "name": "J4 · version literal renders on login page",
       "status": "pass",
       "critical": true,
-      "detail": "target=v20.32.4 errs=0",
-      "durationMs": 1699
+      "detail": "target=v20.32.5 errs=0",
+      "durationMs": 1555
     },
     {
       "tier": "Tier 2 · UI Journeys",
       "name": "J5 · mobile (Pixel 8) renders login + admin",
       "status": "pass",
       "critical": true,
-      "detail": "root=98464 errs=0",
-      "durationMs": 3093
+      "detail": "root=98469 errs=0",
+      "durationMs": 3124
     },
     {
       "tier": "Tier 2 · UI Journeys",
@@ -256,15 +256,15 @@
       "status": "pass",
       "critical": false,
       "detail": "sw=true errs=0",
-      "durationMs": 3504
+      "durationMs": 3536
     },
     {
       "tier": "Tier 2 · UI Journeys",
       "name": "J7 · /api/health reachable from browser + reports healthy",
       "status": "pass",
       "critical": true,
-      "detail": "status=healthy ver=v20.32.4",
-      "durationMs": 1010
+      "detail": "status=healthy ver=v20.32.5",
+      "durationMs": 1072
     },
     {
       "tier": "Tier 4 · Data Integrity",
@@ -280,7 +280,7 @@
       "status": "pass",
       "critical": false,
       "detail": "cycles=0 dangling=0",
-      "durationMs": 0
+      "durationMs": 1
     },
     {
       "tier": "Tier 4 · Data Integrity",
@@ -288,7 +288,7 @@
       "status": "pass",
       "critical": false,
       "detail": "sampled=12 stuck=0",
-      "durationMs": 1405
+      "durationMs": 1508
     },
     {
       "tier": "Tier 4 · Data Integrity",
@@ -296,7 +296,7 @@
       "status": "pass",
       "critical": false,
       "detail": "sampled=25 overlap=0",
-      "durationMs": 2862
+      "durationMs": 2940
     },
     {
       "tier": "Tier 4 · Data Integrity",
@@ -304,7 +304,7 @@
       "status": "pass",
       "critical": true,
       "detail": "bad=none",
-      "durationMs": 499
+      "durationMs": 378
     },
     {
       "tier": "Tier 4 · Data Integrity",
@@ -312,7 +312,7 @@
       "status": "pass",
       "critical": false,
       "detail": "sampled=8 orphanRows=0",
-      "durationMs": 764
+      "durationMs": 755
     },
     {
       "tier": "Tier 4 · Data Integrity",
@@ -320,14 +320,14 @@
       "status": "pass",
       "critical": true,
       "detail": "crit=0 warn=1 info=33",
-      "durationMs": 113
+      "durationMs": 124
     },
     {
       "tier": "V",
       "name": "V · manifest lookup",
       "status": "pass",
       "critical": false,
-      "detail": "no manifest for v20.32.4 (version-only check)",
+      "detail": "no manifest for v20.32.5 (version-only check)",
       "durationMs": 0
     },
     {
@@ -335,7 +335,7 @@
       "name": "V · /api/health version",
       "status": "pass",
       "critical": true,
-      "detail": "expected=v20.32.4 live=v20.32.4",
+      "detail": "expected=v20.32.5 live=v20.32.5",
       "durationMs": 0
     }
   ]

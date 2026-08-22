@@ -1,12 +1,12 @@
 {
-  "startedAt": "2026-08-22T18:52:22.066Z",
-  "finishedAt": "2026-08-22T18:52:25.403Z",
-  "durationMs": 3336,
+  "startedAt": "2026-08-22T19:15:19.837Z",
+  "finishedAt": "2026-08-22T19:15:30.031Z",
+  "durationMs": 10192,
   "tier": "preflight",
   "plan": [
     "T0"
   ],
-  "version": "v20.32.5",
+  "version": "v20.32.6",
   "summary": {
     "passed": 5,
     "failed": 0,
@@ -20,7 +20,7 @@
       "name": "version-alignment",
       "status": "pass",
       "critical": true,
-      "detail": "target=v20.32.5 spots=5 unique=v20.32.5 missing=0 wrong=0",
+      "detail": "target=v20.32.6 spots=5 unique=v20.32.6 missing=0 wrong=0",
       "durationMs": 8
     },
     {
@@ -28,8 +28,8 @@
       "name": "dist-freshness",
       "status": "pass",
       "critical": true,
-      "detail": "bundle=index-CHTcqU9S.js staleSources=0",
-      "durationMs": 1
+      "detail": "bundle=index-Bww30Xmx.js staleSources=0",
+      "durationMs": 0
     },
     {
       "tier": "Tier 0 · Pre-flight",
@@ -37,7 +37,7 @@
       "status": "pass",
       "critical": false,
       "detail": "tsc --noEmit clean",
-      "durationMs": 3287
+      "durationMs": 10139
     },
     {
       "tier": "Tier 0 · Pre-flight",
@@ -45,7 +45,7 @@
       "status": "pass",
       "critical": false,
       "detail": "199 routes match snapshot",
-      "durationMs": 5
+      "durationMs": 6
     },
     {
       "tier": "Tier 0 · Pre-flight",
@@ -53,7 +53,7 @@
       "status": "pass",
       "critical": true,
       "detail": "7 rules checked, 0 violations",
-      "durationMs": 35
+      "durationMs": 38
     }
   ]
 }

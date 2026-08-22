@@ -936,7 +936,7 @@ export async function dispatchVendorEmails(consultId: number) {
         ${photosHtml}
         <p style="font-size:13px;color:#333;margin-top:16px"><strong>Property:</strong> ${consult.property_address}</p>
         <p style="font-size:13px;color:#333"><strong>Desired Start:</strong> ${startWindowLabel(consult)}</p>
-        <p style="font-size:12.5px;color:#333;margin-top:14px">Please reply with your quote and earliest availability. As one of our preferred vendors, our standard payout-at-close arrangement applies where offered — happy to discuss.</p>
+        <p style="font-size:12.5px;color:#333;margin-top:14px">Please email your quote and earliest availability to <strong>alex@watsonbrothersgroup.com</strong> and <strong>nate@watsonbrothersgroup.com</strong> at Brothers Group. As one of our preferred vendors, our standard payout-at-close arrangement applies where offered — happy to discuss.</p>
       </div>
       ${brandedFooter()}
     </div>

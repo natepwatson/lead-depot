@@ -564,7 +564,14 @@ export function ListingConsultSheet({
   const [accessCode, setAccessCode] = useState("");
   const [accessCodeInstructions, setAccessCodeInstructions] = useState("");
   const [keyInLockbox, setKeyInLockbox] = useState<"" | "yes" | "no">("");
+  // v20.32.4 — Gate Code is a gated flag: unchecked (default, no gate) means
+  // nothing further to fill in. v20.32.5 — defaults to "no" as a single
+  // checkbox (not a forced Yes/No choice); checking it reveals the
+  // code + guard/unmanned + gate-specific access instructions follow-ups.
+  const [hasGate, setHasGate] = useState<"" | "yes" | "no">("no");
   const [gateCode, setGateCode] = useState("");
+  const [gateGuarded, setGateGuarded] = useState<"" | "yes" | "no">("");
+  const [gateAccessInstructions, setGateAccessInstructions] = useState("");
   const [ownerNames, setOwnerNames] = useState("");
   const [ownerNames2, setOwnerNames2] = useState("");
   const [showOwner2, setShowOwner2] = useState(false);
@@ -575,7 +582,9 @@ export function ListingConsultSheet({
   const [owner2Email, setOwner2Email] = useState("");
   // v20.18.0 — replaces the old free-text "Access Phone". Access Email is
   // derived below from whichever contact is picked here.
-  const [showingApprovalContact, setShowingApprovalContact] = useState<"" | "owner1" | "owner2" | "other">("");
+  // v20.32.5 — default "owner1" (the common case) so the checkbox starts
+  // pre-checked; unchecking cascades to Owner 2 (if added), then Other.
+  const [showingApprovalContact, setShowingApprovalContact] = useState<"" | "owner1" | "owner2" | "other">("owner1");
   const [showingContactOtherName, setShowingContactOtherName] = useState("");
   const [showingContactOtherPhone, setShowingContactOtherPhone] = useState("");
   const [showingContactOtherEmail, setShowingContactOtherEmail] = useState("");
@@ -740,8 +749,15 @@ export function ListingConsultSheet({
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery", bucket }),
             });
-            setGalleryUrls(prev => [...prev, d.url]);
+            // v20.32.4 — FIX: a scope-bucket upload must land ONLY in
+            // scopePhotoUrls, never in galleryUrls too. The backend already
+            // stores the two buckets in separate DB columns (v20.32.1); this
+            // was the last leftover client-side duplication — every Scope
+            // Photos upload was also being pushed into the Walkthrough
+            // Photos display list, making it look like every scope photo
+            // was duplicated on the page.
             if (bucket === "scope") setScopePhotoUrls(prev => [...prev, d.url]);
+            else setGalleryUrls(prev => [...prev, d.url]);
           }
         } catch (e: any) { setError(e.message || `Photo ${i + 1} of ${fileArr.length} failed to upload — the rest kept going.`); }
         setGalleryProgress({ done: i + 1, total: fileArr.length });
@@ -835,13 +851,22 @@ export function ListingConsultSheet({
         setAccessCode(data.lockin.accessCode || data.lockin.accessKeyOrCode || "");
         setAccessCodeInstructions(data.lockin.accessCodeInstructions || "");
         setKeyInLockbox(data.lockin.keyInLockbox || "");
+        // v20.32.4/5 — migrate any older saved consult that has a gateCode
+        // value but no hasGate answer yet (pre-toggle era) by defaulting
+        // hasGate to "yes" so that code doesn't silently vanish; otherwise
+        // default to "no" (the standard unchecked state).
+        setHasGate(data.lockin.hasGate || (data.lockin.gateCode ? "yes" : "no"));
         setGateCode(data.lockin.gateCode || "");
+        setGateGuarded(data.lockin.gateGuarded || "");
+        setGateAccessInstructions(data.lockin.gateAccessInstructions || "");
         setOwnerNames(data.lockin.ownerNames || "");
         setOwnerNames2(data.lockin.ownerNames2 || "");
         if (data.lockin.ownerNames2) setShowOwner2(true);
         setOwner2Phone(data.lockin.owner2Phone || "");
         setOwner2Email(data.lockin.owner2Email || "");
-        setShowingApprovalContact(data.lockin.showingApprovalContact || "");
+        // v20.32.5 — default to "owner1" (the common case) for any older
+        // saved consult that reached lockin before this field existed.
+        setShowingApprovalContact(data.lockin.showingApprovalContact || "owner1");
         setShowingContactOtherName(data.lockin.showingContactOtherName || "");
         setShowingContactOtherPhone(data.lockin.showingContactOtherPhone || "");
         setShowingContactOtherEmail(data.lockin.showingContactOtherEmail || "");
@@ -888,7 +913,10 @@ export function ListingConsultSheet({
     try {
       await ensureConsult();
       await saveSection("walkthrough", { notes: walkthroughNotes, needsRepairs: true, pillars: pillarFlags, mortgageBalance, buyingToo, buyingNotes, timeline });
-      onLaunchRepairConsult({ address: propertyAddress, name: clientName, email: clientEmail, phone: clientPhone, heroPhotoUrl, galleryUrls, flaggedPillars: flaggedPillarList() });
+      // v20.32.4 — hand Instant Quote the FULL evidence set (walkthrough +
+      // scope photos combined), even though the two buckets now render as
+      // fully separate lists on this page.
+      onLaunchRepairConsult({ address: propertyAddress, name: clientName, email: clientEmail, phone: clientPhone, heroPhotoUrl, galleryUrls: [...galleryUrls, ...scopePhotoUrls], flaggedPillars: flaggedPillarList() });
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
   };
@@ -968,7 +996,7 @@ export function ListingConsultSheet({
         goLiveDate: timelineForecast ? toISO(timelineForecast.goLive) : null,
         showingsBeginDate: timelineForecast ? toISO(timelineForecast.showingsBegin) : null,
         openHouseDate: timelineForecast ? toISO(timelineForecast.openHouse) : null,
-        accessType, accessCode, accessCodeInstructions, keyInLockbox, gateCode, ownerNames, ownerNames2, owner2Phone, owner2Email,
+        accessType, accessCode, accessCodeInstructions, keyInLockbox, hasGate, gateCode, gateGuarded, gateAccessInstructions, ownerNames, ownerNames2, owner2Phone, owner2Email,
         showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail,
         showingRestrictions,
         showingContactName: derivedShowingContact.name,
@@ -1488,13 +1516,9 @@ export function ListingConsultSheet({
                 <label style={labelStyle}>Repairs Flagged During Walkthrough</label>
                 {flaggedPillarList().length > 0 ? (
                   <div style={{ marginTop: 2 }}>
-                    {flaggedPillarList().map(p => (
-                      <div key={p.key} style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                        <span style={{ color: GOLD, fontWeight: 700 }}>{p.label}</span>
-                        {p.tier && <span style={{ marginLeft: 6, textTransform: "uppercase", fontSize: 10, color: "rgba(255,255,255,0.45)" }}>{p.tier}</span>}
-                        {p.notes && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 1 }}>{p.notes}</div>}
-                      </div>
-                    ))}
+                    {/* v20.32.4 — removed the per-pillar recap list (label/tier/notes) here.
+                        It duplicated what the Instant Repair Quote tool already shows;
+                        this box now goes straight to the ballpark estimate + CTA. */}
                     {(() => {
                       const { subtotal, hasVendorOnly } = estimateRepairCost();
                       const low = Math.round((subtotal * 0.85) / 25) * 25;
@@ -1565,9 +1589,23 @@ export function ListingConsultSheet({
                 {segmented(keyInLockbox, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setKeyInLockbox(v as "yes" | "no"))}
               </div>
             ) : null}
-            <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-              <input style={inputStyle} value={gateCode} onChange={e => setGateCode(e.target.value)} placeholder="Gate Code?" />
-            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13, color: "rgba(255,255,255,0.65)", marginTop: 12, marginBottom: hasGate === "yes" ? 8 : 12 }}>
+              <input type="checkbox" checked={hasGate === "yes"} onChange={e => setHasGate(e.target.checked ? "yes" : "no")}
+                style={{ width: 17, height: 17, accentColor: "#c8aa5a", flexShrink: 0 }} />
+              This property has a gate code
+            </label>
+            {hasGate === "yes" && (
+              <div style={{ marginBottom: 12 }}>
+                <input style={{ ...inputStyle, marginBottom: 8 }} value={gateCode} onChange={e => setGateCode(e.target.value)} placeholder="What is the code?" />
+                <label style={{ ...labelStyle, fontWeight: 400, marginBottom: 6 }}>Guard-Attended, or Unmanned?</label>
+                <div style={{ marginBottom: 8 }}>
+                  {segmented(gateGuarded, [{ key: "yes", label: "Guard-Attended" }, { key: "no", label: "Unmanned" }], v => setGateGuarded(v as "yes" | "no"))}
+                </div>
+                <input style={inputStyle} value={gateAccessInstructions} onChange={e => setGateAccessInstructions(e.target.value)} placeholder="Gate-specific access instructions (call box, remote, guard name to ask for, etc.)" />
+              </div>
+            )}
+
+            <label style={{ ...labelStyle, marginTop: 4 }}>Owner(s)</label>
             <input style={{ ...inputStyle, marginBottom: showOwner2 ? 8 : 6 }} value={ownerNames} onChange={e => setOwnerNames(e.target.value)} placeholder={showOwner2 ? "Owner 1 Full Legal Name" : "Owner Full Legal Name"} />
             {showOwner2 ? (
               <>
@@ -1609,13 +1647,23 @@ export function ListingConsultSheet({
             )}
 
             <label style={{ ...labelStyle, marginTop: 12 }}>Showing Approval Contact</label>
-            <div style={{ marginBottom: 10 }}>
-              {segmented(showingApprovalContact, [
-                { key: "owner1", label: "Owner 1" },
-                ...(showOwner2 ? [{ key: "owner2", label: "Owner 2" }] : []),
-                { key: "other", label: "Other" },
-              ], v => setShowingApprovalContact(v as any))}
-            </div>
+            {/* v20.32.5 — cascading checkboxes, preselected to the common case:
+                Owner 1 checked by default. Unchecking falls through to Owner 2
+                (if a second owner was added) and finally to Other/typable. */}
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13, color: "rgba(255,255,255,0.65)", marginBottom: 8 }}>
+              <input type="checkbox" checked={showingApprovalContact === "owner1"}
+                onChange={e => setShowingApprovalContact(e.target.checked ? "owner1" : (showOwner2 ? "owner2" : "other"))}
+                style={{ width: 17, height: 17, accentColor: "#c8aa5a", flexShrink: 0 }} />
+              Owner 1 is the Showing Approval Contact
+            </label>
+            {showingApprovalContact !== "owner1" && showOwner2 && (
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13, color: "rgba(255,255,255,0.65)", marginBottom: 8 }}>
+                <input type="checkbox" checked={showingApprovalContact === "owner2"}
+                  onChange={e => setShowingApprovalContact(e.target.checked ? "owner2" : "other")}
+                  style={{ width: 17, height: 17, accentColor: "#c8aa5a", flexShrink: 0 }} />
+                Owner 2 is the Showing Approval Contact
+              </label>
+            )}
             {showingApprovalContact === "other" && (
               <>
                 <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>

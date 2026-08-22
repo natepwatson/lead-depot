@@ -146,6 +146,17 @@ function row(label: string, value: string): string {
   return `<tr><td style="padding:4px 0;color:${BRAND.gray};width:170px;font-size:12.5px;vertical-align:top">${label}</td><td style="padding:4px 0;font-size:12.5px;color:#222">${value || "—"}</td></tr>`;
 }
 
+// v20.32.4 — Gate Code is now a gated Yes/No question. No → "No gate". Yes
+// → code + guard/unmanned + gate-specific instructions, matching accessSummary's pattern.
+function gateSummary(lockin: any): string {
+  if (lockin.hasGate === "no") return "No gate";
+  if (lockin.hasGate !== "yes") return "—";
+  const code = lockin.gateCode || "—";
+  const guard = lockin.gateGuarded === "yes" ? "Guard-attended" : lockin.gateGuarded === "no" ? "Unmanned" : "—";
+  const how = lockin.gateAccessInstructions || "—";
+  return `Code: ${code}. ${guard}. Access: ${how}`;
+}
+
 // v20.32.2 — Access is Key or Code (never a bare free-text string). Renders
 // a one-line human summary for the signed-TC email.
 function accessSummary(lockin: any): string {
@@ -262,7 +273,7 @@ async function sendSignedTcEmail(consultId: number) {
         ${close.additionalTerms ? row("Additional Terms", close.additionalTerms) : ""}
         ${row("Timeline", d.walkthrough?.timeline || "—")}
         ${row("Access", accessSummary(lockin))}
-        ${row("Gate Code", lockin.gateCode || "—")}
+        ${row("Gate", gateSummary(lockin))}
         ${row("Showing Approval Contact", lockin.showingContactName || "—")}
         ${row("Showing Restrictions", lockin.showingRestrictions || "—")}
         ${row("Cleaning Needed", lockin.needsCleaning === "yes" ? "Yes — see forecast below" : "No")}

@@ -9,7 +9,7 @@
 // proposal + accept link; "Request Vendor Quotes" fires trade-specific
 // quote-request emails with photos to our preferred vendors.
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X, Plus } from "lucide-react";
+import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X, Plus, Pencil } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 
 type RepairItem = {
@@ -48,39 +48,125 @@ const TIER_ORDER = ["small", "medium", "large", "largest"];
 // and those are vendor-quoted items never summed into our own total —
 // guessing the type would misdirect a vendor dispatch, so flooring stays
 // guidance-only (banner below) until the agent picks the right vendor item.
+// v20.26.0 — 5 real tiers per pillar (minimum/small/medium/large/maximum),
+// not 3. The scope slider has 5 stops; before this fix, PILLAR_TIER_ORDER
+// only had 3 entries (small/medium/large), so a pillar flagged "small" or
+// "large" during the walkthrough had 2 of its 4 possible slider moves
+// clamp to the SAME tier — the price visibly did nothing on half the
+// slider. "minimum" and "maximum" are real, distinct scope levels built
+// from the same existing catalog items (no new items/rates introduced),
+// each qty a defined-maximum default per the standing scope-cap rule.
 const PILLAR_ITEM_MAP: Record<string, Record<string, { itemKey: string; qty: number }[]>> = {
   pressure_wash: {
+    minimum: [{ itemKey: "pressure_wash_hard", qty: 400 }],
     small: [{ itemKey: "pressure_wash_hard", qty: 700 }],
     medium: [{ itemKey: "pressure_wash_hard", qty: 700 }, { itemKey: "pressure_wash_ext", qty: 1800 }],
     large: [{ itemKey: "pressure_wash_hard", qty: 700 }, { itemKey: "pressure_wash_ext", qty: 1800 }, { itemKey: "soft_wash_roof", qty: 2200 }],
+    maximum: [{ itemKey: "pressure_wash_hard", qty: 900 }, { itemKey: "pressure_wash_ext", qty: 2400 }, { itemKey: "soft_wash_roof", qty: 2800 }],
   },
   lawn: {
+    minimum: [{ itemKey: "lawn_mow", qty: 5000 }],
     small: [{ itemKey: "lawn_mow", qty: 8000 }],
     medium: [{ itemKey: "lawn_mow", qty: 8000 }, { itemKey: "hedge_trim", qty: 150 }, { itemKey: "weed_pull", qty: 200 }],
     large: [{ itemKey: "lawn_mow", qty: 8000 }, { itemKey: "hedge_trim", qty: 150 }, { itemKey: "weed_pull", qty: 200 }, { itemKey: "mulching", qty: 300 }, { itemKey: "tree_hedge_removal", qty: 1 }],
+    maximum: [{ itemKey: "lawn_mow", qty: 8000 }, { itemKey: "hedge_trim", qty: 250 }, { itemKey: "weed_pull", qty: 350 }, { itemKey: "mulching", qty: 500 }, { itemKey: "tree_hedge_removal", qty: 2 }],
   },
   paint: {
+    minimum: [{ itemKey: "paint_int_body", qty: 150 }],
     small: [{ itemKey: "paint_int_body", qty: 350 }, { itemKey: "paint_int_trim", qty: 50 }],
     medium: [{ itemKey: "paint_int_body", qty: 1000 }, { itemKey: "paint_int_trim", qty: 150 }],
     large: [{ itemKey: "paint_int_body", qty: 2400 }, { itemKey: "paint_int_trim", qty: 300 }, { itemKey: "paint_int_ceiling", qty: 2000 }],
+    maximum: [{ itemKey: "paint_int_body", qty: 3200 }, { itemKey: "paint_int_trim", qty: 400 }, { itemKey: "paint_int_ceiling", qty: 2600 }],
   },
   deep_clean: {
+    minimum: [{ itemKey: "rough_clean", qty: 1200 }],
     small: [{ itemKey: "rough_clean", qty: 2000 }],
     medium: [{ itemKey: "deep_clean", qty: 2000 }],
     large: [{ itemKey: "deep_clean", qty: 2500 }, { itemKey: "carpet_clean", qty: 800 }],
+    maximum: [{ itemKey: "deep_clean", qty: 3000 }, { itemKey: "carpet_clean", qty: 1200 }],
   },
   junk_out: {
+    minimum: [],
     small: [{ itemKey: "junk_small", qty: 1 }],
     medium: [{ itemKey: "junk_small", qty: 2 }],
     large: [{ itemKey: "junk_large", qty: 1 }],
+    maximum: [{ itemKey: "junk_large", qty: 2 }],
   },
   flooring: {},
 };
 
-// v20.24.0 — Scope slider mechanics. Pillar tiers only ever run
-// small -> medium -> large (see PILLAR_ITEM_MAP above), so shifting by ±1
-// step just walks this fixed order and clamps at the ends.
-const PILLAR_TIER_ORDER = ["small", "medium", "large"];
+// v20.27.0 — Detail-driven auto-check. When the walkthrough agent checked
+// specific area/scope-mode boxes (House/Driveway/Patio for pressure wash,
+// Whole-Home Interior vs. Touch-Up Only vs. Exterior for paint, etc. — see
+// PILLAR_DEFS.details in ListingConsultSheet.tsx), those exact catalog items
+// get auto-checked instead of the whole fixed tier bundle. This is strictly
+// MORE precise than tier alone: the photos + checked details are the
+// evidence of the actual need, and the tier/slider still sets how big each
+// of those items is. If an agent flags a pillar with NO details (older
+// consults, or a fast flag with no time to break it down), this map is
+// skipped entirely and PILLAR_ITEM_MAP's tier-only bundle above is used —
+// fully backward compatible.
+const DETAIL_ITEM_MAP: Record<string, Record<string, string[]>> = {
+  pressure_wash: {
+    house: ["pressure_wash_ext"],
+    driveway: ["pressure_wash_hard"],
+    patio: ["pressure_wash_hard"],
+    walkway: ["pressure_wash_hard"],
+    roof: ["soft_wash_roof"],
+  },
+  lawn: {
+    mowing: ["lawn_mow"],
+    hedge_trim: ["hedge_trim"],
+    weed_pull: ["weed_pull"],
+    mulching: ["mulching"],
+    tree_removal: ["tree_hedge_removal"],
+  },
+  paint: {
+    touch_up_only: ["paint_int_body", "paint_int_trim"],
+    whole_home_interior: ["paint_int_body", "paint_int_trim", "paint_int_ceiling"],
+    exterior: ["paint_ext_body", "paint_ext_trim"],
+    ceilings: ["paint_int_ceiling"],
+    trim_doors: ["paint_int_trim"],
+  },
+  deep_clean: {
+    standard: ["rough_clean"],
+    deep: ["deep_clean"],
+    carpets: ["carpet_clean"],
+  },
+};
+
+// v20.27.0 — Per-item qty defaults across all 5 tiers, used when auto-
+// checking via DETAIL_ITEM_MAP above. Same defined-maximum-default
+// philosophy as PILLAR_ITEM_MAP: reasonable starting points for an average
+// ~2,000 sqft single-story home, always agent-editable before the quote
+// generates — never a measurement of the actual property.
+const ITEM_QTY_BY_TIER: Record<string, Record<string, number>> = {
+  pressure_wash_hard: { minimum: 400, small: 700, medium: 700, large: 700, maximum: 900 },
+  pressure_wash_ext: { minimum: 1200, small: 1500, medium: 1800, large: 1800, maximum: 2400 },
+  soft_wash_roof: { minimum: 1500, small: 1800, medium: 2000, large: 2200, maximum: 2800 },
+  lawn_mow: { minimum: 5000, small: 8000, medium: 8000, large: 8000, maximum: 8000 },
+  hedge_trim: { minimum: 75, small: 100, medium: 150, large: 150, maximum: 250 },
+  weed_pull: { minimum: 75, small: 100, medium: 200, large: 200, maximum: 350 },
+  mulching: { minimum: 100, small: 150, medium: 200, large: 300, maximum: 500 },
+  tree_hedge_removal: { minimum: 1, small: 1, medium: 1, large: 1, maximum: 2 },
+  paint_int_body: { minimum: 150, small: 350, medium: 1000, large: 2400, maximum: 3200 },
+  paint_int_trim: { minimum: 30, small: 50, medium: 150, large: 300, maximum: 400 },
+  paint_int_ceiling: { minimum: 400, small: 800, medium: 1400, large: 2000, maximum: 2600 },
+  paint_ext_body: { minimum: 400, small: 800, medium: 1500, large: 2400, maximum: 3200 },
+  paint_ext_trim: { minimum: 50, small: 100, medium: 200, large: 300, maximum: 400 },
+  rough_clean: { minimum: 1200, small: 2000, medium: 2000, large: 2500, maximum: 3000 },
+  deep_clean: { minimum: 800, small: 1400, medium: 2000, large: 2500, maximum: 3000 },
+  carpet_clean: { minimum: 200, small: 400, medium: 600, large: 800, maximum: 1200 },
+};
+
+// v20.26.0 — Scope slider mechanics. Pillar tiers now run
+// minimum -> small -> medium -> large -> maximum (see PILLAR_ITEM_MAP
+// above) so all 5 slider stops map to a distinct, real preset for any
+// pillar flagged at small/medium/large during the walkthrough.
+const PILLAR_TIER_ORDER = ["minimum", "small", "medium", "large", "maximum"];
+const SCOPE_SHIFT_LABELS: Record<number, string> = {
+  "-2": "Bare Minimum", "-1": "Leaner Scope", "0": "As Flagged", "1": "Full Service", "2": "Max Scope",
+};
 function shiftPillarTier(tier: string, delta: number): string {
   const idx = PILLAR_TIER_ORDER.indexOf(tier);
   if (idx === -1) return tier;
@@ -214,7 +300,7 @@ export function RepairConsultSheet({
   // does NOT auto-check any catalog item, since the exact tier-to-catalog
   // mapping is still Alex's call. Rendered as a banner atop the checklist so
   // the agent isn't re-diagnosing condition they already looked at minutes ago.
-  prefillFlaggedPillars?: { key: string; label: string; tier: string; notes: string }[] | null;
+  prefillFlaggedPillars?: { key: string; label: string; tier: string; notes: string; details?: string[] }[] | null;
 }) {
   const [step, setStep] = useState<"info" | "checklist" | "gallery" | "review">(nestedFromListing ? "checklist" : "info");
   const [consultId, setConsultId] = useState<number | null>(null);
@@ -314,6 +400,9 @@ export function RepairConsultSheet({
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [savingReview, setSavingReview] = useState(false);
   const [addItemQuery, setAddItemQuery] = useState("");
+  // v20.26.0 — which checked item's inline editor is open on Review & Send
+  // (quantity / two-story / measurement notes) — null means none expanded.
+  const [editingReviewItem, setEditingReviewItem] = useState<string | null>(null);
 
   useEffect(() => {
     if (!manageNavVisibility) return; // parent sheet already owns nav visibility
@@ -361,9 +450,16 @@ export function RepairConsultSheet({
     const s = new Set<string>();
     if (prefillFlaggedPillars) {
       for (const flagged of prefillFlaggedPillars) {
-        const tiers = PILLAR_ITEM_MAP[flagged.key] || {};
-        for (const tierKey of Object.keys(tiers)) {
-          for (const { itemKey } of tiers[tierKey]) s.add(itemKey);
+        if (flagged.details && flagged.details.length > 0) {
+          const detailMap = DETAIL_ITEM_MAP[flagged.key] || {};
+          for (const d of flagged.details) {
+            for (const itemKey of detailMap[d] || []) s.add(itemKey);
+          }
+        } else {
+          const tiers = PILLAR_ITEM_MAP[flagged.key] || {};
+          for (const tierKey of Object.keys(tiers)) {
+            for (const { itemKey } of tiers[tierKey]) s.add(itemKey);
+          }
         }
       }
     }
@@ -385,9 +481,22 @@ export function RepairConsultSheet({
       }
       for (const flagged of prefillFlaggedPillars) {
         const tier = shiftPillarTier(flagged.tier, scopeShift);
-        const mapped = PILLAR_ITEM_MAP[flagged.key]?.[tier] || [];
-        for (const { itemKey, qty } of mapped) {
-          next[itemKey] = { ...(next[itemKey] || DEFAULT_ITEM_STATE), checked: true, quantity: String(qty) };
+        if (flagged.details && flagged.details.length > 0) {
+          // v20.27.0 — detail-driven: only the specific items tied to the
+          // checked details get auto-checked, sized by the (shifted) tier.
+          const detailMap = DETAIL_ITEM_MAP[flagged.key] || {};
+          for (const d of flagged.details) {
+            for (const itemKey of detailMap[d] || []) {
+              const qty = ITEM_QTY_BY_TIER[itemKey]?.[tier];
+              if (qty === undefined) continue;
+              next[itemKey] = { ...(next[itemKey] || DEFAULT_ITEM_STATE), checked: true, quantity: String(qty) };
+            }
+          }
+        } else {
+          const mapped = PILLAR_ITEM_MAP[flagged.key]?.[tier] || [];
+          for (const { itemKey, qty } of mapped) {
+            next[itemKey] = { ...(next[itemKey] || DEFAULT_ITEM_STATE), checked: true, quantity: String(qty) };
+          }
         }
       }
       return next;
@@ -906,21 +1015,46 @@ export function RepairConsultSheet({
     </div>
   );
 
+  // v20.26.0 — when opened as a hard transition from Listing Consult (after
+  // the contract sends and repairs were flagged), this renders as its own
+  // full page, not a stacked bottom-sheet overlay on top of Lock It In.
+  // Listing Consult stays mounted underneath for state, but visually this
+  // should read as "we left that screen and are now on the Repair Consult
+  // page," not "a drawer popped up over what we were just looking at."
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }} />
-      <div style={{
+    <div style={nestedFromListing
+      ? { position: "fixed", inset: 0, zIndex: 200, display: "flex", flexDirection: "column", background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)" }
+      : { position: "fixed", inset: 0, zIndex: 200, display: "flex", flexDirection: "column", justifyContent: "flex-end" }
+    }>
+      {!nestedFromListing && (
+        <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }} />
+      )}
+      <div style={nestedFromListing ? {
+        position: "relative", zIndex: 1, flex: 1,
+        background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)",
+        padding: "24px 20px 40px", height: "100dvh", overflowY: "auto", boxSizing: "border-box",
+      } : {
         position: "relative", zIndex: 1,
         background: "linear-gradient(180deg,#141414 0%,#0c0c0c 100%)",
         border: `1px solid rgba(200,170,90,0.3)`, borderBottom: "none",
         borderRadius: "20px 20px 0 0", padding: "24px 20px 40px",
         maxHeight: "94dvh", overflowY: "auto",
       }}>
-        <button type="button" onClick={onClose} aria-label="Close" style={{
-          position: "absolute", top: 12, right: 12, width: 38, height: 38, borderRadius: 19,
-          background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)",
-          color: "rgba(255,255,255,0.75)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
-        }}><X size={18} /></button>
+        {nestedFromListing ? (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, marginBottom: 4,
+            fontSize: 11, fontWeight: 700, color: GOLD, textTransform: "uppercase", letterSpacing: "0.06em",
+          }}>
+            <ChevronLeft size={14} />
+            <span style={{ cursor: "pointer" }} onClick={onClose}>Back to Lock It In</span>
+          </div>
+        ) : (
+          <button type="button" onClick={onClose} aria-label="Close" style={{
+            position: "absolute", top: 12, right: 12, width: 38, height: 38, borderRadius: 19,
+            background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)",
+            color: "rgba(255,255,255,0.75)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+          }}><X size={18} /></button>
+        )}
 
         {error && (
           <div style={{ padding: 10, marginBottom: 14, borderRadius: 8, background: "rgba(255,120,120,0.1)", color: "#ffb0b0", fontSize: 12.5 }}>
@@ -1037,6 +1171,16 @@ export function RepairConsultSheet({
                   <div key={p.key} style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                     <span style={{ fontWeight: 700 }}>{p.label}</span>
                     {p.tier && <span style={{ marginLeft: 6, textTransform: "uppercase", fontSize: 10, color: "rgba(255,255,255,0.5)" }}>{p.tier}</span>}
+                    {p.details && p.details.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                        {p.details.map(d => (
+                          <span key={d} style={{
+                            fontSize: 9.5, fontWeight: 600, color: GOLD, background: "rgba(200,170,90,0.14)",
+                            border: "1px solid rgba(200,170,90,0.3)", borderRadius: 5, padding: "2px 6px",
+                          }}>{d.replace(/_/g, " ")}</span>
+                        ))}
+                      </div>
+                    )}
                     {p.notes && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 1 }}>{p.notes}</div>}
                   </div>
                 ))}
@@ -1140,17 +1284,17 @@ export function RepairConsultSheet({
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.55)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700, marginBottom: 4 }}>
                       <span>Lean</span>
                       <span style={{ color: GOLD }}>
-                        {scopeShift === 0 ? "As Flagged" : scopeShift < 0 ? "Leaner Scope" : "Full Service"}
+                        {SCOPE_SHIFT_LABELS[scopeShift as keyof typeof SCOPE_SHIFT_LABELS] || "As Flagged"}
                       </span>
-                      <span>Full Service</span>
+                      <span>Max Scope</span>
                     </div>
                     <input
-                      type="range" min={-1} max={1} step={1} value={scopeShift}
+                      type="range" min={-2} max={2} step={1} value={scopeShift}
                       onChange={e => setScopeShift(Number(e.target.value))}
                       style={{ width: "100%", accentColor: GOLD, cursor: "pointer" }}
                     />
                     <p style={{ fontSize: 9.5, margin: "4px 0 0", color: "rgba(255,255,255,0.4)", lineHeight: 1.4 }}>
-                      Drag to adjust the scope on flagged items {"\u2014"} lean drops tasks, full service adds a bit more. Manually checked items are never affected.
+                      Drag to adjust the scope on flagged items {"\u2014"} the total updates live. Manually checked items are never affected.
                     </p>
                   </div>
                 )}
@@ -1241,26 +1385,66 @@ export function RepairConsultSheet({
                         <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 12 }}>Nothing selected yet.</p>
                       ) : (
                         <div style={{ marginBottom: 12 }}>
-                          {checkedItems.map(item => (
-                            <div key={item.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                              <div style={{ minWidth: 0 }}>
-                                <span style={{ fontSize: 13, color: "#fff", fontWeight: 600 }}>{item.name}</span>
-                                {item.category === "vendor" && (
-                                  <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>({TRADE_LABELS[item.trade] || item.trade} — vendor)</span>
-                                )}
-                                {item.unit !== "flat" && Number(checked[item.key]?.quantity) > 1 && (
-                                  <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>× {checked[item.key]?.quantity}</span>
+                          {checkedItems.map(item => {
+                            const st = checked[item.key];
+                            const isEditing = editingReviewItem === item.key;
+                            return (
+                              <div key={item.key} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0" }}>
+                                  <div
+                                    style={{ minWidth: 0, flex: 1, cursor: "pointer" }}
+                                    onClick={() => setEditingReviewItem(isEditing ? null : item.key)}
+                                  >
+                                    <span style={{ fontSize: 13, color: "#fff", fontWeight: 600 }}>{item.name}</span>
+                                    {item.category === "vendor" && (
+                                      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>({TRADE_LABELS[item.trade] || item.trade} — vendor)</span>
+                                    )}
+                                    {item.unit !== "flat" && Number(st?.quantity) > 1 && (
+                                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>× {st?.quantity}</span>
+                                    )}
+                                    {st?.twoStory && !!item.two_story_eligible && (
+                                      <span style={{ fontSize: 10, color: GOLD, marginLeft: 6 }}>2-story</span>
+                                    )}
+                                  </div>
+                                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                    <button
+                                      onClick={() => setEditingReviewItem(isEditing ? null : item.key)}
+                                      aria-label={`Edit ${item.name}`}
+                                      style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${isEditing ? GOLD : "rgba(255,255,255,0.2)"}`, background: isEditing ? "rgba(200,170,90,0.15)" : "rgba(255,255,255,0.06)", color: isEditing ? GOLD : "rgba(255,255,255,0.6)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                                    >
+                                      <Pencil size={13} />
+                                    </button>
+                                    <button
+                                      onClick={() => { setItemState(item.key, { checked: false }); if (isEditing) setEditingReviewItem(null); }}
+                                      aria-label={`Remove ${item.name}`}
+                                      style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid rgba(255,90,90,0.35)", background: "rgba(255,90,90,0.1)", color: "#ff7a7a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                                    >
+                                      <X size={14} />
+                                    </button>
+                                  </div>
+                                </div>
+                                {isEditing && (
+                                  <div style={{ padding: "0 0 12px" }}>
+                                    {item.unit !== "flat" && (
+                                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                                        <input type="number" min={0} step="any" value={st?.quantity ?? "1"} onChange={e => setItemState(item.key, { quantity: e.target.value })}
+                                          style={{ ...inputStyle, width: 90 }} />
+                                        <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>{item.unit === "each" ? "count" : item.unit.replace("_", " ")}</span>
+                                      </div>
+                                    )}
+                                    {!!item.two_story_eligible && (
+                                      <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 12, color: "rgba(255,255,255,0.6)" }}>
+                                        <input type="checkbox" checked={!!st?.twoStory} onChange={e => setItemState(item.key, { twoStory: e.target.checked })} style={{ accentColor: GOLD }} />
+                                        Two-story (+25% surcharge)
+                                      </label>
+                                    )}
+                                    <input placeholder="Measurement notes (optional)" value={st?.measurementNotes ?? ""} onChange={e => setItemState(item.key, { measurementNotes: e.target.value })}
+                                      style={{ ...inputStyle, fontSize: 12.5 }} />
+                                  </div>
                                 )}
                               </div>
-                              <button
-                                onClick={() => setItemState(item.key, { checked: false })}
-                                aria-label={`Remove ${item.name}`}
-                                style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 8, border: "1px solid rgba(255,90,90,0.35)", background: "rgba(255,90,90,0.1)", color: "#ff7a7a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                       <input

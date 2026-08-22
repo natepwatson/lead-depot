@@ -150,7 +150,7 @@ function timelineForecastTable(lockin: any): string {
   }
   if (lockin.forecastCleaningDate) rows.push(["Cleaning", fmtDateShort(lockin.forecastCleaningDate)]);
   if (lockin.photosScheduledDate) rows.push(["Photos Scheduled", fmtDateShort(lockin.photosScheduledDate)]);
-  if (lockin.photosBackDate) rows.push(["Photos Back", fmtDateShort(lockin.photosBackDate)]);
+  if (lockin.photosBackDate) rows.push(["Photo/Video Back", fmtDateShort(lockin.photosBackDate)]);
   if (!rows.length && !lockin.goLiveDate && !lockin.openHouseDate) return "";
   const bodyRows = rows.map(([label, value]) => `
       <tr><td style="padding:3px 0;color:${BRAND.gray};width:170px;font-size:12.5px;vertical-align:top">${label}</td><td style="padding:3px 0;font-size:12.5px;color:#222">${value}</td></tr>`).join("");

@@ -181,6 +181,13 @@ const labelStyle: React.CSSProperties = {
   textTransform: "uppercase", marginBottom: 6, display: "block",
 };
 const textareaStyle: React.CSSProperties = { ...inputStyle, minHeight: 72, resize: "vertical", fontFamily: "inherit" };
+// v20.26.0 — compact date input used inside the Timeline Forecast table so
+// every row is individually editable without breaking the table layout.
+const forecastDateInputStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.06)", border: "1px solid rgba(200,170,90,0.25)",
+  padding: "3px 6px", borderRadius: 6, fontSize: 12.5, color: "#fff", outline: "none", colorScheme: "dark",
+  fontFamily: "inherit", width: "100%",
+};
 
 // Big tappable checklist chip — designed so an agent can glance and tap
 // without reading fine print, keeping them present with the client instead
@@ -228,16 +235,31 @@ const NOT_MOVING_OPTIONS: { key: string; label: string }[] = [
 // same data capture, no extra step for the agent.
 type PillarTier = "small" | "medium" | "large";
 type PillarKey = "pressure_wash" | "lawn" | "paint" | "deep_clean" | "junk_out" | "flooring";
-type PillarState = { checked: boolean; tier: PillarTier | ""; notes: string };
-const EMPTY_PILLAR: PillarState = { checked: false, tier: "", notes: "" };
+// v20.27.0 — `details` captures WHICH specific areas/scope-modes apply,
+// checked on the spot during the walkthrough (evidence-driven, per Alex:
+// "photos are evidence of a need"). S/M/L still sets the overall scale;
+// details tell the Repair Consult prefill exactly which catalog line items
+// to auto-check instead of guessing a fixed bundle from tier alone. Optional
+// — leaving details empty falls back to the old tier-only bundle so nothing
+// breaks for consults saved before this existed.
+type PillarState = { checked: boolean; tier: PillarTier | ""; notes: string; details: string[] };
+const EMPTY_PILLAR: PillarState = { checked: false, tier: "", notes: "", details: [] };
 
-const PILLAR_DEFS: { key: PillarKey; label: string; group: "pillar" | "addon"; tiers: { key: PillarTier; label: string }[] }[] = [
+const PILLAR_DEFS: { key: PillarKey; label: string; group: "pillar" | "addon"; tiers: { key: PillarTier; label: string }[]; details?: { key: string; label: string }[] }[] = [
   {
     key: "pressure_wash", label: "Pressure / Soft Washing", group: "pillar",
     tiers: [
       { key: "small", label: "Small — driveway & walkways only" },
       { key: "medium", label: "Medium — house + driveway + walkways" },
       { key: "large", label: "Large — full property incl. roof soft wash" },
+    ],
+    details: [
+      { key: "house", label: "House / Siding" },
+      { key: "driveway", label: "Driveway" },
+      { key: "patio", label: "Patio" },
+      { key: "walkway", label: "Walkway" },
+      { key: "roof", label: "Roof (soft wash)" },
+      { key: "fence", label: "Fence" },
     ],
   },
   {
@@ -247,6 +269,13 @@ const PILLAR_DEFS: { key: PillarKey; label: string; group: "pillar" | "addon"; t
       { key: "medium", label: "Medium — + hedge trim & bed weeding" },
       { key: "large", label: "Large — full reset: mulch, dead plant removal" },
     ],
+    details: [
+      { key: "mowing", label: "Mow / Edge / Blow" },
+      { key: "hedge_trim", label: "Hedge / Shrub Trim" },
+      { key: "weed_pull", label: "Weed Pull (Beds)" },
+      { key: "mulching", label: "Mulching" },
+      { key: "tree_removal", label: "Small Tree/Hedge Removal" },
+    ],
   },
   {
     key: "paint", label: "Touch-Up / Painting", group: "pillar",
@@ -255,6 +284,13 @@ const PILLAR_DEFS: { key: PillarKey; label: string; group: "pillar" | "addon"; t
       { key: "medium", label: "Medium — 3-room touch-up package" },
       { key: "large", label: "Large — whole-house touch-up or full repaint" },
     ],
+    details: [
+      { key: "touch_up_only", label: "Touch-Up Only" },
+      { key: "whole_home_interior", label: "Whole-Home Interior Painting" },
+      { key: "exterior", label: "Exterior Painting" },
+      { key: "ceilings", label: "Ceilings" },
+      { key: "trim_doors", label: "Trim / Doors" },
+    ],
   },
   {
     key: "deep_clean", label: "Deep Cleaning", group: "pillar",
@@ -262,6 +298,11 @@ const PILLAR_DEFS: { key: PillarKey; label: string; group: "pillar" | "addon"; t
       { key: "small", label: "Small — standard tidy-up clean" },
       { key: "medium", label: "Medium — deep clean (baseboards, cabinets, windows)" },
       { key: "large", label: "Large — move-out level, incl. garage/patio" },
+    ],
+    details: [
+      { key: "standard", label: "Standard Tidy-Up" },
+      { key: "deep", label: "Deep Clean (baseboards/cabinets/windows)" },
+      { key: "carpets", label: "Carpet Cleaning" },
     ],
   },
   {
@@ -288,7 +329,7 @@ export function ListingConsultSheet({
   leadId?: number | null; agentId?: number | null;
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
   onClose: () => void;
-  onLaunchRepairConsult: (prefill: { address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null; galleryUrls?: string[]; flaggedPillars?: { key: PillarKey; label: string; tier: PillarTier | ""; notes: string }[] }) => void;
+  onLaunchRepairConsult: (prefill: { address: string; name: string; email: string; phone: string; heroPhotoUrl?: string | null; galleryUrls?: string[]; flaggedPillars?: { key: PillarKey; label: string; tier: PillarTier | ""; notes: string; details: string[] }[] }) => void;
 }) {
   // v20.18.0 — four-page flow: prep → walkthrough → close → lockin. Debrief
   // is gone entirely (folded into close's inline "not moving forward" branch).
@@ -384,9 +425,16 @@ export function ListingConsultSheet({
     setPillarFlags(prev => ({ ...prev, [key]: { ...prev[key], tier } }));
   const setPillarNotes = (key: PillarKey, notes: string) =>
     setPillarFlags(prev => ({ ...prev, [key]: { ...prev[key], notes } }));
+  const toggleDetail = (key: PillarKey, detailKey: string) =>
+    setPillarFlags(prev => {
+      const cur = prev[key].details || [];
+      const details = cur.includes(detailKey) ? cur.filter(d => d !== detailKey) : [...cur, detailKey];
+      return { ...prev, [key]: { ...prev[key], details } };
+    });
   const flaggedPillarList = () =>
     PILLAR_DEFS.filter(d => pillarFlags[d.key]?.checked).map(d => ({
       key: d.key, label: d.label, tier: pillarFlags[d.key].tier, notes: pillarFlags[d.key].notes,
+      details: pillarFlags[d.key].details || [],
     }));
   const [mortgageBalance, setMortgageBalance] = useState("");
   const [buyingToo, setBuyingToo] = useState<"" | "yes" | "no">("");
@@ -410,7 +458,12 @@ export function ListingConsultSheet({
   const [sendingNotMoving, setSendingNotMoving] = useState(false);
 
   // ── Lock In ──
+  // v20.26.0 — needsCleaning is now DERIVED from the Deep Cleaning pillar
+  // flagged during Walkthrough (don't ask the same question twice). An agent
+  // can still flip cleaningManualOverride on if reality changed by the time
+  // they're on Lock It In.
   const [needsCleaning, setNeedsCleaning] = useState<"" | "yes" | "no">("");
+  const [cleaningManualOverride, setCleaningManualOverride] = useState(false);
   // v20.19.x — replaced by the Timeline Forecaster: no hard cleaning/repair
   // date+time is ever locked in at this step. forecastStartDate anchors the
   // whole forward-calculated runway (defaults to today, editable if this
@@ -477,6 +530,16 @@ export function ListingConsultSheet({
     showingApprovalContact === "owner2" ? { name: ownerNames2, phone: owner2Phone, email: owner2Email } :
     showingApprovalContact === "other" ? { name: showingContactOtherName, phone: showingContactOtherPhone, email: showingContactOtherEmail } :
     { name: "", phone: "", email: "" };
+
+  // v20.26.0 — Auto-derive needsCleaning from the Deep Cleaning pillar
+  // flagged during Walkthrough, any time the pillar checkbox itself changes
+  // (covers the fresh-consult path — the resume path is handled directly in
+  // handleResumeConsult above). Skipped entirely once an agent manually
+  // overrides on Lock It In.
+  useEffect(() => {
+    if (cleaningManualOverride) return;
+    setNeedsCleaning(pillarFlags.deep_clean.checked ? "yes" : "no");
+  }, [pillarFlags.deep_clean.checked, cleaningManualOverride]);
 
   // v20.19.x — Timeline Forecast: recomputed live as the agent changes the
   // start date, the repairs-first path, or the cleaning flag.
@@ -646,7 +709,14 @@ export function ListingConsultSheet({
         }
       }
       if (data.lockin) {
-        setNeedsCleaning(data.lockin.needsCleaning || "");
+        // v20.26.0 — if a previously-saved value disagrees with what the
+        // walkthrough's Deep Cleaning pillar implies, that means an agent
+        // manually overrode it in an earlier session — keep the override on
+        // resume instead of silently reverting to the derived value.
+        const derivedFromPillar = data.walkthrough?.pillars?.deep_clean?.checked ? "yes" : "no";
+        const savedCleaning = data.lockin.needsCleaning || "";
+        if (savedCleaning && savedCleaning !== derivedFromPillar) setCleaningManualOverride(true);
+        setNeedsCleaning(savedCleaning || derivedFromPillar);
         setForecastStartDate(data.lockin.forecastStartDate || toISO(new Date()));
         setAccessKeyOrCode(data.lockin.accessKeyOrCode || "");
         setGateCode(data.lockin.gateCode || "");
@@ -1022,6 +1092,29 @@ export function ListingConsultSheet({
                           {def.tiers.find(t => t.key === st.tier)?.label}
                         </p>
                       )}
+                      {def.details && def.details.length > 0 && (
+                        <div style={{ marginBottom: 8 }}>
+                          <p style={{ fontSize: 9.5, fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 5px" }}>
+                            What needs it? (check what applies)
+                          </p>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                            {def.details.map(dtl => {
+                              const isOn = (st.details || []).includes(dtl.key);
+                              return (
+                                <button key={dtl.key} type="button" onClick={() => toggleDetail(def.key, dtl.key)} style={{
+                                  display: "flex", alignItems: "center", gap: 4, padding: "5px 9px", borderRadius: 6, cursor: "pointer",
+                                  fontSize: 11, fontWeight: 600, background: isOn ? "rgba(200,170,90,0.16)" : "rgba(255,255,255,0.05)",
+                                  border: isOn ? `1px solid ${GOLD}` : "1px solid rgba(255,255,255,0.15)",
+                                  color: isOn ? GOLD : "rgba(255,255,255,0.65)",
+                                }}>
+                                  {isOn && <CheckCircle2 size={11} />}
+                                  {dtl.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                       <input style={{ ...inputStyle, fontSize: 12 }} value={st.notes} onChange={e => setPillarNotes(def.key, e.target.value)}
                         placeholder="Specifics — which rooms, sqft, condition notes…" />
                     </div>
@@ -1177,16 +1270,44 @@ export function ListingConsultSheet({
           <>
             {header("Lock It In", "Cleaning, access, and the final contract send")}
 
-            <label style={labelStyle}>Does This Listing Need a Cleaning Before Photos?</label>
-            <div style={{ marginBottom: 8 }}>
-              {segmented(needsCleaning, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setNeedsCleaning(v as any))}
-            </div>
-            {needsCleaning === "yes" && (
-              <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.4)", margin: "0 0 14px" }}>
-                Noted — cleaning will show up as an option on the instant quote once the contract sends. We're realtors, not cleaning schedulers.
-              </p>
+            <label style={labelStyle}>Cleaning Before Photos</label>
+            {!cleaningManualOverride ? (
+              <div style={{ ...cardStyle, marginBottom: 14 }}>
+                <p style={{ fontSize: 13, color: "#fff", margin: 0, fontWeight: 600 }}>
+                  {needsCleaning === "yes"
+                    ? `Yes — flagged as Deep Cleaning (${{ small: "Small", medium: "Medium", large: "Large" }[pillarFlags.deep_clean.tier || "small"]}) during the walkthrough.`
+                    : "No — Deep Cleaning wasn't flagged during the walkthrough."}
+                </p>
+                {needsCleaning === "yes" && (
+                  <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.4)", margin: "6px 0 0" }}>
+                    Noted — cleaning will show up as an option on the instant quote once the contract sends. We're realtors, not cleaning schedulers.
+                  </p>
+                )}
+                <button type="button" onClick={() => setCleaningManualOverride(true)} style={{
+                  marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer",
+                  fontSize: 11, color: GOLD, textDecoration: "underline", fontWeight: 600,
+                }}>
+                  Something changed? Override
+                </button>
+              </div>
+            ) : (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ marginBottom: 8 }}>
+                  {segmented(needsCleaning, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setNeedsCleaning(v as any))}
+                </div>
+                {needsCleaning === "yes" && (
+                  <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.4)", margin: "0 0 8px" }}>
+                    Noted — cleaning will show up as an option on the instant quote once the contract sends. We're realtors, not cleaning schedulers.
+                  </p>
+                )}
+                <button type="button" onClick={() => setCleaningManualOverride(false)} style={{
+                  background: "none", border: "none", padding: 0, cursor: "pointer",
+                  fontSize: 11, color: "rgba(255,255,255,0.4)", textDecoration: "underline",
+                }}>
+                  Use walkthrough flag instead
+                </button>
+              </div>
             )}
-            {needsCleaning === "no" && <div style={{ marginBottom: 14 }} />}
 
             {whereAreWe === "ready_repairs" && (
               <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.4)", margin: "0 0 14px" }}>
@@ -1199,23 +1320,26 @@ export function ListingConsultSheet({
                 <label style={labelStyle}>Timeline Forecast</label>
                 <div style={{ marginBottom: 10 }}>
                   <label style={{ ...labelStyle, fontSize: 10.5 }}>Start Date</label>
-                  <input type="date" style={inputStyle} value={forecastStartDate} onChange={e => setForecastStartDate(e.target.value)} />
+                  <input type="date" style={inputStyle} value={forecastStartDate} onChange={e => handleForecastStartChange(e.target.value)} />
                 </div>
                 <table style={{ width: "100%", fontSize: 12.5, color: "rgba(255,255,255,0.85)", borderCollapse: "collapse" }}>
                   <tbody>
                     {timelineForecast.showRepairWindow && (
-                      <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Repairs Window</td><td style={{ padding: "4px 0" }}>{fmtShort(timelineForecast.repairStart!)} – {fmtShort(timelineForecast.repairEnd!)}</td></tr>
+                      <>
+                        <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Repairs Start</td><td style={{ padding: "4px 0" }}><input type="date" style={forecastDateInputStyle} value={toISO(timelineForecast.repairStart!)} onChange={e => handleForecastDateEdit("repairStart", e.target.value)} /></td></tr>
+                        <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Repairs End</td><td style={{ padding: "4px 0" }}><input type="date" style={forecastDateInputStyle} value={toISO(timelineForecast.repairEnd!)} onChange={e => handleForecastDateEdit("repairEnd", e.target.value)} /></td></tr>
+                      </>
                     )}
                     {needsCleaning === "yes" && timelineForecast.cleaningDay && (
-                      <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Cleaning</td><td style={{ padding: "4px 0" }}>{fmtShort(timelineForecast.cleaningDay)}</td></tr>
+                      <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Cleaning</td><td style={{ padding: "4px 0" }}><input type="date" style={forecastDateInputStyle} value={toISO(timelineForecast.cleaningDay)} onChange={e => handleForecastDateEdit("cleaningDay", e.target.value)} /></td></tr>
                     )}
-                    <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Photos Scheduled</td><td style={{ padding: "4px 0" }}>{fmtShort(timelineForecast.photosScheduled)}</td></tr>
-                    <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Photos Back</td><td style={{ padding: "4px 0" }}>{fmtShort(timelineForecast.photosBack)}</td></tr>
-                    <tr><td style={{ color: GOLD, padding: "6px 0", fontWeight: 700 }}>Go-Live</td><td style={{ padding: "6px 0", fontWeight: 700, color: GOLD }}>{fmtShort(timelineForecast.goLive)}</td></tr>
-                    <tr><td style={{ color: GOLD, padding: "6px 0", fontWeight: 700 }}>Open House</td><td style={{ padding: "6px 0", fontWeight: 700, color: GOLD }}>{fmtShort(timelineForecast.openHouse)}</td></tr>
+                    <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Photos Scheduled</td><td style={{ padding: "4px 0" }}><input type="date" style={forecastDateInputStyle} value={toISO(timelineForecast.photosScheduled)} onChange={e => handleForecastDateEdit("photosScheduled", e.target.value)} /></td></tr>
+                    <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Photo/Video Back</td><td style={{ padding: "4px 0" }}><input type="date" style={forecastDateInputStyle} value={toISO(timelineForecast.photosBack)} onChange={e => handleForecastDateEdit("photosBack", e.target.value)} /></td></tr>
+                    <tr><td style={{ color: GOLD, padding: "6px 0", fontWeight: 700 }}>Go-Live</td><td style={{ padding: "6px 0", fontWeight: 700, color: GOLD }}><input type="date" style={{ ...forecastDateInputStyle, color: GOLD, fontWeight: 700 }} value={toISO(timelineForecast.goLive)} onChange={e => handleForecastDateEdit("goLive", e.target.value)} /></td></tr>
+                    <tr><td style={{ color: GOLD, padding: "6px 0", fontWeight: 700 }}>Open House</td><td style={{ padding: "6px 0", fontWeight: 700, color: GOLD }}><input type="date" style={{ ...forecastDateInputStyle, color: GOLD, fontWeight: 700 }} value={toISO(timelineForecast.openHouse)} onChange={e => handleForecastDateEdit("openHouse", e.target.value)} /></td></tr>
                   </tbody>
                 </table>
-                <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", margin: "8px 0 0", fontStyle: "italic" }}>Forecasted from the start date above — this goes out with the contract, nothing here is booked yet.</p>
+                <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", margin: "8px 0 0", fontStyle: "italic" }}>Every date above is editable — tap any of them to override. Forecasted from the start date, this goes out with the contract; nothing here is booked yet.</p>
               </div>
             )}
 

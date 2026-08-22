@@ -933,18 +933,29 @@ export async function dispatchVendorEmails(consultId: number) {
         <strong>${it.name}</strong>${it.measurement_notes ? ` — ${it.measurement_notes}` : ""}
       </li>`).join("");
 
+    // v20.32.8 — this is a referral to OUR CLIENT's property, not our own job.
+    // Surface the client's name/phone so the vendor knows who they'd actually
+    // be doing the work for and can reach them directly to set up the visit,
+    // while the quote itself still comes back to us (Alex/Nate) per Alex's
+    // standing instruction so we can track/upload it just like Mike Carlton/HVAC.
+    const clientRowHtml = consult.client_name
+      ? `<p style="font-size:13px;color:#333"><strong>Client:</strong> ${consult.client_name}${consult.client_phone ? ` — ${consult.client_phone}` : ""}</p>`
+      : "";
+    const clientPhoneClause = consult.client_phone ? ` at <strong>${consult.client_phone}</strong>` : "";
+
     const html = `
     <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
     <div style="max-width:600px;margin:0 auto;background:#fff">
       ${brandedHeader("Quote Request", consult.property_address)}
       <div style="padding:24px 32px">
-        <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi${(vendor.contact_name || vendor.name) ? " " + (vendor.contact_name || vendor.name) : ""} — we walked a listing today and would like a quote on the following:</p>
+        <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi${(vendor.contact_name || vendor.name) ? " " + (vendor.contact_name || vendor.name) : ""} — this is a referral from Brothers Group. We're preparing to list one of our clients' homes for sale, and they need the following done at their property. We'd like you to quote it for them directly — since we're working against a listing timeline, time is of the essence and we appreciate you teaming up with us to keep this moving:</p>
         <ul style="padding-left:18px">${itemsHtml}</ul>
         ${photosHtml}
         <p style="font-size:13px;color:#333;margin-top:16px"><strong>Property:</strong> ${consult.property_address}</p>
+        ${clientRowHtml}
         <p style="font-size:13px;color:#333"><strong>Desired Start:</strong> ${startWindowLabel(consult)}</p>
-        <p style="font-size:12.5px;color:#333;margin-top:14px">Please email your quote and earliest availability to <strong>alex@watsonbrothersgroup.com</strong> and <strong>nate@watsonbrothersgroup.com</strong> at Brothers Group. As one of our preferred vendors, our standard payout-at-close arrangement applies where offered — happy to discuss.</p>
-        <p style="font-size:12.5px;color:#333;margin-top:10px">If you'd like to schedule a time to come take a look in person before quoting, just give us a call at <strong>(904) 504-3794</strong> or reply to this email to coordinate.</p>
+        <p style="font-size:12.5px;color:#333;margin-top:14px">Please send your quote and earliest availability back to us — <strong>alex@watsonbrothersgroup.com</strong> and <strong>nate@watsonbrothersgroup.com</strong> at Brothers Group. As one of our preferred vendors, our standard payout-at-close arrangement applies where offered — happy to discuss.</p>
+        <p style="font-size:12.5px;color:#333;margin-top:10px">If you'd like to schedule a time to come take a look in person before quoting, feel free to call the client directly${clientPhoneClause} to set it up, or call us at <strong>(904) 504-3794</strong> and we'll help coordinate.</p>
       </div>
       ${brandedFooter()}
     </div>

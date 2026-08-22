@@ -654,7 +654,7 @@ export function ListingConsultSheet({
           if (conv) {
             const d = await fetchJson(`/api/listing-consult/${id}/photo`, {
               method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery" }),
+              body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery", bucket }),
             });
             setGalleryUrls(prev => [...prev, d.url]);
             if (bucket === "scope") setScopePhotoUrls(prev => [...prev, d.url]);
@@ -697,6 +697,9 @@ export function ListingConsultSheet({
       setPropertyAddress(d.property_address || "");
       setHeroPhotoUrl(d.hero_photo_url || null);
       setGalleryUrls(Array.isArray(d.gallery_photos) ? d.gallery_photos : []);
+      // v20.28.0 — rehydrate the Scope Photos bucket on resume so it doesn't
+      // reset to 0 even though those photos were durably saved all along.
+      setScopePhotoUrls(Array.isArray(d.scope_photos) ? d.scope_photos : []);
 
       const data = d.data || {};
       let nextStep: typeof step = "prep";

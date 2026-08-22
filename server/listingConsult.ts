@@ -87,6 +87,12 @@ export function ensureListingConsultSchema() {
   // upload or the Street View auto-pull, so a later auto-fetch call never
   // clobbers a photo the agent deliberately took/chose.
   if (!lcCols.includes("hero_photo_source")) rawDb.prepare("ALTER TABLE listing_consults ADD COLUMN hero_photo_source TEXT").run();
+  // v20.28.0 — Scope Photos is a second, distinct upload moment (evidence for
+  // exactly what got flagged during the walkthrough) that must survive a
+  // resume/reopen just like gallery_photos does. Every scope photo is ALSO
+  // pushed into gallery_photos (full evidence set) — this column exists only
+  // so the UI can show the two buckets separately after reopening.
+  if (!lcCols.includes("scope_photos")) rawDb.prepare("ALTER TABLE listing_consults ADD COLUMN scope_photos TEXT").run();
 }
 
 function getRow(id: number): any {
@@ -98,6 +104,14 @@ function getRow(id: number): any {
       // tag toggle UI was removed in v20.18.0, but old rows may still have it.
       r.gallery_photos = parsed.map((entry: any) => (typeof entry === "string" ? entry : entry?.url)).filter(Boolean);
     } catch { r.gallery_photos = []; }
+  }
+  // v20.28.0 — scope_photos rehydration, same normalization as gallery_photos.
+  if (r) {
+    if (r.scope_photos) {
+      try { r.scope_photos = JSON.parse(r.scope_photos); } catch { r.scope_photos = []; }
+    } else {
+      r.scope_photos = [];
+    }
   }
   return r;
 }
@@ -423,7 +437,7 @@ export function registerListingConsultRoutes(app: Express) {
   //    backward compatibility with any in-flight consults. ──
   app.post("/api/listing-consult/:id/photo", async (req: any, res: Response) => {
     const consultId = parseInt(req.params.id);
-    const { imageData, mimeType, kind } = req.body || {}; // kind: 'hero' | 'gallery'
+    const { imageData, mimeType, kind, bucket } = req.body || {}; // kind: 'hero' | 'gallery'; bucket: 'walkthrough' | 'scope' (gallery only, v20.28.0)
     if (!imageData || !mimeType) return res.status(400).json({ error: "Missing imageData or mimeType" });
     if (imageData.length > 28000000) return res.status(413).json({ error: "Image too large. Max 20MB." });
     try {
@@ -439,11 +453,22 @@ export function registerListingConsultRoutes(app: Express) {
       if (kind === "hero") {
         rawDb.prepare(`UPDATE listing_consults SET hero_photo_url = ?, hero_photo_source = 'manual', updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
       } else if (kind === "gallery") {
-        const row = rawDb.prepare(`SELECT gallery_photos FROM listing_consults WHERE id = ?`).get(consultId) as any;
+        const row = rawDb.prepare(`SELECT gallery_photos, scope_photos FROM listing_consults WHERE id = ?`).get(consultId) as any;
         const raw = row?.gallery_photos ? JSON.parse(row.gallery_photos) : [];
         const arr = raw.map((entry: any) => (typeof entry === "string" ? entry : entry?.url)).filter(Boolean);
         arr.push(url);
-        rawDb.prepare(`UPDATE listing_consults SET gallery_photos = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(arr), consultId);
+        // v20.28.0 — scope-bucket uploads ALSO land in scope_photos (their own
+        // JSON array) so the Scope Photos card can rehydrate correctly on
+        // resume. They still land in gallery_photos too — nothing is lost
+        // from the full evidence set either way.
+        if (bucket === "scope") {
+          let scopeArr: string[] = [];
+          try { scopeArr = row?.scope_photos ? JSON.parse(row.scope_photos) : []; } catch { scopeArr = []; }
+          scopeArr.push(url);
+          rawDb.prepare(`UPDATE listing_consults SET gallery_photos = ?, scope_photos = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(arr), JSON.stringify(scopeArr), consultId);
+        } else {
+          rawDb.prepare(`UPDATE listing_consults SET gallery_photos = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(arr), consultId);
+        }
       }
       res.json({ url });
     } catch (err: any) {

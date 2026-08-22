@@ -66,6 +66,10 @@ type Consult = {
   countersigned_by: string | null;
   declined_at: string | null;
   decline_reason: string | null;
+  declined_by: string | null;
+  decline_source: string | null;
+  reopened_at: string | null;
+  reopened_by: string | null;
   print_signed_confirmed_at: string | null;
   print_signed_confirmed_by: string | null;
   agent_name: string | null;
@@ -475,6 +479,37 @@ function ConsultsPanel() {
     setPdfModal({ url: `/api/repair-consult/${c.id}/agreement-pdf`, title: `${c.property_address} — Print & Sign Agreement` });
   };
 
+  // v20.32.2 — owner declined at the consult itself (no money / DIY), before
+  // any quote was ever sent for signature. Closes the loop without deleting
+  // anything — all scope/items/photos stay put, and it can be reopened.
+  const declineConsult = async (c: Consult) => {
+    const reason = prompt(`Mark ${c.property_address} as declined by the owner?\n\nThis keeps all scope/pricing data — it does NOT delete anything, and can be reopened anytime.\n\nOptional reason (e.g. "No budget", "Handling it themselves"):`, "");
+    if (reason === null) return; // cancelled
+    setBusy(c.id);
+    try {
+      const r = await fetch(`/api/repair-consult/${c.id}/decline`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason.trim() || undefined }),
+      });
+      const b = await r.json();
+      if (!r.ok) { alert(b?.error || "Failed to mark declined"); return; }
+      load();
+    } finally { setBusy(null); }
+  };
+
+  // v20.32.2 — owner changed their mind after declining. Returns the consult
+  // to draft; original decline history stays visible in Signature Stage.
+  const reopenConsult = async (c: Consult) => {
+    if (!confirm(`Reopen the repair consult for ${c.property_address}? It will go back to Draft so you can re-quote/re-send it.`)) return;
+    setBusy(c.id);
+    try {
+      const r = await fetch(`/api/repair-consult/${c.id}/reopen`, { method: "POST", credentials: "include" });
+      const b = await r.json();
+      if (!r.ok) { alert(b?.error || "Failed to reopen"); return; }
+      load();
+    } finally { setBusy(null); }
+  };
+
   // v20.31.0 — button audit: permanently delete a consult (admin only).
   // Extra-scary confirm copy when the consult is already signed, since
   // deleting one erases a signed agreement record.
@@ -584,7 +619,7 @@ function ConsultsPanel() {
   // where a consult sits in the two-stage e-sign / print-sign pipeline.
   const signatureStageLabel = (c: Consult) => {
     if (c.status === "accepted") return <span style={{ color: "#5eead4" }}>Signed</span>;
-    if (c.status === "declined") return <span style={{ color: "#f87171" }}>Declined{c.decline_reason ? ` · ${c.decline_reason}` : ""}</span>;
+    if (c.status === "declined") return <span style={{ color: "#f87171" }}>Declined{c.decline_reason ? ` · ${c.decline_reason}` : ""}{c.declined_by ? ` (${c.declined_by})` : ""}</span>;
     if (c.status === "pending_countersignature") return <span style={{ color: GOLD }}>Awaiting Countersign</span>;
     if (c.print_signed_at && !c.print_signed_confirmed_at) return <span style={{ color: GOLD }}>Print-Signed · Awaiting Confirm</span>;
     return <span style={{ color: "#64748b" }}>Awaiting Signature</span>;
@@ -695,6 +730,13 @@ function ConsultsPanel() {
                         <button disabled={busy === c.id} onClick={() => setChangeOrderFor(c)} title="Request a Change Order — additional work found once work began"
                           style={{ ...actionBtnStyle, color: "#c8aa5a", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><FilePlus2 size={11} /> Change Order</button>
                       )}
+                      {c.status === "declined" ? (
+                        <button disabled={busy === c.id} onClick={() => reopenConsult(c)} title="Owner changed their mind — reopen this consult"
+                          style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.08)" }}><RefreshCw size={11} /> Reopen</button>
+                      ) : c.status !== "accepted" && c.status !== "work_order_sent" ? (
+                        <button disabled={busy === c.id} onClick={() => declineConsult(c)} title="Owner declined repairs at the consult — closes this out, keeps all data, can be reopened anytime"
+                          style={{ ...actionBtnStyle, color: "#f87171", borderColor: "rgba(248,113,113,0.4)", background: "rgba(248,113,113,0.08)" }}><XCircle size={11} /> Owner Declined</button>
+                      ) : null}
                       <button disabled={busy === c.id} onClick={() => deleteConsult(c)} title="Permanently delete this consult"
                         style={{ ...actionBtnStyle, color: "#f87171", borderColor: "rgba(248,113,113,0.4)", background: "rgba(248,113,113,0.08)" }}><Trash2 size={11} /> Delete</button>
                     </div>

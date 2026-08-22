@@ -146,6 +146,21 @@ function row(label: string, value: string): string {
   return `<tr><td style="padding:4px 0;color:${BRAND.gray};width:170px;font-size:12.5px;vertical-align:top">${label}</td><td style="padding:4px 0;font-size:12.5px;color:#222">${value || "—"}</td></tr>`;
 }
 
+// v20.32.2 — Access is Key or Code (never a bare free-text string). Renders
+// a one-line human summary for the signed-TC email.
+function accessSummary(lockin: any): string {
+  if (lockin.accessType === "key") {
+    const exchanged = lockin.keyInLockbox === "yes" ? "Yes — key is in the lockbox for the agent" : lockin.keyInLockbox === "no" ? "No — key NOT yet exchanged/in lockbox" : "—";
+    return `Key. Exchanged &amp; in lockbox? ${exchanged}`;
+  }
+  if (lockin.accessType === "code") {
+    const code = lockin.accessCode || lockin.accessKeyOrCode || "—";
+    const how = lockin.accessCodeInstructions || "—";
+    return `Code: ${code}. How to get in: ${how}`;
+  }
+  return lockin.accessKeyOrCode || "—";
+}
+
 // v20.19.x — Timeline Forecast rendering for the signed-TC email. Dates are
 // saved as plain ISO strings by the client; format here without pulling in a
 // date library.
@@ -246,7 +261,7 @@ async function sendSignedTcEmail(consultId: number) {
         ${row("Commission", commissionLine)}
         ${close.additionalTerms ? row("Additional Terms", close.additionalTerms) : ""}
         ${row("Timeline", d.walkthrough?.timeline || "—")}
-        ${row("Access Key/Code", lockin.accessKeyOrCode || "—")}
+        ${row("Access", accessSummary(lockin))}
         ${row("Gate Code", lockin.gateCode || "—")}
         ${row("Showing Approval Contact", lockin.showingContactName || "—")}
         ${row("Showing Restrictions", lockin.showingRestrictions || "—")}
@@ -608,7 +623,9 @@ export function registerListingConsultRoutes(app: Express) {
     if (!lockin.ownerNames) missing.push("Owner 1 Legal Name");
     if (!r.property_address) missing.push("Property Address");
     if (!close.finalListingPrice) missing.push("Final Listing Price");
-    if (!lockin.accessKeyOrCode) missing.push("Access Key/Code");
+    if (!lockin.accessType) missing.push("Access: Key or Code");
+    if (lockin.accessType === "code" && !lockin.accessCode) missing.push("Access Code");
+    if (lockin.accessType === "key" && !lockin.keyInLockbox) missing.push("Key Exchanged To Lockbox? (Yes/No)");
     if (!lockin.showingApprovalContact) missing.push("Showing Approval Contact");
     if (missing.length) return res.status(400).json({ error: `Missing required fields: ${missing.join(", ")}`, missing });
 

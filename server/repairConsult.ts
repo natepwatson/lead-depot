@@ -320,6 +320,15 @@ export function ensureRepairConsultSchema() {
   if (!rcCols.includes("countersigned_by"))          rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN countersigned_by TEXT").run();
   if (!rcCols.includes("declined_at"))               rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN declined_at TEXT").run();
   if (!rcCols.includes("decline_reason"))            rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN decline_reason TEXT").run();
+  // v20.32.2 — owner-declined-at-consult loop-closer. declined_by identifies
+  // who logged the decline (admin/agent name), decline_source distinguishes
+  // an admin/agent marking it declined in person vs. the public e-sign
+  // decline link. reopened_at/reopened_by track a revive without erasing the
+  // decline history — nothing about the consult or its items is ever deleted.
+  if (!rcCols.includes("declined_by"))               rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN declined_by TEXT").run();
+  if (!rcCols.includes("decline_source"))            rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN decline_source TEXT").run();
+  if (!rcCols.includes("reopened_at"))               rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN reopened_at TEXT").run();
+  if (!rcCols.includes("reopened_by"))               rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN reopened_by TEXT").run();
   if (!rcCols.includes("print_signed_confirmed_at")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN print_signed_confirmed_at TEXT").run();
   if (!rcCols.includes("print_signed_confirmed_by")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN print_signed_confirmed_by TEXT").run();
   // v20.32.0 — final Work Order & Checklist doc (photos + chronological scope
@@ -2498,9 +2507,9 @@ export function registerRepairConsultRoutes(app: Express) {
     if (!consult) return res.status(404).json({ error: "Quote not found" });
     const { reason } = req.body || {};
     rawDb.prepare(`
-      UPDATE repair_consults SET status = 'declined', declined_at = datetime('now'), decline_reason = ?, updated_at = datetime('now')
+      UPDATE repair_consults SET status = 'declined', declined_at = datetime('now'), decline_reason = ?, declined_by = ?, decline_source = 'client_esign', updated_at = datetime('now')
       WHERE id = ?
-    `).run(reason ? String(reason).trim().slice(0, 1000) : null, consult.id);
+    `).run(reason ? String(reason).trim().slice(0, 1000) : null, consult.client_name || null, consult.id);
 
     if (resend) {
       try {
@@ -2514,6 +2523,43 @@ export function registerRepairConsultRoutes(app: Express) {
       } catch (e) { console.error("decline notify failed:", e); }
     }
 
+    res.json({ ok: true });
+  });
+
+  // ── Admin/agent: mark a consult declined at the consult itself (owner said
+  // no money / handling it themselves) BEFORE a quote was ever sent for
+  // e-signature. This is the earlier, in-person loop-closer requested
+  // v20.32.2 — distinct from the public e-sign decline above. Never deletes
+  // anything: all items/photos/pillars stay put so the consult can be
+  // reopened later at full fidelity if the owner changes their mind.
+  app.post("/api/repair-consult/:id/decline", (req: any, res: Response) => {
+    const consult = rawDb.prepare(`SELECT * FROM repair_consults WHERE id = ?`).get(req.params.id) as any;
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+    if (consult.status === "accepted" || consult.status === "work_order_sent") {
+      return res.status(400).json({ error: "Already signed/executing — cannot decline. Use a Change Order or contact the client directly." });
+    }
+    const { reason } = req.body || {};
+    const actor = req.currentAgent?.name || "Admin";
+    rawDb.prepare(`
+      UPDATE repair_consults SET status = 'declined', declined_at = datetime('now'), decline_reason = ?, declined_by = ?, decline_source = 'consult', updated_at = datetime('now')
+      WHERE id = ?
+    `).run(reason ? String(reason).trim().slice(0, 1000) : "Owner declined at consult", actor, consult.id);
+    res.json({ ok: true });
+  });
+
+  // ── Admin/agent: reopen a declined consult (owner changed their mind).
+  // Returns it to draft so it can be re-quoted/re-sent. Keeps the original
+  // declined_at/decline_reason/declined_by as history — nothing is erased,
+  // only reopened_at/reopened_by are stamped on top. ──
+  app.post("/api/repair-consult/:id/reopen", (req: any, res: Response) => {
+    const consult = rawDb.prepare(`SELECT * FROM repair_consults WHERE id = ?`).get(req.params.id) as any;
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+    if (consult.status !== "declined") return res.status(400).json({ error: "Only a declined consult can be reopened." });
+    const actor = req.currentAgent?.name || "Admin";
+    rawDb.prepare(`
+      UPDATE repair_consults SET status = 'draft', reopened_at = datetime('now'), reopened_by = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(actor, consult.id);
     res.json({ ok: true });
   });
 

@@ -479,7 +479,13 @@ export function ListingConsultSheet({
   // a specific forecasted date — everything computes off the rule-of-thumb
   // gaps until then.
   const [forecastOverrides, setForecastOverrides] = useState<Partial<Record<MilestoneKey, string>>>({});
-  const [accessKeyOrCode, setAccessKeyOrCode] = useState("");
+  // v20.32.2 — Access is now Key OR Code (toggle), never a single free-text
+  // field. Code path asks for the code + how to get in; Key path asks
+  // whether the key has already been exchanged into the lockbox for the agent.
+  const [accessType, setAccessType] = useState<"" | "key" | "code">("");
+  const [accessCode, setAccessCode] = useState("");
+  const [accessCodeInstructions, setAccessCodeInstructions] = useState("");
+  const [keyInLockbox, setKeyInLockbox] = useState<"" | "yes" | "no">("");
   const [gateCode, setGateCode] = useState("");
   const [ownerNames, setOwnerNames] = useState("");
   const [ownerNames2, setOwnerNames2] = useState("");
@@ -744,7 +750,13 @@ export function ListingConsultSheet({
         if (savedCleaning && savedCleaning !== derivedFromPillar) setCleaningManualOverride(true);
         setNeedsCleaning(savedCleaning || derivedFromPillar);
         setForecastStartDate(data.lockin.forecastStartDate || toISO(new Date()));
-        setAccessKeyOrCode(data.lockin.accessKeyOrCode || "");
+        // v20.32.2 — migrate any older saved consult that still only has the
+        // free-text accessKeyOrCode by defaulting the toggle to "code" so
+        // nothing already on file silently disappears.
+        setAccessType(data.lockin.accessType || (data.lockin.accessKeyOrCode ? "code" : ""));
+        setAccessCode(data.lockin.accessCode || data.lockin.accessKeyOrCode || "");
+        setAccessCodeInstructions(data.lockin.accessCodeInstructions || "");
+        setKeyInLockbox(data.lockin.keyInLockbox || "");
         setGateCode(data.lockin.gateCode || "");
         setOwnerNames(data.lockin.ownerNames || "");
         setOwnerNames2(data.lockin.ownerNames2 || "");
@@ -855,7 +867,10 @@ export function ListingConsultSheet({
     if (!ownerNames.trim()) missing.push("Owner 1 Legal Name");
     if (!propertyAddress.trim()) missing.push("Property Address");
     if (!finalListingPrice.trim()) missing.push("Final Listing Price");
-    if (!accessKeyOrCode.trim()) missing.push("Access Key/Code");
+    if (!accessType) missing.push("Access: Key or Code");
+    if (accessType === "code" && !accessCode.trim()) missing.push("Access Code");
+    if (accessType === "code" && !accessCodeInstructions.trim()) missing.push("How To Get In");
+    if (accessType === "key" && !keyInLockbox) missing.push("Key Exchanged To Lockbox? (Yes/No)");
     if (!showingApprovalContact) missing.push("Showing Approval Contact");
     if (showingApprovalContact === "other" && !showingContactOtherName.trim()) missing.push("Showing Contact Name");
     if (needsCleaning === "") missing.push("Cleaning Booked? (Yes/No)");
@@ -875,7 +890,7 @@ export function ListingConsultSheet({
         goLiveDate: timelineForecast ? toISO(timelineForecast.goLive) : null,
         showingsBeginDate: timelineForecast ? toISO(timelineForecast.showingsBegin) : null,
         openHouseDate: timelineForecast ? toISO(timelineForecast.openHouse) : null,
-        accessKeyOrCode, gateCode, ownerNames, ownerNames2, owner2Phone, owner2Email,
+        accessType, accessCode, accessCodeInstructions, keyInLockbox, gateCode, ownerNames, ownerNames2, owner2Phone, owner2Email,
         showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail,
         showingRestrictions,
         showingContactName: derivedShowingContact.name,
@@ -1424,8 +1439,21 @@ export function ListingConsultSheet({
             )}
 
             <label style={{ ...labelStyle, marginTop: 10 }}>Access</label>
+            <div style={{ marginBottom: 10 }}>
+              {segmented(accessType, [{ key: "key", label: "Key" }, { key: "code", label: "Code" }], v => setAccessType(v as "key" | "code"))}
+            </div>
+            {accessType === "code" ? (
+              <div style={{ marginBottom: 10 }}>
+                <input style={{ ...inputStyle, marginBottom: 8 }} value={accessCode} onChange={e => setAccessCode(e.target.value)} placeholder="What is the code?" />
+                <input style={inputStyle} value={accessCodeInstructions} onChange={e => setAccessCodeInstructions(e.target.value)} placeholder="How do we get in? (e.g. front door keypad, garage keypad, smart lock app)" />
+              </div>
+            ) : accessType === "key" ? (
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ ...labelStyle, fontWeight: 400, marginBottom: 6 }}>Has the key been exchanged and placed in the lockbox for the agent yet?</label>
+                {segmented(keyInLockbox, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setKeyInLockbox(v as "yes" | "no"))}
+              </div>
+            ) : null}
             <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-              <input style={inputStyle} value={accessKeyOrCode} onChange={e => setAccessKeyOrCode(e.target.value)} placeholder="Key or Code?" />
               <input style={inputStyle} value={gateCode} onChange={e => setGateCode(e.target.value)} placeholder="Gate Code?" />
             </div>
             <input style={{ ...inputStyle, marginBottom: showOwner2 ? 8 : 6 }} value={ownerNames} onChange={e => setOwnerNames(e.target.value)} placeholder={showOwner2 ? "Owner 1 Full Legal Name" : "Owner Full Legal Name"} />

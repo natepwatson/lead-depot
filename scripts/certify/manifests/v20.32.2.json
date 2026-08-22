@@ -1,0 +1,37 @@
+{
+  "version": "v20.32.2",
+  "changes": [
+    "Lock It In access field redesigned: single free-text 'Key or Code?' input replaced with a Key/Code toggle. Code path asks for the code itself plus how-to-get-in instructions. Key path asks Yes/No whether the key has been exchanged and placed in the lockbox for the agent.",
+    "Backward-compat: any consult already saved with the old free-text accessKeyOrCode value loads correctly into the new Code path so no data was lost.",
+    "New repair consult loop-closer: admin/agent 'Owner Declined' button on any non-signed, non-executing consult marks it declined (reason + who + source recorded) without deleting any scope/pricing/photo data.",
+    "New 'Reopen' button on a declined consult returns it to Draft so it can be re-quoted if the owner changes their mind. Original decline history (reason/by/when) is preserved, not erased.",
+    "New columns: repair_consults.declined_by, decline_source, reopened_at, reopened_by."
+  ],
+  "endpoints": [
+    { "path": "/api/health", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["version"] },
+    { "path": "/api/admin/repair-consults", "method": "GET", "auth": "admin", "expectStatus": 200, "expectKeys": ["consults"] }
+  ],
+  "bundleMustContain": [
+    "Owner Declined",
+    "in the lockbox for the agent",
+    "What is the code"
+  ],
+  "bundleMustNotContain": [
+    "Key or Code?"
+  ],
+  "__bundleNotes": "'Key or Code?' was the old single free-text input placeholder for Lock It In access, fully replaced in v20.32.2 by a Key/Code toggle. Its presence in the live bundle would mean the old build is still being served. 'Owner Declined' (new admin button), 'What is the code' and 'in the lockbox for the agent' (new toggle copy) must be present.",
+  "mathChecks": [
+    {
+      "name": "repair-consults endpoint returns an array",
+      "path": "/api/admin/repair-consults",
+      "auth": "admin",
+      "expr": "Array.isArray(body.consults)"
+    },
+    {
+      "name": "no consult stuck in a nonexistent status",
+      "path": "/api/admin/repair-consults",
+      "auth": "admin",
+      "expr": "body.consults.every(c => ['draft','quoted','sent','pending_countersignature','accepted','declined','work_order_sent'].includes(c.status))"
+    }
+  ]
+}

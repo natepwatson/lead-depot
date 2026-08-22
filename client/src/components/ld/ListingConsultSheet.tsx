@@ -323,6 +323,66 @@ const PILLAR_DEFS: { key: PillarKey; label: string; group: "pillar" | "addon"; t
   },
 ];
 
+// v20.32.3 — Ballpark repair cost display on the Lock It In step, BEFORE the
+// real Repair Consult is built. This is a display-only mirror of the default
+// small/medium/large item quantities and unit rates from
+// server/repairConsult.ts (IN_HOUSE_ITEMS) and RepairConsultSheet.tsx
+// (PILLAR_ITEM_MAP). If those defaults change, mirror the change here too —
+// this box is intentionally a rough number to unblock a live conversation,
+// never the number that gets invoiced (the real quote always comes from the
+// Repair Consult tool's live catalog).
+const PILLAR_ITEM_RATES: Record<string, { rate: number; min: number }> = {
+  pressure_wash_hard: { rate: 0.22, min: 150 },
+  pressure_wash_ext: { rate: 0.20, min: 200 },
+  soft_wash_roof: { rate: 0.35, min: 250 },
+  lawn_mow: { rate: 0.03, min: 300 },
+  hedge_trim: { rate: 3.00, min: 100 },
+  weed_pull: { rate: 1.25, min: 100 },
+  mulching: { rate: 2.50, min: 150 },
+  tree_hedge_removal: { rate: 95, min: 0 },
+  paint_int_body: { rate: 2.00, min: 600 },
+  paint_int_trim: { rate: 3.00, min: 150 },
+  paint_int_ceiling: { rate: 1.75, min: 300 },
+  rough_clean: { rate: 0.15, min: 200 },
+  deep_clean: { rate: 0.20, min: 250 },
+  carpet_clean: { rate: 0.35, min: 125 },
+  junk_small: { rate: 175, min: 175 },
+  junk_large: { rate: 350, min: 350 },
+};
+
+// Baseline items every real Repair Consult always includes regardless of
+// flagged pillars (prep/protection + final walkthrough clean).
+const BALLPARK_BASELINE = 65 + 85;
+
+const PILLAR_ITEM_MAP_EST: Record<PillarKey, Record<PillarTier, { itemKey: string; qty: number }[]>> = {
+  pressure_wash: {
+    small: [{ itemKey: "pressure_wash_hard", qty: 700 }],
+    medium: [{ itemKey: "pressure_wash_hard", qty: 700 }, { itemKey: "pressure_wash_ext", qty: 1800 }],
+    large: [{ itemKey: "pressure_wash_hard", qty: 700 }, { itemKey: "pressure_wash_ext", qty: 1800 }, { itemKey: "soft_wash_roof", qty: 2200 }],
+  },
+  lawn: {
+    small: [{ itemKey: "lawn_mow", qty: 8000 }],
+    medium: [{ itemKey: "lawn_mow", qty: 8000 }, { itemKey: "hedge_trim", qty: 150 }, { itemKey: "weed_pull", qty: 200 }],
+    large: [{ itemKey: "lawn_mow", qty: 8000 }, { itemKey: "hedge_trim", qty: 150 }, { itemKey: "weed_pull", qty: 200 }, { itemKey: "mulching", qty: 300 }, { itemKey: "tree_hedge_removal", qty: 1 }],
+  },
+  paint: {
+    small: [{ itemKey: "paint_int_body", qty: 350 }, { itemKey: "paint_int_trim", qty: 50 }],
+    medium: [{ itemKey: "paint_int_body", qty: 1000 }, { itemKey: "paint_int_trim", qty: 150 }],
+    large: [{ itemKey: "paint_int_body", qty: 2400 }, { itemKey: "paint_int_trim", qty: 300 }, { itemKey: "paint_int_ceiling", qty: 2000 }],
+  },
+  deep_clean: {
+    small: [{ itemKey: "rough_clean", qty: 2000 }],
+    medium: [{ itemKey: "deep_clean", qty: 2000 }],
+    large: [{ itemKey: "deep_clean", qty: 2500 }, { itemKey: "carpet_clean", qty: 800 }],
+  },
+  junk_out: {
+    small: [{ itemKey: "junk_small", qty: 1 }],
+    medium: [{ itemKey: "junk_small", qty: 2 }],
+    large: [{ itemKey: "junk_large", qty: 1 }],
+  },
+  flooring: { small: [], medium: [], large: [] }, // vendor-quoted — never summed, flagged as a note instead
+};
+
 export function ListingConsultSheet({
   leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose, onLaunchRepairConsult,
 }: {
@@ -442,6 +502,24 @@ export function ListingConsultSheet({
       key: d.key, label: d.label, tier: pillarFlags[d.key].tier, notes: pillarFlags[d.key].notes,
       details: pillarFlags[d.key].details || [],
     }));
+
+  // Ballpark "get the home fresh" estimate for the Lock It In display box.
+  // See PILLAR_ITEM_MAP_EST / PILLAR_ITEM_RATES comment above for scope.
+  const estimateRepairCost = () => {
+    let subtotal = BALLPARK_BASELINE;
+    let hasVendorOnly = false;
+    for (const p of flaggedPillarList()) {
+      const tierKey: PillarTier = (p.tier as PillarTier) || "medium";
+      const lines = PILLAR_ITEM_MAP_EST[p.key]?.[tierKey] || [];
+      if (p.key === "flooring" || lines.length === 0) { hasVendorOnly = true; continue; }
+      for (const { itemKey, qty } of lines) {
+        const r = PILLAR_ITEM_RATES[itemKey];
+        if (!r) continue;
+        subtotal += Math.max(r.rate * qty, r.min);
+      }
+    }
+    return { subtotal, hasVendorOnly };
+  };
   const [mortgageBalance, setMortgageBalance] = useState("");
   const [buyingToo, setBuyingToo] = useState<"" | "yes" | "no">("");
   const [buyingNotes, setBuyingNotes] = useState("");
@@ -1417,8 +1495,42 @@ export function ListingConsultSheet({
                         {p.notes && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 1 }}>{p.notes}</div>}
                       </div>
                     ))}
+                    {(() => {
+                      const { subtotal, hasVendorOnly } = estimateRepairCost();
+                      const low = Math.round((subtotal * 0.85) / 25) * 25;
+                      const high = Math.round((subtotal * 1.15) / 25) * 25;
+                      const depositLow = Math.round(low / 2);
+                      const depositHigh = Math.round(high / 2);
+                      return (
+                        <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 8, background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.25)" }}>
+                          <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: 4 }}>
+                            Estimated Cost To Get Home Fresh
+                          </div>
+                          <div style={{ fontSize: 19, fontWeight: 800, color: GOLD }}>
+                            ${low.toLocaleString()} – ${high.toLocaleString()}
+                          </div>
+                          <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginTop: 8, marginBottom: 4 }}>
+                            How Much To Get Started (50% Deposit)
+                          </div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
+                            ${depositLow.toLocaleString()} – ${depositHigh.toLocaleString()}
+                          </div>
+                          <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", marginTop: 8 }}>
+                            Ballpark only, based on what you flagged{hasVendorOnly ? " (excludes flooring / vendor-quoted work)" : ""} — open the Instant Repair Quote to build the real number.
+                          </div>
+                          <button type="button" onClick={handleOpenRepairConsult} disabled={saving} style={{
+                            width: "100%", marginTop: 10, padding: "10px 14px", borderRadius: 8, cursor: saving ? "default" : "pointer",
+                            background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)",
+                            color: "#fff", fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                          }}>
+                            {saving ? <Loader2 size={14} className="animate-spin" /> : <Wrench size={14} style={{ color: GOLD }} />}
+                            Open Instant Repair Quote
+                          </button>
+                        </div>
+                      );
+                    })()}
                     <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 8, marginBottom: 0 }}>
-                      We'll scope it and build the real quote once they've signed on — right after the contract sends below.
+                      We'll build the real, final quote in the Instant Repair Quote above once they've signed on — right after the contract sends below.
                     </p>
                   </div>
                 ) : (

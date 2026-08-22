@@ -1,0 +1,21 @@
+{
+  "version": "v20.32.3",
+  "changes": [
+    "Lock It In 'Repairs Flagged During Walkthrough' box now shows a ballpark 'Estimated Cost To Get Home Fresh' range and a 'How Much To Get Started (50% Deposit)' range, computed live from the flagged pillars and their tiers (small/medium/large). Purely a display-only estimate — never invoiced.",
+    "Added an 'Open Instant Repair Quote' button directly inside that box, so the agent can launch the real Repair Consult tool live during the Lock It In conversation, before the listing contract is even sent (previously the only launch point was after the contract sent).",
+    "No new endpoints, no new DB columns — reuses the existing handleOpenRepairConsult / onLaunchRepairConsult wiring."
+  ],
+  "endpoints": [
+    { "path": "/api/health", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["version"] }
+  ],
+  "bundleMustContain": [
+    "Estimated Cost To Get Home Fresh",
+    "How Much To Get Started",
+    "Open Instant Repair Quote"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "All three strings are new client-side copy introduced in v20.32.3 for the Lock It In ballpark estimate box. Their presence in the live bundle confirms the new build shipped, not a stale one.",
+  "mathChecks": [
+    { "name": "health endpoint reports v20.32.3", "path": "/api/health", "auth": "none", "expr": "body.version === 'v20.32.3'" }
+  ]
+}

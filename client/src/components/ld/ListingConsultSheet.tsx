@@ -373,6 +373,12 @@ export function ListingConsultSheet({
   const [uploadingHero, setUploadingHero] = useState(false);
   // v20.18.0 — gallery tag toggle UI removed; entries are plain URL strings now.
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  // v20.28.0 — Scope Photos is a second, distinct upload moment for
+  // close-up evidence of exactly what got flagged (paint peeling, cracked
+  // driveway, etc). Same underlying gallery_photos array/endpoint as the
+  // general Walkthrough Photos bucket — no backend change — this is purely a
+  // client-side second list so the two prompts don't visually collide.
+  const [scopePhotoUrls, setScopePhotoUrls] = useState<string[]>([]);
   const [uploadingGallery, setUploadingGallery] = useState(false);
   const [galleryProgress, setGalleryProgress] = useState<{ done: number; total: number } | null>(null);
 
@@ -608,43 +614,60 @@ export function ListingConsultSheet({
 
   // v20.15.0 — hero + gallery photo upload, mirrors RepairConsultSheet exactly.
   const handlePhotoPick = async (file: File, kind: "hero" | "gallery") => {
-    const id = await ensureConsult();
+    // v20.28.0 — ensureConsult() moved INSIDE the try block. Previously it ran
+    // before setBusy(true)/try, so any failure (expired session, network
+    // hiccup, server validation) threw silently with zero UI feedback —
+    // agent picks a photo, taps upload, nothing happens, no error, no spinner.
     const setBusy = kind === "hero" ? setUploadingHero : setUploadingGallery;
     setBusy(true);
     try {
+      const id = await ensureConsult();
       const conv = await fileToImageData(file);
-      if (!conv) { setError("Couldn't read that photo. Try another."); setBusy(false); return; }
+      if (!conv) { setError("Couldn't read that photo. Try another."); return; }
       const d = await fetchJson(`/api/listing-consult/${id}/photo`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind }),
       });
       if (kind === "hero") setHeroPhotoUrl(d.url);
       else setGalleryUrls(prev => [...prev, d.url]);
-    } catch (e: any) { setError(e.message || "Photo upload failed."); }
+    } catch (e: any) { setError(e.message || "Photo upload failed. Check your connection and try again."); }
     finally { setBusy(false); }
   };
 
-  const handleBulkGalleryUpload = async (files: FileList) => {
-    const id = await ensureConsult();
+  const handleBulkGalleryUpload = async (files: FileList, bucket: "walkthrough" | "scope" = "walkthrough") => {
+    // v20.28.0 — same ensureConsult()-outside-try fix as handlePhotoPick.
+    // setUploadingGallery(true) now fires FIRST so the spinner always shows
+    // immediately, and a failed ensureConsult() surfaces a real error instead
+    // of a silent no-op. `bucket` just controls which client-side thumbnail
+    // list the new URL also lands in — every photo still lands in the one
+    // gallery_photos array server-side (that's the full evidence set handed
+    // to Repair Consult and Lock It In).
     const fileArr = Array.from(files);
     if (fileArr.length === 0) return;
     setUploadingGallery(true);
     setGalleryProgress({ done: 0, total: fileArr.length });
-    for (let i = 0; i < fileArr.length; i++) {
-      try {
-        const conv = await fileToImageData(fileArr[i]);
-        if (conv) {
-          const d = await fetchJson(`/api/listing-consult/${id}/photo`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery" }),
-          });
-          setGalleryUrls(prev => [...prev, d.url]);
-        }
-      } catch (e: any) { setError(e.message || `Photo ${i + 1} of ${fileArr.length} failed to upload — the rest kept going.`); }
-      setGalleryProgress({ done: i + 1, total: fileArr.length });
+    try {
+      const id = await ensureConsult();
+      for (let i = 0; i < fileArr.length; i++) {
+        try {
+          const conv = await fileToImageData(fileArr[i]);
+          if (conv) {
+            const d = await fetchJson(`/api/listing-consult/${id}/photo`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery" }),
+            });
+            setGalleryUrls(prev => [...prev, d.url]);
+            if (bucket === "scope") setScopePhotoUrls(prev => [...prev, d.url]);
+          }
+        } catch (e: any) { setError(e.message || `Photo ${i + 1} of ${fileArr.length} failed to upload — the rest kept going.`); }
+        setGalleryProgress({ done: i + 1, total: fileArr.length });
+      }
+    } catch (e: any) {
+      setError(e.message || "Couldn't start the upload — check your connection and try again.");
+    } finally {
+      setUploadingGallery(false);
+      setGalleryProgress(null);
     }
-    setUploadingGallery(false);
-    setGalleryProgress(null);
   };
 
   const handleArchiveConsult = async (id: number) => {
@@ -1123,6 +1146,27 @@ export function ListingConsultSheet({
               );
             })}
             <div style={{ marginBottom: 4 }} />
+            {flaggedPillarList().length > 0 && (
+              <div style={{ ...cardStyle, marginBottom: 14, border: `1px solid rgba(200,170,90,0.35)` }}>
+                <label style={labelStyle}>Scope Photos — Evidence ({scopePhotoUrls.length})</label>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>
+                  A second, separate moment — while you're standing right there, grab close-ups of exactly what you just flagged: {flaggedPillarList().map(p => p.label + (p.details.length ? ` (${p.details.join(", ").replace(/_/g, " ")})` : "")).join(" · ")}. These become the repair quote evidence — walkthrough shots above cover the whole property, these cover the specific problem spots.
+                </p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {scopePhotoUrls.map((url, i) => (
+                    <img key={i} src={url} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6, display: "block", border: `1px solid ${GOLD}` }} />
+                  ))}
+                  <label style={{
+                    width: 72, height: 72, borderRadius: 6, border: "1px dashed rgba(200,170,90,0.6)",
+                    display: "flex", alignItems: "center", justifyContent: "center", cursor: uploadingGallery ? "default" : "pointer", opacity: uploadingGallery ? 0.6 : 1,
+                  }}>
+                    {uploadingGallery ? <Loader2 size={16} className="animate-spin" style={{ color: GOLD }} /> : <Camera size={16} style={{ color: GOLD }} />}
+                    <input type="file" accept="image/*" multiple disabled={uploadingGallery} style={{ display: "none" }}
+                      onChange={e => { if (e.target.files && e.target.files.length > 0) handleBulkGalleryUpload(e.target.files, "scope"); e.target.value = ""; }} />
+                  </label>
+                </div>
+              </div>
+            )}
             <div style={cardStyle}>
               <label style={labelStyle}>Walkthrough Photos ({galleryUrls.length})</label>
               <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>

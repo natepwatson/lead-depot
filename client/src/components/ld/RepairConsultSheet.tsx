@@ -809,19 +809,24 @@ export function RepairConsultSheet({
   };
 
   const handlePhotoPick = async (file: File, kind: "hero" | "gallery") => {
-    const id = await ensureConsult();
+    // v20.28.0 — ensureConsult() moved INSIDE the try block, same fix as
+    // ListingConsultSheet. Previously a failed ensureConsult() (expired
+    // session, network hiccup) threw before setBusy(true)/try ever ran —
+    // silent no-op, no spinner, no error, matching the "nothing happens even
+    // if I wait" report.
     const setBusy = kind === "hero" ? setUploadingHero : setUploadingGallery;
     setBusy(true);
     try {
+      const id = await ensureConsult();
       const conv = await fileToImageData(file);
-      if (!conv) { setError("Couldn't read that photo. Try another."); setBusy(false); return; }
+      if (!conv) { setError("Couldn't read that photo. Try another."); return; }
       const d = await fetchJson(`/api/repair-consult/${id}/photo`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind, tag: kind === "gallery" ? galleryTagMode : undefined }),
       });
       if (kind === "hero") setHeroPhotoUrl(d.url);
       else setGalleryUrls(prev => [...prev, { url: d.url, tag: galleryTagMode }]);
-    } catch (e: any) { setError(e.message || "Photo upload failed."); }
+    } catch (e: any) { setError(e.message || "Photo upload failed. Check your connection and try again."); }
     finally { setBusy(false); }
   };
 
@@ -830,27 +835,33 @@ export function RepairConsultSheet({
   // their photo library. Uploaded one at a time (each already downscaled by
   // fileToImageData) so a single oversized file can't block the rest.
   const handleBulkGalleryUpload = async (files: FileList) => {
-    const id = await ensureConsult();
+    // v20.28.0 — same ensureConsult()-outside-try fix as handlePhotoPick.
     const fileArr = Array.from(files);
     if (fileArr.length === 0) return;
     const tag = galleryTagMode;
     setUploadingGallery(true);
     setGalleryProgress({ done: 0, total: fileArr.length });
-    for (let i = 0; i < fileArr.length; i++) {
-      try {
-        const conv = await fileToImageData(fileArr[i]);
-        if (conv) {
-          const d = await fetchJson(`/api/repair-consult/${id}/photo`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery", tag }),
-          });
-          setGalleryUrls(prev => [...prev, { url: d.url, tag }]);
-        }
-      } catch (e: any) { setError(e.message || `Photo ${i + 1} of ${fileArr.length} failed to upload — the rest kept going.`); }
-      setGalleryProgress({ done: i + 1, total: fileArr.length });
+    try {
+      const id = await ensureConsult();
+      for (let i = 0; i < fileArr.length; i++) {
+        try {
+          const conv = await fileToImageData(fileArr[i]);
+          if (conv) {
+            const d = await fetchJson(`/api/repair-consult/${id}/photo`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "gallery", tag }),
+            });
+            setGalleryUrls(prev => [...prev, { url: d.url, tag }]);
+          }
+        } catch (e: any) { setError(e.message || `Photo ${i + 1} of ${fileArr.length} failed to upload — the rest kept going.`); }
+        setGalleryProgress({ done: i + 1, total: fileArr.length });
+      }
+    } catch (e: any) {
+      setError(e.message || "Couldn't start the upload — check your connection and try again.");
+    } finally {
+      setUploadingGallery(false);
+      setGalleryProgress(null);
     }
-    setUploadingGallery(false);
-    setGalleryProgress(null);
   };
 
   // v20.15.2 — re-tag a photo after the fact (tap its badge to flip Overview ↔ Repair Scope).

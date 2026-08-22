@@ -311,6 +311,12 @@ interface SeedItem {
 }
 
 const IN_HOUSE_ITEMS: SeedItem[] = [
+  // v20.24.0 — Always-Included baseline items. Auto-checked on EVERY repair
+  // consult regardless of pillar flags or the scope slider position — these
+  // are the small professionalism touches that should show up on every
+  // estimate no matter the scope (Alex: "shows how good we are").
+  { key: "prep_protection", category: "in_house", trade: "handyman", name: "Site Prep & Surface Protection", unit: "flat", rate: 65, min: 65, seq: 1, instruction: "Mask and protect flooring, fixtures, and surfaces before work begins. Included on every job." },
+  { key: "final_walkthrough_clean", category: "in_house", trade: "cleaning", name: "Final Walkthrough Clean-Up & Debris Haul", unit: "flat", rate: 85, min: 85, seq: 68, instruction: "Final clean-up and debris haul on completion. Included on every job." },
   { key: "junk_small", category: "in_house", trade: "junk_removal", name: "Junk Removal — Small Load (truck bed)", unit: "flat", rate: 175, min: 175, seq: 10, instruction: "Clear and haul small junk load." },
   { key: "junk_large", category: "in_house", trade: "junk_removal", name: "Junk Removal — Large Load (trailer/dump run)", unit: "flat", rate: 350, min: 350, seq: 11, instruction: "Clear and haul large junk load — trailer or dump run." },
   { key: "gutter_clean", category: "in_house", trade: "handyman", name: "Gutter Cleaning", unit: "linear_ft", rate: 1.25, min: 150, seq: 15, instruction: "Clean gutters — {qty} linear ft." },
@@ -559,20 +565,22 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
 ];
 
 // ─── EMAIL: In-house quote (to agent + admin, always fires the moment a quote is generated) ─
+// v20.24.0 — Alex: "remove the itemized breakdown but keep the total
+// pricing." No more per-line dollar amount here — scope is listed (so the
+// client sees exactly what's included) but pricing is isolated to a single
+// Total figure below this table.
 function quoteItemsTable(items: any[]): string {
   const rows = items.map(it => `
     <tr>
       <td style="padding:8px 10px;border-bottom:1px solid ${BRAND.border};font-size:12.5px;color:#1a1a1a">${it.name}${it.two_story ? " <span style='color:#888;font-size:11px'>(2-story)</span>" : ""}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid ${BRAND.border};font-size:12.5px;color:#1a1a1a;text-align:center">${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid ${BRAND.border};font-size:12.5px;color:#1a1a1a;text-align:right;font-weight:600">$${Number(it.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid ${BRAND.border};font-size:12.5px;color:#1a1a1a;text-align:right">${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}</td>
     </tr>`).join("");
   return `
   <table style="width:100%;border-collapse:collapse;margin-top:10px">
     <thead>
       <tr>
         <th style="text-align:left;padding:6px 10px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:${BRAND.gray};border-bottom:2px solid ${BRAND.black}">Item</th>
-        <th style="text-align:center;padding:6px 10px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:${BRAND.gray};border-bottom:2px solid ${BRAND.black}">Qty</th>
-        <th style="text-align:right;padding:6px 10px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:${BRAND.gray};border-bottom:2px solid ${BRAND.black}">Amount</th>
+        <th style="text-align:right;padding:6px 10px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:${BRAND.gray};border-bottom:2px solid ${BRAND.black}">Qty</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -733,7 +741,6 @@ export async function sendClientQuoteEmail(consultId: number) {
       <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${consult.client_name || "there"} — here's the proposal we walked through together. Everything below is work our own crew handles in-house.</p>
       ${quoteItemsTable(items)}
       <table style="width:100%;margin-top:14px">
-        <tr><td style="padding:4px 10px;text-align:right;font-size:13px;color:${BRAND.gray}">Subtotal</td><td style="padding:4px 10px;text-align:right;font-size:13px;width:110px">$${consult.subtotal.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
         <tr><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700;width:110px">$${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
       </table>
       ${depositSplitHtml(consult)}
@@ -1006,10 +1013,11 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   }
 
   // Items table
-  const colLabelX = 38, colQtyX = 420, colAmtX = 480;
+  // v20.24.0 — Alex: keep the total, drop the itemized $ breakdown. Item +
+  // Qty columns only; no per-line Amount, no Subtotal line.
+  const colLabelX = 38, colQtyX = 480, colAmtX = 480;
   page.drawText("Item", { x: colLabelX, y, size: 9, font: fontBold, color: gray });
   page.drawText("Qty", { x: colQtyX, y, size: 9, font: fontBold, color: gray });
-  page.drawText("Amount", { x: colAmtX, y, size: 9, font: fontBold, color: gray });
   y -= 6;
   page.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 1, color: black });
   y -= 14;
@@ -1021,16 +1029,12 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
     const label = it.two_story ? `${it.name} (2-story)` : it.name;
     page.drawText(label.slice(0, 60), { x: colLabelX, y: y, size: 9, font, color: black });
     page.drawText(`${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`, { x: colQtyX, y, size: 9, font, color: black });
-    page.drawText(`$${Number(it.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 9, font: fontBold, color: black });
     y -= 16;
     rowIdx++;
   }
 
   y -= 10;
   page.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 0.5, color: gray });
-  y -= 18;
-  page.drawText("Subtotal", { x: colAmtX - 70, y, size: 10, font, color: gray });
-  page.drawText(`$${consult.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 10, font, color: black });
   y -= 18;
   // v20.18.0 — show package discount (if any) as its own line before the total.
   if (consult.package_discount_amount && Number(consult.package_discount_amount) > 0) {
@@ -1195,10 +1199,10 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   }
 
   // Items table
-  const colLabelX = 38, colQtyX = 420, colAmtX = 480;
+  // v20.24.0 — Alex: keep the total, drop the itemized $ breakdown.
+  const colLabelX = 38, colQtyX = 480, colAmtX = 480;
   p1.drawText("Item", { x: colLabelX, y, size: 8.5, font: fontBold, color: gray });
   p1.drawText("Qty", { x: colQtyX, y, size: 8.5, font: fontBold, color: gray });
-  p1.drawText("Amount", { x: colAmtX, y, size: 8.5, font: fontBold, color: gray });
   y -= 6;
   p1.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 1, color: black });
   y -= 13;
@@ -1211,16 +1215,12 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     const label = it.two_story ? `${it.name} (2-story)` : it.name;
     p1.drawText(label.slice(0, 62), { x: colLabelX, y, size: 8.5, font, color: black });
     p1.drawText(`${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`, { x: colQtyX, y, size: 8.5, font, color: black });
-    p1.drawText(`$${Number(it.line_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 8.5, font: fontBold, color: black });
     y -= 14;
     rowIdx++;
   }
 
   y -= 8;
   p1.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 0.5, color: gray });
-  y -= 16;
-  p1.drawText("Subtotal", { x: colAmtX - 70, y, size: 9.5, font, color: gray });
-  p1.drawText(`$${consult.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 9.5, font, color: black });
   y -= 16;
   p1.drawText("Total", { x: colAmtX - 70, y, size: 12, font: fontBold, color: black });
   p1.drawText(`$${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 12, font: fontBold, color: black });

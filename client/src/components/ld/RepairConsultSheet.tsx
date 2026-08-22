@@ -9,7 +9,7 @@
 // proposal + accept link; "Request Vendor Quotes" fires trade-specific
 // quote-request emails with photos to our preferred vendors.
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X } from "lucide-react";
+import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X, Plus } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 
 type RepairItem = {
@@ -76,6 +76,21 @@ const PILLAR_ITEM_MAP: Record<string, Record<string, { itemKey: string; qty: num
   },
   flooring: {},
 };
+
+// v20.24.0 — Scope slider mechanics. Pillar tiers only ever run
+// small -> medium -> large (see PILLAR_ITEM_MAP above), so shifting by ±1
+// step just walks this fixed order and clamps at the ends.
+const PILLAR_TIER_ORDER = ["small", "medium", "large"];
+function shiftPillarTier(tier: string, delta: number): string {
+  const idx = PILLAR_TIER_ORDER.indexOf(tier);
+  if (idx === -1) return tier;
+  const next = Math.min(PILLAR_TIER_ORDER.length - 1, Math.max(0, idx + delta));
+  return PILLAR_TIER_ORDER[next];
+}
+
+// v20.24.0 — Always-Included baseline catalog items (see IN_HOUSE_ITEMS
+// server seed). Auto-checked on every consult regardless of pillars/slider.
+const ALWAYS_INCLUDE_KEYS = ["prep_protection", "final_walkthrough_clean"];
 
 const fetchJson = async (url: string, opts: RequestInit = {}) => {
   const r = await fetch(url, { credentials: "include", ...opts });
@@ -292,6 +307,13 @@ export function RepairConsultSheet({
   const [dispatchingVendors, setDispatchingVendors] = useState(false);
   const [vendorDispatchResult, setVendorDispatchResult] = useState<{ sent: number; tradesWithoutVendor?: string[] } | null>(null);
   const [error, setError] = useState("");
+  // v20.25.0 — THE CLOSE: on-the-phone-with-client review gate. Nothing
+  // auto-generates/dispatches until the agent explicitly confirms here, which
+  // gives a moment to add or remove key items live with the client before
+  // anything is printed, quoted, or sent.
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [savingReview, setSavingReview] = useState(false);
+  const [addItemQuery, setAddItemQuery] = useState("");
 
   useEffect(() => {
     if (!manageNavVisibility) return; // parent sheet already owns nav visibility
@@ -329,19 +351,41 @@ export function RepairConsultSheet({
     if (nestedFromListing) { ensureConsult().catch(e => setError(e.message || "Failed to start repair consult.")); }
   }, [nestedFromListing]);
 
-  // v20.22.0 — One-shot auto-check: apply PILLAR_ITEM_MAP defaults for every
-  // pillar flagged during the walkthrough, so the checklist opens already
-  // populated instead of blank. Runs once on mount only — never re-fires, so
-  // it never clobbers quantities the agent has since edited by hand.
-  const appliedPillarPrefillRef = useRef(false);
+  // v20.24.0 — Scope slider. -1 = Lean (drop down one tier per flagged
+  // pillar, e.g. medium -> small), 0 = As Flagged (walkthrough tier as-is),
+  // +1 = Full Service (bump up one tier, e.g. medium -> large). Only ever
+  // touches items that live inside PILLAR_ITEM_MAP for the flagged pillars —
+  // manual picks/edits outside that set are never affected, at any position.
+  const [scopeShift, setScopeShift] = useState(0);
+  const allPillarMappedKeys = useMemo(() => {
+    const s = new Set<string>();
+    if (prefillFlaggedPillars) {
+      for (const flagged of prefillFlaggedPillars) {
+        const tiers = PILLAR_ITEM_MAP[flagged.key] || {};
+        for (const tierKey of Object.keys(tiers)) {
+          for (const { itemKey } of tiers[tierKey]) s.add(itemKey);
+        }
+      }
+    }
+    return s;
+  }, [prefillFlaggedPillars]);
+
+  // v20.22.0 + v20.24.0 — apply PILLAR_ITEM_MAP defaults for every pillar
+  // flagged during the walkthrough, at the tier the walkthrough set, shifted
+  // by the scope slider. Re-fires only when the slider moves (or on mount) —
+  // it clears+reapplies just the pillar-mapped keys each time, so quantities
+  // the agent has hand-edited on items OUTSIDE the pillar map are never
+  // clobbered, no matter how many times the slider is dragged.
   useEffect(() => {
-    if (appliedPillarPrefillRef.current) return;
     if (!prefillFlaggedPillars || prefillFlaggedPillars.length === 0) return;
-    appliedPillarPrefillRef.current = true;
     setChecked(prev => {
       const next = { ...prev };
+      for (const key of allPillarMappedKeys) {
+        if (next[key]) next[key] = { ...next[key], checked: false };
+      }
       for (const flagged of prefillFlaggedPillars) {
-        const mapped = PILLAR_ITEM_MAP[flagged.key]?.[flagged.tier] || [];
+        const tier = shiftPillarTier(flagged.tier, scopeShift);
+        const mapped = PILLAR_ITEM_MAP[flagged.key]?.[tier] || [];
         for (const { itemKey, qty } of mapped) {
           next[itemKey] = { ...(next[itemKey] || DEFAULT_ITEM_STATE), checked: true, quantity: String(qty) };
         }
@@ -349,7 +393,25 @@ export function RepairConsultSheet({
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefillFlaggedPillars]);
+  }, [prefillFlaggedPillars, scopeShift, allPillarMappedKeys]);
+
+  // v20.24.0 — Always-Included baseline items (site prep/protection, final
+  // walkthrough clean-up) auto-check on every consult, once catalog is
+  // loaded, regardless of pillars or slider position — these are the
+  // trust-building touches Alex wants on every estimate.
+  const appliedAlwaysIncludeRef = useRef(false);
+  useEffect(() => {
+    if (appliedAlwaysIncludeRef.current) return;
+    if (catalog.length === 0) return;
+    appliedAlwaysIncludeRef.current = true;
+    setChecked(prev => {
+      const next = { ...prev };
+      for (const key of ALWAYS_INCLUDE_KEYS) {
+        if (!next[key]?.checked) next[key] = { ...(next[key] || DEFAULT_ITEM_STATE), checked: true, quantity: "1" };
+      }
+      return next;
+    });
+  }, [catalog]);
 
   const inHouseItems = useMemo(() => catalog.filter(i => i.category === "in_house").sort((a, b) => a.sequence_order - b.sequence_order), [catalog]);
   const vendorItems = useMemo(() => catalog.filter(i => i.category === "vendor").sort((a, b) => a.sequence_order - b.sequence_order), [catalog]);
@@ -618,6 +680,7 @@ export function RepairConsultSheet({
         // (only the total is needed to render this card), so leave them blank.
         setQuoteResult({ pdfUrl: "", agreementPdfUrl: d.agreementPdfUrl || "", acceptUrl: "", total: d.total || 0 });
         if (d.status === "sent") setClientSent(true);
+        setReviewConfirmed(true); // already quoted in an earlier session — don't re-ask for the close
         setStep("review");
       } else if (items.length > 0) {
         setStep("gallery");
@@ -701,22 +764,31 @@ export function RepairConsultSheet({
   // Sequence is now signed -> deposit received -> THEN start date is scheduled
   // from the admin Consults panel. This step goes straight from checklist to
   // the final photo gallery.
-  const handleChecklistNext = async () => {
+  // v20.25.0 — shared item-persistence call. Used both by the Checklist
+  // step's "Continue to Photos" and by THE CLOSE confirm button on Review,
+  // since adjusting items live with the client only changes local `checked`
+  // state until this actually POSTs it to the server.
+  const submitCurrentItems = async () => {
     const id = await ensureConsult();
+    const items = Object.entries(checked)
+      .filter(([, v]) => v.checked)
+      .map(([itemKey, v]) => ({
+        itemKey, quantity: Number(v.quantity) || 1, twoStory: v.twoStory,
+        photos: v.photos, measurementNotes: v.measurementNotes || undefined,
+      }));
+    if (items.length === 0) throw new Error("Check off at least one repair item before continuing.");
+    const d = await fetchJson(`/api/repair-consult/${id}/items`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }),
+    });
+    setTotals({ subtotal: d.subtotal, total: d.total, discountAmount: d.discountAmount, freeItemKey: d.freeItemKey });
+    return d;
+  };
+
+  const handleChecklistNext = async () => {
     setSubmittingItems(true);
     setError("");
     try {
-      const items = Object.entries(checked)
-        .filter(([, v]) => v.checked)
-        .map(([itemKey, v]) => ({
-          itemKey, quantity: Number(v.quantity) || 1, twoStory: v.twoStory,
-          photos: v.photos, measurementNotes: v.measurementNotes || undefined,
-        }));
-      if (items.length === 0) { setError("Check off at least one repair item before continuing."); setSubmittingItems(false); return; }
-      const d = await fetchJson(`/api/repair-consult/${id}/items`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }),
-      });
-      setTotals({ subtotal: d.subtotal, total: d.total, discountAmount: d.discountAmount, freeItemKey: d.freeItemKey });
+      await submitCurrentItems();
       // v20.19.0 — Listing Consult already collected walkthrough photos for
       // this same visit; if that hand-off carried photos over, don't make the
       // agent shoot/pick the same set again. Straight to Review. Standalone
@@ -730,6 +802,20 @@ export function RepairConsultSheet({
       }
     } catch (e: any) { setError(e.message || "Failed to save checklist."); }
     finally { setSubmittingItems(false); }
+  };
+
+  // v20.25.0 — THE CLOSE: agent taps this after reviewing add/remove changes
+  // with the client on the phone. Persists whatever `checked` looks like
+  // right now, THEN flips reviewConfirmed so the existing auto-generate /
+  // vendor-dispatch effect can fire against the final, client-approved scope.
+  const handleConfirmReview = async () => {
+    setSavingReview(true);
+    setError("");
+    try {
+      await submitCurrentItems();
+      setReviewConfirmed(true);
+    } catch (e: any) { setError(e.message || "Failed to save the reviewed items."); }
+    finally { setSavingReview(false); }
   };
 
   const handleGenerateQuote = async () => {
@@ -772,11 +858,11 @@ export function RepairConsultSheet({
   // client; only the separate "Send Branded Quote to Client" button (still
   // manual, still gated on admin approval) does that.
   useEffect(() => {
-    if (step !== "review" || !consultId) return;
+    if (step !== "review" || !consultId || !reviewConfirmed) return;
     if (hasInHouseSelections && !quoteResult && !generatingQuote) handleGenerateQuote();
     if (hasVendorSelections && !vendorDispatchResult && !dispatchingVendors) handleDispatchVendors();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, consultId]);
+  }, [step, consultId, reviewConfirmed]);
 
   const stepIndex = { info: 0, checklist: 1, gallery: 2, review: 3 }[step];
 
@@ -1049,6 +1135,25 @@ export function RepairConsultSheet({
                       : `$${liveTotals.remainingToFreeItem.toLocaleString(undefined, { minimumFractionDigits: 2 })} more to unlock: ${incentiveSettings.label || "sign-today incentive"}`}
                   </p>
                 )}
+                {prefillFlaggedPillars && prefillFlaggedPillars.length > 0 && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,0.55)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700, marginBottom: 4 }}>
+                      <span>Lean</span>
+                      <span style={{ color: GOLD }}>
+                        {scopeShift === 0 ? "As Flagged" : scopeShift < 0 ? "Leaner Scope" : "Full Service"}
+                      </span>
+                      <span>Full Service</span>
+                    </div>
+                    <input
+                      type="range" min={-1} max={1} step={1} value={scopeShift}
+                      onChange={e => setScopeShift(Number(e.target.value))}
+                      style={{ width: "100%", accentColor: GOLD, cursor: "pointer" }}
+                    />
+                    <p style={{ fontSize: 9.5, margin: "4px 0 0", color: "rgba(255,255,255,0.4)", lineHeight: 1.4 }}>
+                      Drag to adjust the scope on flagged items {"\u2014"} lean drops tasks, full service adds a bit more. Manually checked items are never affected.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             {navButtons({ onBack: nestedFromListing ? undefined : () => setStep("info"), onNext: handleChecklistNext, nextDisabled: selectedCount === 0, nextBusy: submittingItems, nextLabel: "Continue to Photos" })}
@@ -1114,44 +1219,124 @@ export function RepairConsultSheet({
                 Reused the walkthrough photos already captured during Listing Consult — no need to shoot them twice.
               </p>
             )}
-            {totals && (
+            {!reviewConfirmed && (
+              <div style={{ ...cardStyle, background: "rgba(90,150,220,0.07)", border: "1px solid rgba(90,150,220,0.3)", marginBottom: 14 }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: "#8ab4e8", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Review With Client</p>
+                <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)", marginBottom: 12 }}>
+                  Walk through it together — tap the ✕ to drop anything they'll handle themselves, or add something before you lock it in.
+                </p>
+                {(() => {
+                  const checkedKeys = Object.entries(checked).filter(([, v]) => v.checked).map(([k]) => k);
+                  const checkedItems = checkedKeys
+                    .map(k => catalog.find(i => i.key === k))
+                    .filter((i): i is RepairItem => !!i)
+                    .sort((a, b) => a.sequence_order - b.sequence_order);
+                  const uncheckedItems = catalog
+                    .filter(i => !checked[i.key]?.checked)
+                    .filter(i => !addItemQuery.trim() || i.name.toLowerCase().includes(addItemQuery.trim().toLowerCase()))
+                    .sort((a, b) => a.sequence_order - b.sequence_order);
+                  return (
+                    <>
+                      {checkedItems.length === 0 ? (
+                        <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 12 }}>Nothing selected yet.</p>
+                      ) : (
+                        <div style={{ marginBottom: 12 }}>
+                          {checkedItems.map(item => (
+                            <div key={item.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <span style={{ fontSize: 13, color: "#fff", fontWeight: 600 }}>{item.name}</span>
+                                {item.category === "vendor" && (
+                                  <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>({TRADE_LABELS[item.trade] || item.trade} — vendor)</span>
+                                )}
+                                {item.unit !== "flat" && Number(checked[item.key]?.quantity) > 1 && (
+                                  <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>× {checked[item.key]?.quantity}</span>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => setItemState(item.key, { checked: false })}
+                                aria-label={`Remove ${item.name}`}
+                                style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 8, border: "1px solid rgba(255,90,90,0.35)", background: "rgba(255,90,90,0.1)", color: "#ff7a7a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <input
+                        value={addItemQuery}
+                        onChange={e => setAddItemQuery(e.target.value)}
+                        placeholder="+ Add an item — type to search…"
+                        style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 12.5, marginBottom: addItemQuery.trim() ? 6 : 0 }}
+                      />
+                      {addItemQuery.trim() && (
+                        <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}>
+                          {uncheckedItems.length === 0 ? (
+                            <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.4)", padding: 10 }}>No matching items.</p>
+                          ) : uncheckedItems.slice(0, 12).map(item => (
+                            <button
+                              key={item.key}
+                              onClick={() => { setItemState(item.key, { checked: true, quantity: item.unit === "flat" ? "1" : (checked[item.key]?.quantity || "1") }); setAddItemQuery(""); }}
+                              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 10px", background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#fff", fontSize: 12.5, cursor: "pointer", textAlign: "left" }}
+                            >
+                              <span>{item.name}{item.category === "vendor" ? ` (${TRADE_LABELS[item.trade] || item.trade})` : ""}</span>
+                              <Plus size={14} style={{ color: GOLD, flexShrink: 0 }} />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+                <button
+                  onClick={handleConfirmReview}
+                  disabled={savingReview}
+                  style={{ width: "100%", marginTop: 14, padding: "12px 18px", borderRadius: 10, background: GOLD, border: "none", color: "#0c0b0a", fontSize: 13.5, fontWeight: 700, cursor: savingReview ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                >
+                  {savingReview ? <Loader2 size={15} className="animate-spin" /> : null}
+                  {savingReview ? "Saving…" : "Looks Good — Generate Quote"}
+                </button>
+              </div>
+            )}
+
+            {liveTotals.subtotal > 0 && (
               <div style={{ ...cardStyle, background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.25)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                   <span style={{ fontSize: 12.5, color: "rgba(255,255,255,0.6)" }}>In-House Subtotal</span>
-                  <span style={{ fontSize: 12.5, color: "#fff" }}>${totals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span style={{ fontSize: 12.5, color: "#fff" }}>${liveTotals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
-                {!!totals.discountAmount && (
+                {!!liveTotals.discountAmount && (
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                     <span style={{ fontSize: 12.5, color: "#7ed49a" }}>Package Discount{selectedPackageKey ? ` (${packages.find(p => p.key === selectedPackageKey)?.name || selectedPackageKey})` : ""}</span>
-                    <span style={{ fontSize: 12.5, color: "#7ed49a" }}>−${totals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span style={{ fontSize: 12.5, color: "#7ed49a" }}>−${liveTotals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Total</span>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: GOLD }}>${totals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: GOLD }}>${liveTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
-                {totals.freeItemKey && (
+                {liveTotals.freeItemHit && incentiveSettings.freeItemKey && (
                   <p style={{ fontSize: 11.5, color: GOLD, marginTop: 8, fontWeight: 600 }}>
-                    ✓ Free: {catalog.find(i => i.key === totals.freeItemKey)?.name || totals.freeItemKey} (sign-today incentive)
+                    ✓ Free: {catalog.find(i => i.key === incentiveSettings.freeItemKey)?.name || incentiveSettings.freeItemKey} (sign-today incentive)
                   </p>
                 )}
-                {totals.total > 0 && (
+                {liveTotals.total > 0 && (
                   <div style={{ marginTop: 12, background: "#0a0a0a", borderRadius: 8, padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: 10 }}>
                     <div style={{ textAlign: "center", flex: 1 }}>
                       <div style={{ fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase", color: "rgba(255,255,255,0.5)", fontWeight: 700 }}>50% To Start</div>
-                      <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", marginTop: 2 }}>${(totals.total / 2).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                      <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", marginTop: 2 }}>${(liveTotals.total / 2).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                     </div>
                     <div style={{ width: 1, background: "rgba(255,255,255,0.15)" }} />
                     <div style={{ textAlign: "center", flex: 1 }}>
                       <div style={{ fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase", color: "rgba(255,255,255,0.5)", fontWeight: 700 }}>50% On Completion</div>
-                      <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", marginTop: 2 }}>${(totals.total / 2).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                      <div style={{ fontSize: 17, fontWeight: 800, color: "#fff", marginTop: 2 }}>${(liveTotals.total / 2).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                     </div>
                   </div>
                 )}
               </div>
             )}
 
-            {hasInHouseSelections && (
+            {reviewConfirmed && hasInHouseSelections && (
               <div style={{ marginBottom: 14 }}>
                 {!quoteResult ? (
                   <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
@@ -1189,7 +1374,7 @@ export function RepairConsultSheet({
               </div>
             )}
 
-            {hasVendorSelections && (
+            {reviewConfirmed && hasVendorSelections && (
               <div style={{ marginBottom: 14 }}>
                 <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Vendor Quote Requests</p>
                 {!vendorDispatchResult ? (

@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X, Plus, Pencil } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
+import { PdfViewerModal } from "./PdfViewerModal";
 
 type RepairItem = {
   id: number; key: string; category: "in_house" | "vendor"; trade: string; name: string;
@@ -393,6 +394,10 @@ export function RepairConsultSheet({
   const [submittingItems, setSubmittingItems] = useState(false);
   const [totals, setTotals] = useState<{ subtotal: number; total: number; discountAmount?: number; freeItemKey?: string | null } | null>(null);
   const [quoteResult, setQuoteResult] = useState<{ pdfUrl: string; agreementPdfUrl: string; acceptUrl: string; total: number } | null>(null);
+  // v20.31.0 — in-app PDF viewer state. Replaces target="_blank" links,
+  // which get stuck with no way back when the app runs as an installed
+  // home-screen PWA (no tabs, no browser back button in standalone mode).
+  const [pdfModal, setPdfModal] = useState<{ url: string; title: string } | null>(null);
   const [generatingQuote, setGeneratingQuote] = useState(false);
   const [sendingToClient, setSendingToClient] = useState(false);
   const [clientSent, setClientSent] = useState(false);
@@ -1582,24 +1587,20 @@ export function RepairConsultSheet({
                       <CheckCircle2 size={16} /> Quote generated — sent to Alex & Nate for review.
                     </div>
                     {quoteResult.pdfUrl && (
-                      <a
-                        href={quoteResult.pdfUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ display: "block", textAlign: "center", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.85)", fontSize: 12.5, fontWeight: 700, marginBottom: 10, textDecoration: "none" }}
+                      <button
+                        onClick={() => setPdfModal({ url: quoteResult.pdfUrl, title: `${propertyAddress} — Itemized Quote` })}
+                        style={{ display: "block", width: "100%", textAlign: "center", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.2)", background: "transparent", color: "rgba(255,255,255,0.85)", fontSize: 12.5, fontWeight: 700, marginBottom: 10, cursor: "pointer" }}
                       >
-                        View Itemized Quote PDF (opens in a new tab)
-                      </a>
+                        View Itemized Quote PDF
+                      </button>
                     )}
                     {quoteResult.agreementPdfUrl && (
-                      <a
-                        href={quoteResult.agreementPdfUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ display: "block", textAlign: "center", padding: "10px 14px", borderRadius: 8, border: `1px solid ${GOLD}`, color: GOLD, fontSize: 12.5, fontWeight: 700, marginBottom: 10, textDecoration: "none" }}
+                      <button
+                        onClick={() => setPdfModal({ url: quoteResult.agreementPdfUrl, title: `${propertyAddress} — Signature-Ready Agreement` })}
+                        style={{ display: "block", width: "100%", textAlign: "center", padding: "10px 14px", borderRadius: 8, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, fontSize: 12.5, fontWeight: 700, marginBottom: 10, cursor: "pointer" }}
                       >
                         View Signature-Ready Agreement (2-page PDF)
-                      </a>
+                      </button>
                     )}
                     {clientEmail ? (
                       <button onClick={handleSendToClient} disabled={sendingToClient || clientSent} style={{
@@ -1647,6 +1648,9 @@ export function RepairConsultSheet({
         </>
         )}
       </div>
+      {pdfModal && (
+        <PdfViewerModal url={pdfModal.url} title={pdfModal.title} onClose={() => setPdfModal(null)} />
+      )}
     </div>
   );
 }

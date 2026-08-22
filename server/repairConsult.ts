@@ -2061,6 +2061,13 @@ export function registerRepairConsultRoutes(app: Express) {
     const { signedBy, imageData, mimeType } = req.body || {};
     if (!signedBy || String(signedBy).trim().length < 2) return res.status(400).json({ error: "signedBy name is required" });
     try {
+      // v20.31.0 - button audit: this was callable with no quote at all and
+      // even on an already-accepted consult (re-firing the work order email
+      // every click). Require a real quote and block once already signed.
+      const existingForGate = getConsultRow(consultId);
+      if (!existingForGate) return res.status(404).json({ error: "Consult not found" });
+      if (!existingForGate.quote_token) return res.status(409).json({ error: "Generate the quote first." });
+      if (existingForGate.status === "accepted") return res.status(409).json({ error: "This consult is already signed." });
       let uploadUrl: string | null = null;
       if (imageData && mimeType) {
         const sharp = require("sharp");
@@ -2083,6 +2090,30 @@ export function registerRepairConsultRoutes(app: Express) {
     } catch (err: any) {
       console.error("mark-print-signed error:", err);
       res.status(500).json({ error: "Failed to record print-signed agreement", detail: err?.message });
+    }
+  });
+
+  // -- Delete a consult permanently -- admin only. v20.31.0 button audit:
+  // Alex needs to be able to clean up test/duplicate/abandoned consults from
+  // the Repair Program panel. Cascades to items, vendor dispatches, and
+  // change orders tied to this consult so no orphan rows are left behind.
+  app.delete("/api/repair-consult/:id", async (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    try {
+      const consult = getConsultRow(consultId);
+      if (!consult) return res.status(404).json({ error: "Consult not found" });
+      const del = rawDb.transaction(() => {
+        rawDb.prepare("DELETE FROM repair_change_orders WHERE consult_id = ?").run(consultId);
+        rawDb.prepare("DELETE FROM repair_vendor_dispatches WHERE consult_id = ?").run(consultId);
+        rawDb.prepare("DELETE FROM repair_consult_items WHERE consult_id = ?").run(consultId);
+        rawDb.prepare("DELETE FROM repair_consults WHERE id = ?").run(consultId);
+      });
+      del();
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("delete consult error:", err);
+      res.status(500).json({ error: "Failed to delete consult", detail: err?.message });
     }
   });
 

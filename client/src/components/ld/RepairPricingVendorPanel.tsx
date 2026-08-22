@@ -10,6 +10,7 @@ import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Downl
 // same tool the field agent uses, instead of only being able to view a
 // read-only row in this table.
 import { RepairConsultSheet } from "./RepairConsultSheet";
+import { PdfViewerModal } from "./PdfViewerModal";
 
 type PricingItem = {
   id: number;
@@ -421,6 +422,9 @@ function ConsultsPanel() {
   // v20.30.0 — admin "Edit" launch point: opens the full RepairConsultSheet
   // pointed at this consult id so Alex can view/edit scope at any point.
   const [editingConsultId, setEditingConsultId] = useState<number | null>(null);
+  // v20.31.0 — in-app PDF viewer state, replaces window.open (which gets
+  // stuck with no way back when the app is running as an installed PWA).
+  const [pdfModal, setPdfModal] = useState<{ url: string; title: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -466,15 +470,34 @@ function ConsultsPanel() {
     } finally { setBusy(null); }
   };
 
+  // v20.31.0 — opens in the in-app PdfViewerModal (iframe + Close button)
+  // instead of window.open, which gets stuck with no way back when the app
+  // is running as an installed home-screen PWA (no tabs, no browser back).
   const downloadPdf = (c: Consult) => {
-    window.open(`/api/repair-consult/${c.id}/agreement-pdf`, "_blank");
+    setPdfModal({ url: `/api/repair-consult/${c.id}/agreement-pdf`, title: `${c.property_address} — Print & Sign Agreement` });
   };
 
-  // v20.30.0 — view the itemized quote PDF, opens in a new tab. No approval
-  // gate: only requires a quote to exist. Mirrors downloadPdf's pattern for
-  // the two-page Print & Sign agreement.
+  // v20.30.0 — view the itemized quote PDF. No approval gate: only requires
+  // a quote to exist. Mirrors downloadPdf's pattern for the agreement.
   const viewQuotePdf = (c: Consult) => {
-    window.open(`/api/repair-consult/${c.id}/quote-pdf`, "_blank");
+    setPdfModal({ url: `/api/repair-consult/${c.id}/quote-pdf`, title: `${c.property_address} — Itemized Quote` });
+  };
+
+  // v20.31.0 — button audit: permanently delete a consult (admin only).
+  // Extra-scary confirm copy when the consult is already signed, since
+  // deleting one erases a signed agreement record.
+  const deleteConsult = async (c: Consult) => {
+    const msg = c.status === "accepted"
+      ? `This consult for ${c.property_address} has ALREADY BEEN SIGNED${c.deposit_received_at ? " and the deposit was received" : ""}. Deleting it permanently erases that signed record. This cannot be undone. Delete anyway?`
+      : `Permanently delete the consult for ${c.property_address}? This cannot be undone.`;
+    if (!confirm(msg)) return;
+    setBusy(c.id);
+    try {
+      const r = await fetch(`/api/repair-consult/${c.id}`, { method: "DELETE", credentials: "include" });
+      const b = await r.json();
+      if (!r.ok) { alert(b?.error || "Failed to delete consult"); return; }
+      load();
+    } finally { setBusy(null); }
   };
 
   const markPrintSigned = async (c: Consult) => {
@@ -616,11 +639,12 @@ function ConsultsPanel() {
                         title={!c.quote_token ? "Generate the quote first" : "View / Download Print & Sign Agreement PDF (no approval needed to view)"}
                         style={actionBtnStyle}><Download size={11} /> Print PDF</button>
                       <button disabled={!c.quote_token || busy === c.id} onClick={() => viewQuotePdf(c)}
-                        title={!c.quote_token ? "Generate the quote first" : "View the itemized Quote PDF (opens in a new tab)"}
+                        title={!c.quote_token ? "Generate the quote first" : "View the itemized Quote PDF"}
                         style={actionBtnStyle}><FileText size={11} /> View Quote</button>
                       <button disabled={busy === c.id} onClick={() => setEditingConsultId(c.id)} title="Open and edit this consult's full scope/items"
                         style={{ ...actionBtnStyle, color: "#93c5fd", borderColor: "rgba(147,197,253,0.4)", background: "rgba(147,197,253,0.08)" }}><Pencil size={11} /> Edit</button>
-                      <button disabled={busy === c.id} onClick={() => markPrintSigned(c)} title="Mark as Print-Signed"
+                      <button disabled={!c.quote_token || c.status === "accepted" || busy === c.id} onClick={() => markPrintSigned(c)}
+                        title={!c.quote_token ? "Generate the quote first" : c.status === "accepted" ? "Already signed" : "Mark as Print-Signed — physical printout came back signed"}
                         style={actionBtnStyle}><PenLine size={11} /> Mark Signed</button>
                       {c.status === "accepted" && !c.deposit_received_at && (
                         <button disabled={busy === c.id} onClick={() => markDepositReceived(c)} title="Mark Deposit Received"
@@ -634,6 +658,8 @@ function ConsultsPanel() {
                         <button disabled={busy === c.id} onClick={() => setChangeOrderFor(c)} title="Request a Change Order — additional work found once work began"
                           style={{ ...actionBtnStyle, color: "#c8aa5a", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><FilePlus2 size={11} /> Change Order</button>
                       )}
+                      <button disabled={busy === c.id} onClick={() => deleteConsult(c)} title="Permanently delete this consult"
+                        style={{ ...actionBtnStyle, color: "#f87171", borderColor: "rgba(248,113,113,0.4)", background: "rgba(248,113,113,0.08)" }}><Trash2 size={11} /> Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -655,6 +681,9 @@ function ConsultsPanel() {
           onClose={() => { setEditingConsultId(null); load(); }}
           manageNavVisibility={true}
         />
+      )}
+      {pdfModal && (
+        <PdfViewerModal url={pdfModal.url} title={pdfModal.title} onClose={() => setPdfModal(null)} />
       )}
     </div>
   );

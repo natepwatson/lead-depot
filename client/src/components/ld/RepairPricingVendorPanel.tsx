@@ -4,7 +4,12 @@
 // (auto-emailed from the Repair Consult client flow when an item needs a licensed trade).
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2, FilePlus2, XCircle } from "lucide-react";
+import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2, FilePlus2, XCircle, Pencil, FileText } from "lucide-react";
+// v20.30.0 — lets Alex open ANY repair consult (any agent's, any status)
+// from the admin Repair Program panel and edit the scope/items directly,
+// same tool the field agent uses, instead of only being able to view a
+// read-only row in this table.
+import { RepairConsultSheet } from "./RepairConsultSheet";
 
 type PricingItem = {
   id: number;
@@ -413,6 +418,9 @@ function ConsultsPanel() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
   const [changeOrderFor, setChangeOrderFor] = useState<Consult | null>(null);
+  // v20.30.0 — admin "Edit" launch point: opens the full RepairConsultSheet
+  // pointed at this consult id so Alex can view/edit scope at any point.
+  const [editingConsultId, setEditingConsultId] = useState<number | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -445,7 +453,10 @@ function ConsultsPanel() {
 
   // v20.13.0 — Office Approval Gate: admin sign-off in-house before anything goes to the client.
   const officeApprove = async (c: Consult) => {
-    if (!confirm(`Approve this proposal for ${c.property_address} to be sent to the client?\n\nTotal: $${c.total?.toLocaleString(undefined, { minimumFractionDigits: 2 })}`)) return;
+    // v20.30.0 — reworded: approving is an internal sign-off ONLY. It does
+    // NOT send anything to the client — E-Sign / Approval Email are separate,
+    // explicit actions taken afterward.
+    if (!confirm(`Approve this proposal internally for ${c.property_address}?\n\nTotal: $${c.total?.toLocaleString(undefined, { minimumFractionDigits: 2 })}\n\nThis does NOT send anything to the client — you'll still need to click E-Sign or Approval below to actually send it.`)) return;
     setBusy(c.id);
     try {
       const r = await fetch(`/api/repair-consult/${c.id}/office-approve`, { method: "POST", credentials: "include" });
@@ -457,6 +468,13 @@ function ConsultsPanel() {
 
   const downloadPdf = (c: Consult) => {
     window.open(`/api/repair-consult/${c.id}/agreement-pdf`, "_blank");
+  };
+
+  // v20.30.0 — view the itemized quote PDF, opens in a new tab. No approval
+  // gate: only requires a quote to exist. Mirrors downloadPdf's pattern for
+  // the two-page Print & Sign agreement.
+  const viewQuotePdf = (c: Consult) => {
+    window.open(`/api/repair-consult/${c.id}/quote-pdf`, "_blank");
   };
 
   const markPrintSigned = async (c: Consult) => {
@@ -594,9 +612,14 @@ function ConsultsPanel() {
                       <button disabled={!c.quote_token || !c.office_approved_at || busy === c.id} onClick={() => sendApproval(c)}
                         title={!c.quote_token ? "Generate the quote first" : !c.office_approved_at ? "Needs office approval first" : "Send Approval Email"}
                         style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.08)" }}><Mail size={11} /> Approval</button>
-                      <button disabled={!c.quote_token || !c.office_approved_at || busy === c.id} onClick={() => downloadPdf(c)}
-                        title={!c.quote_token ? "Generate the quote first" : !c.office_approved_at ? "Needs office approval first" : "Download Print & Sign PDF"}
+                      <button disabled={!c.quote_token || busy === c.id} onClick={() => downloadPdf(c)}
+                        title={!c.quote_token ? "Generate the quote first" : "View / Download Print & Sign Agreement PDF (no approval needed to view)"}
                         style={actionBtnStyle}><Download size={11} /> Print PDF</button>
+                      <button disabled={!c.quote_token || busy === c.id} onClick={() => viewQuotePdf(c)}
+                        title={!c.quote_token ? "Generate the quote first" : "View the itemized Quote PDF (opens in a new tab)"}
+                        style={actionBtnStyle}><FileText size={11} /> View Quote</button>
+                      <button disabled={busy === c.id} onClick={() => setEditingConsultId(c.id)} title="Open and edit this consult's full scope/items"
+                        style={{ ...actionBtnStyle, color: "#93c5fd", borderColor: "rgba(147,197,253,0.4)", background: "rgba(147,197,253,0.08)" }}><Pencil size={11} /> Edit</button>
                       <button disabled={busy === c.id} onClick={() => markPrintSigned(c)} title="Mark as Print-Signed"
                         style={actionBtnStyle}><PenLine size={11} /> Mark Signed</button>
                       {c.status === "accepted" && !c.deposit_received_at && (
@@ -624,6 +647,13 @@ function ConsultsPanel() {
           consult={changeOrderFor}
           onClose={() => setChangeOrderFor(null)}
           onSaved={() => { setChangeOrderFor(null); }}
+        />
+      )}
+      {editingConsultId != null && (
+        <RepairConsultSheet
+          initialConsultId={editingConsultId}
+          onClose={() => { setEditingConsultId(null); load(); }}
+          manageNavVisibility={true}
         />
       )}
     </div>

@@ -269,10 +269,16 @@ async function fileToImageData(file: File, opts: { maxDim?: number; quality?: nu
 export function RepairConsultSheet({
   leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose, manageNavVisibility = true,
   nestedFromListing = false, prefillHeroPhotoUrl = null, prefillGalleryUrls = null, prefillFlaggedPillars = null,
+  initialConsultId = null,
 }: {
   leadId?: number | null; agentId?: number | null;
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
   onClose: () => void;
+  // v20.30.0 — Admin Repair Program panel: open THIS sheet already pointed at
+  // an existing consult (any agent's), skipping the resume picker entirely,
+  // so Alex can view/edit the full scope from the admin side at any point —
+  // before or after a quote has been generated, approved, or sent.
+  initialConsultId?: number | null;
   // v20.14.2 — when this sheet is opened NESTED inside another full-screen
   // sheet that already keeps body.ld-modal-open set for its own lifetime
   // (e.g. the Listing Consult repair hand-off), the parent already owns nav
@@ -310,7 +316,7 @@ export function RepairConsultSheet({
   // (that flow already carries its own state from the parent Listing Consult
   // and creates its own record immediately). Standalone opens check for any
   // in-progress consult this agent already started before rendering steps.
-  const [resumePhase, setResumePhase] = useState<"checking" | "picking" | "ready">(nestedFromListing ? "ready" : "checking");
+  const [resumePhase, setResumePhase] = useState<"checking" | "picking" | "ready">((nestedFromListing || initialConsultId) ? "ready" : "checking");
   const [resumeList, setResumeList] = useState<ResumeItem[]>([]);
 
   const [clientName, setClientName] = useState(initialClientName || "");
@@ -399,6 +405,10 @@ export function RepairConsultSheet({
   // anything is printed, quoted, or sent.
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [savingReview, setSavingReview] = useState(false);
+  // v20.30.0 — lets the scope/items list be reopened for editing AFTER a
+  // quote has already been generated, instead of the old "only editable
+  // once, then locked until you close the whole sheet" behavior.
+  const [editingScope, setEditingScope] = useState(false);
   const [addItemQuery, setAddItemQuery] = useState("");
   // v20.26.0 — which checked item's inline editor is open on Review & Send
   // (quantity / two-story / measurement notes) — null means none expanded.
@@ -420,9 +430,17 @@ export function RepairConsultSheet({
       .catch(() => {}); // non-fatal — checklist still works without packages
   }, []);
 
+  // v20.30.0 — Admin "Edit" launch: jump straight to the given consult,
+  // no resume picker, no "mine" filtering (any agent's consult is fair game
+  // from the admin side).
+  useEffect(() => {
+    if (initialConsultId) { handleResumeConsult(initialConsultId); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialConsultId]);
+
   // v20.14.5 — check for resumable consults on standalone opens only.
   useEffect(() => {
-    if (nestedFromListing) return;
+    if (nestedFromListing || initialConsultId) return;
     fetchJson(`/api/repair-consult/mine?agentId=${agentId ?? ""}`)
       .then(d => {
         const list: ResumeItem[] = d.consults || [];
@@ -784,10 +802,11 @@ export function RepairConsultSheet({
       if (d.subtotal || d.total) setTotals({ subtotal: d.subtotal || 0, total: d.total || 0 });
 
       if (d.quote_token) {
-        // Quote already generated — jump to Review with the send/dispatch
-        // actions available. pdfUrl/acceptUrl aren't persisted server-side
-        // (only the total is needed to render this card), so leave them blank.
-        setQuoteResult({ pdfUrl: "", agreementPdfUrl: d.agreementPdfUrl || "", acceptUrl: "", total: d.total || 0 });
+        // v20.30.0 — Quote already generated — jump to Review with the
+        // send/dispatch actions AND the view-anytime PDF links available.
+        // quotePdfUrl now points at the regenerate-on-view endpoint (no
+        // approval gate) since acceptUrl isn't needed just to view/resume.
+        setQuoteResult({ pdfUrl: `/api/repair-consult/${d.id}/quote-pdf`, agreementPdfUrl: d.agreementPdfUrl || "", acceptUrl: "", total: d.total || 0 });
         if (d.status === "sent") setClientSent(true);
         setReviewConfirmed(true); // already quoted in an earlier session — don't re-ask for the close
         setStep("review");
@@ -933,6 +952,14 @@ export function RepairConsultSheet({
     setError("");
     try {
       await submitCurrentItems();
+      // v20.30.0 — re-editing after a quote already existed: clear the stale
+      // quote/vendor-dispatch results so the auto-generate effect below fires
+      // again against the just-saved scope. The server already clears office
+      // approval on every fresh generate-quote call, so re-approval is always
+      // required after an edit — nothing can slip out to the client stale.
+      if (quoteResult) { setQuoteResult(null); setClientSent(false); }
+      if (vendorDispatchResult) setVendorDispatchResult(null);
+      setEditingScope(false);
       setReviewConfirmed(true);
     } catch (e: any) { setError(e.message || "Failed to save the reviewed items."); }
     finally { setSavingReview(false); }
@@ -943,7 +970,10 @@ export function RepairConsultSheet({
     setGeneratingQuote(true); setError("");
     try {
       const d = await fetchJson(`/api/repair-consult/${consultId}/generate-quote`, { method: "POST" });
-      setQuoteResult({ pdfUrl: d.pdfUrl, agreementPdfUrl: d.agreementPdfUrl, acceptUrl: d.acceptUrl, total: d.total });
+      // v20.30.0 — link through the view-anytime endpoint (no approval gate,
+      // always regenerates fresh) instead of the one-time static file path,
+      // so this link keeps working even after the sheet is closed/reopened.
+      setQuoteResult({ pdfUrl: `/api/repair-consult/${consultId}/quote-pdf`, agreementPdfUrl: d.agreementPdfUrl, acceptUrl: d.acceptUrl, total: d.total });
     } catch (e: any) { setError(e.message || "Failed to generate quote."); }
     finally { setGeneratingQuote(false); }
   };
@@ -1374,7 +1404,16 @@ export function RepairConsultSheet({
                 Reused the walkthrough photos already captured during Listing Consult — no need to shoot them twice.
               </p>
             )}
-            {!reviewConfirmed && (
+            {reviewConfirmed && !editingScope && (
+              <button
+                onClick={() => setEditingScope(true)}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.75)", fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              >
+                <Pencil size={13} /> Edit Scope / Items
+              </button>
+            )}
+
+            {(!reviewConfirmed || editingScope) && (
               <div style={{ ...cardStyle, background: "rgba(90,150,220,0.07)", border: "1px solid rgba(90,150,220,0.3)", marginBottom: 14 }}>
                 <p style={{ fontSize: 12, fontWeight: 700, color: "#8ab4e8", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Review With Client</p>
                 <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)", marginBottom: 12 }}>
@@ -1489,7 +1528,7 @@ export function RepairConsultSheet({
                   style={{ width: "100%", marginTop: 14, padding: "12px 18px", borderRadius: 10, background: GOLD, border: "none", color: "#0c0b0a", fontSize: 13.5, fontWeight: 700, cursor: savingReview ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
                 >
                   {savingReview ? <Loader2 size={15} className="animate-spin" /> : null}
-                  {savingReview ? "Saving…" : "Looks Good — Generate Quote"}
+                  {savingReview ? "Saving…" : editingScope ? "Save Changes — Regenerate Quote" : "Looks Good — Generate Quote"}
                 </button>
               </div>
             )}
@@ -1542,6 +1581,16 @@ export function RepairConsultSheet({
                     <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
                       <CheckCircle2 size={16} /> Quote generated — sent to Alex & Nate for review.
                     </div>
+                    {quoteResult.pdfUrl && (
+                      <a
+                        href={quoteResult.pdfUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ display: "block", textAlign: "center", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.85)", fontSize: 12.5, fontWeight: 700, marginBottom: 10, textDecoration: "none" }}
+                      >
+                        View Itemized Quote PDF (opens in a new tab)
+                      </a>
+                    )}
                     {quoteResult.agreementPdfUrl && (
                       <a
                         href={quoteResult.agreementPdfUrl}

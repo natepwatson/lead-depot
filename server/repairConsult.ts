@@ -89,6 +89,26 @@ async function ensureStreetViewHero(address: string): Promise<string | null> {
     return null;
   }
 }
+// v20.30.0 — a consult's hero photo (and gallery/scope photos) can come from
+// TWO different upload pipelines: this tool's own /repair-photos uploads, OR
+// a hand-off from Listing Consult (front-of-house hero photo + walkthrough
+// photos carried over via prefillHeroPhotoUrl/prefillGalleryUrls at consult
+// creation), which physically live under /listing-photos instead. Blindly
+// assuming every photo lives in repairPhotosDir() silently drops any
+// Listing-Consult-sourced photo from the generated PDFs — fs.existsSync just
+// returns false and the whole image block is skipped with no error. Resolve
+// against the correct on-disk directory based on the URL's own path prefix.
+function resolveConsultPhotoPath(url: string): string | null {
+  if (!url) return null;
+  if (url.startsWith("/repair-photos/")) return path.join(repairPhotosDir(), path.basename(url));
+  if (url.startsWith("/listing-photos/")) {
+    const dir = IS_PROD ? "/app/data/listing-photos" : path.resolve(__dirname, "public", "listing-photos");
+    return path.join(dir, path.basename(url));
+  }
+  // Unknown prefix or absolute http(s) URL — no known local path to try.
+  return null;
+}
+
 function brandLogoPath(): string {
   const prodPath = "/app/dist/public/brand-logo.jpg";
   const devPath = path.resolve(__dirname, "public", "brand-logo.jpg");
@@ -268,6 +288,7 @@ export function ensureRepairConsultSchema() {
   if (!rcCols.includes("print_signed_by"))          rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN print_signed_by TEXT").run();
   if (!rcCols.includes("print_signed_upload_url"))  rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN print_signed_upload_url TEXT").run();
   if (!rcCols.includes("agreement_pdf_url"))        rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN agreement_pdf_url TEXT").run();
+  if (!rcCols.includes("quote_pdf_url"))            rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN quote_pdf_url TEXT").run();
   if (!rcCols.includes("signed_agreement_pdf_url")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN signed_agreement_pdf_url TEXT").run();
   if (!rcCols.includes("approval_email_sent_at"))   rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN approval_email_sent_at TEXT").run();
 
@@ -959,6 +980,63 @@ function drawContainedImage(
   page.drawImage(img, { x: drawX, y: drawY, width: drawW, height: drawH });
 }
 
+// v20.30.0 — Alex: the other scope/gallery photos (front-of-house hero is
+// separate, shown on page 1) give the itemized quote more legitimacy on the
+// work being proposed. Appends a 2x3 photo-grid page for every 6 photos,
+// paginating as needed. Photos that can't be read from disk are silently
+// skipped (no broken-image placeholder box) rather than shown as an error.
+async function addScopePhotosPages(
+  pdfDoc: any,
+  fontBold: any,
+  font: any,
+  fontItalic: any,
+  photos: { url: string; tag?: string }[],
+  propertyAddress: string
+) {
+  if (!photos || photos.length === 0) return;
+  const black = rgb(0, 0, 0);
+  const gray = rgb(0.5, 0.5, 0.5);
+  const PAGE_W = 612, PAGE_H = 792;
+  const cols = 2, rows = 3, perPage = cols * rows;
+  const marginX = 38;
+  const gap = 14;
+  const imgW = (PAGE_W - marginX * 2 - gap) / cols;
+  const imgH = 148;
+  const captionH = 12;
+  const cellH = imgH + captionH + gap;
+
+  for (let pageStart = 0; pageStart < photos.length; pageStart += perPage) {
+    const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    let y = PAGE_H - 40;
+    const title = "Additional Scope Photos";
+    const titleW = fontBold.widthOfTextAtSize(title, 16);
+    page.drawText(title, { x: (PAGE_W - titleW) / 2, y, size: 16, font: fontBold, color: black });
+    y -= 20;
+    page.drawRectangle({ x: marginX, y: y - 20, width: PAGE_W - marginX * 2, height: 20, color: black });
+    page.drawText(propertyAddress || "", { x: marginX + 5, y: y - 14, size: 9.5, font: fontBold, color: rgb(1, 1, 1) });
+    y -= 40;
+
+    const chunk = photos.slice(pageStart, pageStart + perPage);
+    for (let i = 0; i < chunk.length; i++) {
+      const row = Math.floor(i / cols);
+      const col = i % cols;
+      const boxX = marginX + col * (imgW + gap);
+      const boxY = y - row * cellH;
+      const photo = chunk[i];
+      try {
+        const p = resolveConsultPhotoPath(photo.url);
+        if (p && fs.existsSync(p)) {
+          const bytes = fs.readFileSync(p);
+          const img = photo.url.endsWith(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+          drawContainedImage(page, img, { x: boxX, y: boxY, width: imgW, height: imgH });
+          const label = photo.tag === "repair_scope" ? "Repair Scope" : "Property Photo";
+          page.drawText(label, { x: boxX, y: boxY - imgH - 10, size: 7.5, font: fontItalic, color: gray });
+        }
+      } catch { /* non-fatal — skip this photo if unreadable, leave grid slot blank */ }
+    }
+  }
+}
+
 // ─── PDF QUOTE (pdf-lib, matches Brothers Group letterhead) ────────────────
 export async function generateQuotePdf(consultId: number): Promise<string> {
   const consult = getConsultRow(consultId);
@@ -1001,8 +1079,8 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   // Hero photo
   if (consult.hero_photo_url) {
     try {
-      const heroPath = path.join(repairPhotosDir(), path.basename(consult.hero_photo_url));
-      if (fs.existsSync(heroPath)) {
+      const heroPath = resolveConsultPhotoPath(consult.hero_photo_url);
+      if (heroPath && fs.existsSync(heroPath)) {
         const bytes = fs.readFileSync(heroPath);
         const img = consult.hero_photo_url.endsWith(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
         const w = 536, h = 180;
@@ -1094,11 +1172,24 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
     ty -= 8;
   }
 
+  // v20.30.0 — Alex: show the other scope/gallery photos on the quote too,
+  // not just the front-of-house hero — gives the client more confidence the
+  // proposal reflects the actual property. Dedupe against the hero photo.
+  const scopePhotos = (consult.property_photos || []).filter((p: any) => p?.url && p.url !== consult.hero_photo_url);
+  if (scopePhotos.length > 0) {
+    await addScopePhotosPages(pdfDoc, fontBold, font, fontItalic, scopePhotos, consult.property_address);
+  }
+
   const bytes = await pdfDoc.save();
   const outDir = repairPdfDir();
   const filename = `quote-${consultId}-${Date.now()}.pdf`;
   fs.writeFileSync(path.join(outDir, filename), bytes);
-  return `/repair-quotes/${filename}`;
+  const url = `/repair-quotes/${filename}`;
+  // v20.30.0 — persist so the itemized quote PDF can be re-opened later
+  // (view-anytime, not just the moment it was generated) — mirrors how
+  // agreement_pdf_url already works for the signature-ready agreement.
+  rawDb.prepare(`UPDATE repair_consults SET quote_pdf_url = ?, updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
+  return url;
 }
 
 function wrapText(text: string, font: any, size: number, maxWidth: number): string[] {
@@ -1187,8 +1278,8 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   // Hero photo (walkthrough photo captured room-by-room, hero selected)
   if (consult.hero_photo_url) {
     try {
-      const heroPath = path.join(repairPhotosDir(), path.basename(consult.hero_photo_url));
-      if (fs.existsSync(heroPath)) {
+      const heroPath = resolveConsultPhotoPath(consult.hero_photo_url);
+      if (heroPath && fs.existsSync(heroPath)) {
         const bytes = fs.readFileSync(heroPath);
         const img = consult.hero_photo_url.endsWith(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
         const w = 536, h = 130;
@@ -1698,7 +1789,7 @@ export function registerRepairConsultRoutes(app: Express) {
     const consult = getConsultRow(id);
     if (!consult) return res.status(404).json({ error: "Not found" });
     const items = getConsultItems(id);
-    res.json({ ...consult, items, agreementPdfUrl: consult.agreement_pdf_url || null });
+    res.json({ ...consult, items, agreementPdfUrl: consult.agreement_pdf_url || null, quotePdfUrl: consult.quote_pdf_url || null });
   });
 
   // ── Upload a photo (hero, gallery, or per-item). Returns a URL. ──
@@ -1927,20 +2018,39 @@ export function registerRepairConsultRoutes(app: Express) {
   });
 
   // ── Print & Sign: download/regenerate the blank agreement PDF (admin) ──
+  // v20.30.0 — Alex: viewing/printing must NOT require office approval.
+  // Approval only gates SENDING to the client (send-to-client,
+  // send-approval-email below still check office_approved_at). Alex/admin
+  // can look at — and reprint — this PDF at any point while still editing.
   app.get("/api/repair-consult/:id/agreement-pdf", async (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
     const consultId = parseInt(req.params.id);
     try {
       const consult = getConsultRow(consultId);
       if (!consult) return res.status(404).json({ error: "Consult not found" });
-      if (!consult.office_approved_at) {
-        return res.status(409).json({ error: "Needs office approval before this can be printed for a client signature." });
-      }
       const url = await generateAgreementPdf(consultId, { blank: true });
       res.redirect(url);
     } catch (err: any) {
       console.error("agreement-pdf error:", err);
       res.status(500).json({ error: "Failed to generate agreement PDF", detail: err?.message });
+    }
+  });
+
+  // ── View/reprint the itemized quote PDF — anytime, no approval needed.
+  // v20.30.0 — mirrors agreement-pdf above but for the client-facing
+  // itemized quote. Available to any signed-in agent (not admin-only) since
+  // the agent who ran the consult needs to be able to re-open it too.
+  app.get("/api/repair-consult/:id/quote-pdf", async (req: any, res: Response) => {
+    const consultId = parseInt(req.params.id);
+    try {
+      const consult = getConsultRow(consultId);
+      if (!consult) return res.status(404).json({ error: "Consult not found" });
+      if (!consult.quote_token) return res.status(409).json({ error: "Generate the quote first." });
+      const url = await generateQuotePdf(consultId);
+      res.redirect(url);
+    } catch (err: any) {
+      console.error("quote-pdf error:", err);
+      res.status(500).json({ error: "Failed to generate quote PDF", detail: err?.message });
     }
   });
 

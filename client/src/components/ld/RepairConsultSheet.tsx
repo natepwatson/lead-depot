@@ -90,10 +90,26 @@ const PILLAR_ITEM_MAP: Record<string, Record<string, { itemKey: string; qty: num
     minimum: [],
     small: [{ itemKey: "junk_small", qty: 1 }],
     medium: [{ itemKey: "junk_small", qty: 2 }],
-    large: [{ itemKey: "junk_large", qty: 1 }],
-    maximum: [{ itemKey: "junk_large", qty: 2 }],
+    // v20.32.5 — walkthrough label calls large "multiple loads / whole-house
+    // clear-out" — 1x junk_large under-priced that scope. 2x/3x define the
+    // real caps (defined-line rule) instead of leaving it a placeholder.
+    large: [{ itemKey: "junk_large", qty: 2 }],
+    maximum: [{ itemKey: "junk_large", qty: 3 }],
   },
-  flooring: {},
+  // v20.32.5 — Flooring fallback bundle (used only when the agent flagged
+  // Flooring with NO material detail checked — e.g. older consults saved
+  // before the lvp/carpet/tile/refinish details existed). Defaults to LVP,
+  // the most common resale-prep flooring ask, so something real always gets
+  // flagged for the vendor instead of nothing. Flat vendor item — qty is a
+  // placeholder (never priced/summed), the real number always comes from
+  // the vendor's own quote.
+  flooring: {
+    minimum: [{ itemKey: "v_floor_lvp", qty: 1 }],
+    small: [{ itemKey: "v_floor_lvp", qty: 1 }],
+    medium: [{ itemKey: "v_floor_lvp", qty: 1 }],
+    large: [{ itemKey: "v_floor_lvp", qty: 1 }],
+    maximum: [{ itemKey: "v_floor_lvp", qty: 1 }],
+  },
 };
 
 // v20.27.0 — Detail-driven auto-check. When the walkthrough agent checked
@@ -134,6 +150,15 @@ const DETAIL_ITEM_MAP: Record<string, Record<string, string[]>> = {
     deep: ["deep_clean"],
     carpets: ["carpet_clean"],
   },
+  // v20.32.5 — which flooring material was actually flagged during the
+  // walkthrough drives which vendor trade gets called — LVP, carpet, tile,
+  // and wood refinish are different vendors with different quotes.
+  flooring: {
+    lvp: ["v_floor_lvp"],
+    carpet: ["v_floor_carpet"],
+    tile: ["v_tile_install"],
+    refinish: ["v_floor_refinish"],
+  },
 };
 
 // v20.27.0 — Per-item qty defaults across all 5 tiers, used when auto-
@@ -158,6 +183,26 @@ const ITEM_QTY_BY_TIER: Record<string, Record<string, number>> = {
   rough_clean: { minimum: 1200, small: 2000, medium: 2000, large: 2500, maximum: 3000 },
   deep_clean: { minimum: 800, small: 1400, medium: 2000, large: 2500, maximum: 3000 },
   carpet_clean: { minimum: 200, small: 400, medium: 600, large: 800, maximum: 1200 },
+  // v20.32.5 — flooring vendor items are unit:"flat" with no rate, so qty
+  // never affects price — it only needs to be a real number so the
+  // detail-driven auto-check (which skips itemKeys with qty===undefined)
+  // doesn't silently drop the flagged vendor line.
+  v_floor_lvp: { minimum: 1, small: 1, medium: 1, large: 1, maximum: 1 },
+  v_floor_carpet: { minimum: 1, small: 1, medium: 1, large: 1, maximum: 1 },
+  v_tile_install: { minimum: 1, small: 1, medium: 1, large: 1, maximum: 1 },
+  v_floor_refinish: { minimum: 1, small: 1, medium: 1, large: 1, maximum: 1 },
+};
+
+// v20.32.5 — Flooring is always vendor-quoted (materials vary too widely for
+// an in-house rate). Since there's no dollar figure to hand the vendor, give
+// them a defined sqft range instead of a blank line — same language as the
+// walkthrough tier labels in ListingConsultSheet.tsx's PILLAR_DEFS.
+const FLOORING_SQFT_NOTE: Record<string, string> = {
+  minimum: "Approx. 1 room, under 150 sqft — vendor to confirm exact measurement on site.",
+  small: "Approx. 150–400 sqft (1–2 rooms) — vendor to confirm exact measurement on site.",
+  medium: "Approx. 400–1,200 sqft (several rooms / one level) — vendor to confirm exact measurement on site.",
+  large: "Approx. 1,200–2,500 sqft (whole house) — vendor to confirm exact measurement on site.",
+  maximum: "Approx. 2,500+ sqft (whole house, max scope) — vendor to confirm exact measurement on site.",
 };
 
 // v20.26.0 — Scope slider mechanics. Pillar tiers now run
@@ -504,6 +549,7 @@ export function RepairConsultSheet({
       }
       for (const flagged of prefillFlaggedPillars) {
         const tier = shiftPillarTier(flagged.tier, scopeShift);
+        let flooringKeysThisPillar: string[] = [];
         if (flagged.details && flagged.details.length > 0) {
           // v20.27.0 — detail-driven: only the specific items tied to the
           // checked details get auto-checked, sized by the (shifted) tier.
@@ -513,12 +559,24 @@ export function RepairConsultSheet({
               const qty = ITEM_QTY_BY_TIER[itemKey]?.[tier];
               if (qty === undefined) continue;
               next[itemKey] = { ...(next[itemKey] || DEFAULT_ITEM_STATE), checked: true, quantity: String(qty) };
+              if (flagged.key === "flooring") flooringKeysThisPillar.push(itemKey);
             }
           }
         } else {
           const mapped = PILLAR_ITEM_MAP[flagged.key]?.[tier] || [];
           for (const { itemKey, qty } of mapped) {
             next[itemKey] = { ...(next[itemKey] || DEFAULT_ITEM_STATE), checked: true, quantity: String(qty) };
+            if (flagged.key === "flooring") flooringKeysThisPillar.push(itemKey);
+          }
+        }
+        // v20.32.5 — Flooring has no in-house rate, so hand the vendor a
+        // defined sqft range instead of a blank line (see FLOORING_SQFT_NOTE).
+        if (flagged.key === "flooring") {
+          const note = FLOORING_SQFT_NOTE[tier];
+          for (const itemKey of flooringKeysThisPillar) {
+            if (note && next[itemKey] && !next[itemKey].measurementNotes) {
+              next[itemKey] = { ...next[itemKey], measurementNotes: note };
+            }
           }
         }
       }
@@ -1112,7 +1170,7 @@ export function RepairConsultSheet({
 
         {resumePhase === "picking" && (
           <ConsultResumePicker
-            title="Repair Consult"
+            title="Instant Quote"
             subtitle="Pick up an in-progress consult, or start a new one."
             items={resumeList}
             onResume={handleResumeConsult}
@@ -1125,7 +1183,7 @@ export function RepairConsultSheet({
         <>
         {step === "info" && (
           <>
-            {header("Repair Consult", "Property + client info, front of house photo")}
+            {header("Instant Quote", "Property + client info, front of house photo")}
             <label style={labelStyle}>Find in FUB</label>
             <div style={{ position: "relative", marginBottom: 6 }}>
               <input

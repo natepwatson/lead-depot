@@ -756,7 +756,7 @@ export async function sendInHouseQuoteInternal(consultId: number) {
   const html = `
   <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
   <div style="max-width:600px;margin:0 auto;background:#fff">
-    ${brandedHeader("Repair Consult — In-House Quote Generated", consult.property_address)}
+    ${brandedHeader("Instant Quote — In-House Quote Generated", consult.property_address)}
     <div style="padding:20px 32px">
       <table style="width:100%;font-size:12.5px;color:#333;margin-bottom:6px">
         <tr><td style="padding:4px 0;color:${BRAND.gray};width:130px">Client</td><td style="font-weight:600">${consult.client_name || "—"}</td></tr>
@@ -782,7 +782,7 @@ export async function sendInHouseQuoteInternal(consultId: number) {
   await resend.emails.send({
     from: FROM,
     to: ADMIN_EMAILS,
-    subject: `Repair Consult Quote — ${consult.property_address} — $${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}`,
+    subject: `Instant Quote — ${consult.property_address} — $${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}`,
     html,
   });
 }

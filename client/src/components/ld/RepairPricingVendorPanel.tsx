@@ -199,7 +199,7 @@ function PricingCatalogPanel() {
       </div>
       <p className="text-xs text-muted-foreground mb-3">
         Seeded with market-reasonable defaults — not live Xactimate/vendor data. Adjust rates and minimums here;
-        agents always see live pricing in the Repair Consult tool. Turning an item off removes it from the agent
+        agents always see live pricing in the Instant Quote tool. Turning an item off removes it from the agent
         checklist immediately.
       </p>
 
@@ -354,7 +354,7 @@ function VendorDirectoryPanel() {
       </div>
       <p className="text-xs text-muted-foreground mb-3">
         One preferred vendor per trade gets the auto-quote-request email (with photos + measurements) when a client
-        approves a licensed-trade item during a Repair Consult. Directory ships empty until filled in here.
+        approves a licensed-trade item during an Instant Quote. Directory ships empty until filled in here.
       </p>
 
       {showAdd && (
@@ -636,7 +636,7 @@ function ConsultsPanel() {
     <div style={{ padding: 16, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <h3 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.15rem", fontWeight: 300, color: "#fff" }}>
-          Repair Consults &amp; Agreements
+          Instant Quotes &amp; Agreements
         </h3>
         <button onClick={load} style={{
           display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6,

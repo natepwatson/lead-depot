@@ -1897,7 +1897,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.32.4
+              v20.32.5
             </p>
           </div>
         </div>
@@ -3046,7 +3046,7 @@ export default function AdminDashboard({
                 Repair Program
               </h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                In-house pricing catalog and licensed-trade vendor directory for the Repair Consult tool.
+                In-house pricing catalog and licensed-trade vendor directory for the Instant Quote tool.
               </p>
             </div>
             <RepairPricingVendorPanel />

@@ -186,7 +186,7 @@ const textareaStyle: React.CSSProperties = { ...inputStyle, minHeight: 72, resiz
 const forecastDateInputStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.06)", border: "1px solid rgba(200,170,90,0.25)",
   padding: "3px 6px", borderRadius: 6, fontSize: 12.5, color: "#fff", outline: "none", colorScheme: "dark",
-  fontFamily: "inherit", width: "100%",
+  fontFamily: "inherit", width: "100%", minWidth: 0, maxWidth: "100%",
 };
 
 // Big tappable checklist chip — designed so an agent can glance and tap
@@ -308,17 +308,23 @@ const PILLAR_DEFS: { key: PillarKey; label: string; group: "pillar" | "addon"; t
   {
     key: "junk_out", label: "Junk Out", group: "addon",
     tiers: [
-      { key: "small", label: "Small — partial load, single room" },
-      { key: "medium", label: "Medium — full truck load" },
-      { key: "large", label: "Large — multiple loads / whole-house clear-out" },
+      { key: "small", label: "Small — partial load, single room (up to 1 truck-bed load)" },
+      { key: "medium", label: "Medium — full truck load (up to 2 truck-bed loads)" },
+      { key: "large", label: "Large — multiple loads / whole-house clear-out (up to 2 trailer/dump-run loads)" },
     ],
   },
   {
     key: "flooring", label: "Flooring", group: "addon",
     tiers: [
-      { key: "small", label: "Small — 1–2 rooms" },
-      { key: "medium", label: "Medium — several rooms / one level" },
-      { key: "large", label: "Large — whole house" },
+      { key: "small", label: "Small — 1–2 rooms (approx. 150–400 sqft)" },
+      { key: "medium", label: "Medium — several rooms / one level (approx. 400–1,200 sqft)" },
+      { key: "large", label: "Large — whole house (approx. 1,200–2,500+ sqft)" },
+    ],
+    details: [
+      { key: "lvp", label: "LVP / Vinyl Plank" },
+      { key: "carpet", label: "Carpet" },
+      { key: "tile", label: "Tile" },
+      { key: "refinish", label: "Wood Floor Refinish" },
     ],
   },
 ];
@@ -378,7 +384,9 @@ const PILLAR_ITEM_MAP_EST: Record<PillarKey, Record<PillarTier, { itemKey: strin
   junk_out: {
     small: [{ itemKey: "junk_small", qty: 1 }],
     medium: [{ itemKey: "junk_small", qty: 2 }],
-    large: [{ itemKey: "junk_large", qty: 1 }],
+    // v20.32.5 — large tier label says "multiple loads / whole-house clear-out";
+    // 1x junk_large under-priced that scope. 2x defines the real cap.
+    large: [{ itemKey: "junk_large", qty: 2 }],
   },
   flooring: { small: [], medium: [], large: [] }, // vendor-quoted — never summed, flagged as a note instead
 };
@@ -1198,7 +1206,7 @@ export function ListingConsultSheet({
             <textarea style={{ ...textareaStyle, marginBottom: 14 }} value={walkthroughNotes} onChange={e => setWalkthroughNotes(e.target.value)} placeholder="Condition, updates, anything notable while walking through" />
             <label style={labelStyle}>Condition Check — What Does This Home Need?</label>
             <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -2, marginBottom: 10 }}>
-              Check anything you're seeing right now and pick a size — this is scoping, not a quote. The Repair Consult (once they sign) is where we lock in real numbers.
+              Check anything you're seeing right now and pick a size — this is scoping, not a quote. The Instant Quote (once they sign) is where we lock in real numbers.
             </p>
             {PILLAR_DEFS.map(def => {
               const st = pillarFlags[def.key];
@@ -1490,7 +1498,13 @@ export function ListingConsultSheet({
                   <label style={{ ...labelStyle, fontSize: 10.5 }}>Start Date</label>
                   <input type="date" style={inputStyle} value={forecastStartDate} onChange={e => handleForecastStartChange(e.target.value)} />
                 </div>
-                <table style={{ width: "100%", fontSize: 12.5, color: "rgba(255,255,255,0.85)", borderCollapse: "collapse" }}>
+                {/* v20.32.5 — table-layout fixed + explicit column widths. Auto layout let
+                    the label column grow with content and push the date bubble (e.g. the
+                    initial "Repairs Start" row) past the card's right edge on narrow phones.
+                    Fixed layout + minWidth:0 on the input forces the value column to stay
+                    inside the card no matter how long a label gets. */}
+                <table style={{ width: "100%", tableLayout: "fixed", fontSize: 12.5, color: "rgba(255,255,255,0.85)", borderCollapse: "collapse" }}>
+                  <colgroup><col style={{ width: "58%" }} /><col style={{ width: "42%" }} /></colgroup>
                   <tbody>
                     {timelineForecast.showRepairWindow && (
                       <>
@@ -1540,7 +1554,7 @@ export function ListingConsultSheet({
                             ${depositLow.toLocaleString()} – ${depositHigh.toLocaleString()}
                           </div>
                           <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", marginTop: 8 }}>
-                            Ballpark only, based on what you flagged{hasVendorOnly ? " (excludes flooring / vendor-quoted work)" : ""} — open the Instant Repair Quote to build the real number.
+                            Ballpark only, based on what you flagged{hasVendorOnly ? " (excludes flooring / vendor-quoted work)" : ""} — open the Instant Quote to build the real number.
                           </div>
                           <button type="button" onClick={handleOpenRepairConsult} disabled={saving} style={{
                             width: "100%", marginTop: 10, padding: "10px 14px", borderRadius: 8, cursor: saving ? "default" : "pointer",
@@ -1548,13 +1562,13 @@ export function ListingConsultSheet({
                             color: "#fff", fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                           }}>
                             {saving ? <Loader2 size={14} className="animate-spin" /> : <Wrench size={14} style={{ color: GOLD }} />}
-                            Open Instant Repair Quote
+                            Open Instant Quote
                           </button>
                         </div>
                       );
                     })()}
                     <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 8, marginBottom: 0 }}>
-                      We'll build the real, final quote in the Instant Repair Quote above once they've signed on — right after the contract sends below.
+                      We'll build the real, final quote in the Instant Quote above once they've signed on — right after the contract sends below.
                     </p>
                   </div>
                 ) : (
@@ -1698,10 +1712,10 @@ export function ListingConsultSheet({
                       color: "#fff", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                     }}>
                       {saving ? <Loader2 size={15} className="animate-spin" /> : <Wrench size={15} style={{ color: GOLD }} />}
-                      Open Repair Consult
+                      Open Instant Quote
                     </button>
                     <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 8, marginBottom: 0 }}>
-                      Now that the listing agreement is sent, scope items and build the real instant quote. Nate or Alex still has to approve it before it goes to the client.
+                      Now that the listing agreement is sent, scope items and build the real Instant Quote. Nate or Alex still has to approve it before it goes to the client.
                     </p>
                   </div>
                 )}

@@ -454,19 +454,20 @@ export function registerListingConsultRoutes(app: Express) {
         rawDb.prepare(`UPDATE listing_consults SET hero_photo_url = ?, hero_photo_source = 'manual', updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
       } else if (kind === "gallery") {
         const row = rawDb.prepare(`SELECT gallery_photos, scope_photos FROM listing_consults WHERE id = ?`).get(consultId) as any;
-        const raw = row?.gallery_photos ? JSON.parse(row.gallery_photos) : [];
-        const arr = raw.map((entry: any) => (typeof entry === "string" ? entry : entry?.url)).filter(Boolean);
-        arr.push(url);
-        // v20.28.0 — scope-bucket uploads ALSO land in scope_photos (their own
-        // JSON array) so the Scope Photos card can rehydrate correctly on
-        // resume. They still land in gallery_photos too — nothing is lost
-        // from the full evidence set either way.
+        // v20.32.1 — FIX: Scope Photos and Walkthrough Photos are two
+        // distinct buckets and must stay fully separate. Previously every
+        // scope-bucket upload was ALSO appended to gallery_photos, so it
+        // showed up duplicated under Walkthrough Photos too. Now each
+        // upload lands in exactly one bucket based on which uploader sent it.
         if (bucket === "scope") {
           let scopeArr: string[] = [];
           try { scopeArr = row?.scope_photos ? JSON.parse(row.scope_photos) : []; } catch { scopeArr = []; }
           scopeArr.push(url);
-          rawDb.prepare(`UPDATE listing_consults SET gallery_photos = ?, scope_photos = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(arr), JSON.stringify(scopeArr), consultId);
+          rawDb.prepare(`UPDATE listing_consults SET scope_photos = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(scopeArr), consultId);
         } else {
+          const raw = row?.gallery_photos ? JSON.parse(row.gallery_photos) : [];
+          const arr = raw.map((entry: any) => (typeof entry === "string" ? entry : entry?.url)).filter(Boolean);
+          arr.push(url);
           rawDb.prepare(`UPDATE listing_consults SET gallery_photos = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(arr), consultId);
         }
       }

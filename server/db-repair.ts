@@ -280,6 +280,45 @@ export function repairSnapshotGaps(from: string, to: string, dryRun: boolean, ac
 }
 
 // ─── Recent repair history ─────────────────────────────────────────────────
+// — v20.32.1 — Dedupe Listing Consult scope/gallery photo duplication —
+// Bug: scope-bucket uploads were previously written into BOTH scope_photos
+// AND gallery_photos (Walk-Through Photos), so every Scope Photo appeared
+// duplicated under Walk-Through. Fixed going forward in listingConsult.ts;
+// this repairs already-affected rows by removing, from gallery_photos, any
+// URL that also appears in scope_photos. scope_photos is left untouched.
+export interface DedupeListingPhotosResult {
+  consultId: number;
+  propertyAddress: string;
+  before: number;
+  after: number;
+  removed: number;
+}
+
+export function dedupeListingConsultPhotos(consultId: number | null, dryRun: boolean, actor: any): { dryRun: boolean; results: DedupeListingPhotosResult[] } {
+  const rows = consultId
+    ? rawDb.prepare(`SELECT id, property_address, gallery_photos, scope_photos FROM listing_consults WHERE id = ?`).all(consultId) as any[]
+    : rawDb.prepare(`SELECT id, property_address, gallery_photos, scope_photos FROM listing_consults WHERE scope_photos IS NOT NULL AND scope_photos != '[]'`).all() as any[];
+
+  const results: DedupeListingPhotosResult[] = [];
+  for (const row of rows) {
+    let gallery: string[] = [];
+    let scope: string[] = [];
+    try { gallery = row.gallery_photos ? JSON.parse(row.gallery_photos) : []; } catch { gallery = []; }
+    try { scope = row.scope_photos ? JSON.parse(row.scope_photos) : []; } catch { scope = []; }
+    if (!gallery.length || !scope.length) continue;
+    const scopeSet = new Set(scope);
+    const cleaned = gallery.filter((url: string) => !scopeSet.has(url));
+    const removed = gallery.length - cleaned.length;
+    if (removed === 0) continue;
+    results.push({ consultId: row.id, propertyAddress: row.property_address, before: gallery.length, after: cleaned.length, removed });
+    if (!dryRun) {
+      rawDb.prepare(`UPDATE listing_consults SET gallery_photos = ?, updated_at = datetime('now') WHERE id = ?`).run(JSON.stringify(cleaned), row.id);
+    }
+  }
+  logRepair("dedupe_listing_consult_photos", actor, dryRun, results.reduce((s, r) => s + r.removed, 0), { consultId, results });
+  return { dryRun, results };
+}
+
 export function listRepairLog(limit = 100) {
   ensureRepairLogSchema();
   return rawDb.prepare(`

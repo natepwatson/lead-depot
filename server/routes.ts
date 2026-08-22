@@ -45,6 +45,7 @@ import {
   reassignLeadsFromDeactivated,
   repairSnapshotGaps,
   listRepairLog,
+  dedupeListingConsultPhotos,
 } from "./db-repair";
 // v17.6 — removed duplicate ./approvals module. All approval traffic goes
 // through the existing approval_requests table via routes below (§ v17.0
@@ -260,7 +261,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.31.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -489,7 +490,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.31.0 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.32.1 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -548,7 +549,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.31.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -596,7 +597,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.31.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1842,7 +1843,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.31.0</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.32.1</p>
             </div>
           `,
         });
@@ -2002,7 +2003,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.31.0 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.32.1 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -6260,6 +6261,23 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
+  // v20.32.1 — one-off + reusable repair for the scope/gallery photo
+  // duplication bug (scope-bucket uploads were also landing in
+  // gallery_photos / Walk-Through Photos). Body: { consultId?: number,
+  // dryRun?: boolean }. Omit consultId to sweep every affected consult.
+  app.post("/api/admin/db-repair/dedupe-listing-consult-photos", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const dryRun = req.body?.dryRun !== false; // default true
+      const consultId = req.body?.consultId ? Number(req.body.consultId) : null;
+      const actor = req.currentAgent ? { id: req.currentAgent.id, name: req.currentAgent.name } : null;
+      const r = dedupeListingConsultPhotos(consultId, dryRun, actor);
+      res.json({ ok: true, ...r });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "dedupe_error" });
+    }
+  });
+
   app.get("/api/admin/db-repair/log", (req: any, res) => {
     if (!requireAdmin(req, res)) return;
     try {
@@ -8497,7 +8515,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.31.0 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.32.1 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -9617,7 +9635,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.31.0",
+      version: "v20.32.1",
       services: results,
     });
   });
@@ -11031,7 +11049,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.31.0</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.32.1</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

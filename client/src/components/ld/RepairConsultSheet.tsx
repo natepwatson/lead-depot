@@ -1586,20 +1586,12 @@ export function RepairConsultSheet({
                     <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
                       <CheckCircle2 size={16} /> Quote generated — sent to Alex & Nate for review.
                     </div>
-                    {quoteResult.pdfUrl && (
+                    {(quoteResult.agreementPdfUrl || quoteResult.pdfUrl) && (
                       <button
-                        onClick={() => setPdfModal({ url: quoteResult.pdfUrl, title: `${propertyAddress} — Itemized Quote` })}
-                        style={{ display: "block", width: "100%", textAlign: "center", padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.2)", background: "transparent", color: "rgba(255,255,255,0.85)", fontSize: 12.5, fontWeight: 700, marginBottom: 10, cursor: "pointer" }}
-                      >
-                        View Itemized Quote PDF
-                      </button>
-                    )}
-                    {quoteResult.agreementPdfUrl && (
-                      <button
-                        onClick={() => setPdfModal({ url: quoteResult.agreementPdfUrl, title: `${propertyAddress} — Signature-Ready Agreement` })}
+                        onClick={() => setPdfModal({ url: quoteResult.agreementPdfUrl || quoteResult.pdfUrl, title: `${propertyAddress} — Quote` })}
                         style={{ display: "block", width: "100%", textAlign: "center", padding: "10px 14px", borderRadius: 8, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, fontSize: 12.5, fontWeight: 700, marginBottom: 10, cursor: "pointer" }}
                       >
-                        View Signature-Ready Agreement (2-page PDF)
+                        View Quote
                       </button>
                     )}
                     {clientEmail ? (
@@ -1609,7 +1601,7 @@ export function RepairConsultSheet({
                         cursor: clientSent ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 8,
                       }}>
                         {sendingToClient ? <Loader2 size={15} className="animate-spin" /> : clientSent ? <CheckCircle2 size={15} /> : null}
-                        {clientSent ? "Sent to Client" : "Send Branded Quote to Client"}
+                        {clientSent ? "Sent to Client" : "Send for Signature"}
                       </button>
                     ) : (
                       <p style={{ fontSize: 11.5, color: "rgba(255,255,255,0.4)" }}>No client email on file — quote is with Alex/Nate to send manually or you can go back and add one.</p>

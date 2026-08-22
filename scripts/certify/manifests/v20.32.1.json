@@ -1,0 +1,41 @@
+{
+  "version": "v20.32.1",
+  "changes": [
+    "Repair consult e-sign redesign: removed one-click office-approve and email-approval flows",
+    "New two-stage signature flow: client e-signs (status -> pending_countersignature) then admin countersigns to finalize",
+    "Mark Signed (print & sign path) now requires uploaded evidence photo/PDF, then a separate Confirm Print-Signed step by admin before finalizing",
+    "New public Decline route for clients to decline a repair proposal",
+    "On full execution (countersign OR confirm-print-signed), auto-generates signed agreement PDF + Work Order & Final Checklist PDF, archives permanently to repair_consult_archives, and emails Work Order to client + admins with start date, deadline, materials, and full scope in chronological order",
+    "Admin panel: merged dual PDF-view buttons into one View Quote button, added Signature Stage column, added evidence-upload flow for Mark Signed",
+    "HOTFIX: Listing Consult Scope Photos were also being duplicated into Walk-Through Photos on every upload. Fixed going forward; added /api/admin/db-repair/dedupe-listing-consult-photos to clean up already-affected consults"
+  ],
+  "endpoints": [
+    { "path": "/api/health", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["version"] },
+    { "path": "/api/admin/repair-consults", "method": "GET", "auth": "admin", "expectStatus": 200, "expectKeys": ["consults"] }
+  ],
+  "bundleMustContain": [
+    "Awaiting Countersign",
+    "Signature Stage",
+    "Decline Proposal",
+    "countersign"
+  ],
+  "bundleMustNotContain": [
+    "officeApprove",
+    "Approve Proposal"
+  ],
+  "__bundleNotes": "officeApprove (camelCase function/handler name) and the old one-click 'Approve Proposal' button copy are retired in v20.32.1 — their presence in the live bundle would mean the old build is still being served. countersign/Signature Stage/Decline Proposal/Awaiting Countersign are new v20.32.0 UI strings that must be present.",
+  "mathChecks": [
+    {
+      "name": "repair-consults endpoint returns an array",
+      "path": "/api/admin/repair-consults",
+      "auth": "admin",
+      "expr": "Array.isArray(body.consults)"
+    },
+    {
+      "name": "no consult sits in a retired office_approved status",
+      "path": "/api/admin/repair-consults",
+      "auth": "admin",
+      "expr": "body.consults.every(c => c.status !== 'office_approved')"
+    }
+  ]
+}

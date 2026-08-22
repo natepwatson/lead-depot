@@ -123,6 +123,7 @@
   "POST /api/admin/candidates/:id/hard-delete",
   "POST /api/admin/champion/recrown",
   "POST /api/admin/daily-snapshots/run-now",
+  "POST /api/admin/db-repair/dedupe-listing-consult-photos",
   "POST /api/admin/db-repair/prune-evidence",
   "POST /api/admin/db-repair/reassign-orphan-leads",
   "POST /api/admin/db-repair/recompute-points",

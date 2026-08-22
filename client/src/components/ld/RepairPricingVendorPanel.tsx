@@ -2,9 +2,9 @@
 // In-house items (repair_items) get an editable default rate / min charge / active toggle.
 // Vendor directory (repair_vendors) is admin-managed contacts routed a quote request per trade
 // (auto-emailed from the Repair Consult client flow when an item needs a licensed trade).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2, FilePlus2, XCircle, Pencil, FileText } from "lucide-react";
+import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2, FilePlus2, XCircle, Pencil } from "lucide-react";
 // v20.30.0 — lets Alex open ANY repair consult (any agent's, any status)
 // from the admin Repair Program panel and edit the scope/items directly,
 // same tool the field agent uses, instead of only being able to view a
@@ -62,9 +62,17 @@ type Consult = {
   start_time: string | null;
   office_approved_at: string | null;
   office_approved_by: string | null;
+  countersigned_at: string | null;
+  countersigned_by: string | null;
+  declined_at: string | null;
+  decline_reason: string | null;
+  print_signed_confirmed_at: string | null;
+  print_signed_confirmed_by: string | null;
   agent_name: string | null;
   created_at: string;
 };
+
+const GOLD = "#c8aa5a";
 
 const unitLabel = (u: string) => (u === "linear_ft" ? "linear ft" : u === "sqft" ? "sqft" : u === "each" ? "each" : "flat");
 
@@ -445,27 +453,17 @@ function ConsultsPanel() {
     } finally { setBusy(null); }
   };
 
-  const sendApproval = async (c: Consult) => {
+  // v20.32.0 — two-stage e-sign: admin countersigns after the homeowner has
+  // already e-signed (status === 'pending_countersignature'). Finalizes the
+  // contract, generates the signed agreement + Work Order PDF, archives it
+  // permanently, and emails the Work Order to client + admins.
+  const countersign = async (c: Consult) => {
+    if (!confirm(`Countersign this agreement for ${c.property_address}?\n\nHomeowner signed as: ${c.accepted_signature_name}\nSigned: ${c.accepted_at}\n\nThis finalizes the contract and sends the Work Order & Final Checklist to the client and admins.`)) return;
     setBusy(c.id);
     try {
-      const r = await fetch(`/api/repair-consult/${c.id}/send-approval-email`, { method: "POST", credentials: "include" });
+      const r = await fetch(`/api/repair-consult/${c.id}/countersign`, { method: "POST", credentials: "include" });
       const b = await r.json();
-      if (!r.ok) alert(b?.error || "Failed to send approval email");
-      load();
-    } finally { setBusy(null); }
-  };
-
-  // v20.13.0 — Office Approval Gate: admin sign-off in-house before anything goes to the client.
-  const officeApprove = async (c: Consult) => {
-    // v20.30.0 — reworded: approving is an internal sign-off ONLY. It does
-    // NOT send anything to the client — E-Sign / Approval Email are separate,
-    // explicit actions taken afterward.
-    if (!confirm(`Approve this proposal internally for ${c.property_address}?\n\nTotal: $${c.total?.toLocaleString(undefined, { minimumFractionDigits: 2 })}\n\nThis does NOT send anything to the client — you'll still need to click E-Sign or Approval below to actually send it.`)) return;
-    setBusy(c.id);
-    try {
-      const r = await fetch(`/api/repair-consult/${c.id}/office-approve`, { method: "POST", credentials: "include" });
-      const b = await r.json();
-      if (!r.ok) alert(b?.error || "Failed to approve");
+      if (!r.ok) alert(b?.error || "Failed to countersign");
       load();
     } finally { setBusy(null); }
   };
@@ -475,12 +473,6 @@ function ConsultsPanel() {
   // is running as an installed home-screen PWA (no tabs, no browser back).
   const downloadPdf = (c: Consult) => {
     setPdfModal({ url: `/api/repair-consult/${c.id}/agreement-pdf`, title: `${c.property_address} — Print & Sign Agreement` });
-  };
-
-  // v20.30.0 — view the itemized quote PDF. No approval gate: only requires
-  // a quote to exist. Mirrors downloadPdf's pattern for the agreement.
-  const viewQuotePdf = (c: Consult) => {
-    setPdfModal({ url: `/api/repair-consult/${c.id}/quote-pdf`, title: `${c.property_address} — Itemized Quote` });
   };
 
   // v20.31.0 — button audit: permanently delete a consult (admin only).
@@ -500,18 +492,55 @@ function ConsultsPanel() {
     } finally { setBusy(null); }
   };
 
-  const markPrintSigned = async (c: Consult) => {
-    const signedBy = prompt(`Client's full name as signed on the printed agreement for ${c.property_address}:`, c.client_name || "");
+  // v20.32.0 — Mark Signed now requires evidence (photo or PDF of the
+  // physically-signed printout). Clicking opens a hidden file picker;
+  // once a file is chosen we prompt for the signer's name and upload.
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadTargetId, setUploadTargetId] = useState<number | null>(null);
+
+  const markPrintSigned = (c: Consult) => {
+    setUploadTargetId(c.id);
+    fileInputRef.current?.click();
+  };
+
+  const onSignedFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const consultId = uploadTargetId;
+    e.target.value = "";
+    if (!file || !consultId) return;
+    const c = consults.find(x => x.id === consultId);
+    const signedBy = prompt(`Client's full name as signed on the printed agreement for ${c?.property_address || ""}:`, c?.client_name || "");
     if (!signedBy || signedBy.trim().length < 2) return;
-    setBusy(c.id);
+    setBusy(consultId);
     try {
-      const r = await fetch(`/api/repair-consult/${c.id}/mark-print-signed`, {
+      const base64: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(((reader.result as string) || "").split(",")[1] || "");
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const mimeType = file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg");
+      const r = await fetch(`/api/repair-consult/${consultId}/mark-print-signed`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signedBy: signedBy.trim() }),
+        body: JSON.stringify({ signedBy: signedBy.trim(), imageData: base64, mimeType }),
       });
       const b = await r.json();
       if (!r.ok) alert(b?.error || "Failed to record print-signed agreement");
+      load();
+    } finally { setBusy(null); }
+  };
+
+  // v20.32.0 — second step: admin confirms the uploaded print-signed
+  // evidence is legitimate. This is what actually finalizes the contract
+  // (status → accepted, Work Order generated + emailed).
+  const confirmPrintSigned = async (c: Consult) => {
+    if (!confirm(`Confirm the printed agreement for ${c.property_address} was signed by ${c.print_signed_by}?\n\nThis finalizes the contract and sends the Work Order & Final Checklist to the client and admins.`)) return;
+    setBusy(c.id);
+    try {
+      const r = await fetch(`/api/repair-consult/${c.id}/confirm-print-signed`, { method: "POST", credentials: "include" });
+      const b = await r.json();
+      if (!r.ok) alert(b?.error || "Failed to confirm print-signed");
       load();
     } finally { setBusy(null); }
   };
@@ -546,7 +575,20 @@ function ConsultsPanel() {
   };
 
   const statusColor = (status: string) =>
-    status === "accepted" ? "#5eead4" : status === "sent" || status === "quoted" ? "#e8d8a8" : "#94a3b8";
+    status === "accepted" ? "#5eead4"
+    : status === "pending_countersignature" ? GOLD
+    : status === "declined" ? "#f87171"
+    : status === "sent" || status === "quoted" ? "#e8d8a8" : "#94a3b8";
+
+  // v20.32.0 — replaces the old "Office" (office-approval) column. Shows
+  // where a consult sits in the two-stage e-sign / print-sign pipeline.
+  const signatureStageLabel = (c: Consult) => {
+    if (c.status === "accepted") return <span style={{ color: "#5eead4" }}>Signed</span>;
+    if (c.status === "declined") return <span style={{ color: "#f87171" }}>Declined{c.decline_reason ? ` · ${c.decline_reason}` : ""}</span>;
+    if (c.status === "pending_countersignature") return <span style={{ color: GOLD }}>Awaiting Countersign</span>;
+    if (c.print_signed_at && !c.print_signed_confirmed_at) return <span style={{ color: GOLD }}>Print-Signed · Awaiting Confirm</span>;
+    return <span style={{ color: "#64748b" }}>Awaiting Signature</span>;
+  };
 
   const signedLabel = (c: Consult) => {
     if (c.status !== "accepted") return "—";
@@ -568,9 +610,10 @@ function ConsultsPanel() {
         }}><RefreshCw size={11} /> Refresh</button>
       </div>
       <p className="text-xs text-muted-foreground mb-3">
-        Send the two-page agreement for e-signature, send a one-click green approval email, download the blank
-        Print &amp; Sign PDF, or mark a consult signed after a physical printout comes back.
+        Send for e-signature, countersign once the homeowner signs, download the Print &amp; Sign PDF, or upload
+        evidence of a physically-signed printout and confirm it to finalize the contract.
       </p>
+      <input ref={fileInputRef} type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={onSignedFileSelected} />
 
       {loading ? (
         <div style={{ fontSize: 12, color: "#94a3b8" }}>Loading consults…</div>
@@ -585,7 +628,7 @@ function ConsultsPanel() {
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Client</th>
                 <th style={{ textAlign: "right", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Total</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Status</th>
-                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Office</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Signature Stage</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Signed</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Deposit / Start</th>
                 <th style={{ textAlign: "center", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Actions</th>
@@ -603,13 +646,7 @@ function ConsultsPanel() {
                   </td>
                   <td style={{ padding: "6px 10px", color: statusColor(c.status), textTransform: "capitalize" }}>{c.status}</td>
                   <td style={{ padding: "6px 10px", fontSize: 11 }}>
-                    {!c.quote_token ? (
-                      <span style={{ color: "#64748b" }}>—</span>
-                    ) : c.office_approved_at ? (
-                      <span style={{ color: "#5eead4" }}>Approved · {c.office_approved_by}</span>
-                    ) : (
-                      <span style={{ color: "#e8d8a8" }}>Pending approval</span>
-                    )}
+                    {!c.quote_token ? <span style={{ color: "#64748b" }}>—</span> : signatureStageLabel(c)}
                   </td>
                   <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11 }}>{signedLabel(c)}</td>
                   <td style={{ padding: "6px 10px", fontSize: 11 }}>
@@ -625,27 +662,27 @@ function ConsultsPanel() {
                   </td>
                   <td style={{ padding: "6px 10px" }}>
                     <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap" }}>
-                      {c.quote_token && !c.office_approved_at && (
-                        <button disabled={busy === c.id} onClick={() => officeApprove(c)} title="Office Approval — required before this can be sent to the client"
-                          style={{ ...actionBtnStyle, color: "#c8aa5a", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><CheckCircle2 size={11} /> Approve</button>
+                      {c.status === "pending_countersignature" ? (
+                        <button disabled={busy === c.id} onClick={() => countersign(c)} title={`Homeowner e-signed as ${c.accepted_signature_name} — click to countersign and finalize`}
+                          style={{ ...actionBtnStyle, color: GOLD, borderColor: "rgba(200,170,90,0.55)", background: "rgba(200,170,90,0.14)" }}><CheckCircle2 size={11} /> Countersign</button>
+                      ) : (
+                        <button disabled={!c.quote_token || busy === c.id || c.status === "accepted" || c.status === "declined"} onClick={() => sendToClient(c)}
+                          title={!c.quote_token ? "Generate the quote first" : c.status === "accepted" ? "Already signed" : c.status === "declined" ? "Client declined — re-generate a new quote first" : "Send for Signature (E-Sign)"}
+                          style={actionBtnStyle}><Mail size={11} /> E-Sign</button>
                       )}
-                      <button disabled={!c.quote_token || !c.office_approved_at || busy === c.id} onClick={() => sendToClient(c)}
-                        title={!c.quote_token ? "Generate the quote first" : !c.office_approved_at ? "Needs office approval first" : "Send to Client (E-Sign)"}
-                        style={actionBtnStyle}><Mail size={11} /> E-Sign</button>
-                      <button disabled={!c.quote_token || !c.office_approved_at || busy === c.id} onClick={() => sendApproval(c)}
-                        title={!c.quote_token ? "Generate the quote first" : !c.office_approved_at ? "Needs office approval first" : "Send Approval Email"}
-                        style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.08)" }}><Mail size={11} /> Approval</button>
                       <button disabled={!c.quote_token || busy === c.id} onClick={() => downloadPdf(c)}
-                        title={!c.quote_token ? "Generate the quote first" : "View / Download Print & Sign Agreement PDF (no approval needed to view)"}
+                        title={!c.quote_token ? "Generate the quote first" : "View / Download Print & Sign Agreement PDF"}
                         style={actionBtnStyle}><Download size={11} /> Print PDF</button>
-                      <button disabled={!c.quote_token || busy === c.id} onClick={() => viewQuotePdf(c)}
-                        title={!c.quote_token ? "Generate the quote first" : "View the itemized Quote PDF"}
-                        style={actionBtnStyle}><FileText size={11} /> View Quote</button>
                       <button disabled={busy === c.id} onClick={() => setEditingConsultId(c.id)} title="Open and edit this consult's full scope/items"
                         style={{ ...actionBtnStyle, color: "#93c5fd", borderColor: "rgba(147,197,253,0.4)", background: "rgba(147,197,253,0.08)" }}><Pencil size={11} /> Edit</button>
-                      <button disabled={!c.quote_token || c.status === "accepted" || busy === c.id} onClick={() => markPrintSigned(c)}
-                        title={!c.quote_token ? "Generate the quote first" : c.status === "accepted" ? "Already signed" : "Mark as Print-Signed — physical printout came back signed"}
-                        style={actionBtnStyle}><PenLine size={11} /> Mark Signed</button>
+                      {c.print_signed_at && !c.print_signed_confirmed_at ? (
+                        <button disabled={busy === c.id} onClick={() => confirmPrintSigned(c)} title={`Confirm printed signature by ${c.print_signed_by}`}
+                          style={{ ...actionBtnStyle, color: GOLD, borderColor: "rgba(200,170,90,0.55)", background: "rgba(200,170,90,0.14)" }}><CheckCircle2 size={11} /> Confirm Signed</button>
+                      ) : (
+                        <button disabled={!c.quote_token || c.status === "accepted" || busy === c.id} onClick={() => markPrintSigned(c)}
+                          title={!c.quote_token ? "Generate the quote first" : c.status === "accepted" ? "Already signed" : "Mark as Print-Signed — upload a photo or PDF of the signed printout"}
+                          style={actionBtnStyle}><PenLine size={11} /> Mark Signed</button>
+                      )}
                       {c.status === "accepted" && !c.deposit_received_at && (
                         <button disabled={busy === c.id} onClick={() => markDepositReceived(c)} title="Mark Deposit Received"
                           style={{ ...actionBtnStyle, color: "#e8d8a8", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><DollarSign size={11} /> Deposit In</button>

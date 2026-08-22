@@ -157,7 +157,7 @@ export function ensureRepairConsultSchema() {
       property_address TEXT NOT NULL,
       hero_photo_url TEXT,
       property_photos TEXT,              -- JSON array of URLs (interior/exterior gallery)
-      status TEXT NOT NULL DEFAULT 'draft', -- draft | quoted | sent | accepted | work_order_sent
+      status TEXT NOT NULL DEFAULT 'draft', -- draft | quoted | sent | pending_countersignature | accepted | declined | work_order_sent
       start_window TEXT,                 -- 'asap' | 'within_1_week' | '1_2_weeks' | '2_4_weeks' | 'specific'
       start_date TEXT,
       start_time TEXT,
@@ -308,6 +308,44 @@ export function ensureRepairConsultSchema() {
   // change order produced, so admin UI / PDFs can show provenance.
   const rciCols = (rawDb.prepare(`PRAGMA table_info(repair_consult_items)`).all() as any[]).map((c: any) => c.name);
   if (!rciCols.includes("change_order_id")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN change_order_id INTEGER").run();
+
+  // v20.32.0 — E-Sign redesign: two-stage signature chain. Homeowner signs
+  // first (status -> 'pending_countersignature', reusing accepted_at /
+  // accepted_signature_name / accepted_ip / signature_method exactly as
+  // before), then an admin countersigns (status -> 'accepted' only then).
+  // Decline is a new terminal state. Mark Signed now requires evidence
+  // (photo or PDF) uploaded first, then a separate admin confirm step
+  // before it too can flip status to 'accepted'.
+  if (!rcCols.includes("countersigned_at"))          rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN countersigned_at TEXT").run();
+  if (!rcCols.includes("countersigned_by"))          rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN countersigned_by TEXT").run();
+  if (!rcCols.includes("declined_at"))               rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN declined_at TEXT").run();
+  if (!rcCols.includes("decline_reason"))            rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN decline_reason TEXT").run();
+  if (!rcCols.includes("print_signed_confirmed_at")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN print_signed_confirmed_at TEXT").run();
+  if (!rcCols.includes("print_signed_confirmed_by")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN print_signed_confirmed_by TEXT").run();
+  // v20.32.0 — final Work Order & Checklist doc (photos + chronological scope
+  // + start/target-completion dates), generated the moment a contract is
+  // fully executed. target_completion_date is editable by admin; if never
+  // set, it's inferred as start_date + 14 days at generation time.
+  if (!rcCols.includes("work_order_pdf_url"))       rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN work_order_pdf_url TEXT").run();
+  if (!rcCols.includes("target_completion_date"))   rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN target_completion_date TEXT").run();
+
+  // v20.32.0 — permanent, un-deletable archive of every fully-executed
+  // (countersigned or print-sign-confirmed) contract. Delete never touches
+  // this table — see DELETE /api/repair-consult/:id below.
+  rawDb.exec(`
+    CREATE TABLE IF NOT EXISTS repair_consult_archives (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      consult_id INTEGER NOT NULL,
+      archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+      signature_method TEXT,
+      property_address TEXT,
+      client_name TEXT,
+      total REAL,
+      agreement_pdf_url TEXT,
+      work_order_pdf_url TEXT,
+      snapshot_json TEXT NOT NULL
+    );
+  `);
 
   // v20.18.0 — Packages + Sign-Today incentive + Street View hero default.
   if (!rcCols.includes("package_key"))             rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN package_key TEXT").run();
@@ -516,6 +554,7 @@ export const IN_HOUSE_TERMS = [
   "Quote valid 14 days from issue date. Deposits are non-refundable once material is purchased or labor is scheduled with less than 48 hours' notice.",
   "Brothers Group is not a licensed general contractor; in-house work is limited to non-structural, non-permitted cosmetic and maintenance items as listed above.",
   "By signing below, client authorizes Brothers Group to perform the listed work at the listed price under the terms above.",
+  "Every quantity, square footage, and unit count listed on this quote is the maximum included in this price. Work beyond those stated maximums is quoted separately and requires written approval before we proceed.",
 ] as const;
 
 export const VENDOR_DISPATCH_NOTE =
@@ -549,7 +588,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "5. Conditions Discovered Once Work Begins",
-    body: "Your price reflects the scope, quantities, and condition we observed during your walkthrough. If we discover something once work is underway that wasn't part of that original scope — rot, mold, structural issues, pest damage, code violations, and similar — we'll stop and present it to you as a separate change order in writing. We won't perform or charge for any additional work without your approval first.",
+    body: "Your price reflects the scope, quantities, and condition we observed during your walkthrough. Every quantity, square footage, and unit count on your itemized quote is a maximum, not a guarantee of exact usage. If we discover something once work is underway that wasn't part of that original scope — rot, mold, structural issues, pest damage, code violations, and similar — or if the work exceeds the stated maximums, we'll stop and present it to you as a separate change order in writing. We won't perform or charge for any additional work without your approval first.",
   },
   {
     heading: "6. Color Matching & Material Disclaimers",
@@ -914,35 +953,52 @@ export async function dispatchVendorEmails(consultId: number) {
 }
 
 // ─── EMAIL: Work order (fires to admins the moment client accepts) ─────────
+// v20.32.0 — fires the moment a contract is FULLY executed (admin
+// countersignature or confirmed print-signed evidence). Generates the
+// Work Order & Final Checklist PDF (photos + full chronological scope +
+// start date + target completion/deadline) and emails it to BOTH the
+// admins AND the client — this is the punch-list document used at final
+// walkthrough before releasing final payment.
 export async function sendWorkOrderEmail(consultId: number) {
-  if (!resend) return;
+  const workOrderUrl = await generateWorkOrderPdf(consultId);
   const consult = getConsultRow(consultId);
   const items = getConsultItems(consultId)
     .filter((i: any) => i.category === "in_house")
     .sort((a: any, b: any) => a.sequence_order - b.sequence_order);
   if (!consult) return;
+  const targetCompletion = computeTargetCompletionDate(consult);
 
-  const stepsHtml = items.map((it: any, idx: number) => `
+  if (!resend) {
+    rawDb.prepare(`UPDATE repair_consults SET status = 'work_order_sent', work_order_sent_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(consultId);
+    return;
+  }
+
+  const stepsHtml = items.map((it: any, idx: number) => {
+    const qtyLabel = `${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`;
+    return `
     <tr>
       <td style="padding:8px 10px;border-bottom:1px solid ${BRAND.border};font-size:12px;color:${BRAND.gray};width:26px">${idx + 1}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid ${BRAND.border};font-size:13px;color:#1a1a1a">${it.instruction || it.name}</td>
-    </tr>`).join("");
+      <td style="padding:8px 10px;border-bottom:1px solid ${BRAND.border};font-size:13px;color:#1a1a1a">${it.name}${it.two_story ? " (2-story)" : ""} — ${qtyLabel}${it.instruction ? `<br/><span style="color:${BRAND.gray};font-size:11px;font-style:italic">${it.instruction}</span>` : ""}</td>
+    </tr>`;
+  }).join("");
 
   const html = `
   <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
   <div style="max-width:600px;margin:0 auto;background:#fff">
-    ${brandedHeader("✅ Work Order — Client Accepted", consult.property_address)}
+    ${brandedHeader("✅ Contract Signed — Work Order & Final Checklist", consult.property_address)}
     <div style="padding:22px 32px">
       <table style="width:100%;font-size:12.5px;color:#333;margin-bottom:14px">
         <tr><td style="padding:3px 0;color:${BRAND.gray};width:140px">Client</td><td style="font-weight:600">${consult.client_name}</td></tr>
-        <tr><td style="padding:3px 0;color:${BRAND.gray}">Signed By</td><td>${consult.accepted_signature_name}</td></tr>
-        <tr><td style="padding:3px 0;color:${BRAND.gray}">Accepted</td><td>${consult.accepted_at}</td></tr>
-        <tr><td style="padding:3px 0;color:${BRAND.gray}">Start Window</td><td style="font-weight:700">${startWindowLabel(consult)}</td></tr>
+        <tr><td style="padding:3px 0;color:${BRAND.gray}">Signed By</td><td>${consult.accepted_signature_name || "—"}</td></tr>
+        <tr><td style="padding:3px 0;color:${BRAND.gray}">Countersigned</td><td>${consult.countersigned_at ? "Yes — " + consult.countersigned_at : (consult.print_signed_confirmed_at ? "Yes (print-signed) — " + consult.print_signed_confirmed_at : "—")}</td></tr>
+        <tr><td style="padding:3px 0;color:${BRAND.gray}">Start Date</td><td style="font-weight:700">${startWindowLabel(consult)}</td></tr>
+        <tr><td style="padding:3px 0;color:${BRAND.gray}">Target Completion / Deadline</td><td style="font-weight:700">${targetCompletion || "To be set"}</td></tr>
         <tr><td style="padding:3px 0;color:${BRAND.gray}">Contract Total</td><td style="font-weight:700">$${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
         <tr><td style="padding:3px 0;color:${BRAND.gray}">Deposit Collected?</td><td>Confirm 50% ($${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}) before dispatching a crew.</td></tr>
       </table>
-      <p style="font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:${BRAND.gray};font-weight:700;margin-bottom:6px">Scope — in build order</p>
+      <p style="font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:${BRAND.gray};font-weight:700;margin-bottom:6px">Full Scope — Materials, Quantities &amp; Build Order (Chronological)</p>
       <table style="width:100%;border-collapse:collapse">${stepsHtml}</table>
+      <p style="font-size:11px;color:${BRAND.gray};margin-top:14px">The attached Work Order &amp; Final Checklist PDF includes this scope, every job photo on file, and a sign-off block for the final walkthrough — use it to confirm every item is complete before releasing final payment.</p>
       <div style="margin-top:16px;text-align:center">
         <a href="${APP_URL}" style="background:${BRAND.black};color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:13px;font-weight:700;display:inline-block">Open in Lead Depot</a>
       </div>
@@ -951,11 +1007,16 @@ export async function sendWorkOrderEmail(consultId: number) {
   </div>
   </body></html>`;
 
+  const recipients = consult.client_email ? [consult.client_email] : ADMIN_EMAILS;
+  const ccList = consult.client_email ? ADMIN_EMAILS : undefined;
+
   await resend.emails.send({
     from: FROM,
-    to: ADMIN_EMAILS,
-    subject: `✅ Work Order Ready — ${consult.property_address} — Start ${startWindowLabel(consult)}`,
+    to: recipients,
+    ...(ccList ? { cc: ccList } : {}),
+    subject: `✅ Work Order & Final Checklist — ${consult.property_address} — Start ${startWindowLabel(consult)}`,
     html,
+    attachments: [...workOrderAttachment({ ...consult, work_order_pdf_url: workOrderUrl })],
   });
 
   rawDb.prepare(`UPDATE repair_consults SET status = 'work_order_sent', work_order_sent_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(consultId);
@@ -1428,6 +1489,196 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     rawDb.prepare(`UPDATE repair_consults SET signed_agreement_pdf_url = ?, updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
   }
   return url;
+}
+
+// v20.32.0 — target completion / punch-out deadline. Admin can set an exact
+// date via target_completion_date; otherwise infer a reasonable placeholder
+// (start_date + 14 days) purely for the Work Order document — never used to
+// gate billing or scheduling logic elsewhere.
+function computeTargetCompletionDate(consult: any): string | null {
+  if (consult.target_completion_date) return consult.target_completion_date;
+  if (consult.start_window === "specific" && consult.start_date) {
+    const d = new Date(consult.start_date);
+    if (!isNaN(d.getTime())) {
+      d.setDate(d.getDate() + 14);
+      return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    }
+  }
+  return null;
+}
+
+// ─── PDF WORK ORDER & FINAL CHECKLIST (photos + chronological scope) ───────
+// v20.32.0 — generated the moment a contract is fully executed (admin
+// countersignature OR confirmed print-signed evidence). This is the punch-
+// list crews/admin/client use at final walkthrough before releasing final
+// payment: full scope in build order, quantities as materials/scope detail,
+// start date + target completion, and every scope/gallery photo on file.
+export async function generateWorkOrderPdf(consultId: number): Promise<string> {
+  const consult = getConsultRow(consultId);
+  if (!consult) throw new Error("Consult not found");
+  const allItems = getConsultItems(consultId);
+  const inHouseItems = allItems.filter((i: any) => i.category === "in_house").sort((a: any, b: any) => a.sequence_order - b.sequence_order);
+  const vendorItems = allItems.filter((i: any) => i.category === "vendor").sort((a: any, b: any) => a.sequence_order - b.sequence_order);
+
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+  const black = rgb(0, 0, 0);
+  const gray = rgb(0.5, 0.5, 0.5);
+  const lightGray = rgb(0.95, 0.95, 0.95);
+  const PAGE_W = 612, PAGE_H = 792;
+  const targetCompletion = computeTargetCompletionDate(consult);
+
+  const p1 = pdfDoc.addPage([PAGE_W, PAGE_H]);
+  let y = PAGE_H - 34;
+
+  try {
+    const logoBytes = fs.readFileSync(brandLogoPath());
+    const logoImg = await pdfDoc.embedJpg(logoBytes);
+    const w = 150;
+    const h = w * (logoImg.height / logoImg.width);
+    p1.drawImage(logoImg, { x: (PAGE_W - w) / 2, y: y - h, width: w, height: h });
+    y -= h + 8;
+  } catch { y -= 6; }
+
+  const title = "Work Order & Final Checklist";
+  const titleWidth = fontBold.widthOfTextAtSize(title, 17);
+  p1.drawText(title, { x: (PAGE_W - titleWidth) / 2, y, size: 17, font: fontBold, color: black });
+  y -= 10;
+  const pageTag = "For crew reference and final walkthrough sign-off before release of final payment";
+  const pageTagW = font.widthOfTextAtSize(pageTag, 8);
+  p1.drawText(pageTag, { x: (PAGE_W - pageTagW) / 2, y, size: 8, font: fontItalic, color: gray });
+  y -= 22;
+
+  p1.drawRectangle({ x: 38, y: y - 20, width: 536, height: 20, color: black });
+  p1.drawText(consult.property_address || "Property TBD", { x: 43, y: y - 14, size: 10, font: fontBold, color: rgb(1, 1, 1) });
+  y -= 32;
+
+  // Key-dates strip — start date + target completion/deadline, side by side
+  p1.drawRectangle({ x: 38, y: y - 30, width: 536, height: 30, color: lightGray });
+  p1.drawText("START DATE", { x: 46, y: y - 11, size: 7.5, font: fontBold, color: gray });
+  p1.drawText(startWindowLabel(consult), { x: 46, y: y - 24, size: 10.5, font: fontBold, color: black });
+  p1.drawText("TARGET COMPLETION / DEADLINE", { x: 300, y: y - 11, size: 7.5, font: fontBold, color: gray });
+  p1.drawText(targetCompletion || "To be set", { x: 300, y: y - 24, size: 10.5, font: fontBold, color: black });
+  y -= 42;
+
+  const infoLine = [
+    consult.client_name ? `Client: ${consult.client_name}` : null,
+    `Contract Total: $${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+    `Deposit: ${consult.deposit_received_at ? "Received " + consult.deposit_received_at : "Not yet received"}`,
+  ].filter(Boolean).join("      ");
+  p1.drawText(infoLine, { x: 38, y, size: 8.5, font, color: rgb(0.2, 0.2, 0.2) });
+  y -= 18;
+
+  p1.drawText("Scope of Work — In Build Order", { x: 38, y, size: 10.5, font: fontBold, color: black });
+  y -= 6;
+  p1.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 1, color: black });
+  y -= 14;
+
+  const rowFloor = 60;
+  let rowIdx = 0;
+  for (const it of inHouseItems) {
+    const qtyLabel = `${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`;
+    const nameLine = `${it.two_story ? "[2-story] " : ""}${it.name} — ${qtyLabel}`;
+    const instrLines = it.instruction ? wrapText(it.instruction, fontItalic, 7.5, 470) : [];
+    const rowsNeeded = 1 + instrLines.length;
+    if (y - rowsNeeded * 11 < rowFloor) {
+      // paginate — continue the checklist on a fresh page
+      const cont = pdfDoc.addPage([PAGE_W, PAGE_H]);
+      cont.drawText("Scope of Work — continued", { x: 38, y: PAGE_H - 40, size: 10.5, font: fontBold, color: black });
+      cont.drawLine({ start: { x: 38, y: PAGE_H - 46 }, end: { x: 574, y: PAGE_H - 46 }, thickness: 1, color: black });
+      p1.drawText("", { x: 0, y: 0, size: 1, font });
+      (pdfDoc as any)._workOrderCurrentPage = cont;
+      y = PAGE_H - 60;
+    }
+    const page = (pdfDoc as any)._workOrderCurrentPage || p1;
+    if (rowIdx % 2 === 1) page.drawRectangle({ x: 38, y: y - 3, width: 536, height: 11 + instrLines.length * 10, color: lightGray });
+    page.drawText("\u2610", { x: 40, y, size: 9, font: fontBold, color: black });
+    page.drawText(nameLine.slice(0, 90), { x: 56, y, size: 8.5, font: fontBold, color: black });
+    y -= 10;
+    for (const line of instrLines) {
+      page.drawText(line, { x: 56, y, size: 7.5, font: fontItalic, color: gray });
+      y -= 9.5;
+    }
+    y -= 3;
+    rowIdx++;
+  }
+
+  if (vendorItems.length > 0) {
+    const page = (pdfDoc as any)._workOrderCurrentPage || p1;
+    if (y < 90) { y = PAGE_H - 60; }
+    y -= 6;
+    page.drawText("Vendor-Coordinated (billed separately — confirm with vendor, not this checklist)", { x: 38, y, size: 8.5, font: fontBold, color: gray });
+    y -= 12;
+    for (const v of vendorItems) {
+      page.drawText(`\u2022 ${v.name}`, { x: 46, y, size: 8, font: fontItalic, color: gray });
+      y -= 11;
+    }
+  }
+
+  // Punch-out sign-off block on whichever page we ended on
+  {
+    const page = (pdfDoc as any)._workOrderCurrentPage || p1;
+    let sy = Math.min(y - 16, 110);
+    if (sy < 70) sy = 70;
+    page.drawLine({ start: { x: 38, y: sy }, end: { x: 574, y: sy }, thickness: 0.75, color: black });
+    sy -= 16;
+    page.drawText("Final Walkthrough Confirmation — all items above complete and approved by client before final payment release.", { x: 38, y: sy, size: 8, font: fontItalic, color: gray });
+    sy -= 20;
+    page.drawText("Client Signature:", { x: 38, y: sy, size: 8.5, font, color: gray });
+    page.drawLine({ start: { x: 130, y: sy - 2 }, end: { x: 400, y: sy - 2 }, thickness: 0.75, color: black });
+    page.drawText("Date:", { x: 410, y: sy, size: 8.5, font, color: gray });
+    page.drawLine({ start: { x: 440, y: sy - 2 }, end: { x: 574, y: sy - 2 }, thickness: 0.75, color: black });
+  }
+
+  // Scope/gallery photos — reuse the same photo-grid helper as the quote PDF.
+  const galleryPhotos: { url: string; tag?: string }[] = [];
+  try {
+    const props = consult.property_photos ? JSON.parse(consult.property_photos) : [];
+    for (const url of props) galleryPhotos.push({ url, tag: "property" });
+  } catch { /* non-fatal */ }
+  for (const it of inHouseItems) {
+    try {
+      const photos = it.photos ? JSON.parse(it.photos) : [];
+      for (const url of photos) galleryPhotos.push({ url, tag: "repair_scope" });
+    } catch { /* non-fatal */ }
+  }
+  await addScopePhotosPages(pdfDoc, fontBold, font, fontItalic, galleryPhotos, consult.property_address);
+
+  const bytes = await pdfDoc.save();
+  const outDir = repairPdfDir();
+  const filename = `workorder-${consultId}-${Date.now()}.pdf`;
+  fs.writeFileSync(path.join(outDir, filename), bytes);
+  const url = `/repair-quotes/${filename}`;
+  rawDb.prepare(`UPDATE repair_consults SET work_order_pdf_url = ?, updated_at = datetime('now') WHERE id = ?`).run(url, consultId);
+  return url;
+}
+
+function workOrderAttachment(consult: any): { filename: string; content: string }[] {
+  if (!consult.work_order_pdf_url) return [];
+  try {
+    const filePath = path.join(repairPdfDir(), path.basename(consult.work_order_pdf_url));
+    if (!fs.existsSync(filePath)) return [];
+    const bytes = fs.readFileSync(filePath);
+    return [{ filename: "Work-Order-Final-Checklist.pdf", content: bytes.toString("base64") }];
+  } catch { return []; }
+}
+
+// v20.32.0 — permanent record. Writes one row per fully-executed contract
+// into repair_consult_archives, which no DELETE route ever touches. Always
+// called AFTER both PDFs (signed agreement + work order) are generated so
+// their URLs are captured in the snapshot.
+async function archiveSignedConsult(consultId: number, signatureMethod: string) {
+  const consult = getConsultRow(consultId);
+  if (!consult) return;
+  const items = getConsultItems(consultId);
+  const changeOrders = getChangeOrdersForConsult(consultId);
+  const snapshot = JSON.stringify({ consult, items, changeOrders, archived_at: new Date().toISOString() });
+  rawDb.prepare(`
+    INSERT INTO repair_consult_archives (consult_id, signature_method, property_address, client_name, total, agreement_pdf_url, work_order_pdf_url, snapshot_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(consultId, signatureMethod, consult.property_address, consult.client_name, consult.total, consult.signed_agreement_pdf_url || consult.agreement_pdf_url, consult.work_order_pdf_url, snapshot);
 }
 
 // ─── ROW HELPERS ─────────────────────────────────────────────────────────────
@@ -1984,31 +2235,14 @@ export function registerRepairConsultRoutes(app: Express) {
     }
   });
 
-  // ── Office Approval Gate (v20.13.0): admin must approve in-house before ANY
-  // quote/approval email is allowed to reach the client. Every fresh
-  // generate-quote call clears this, so re-pricing always needs re-approval.
-  app.post("/api/repair-consult/:id/office-approve", async (req: any, res: Response) => {
-    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
-    const consultId = parseInt(req.params.id);
-    const consult = getConsultRow(consultId);
-    if (!consult) return res.status(404).json({ error: "Consult not found" });
-    if (!consult.quote_token) return res.status(409).json({ error: "Generate the quote before approving it." });
-    rawDb.prepare(`
-      UPDATE repair_consults SET office_approved_at = datetime('now'), office_approved_by = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(req.currentAgent.name || req.currentAgent.email || "Admin", consultId);
-    res.json({ ok: true });
-  });
-
-  // ── Send to client ──
+  // ── Send for signature (v20.32.0: Office Approval Gate retired — Alex now
+  // countersigns after the homeowner e-signs instead of pre-approving) ──
   app.post("/api/repair-consult/:id/send-to-client", async (req: any, res: Response) => {
     const consultId = parseInt(req.params.id);
     try {
       const consult = getConsultRow(consultId);
       if (!consult) return res.status(404).json({ error: "Consult not found" });
-      if (!consult.office_approved_at) {
-        return res.status(409).json({ error: "Needs office approval before it can be sent to the client." });
-      }
+      if (!consult.quote_token) return res.status(409).json({ error: "Generate the quote first." });
       await sendClientQuoteEmail(consultId);
       res.json({ ok: true });
     } catch (err: any) {
@@ -2018,10 +2252,8 @@ export function registerRepairConsultRoutes(app: Express) {
   });
 
   // ── Print & Sign: download/regenerate the blank agreement PDF (admin) ──
-  // v20.30.0 — Alex: viewing/printing must NOT require office approval.
-  // Approval only gates SENDING to the client (send-to-client,
-  // send-approval-email below still check office_approved_at). Alex/admin
-  // can look at — and reprint — this PDF at any point while still editing.
+  // v20.32.0 — Office Approval Gate retired. Alex/admin can look at — and
+  // reprint — this PDF at any point while still editing, no gate at all.
   app.get("/api/repair-consult/:id/agreement-pdf", async (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
     const consultId = parseInt(req.params.id);
@@ -2055,41 +2287,79 @@ export function registerRepairConsultRoutes(app: Express) {
   });
 
   // ── Print & Sign: mark a consult as signed via a physically-signed printout ──
+  // v20.32.0 — Mark Print-Signed now records EVIDENCE ONLY (photo or PDF of
+  // the signed printout). It does NOT finalize the contract by itself —
+  // admin must review the evidence and hit Confirm Signed (route below),
+  // which is the step that actually flips status to 'accepted'.
   app.post("/api/repair-consult/:id/mark-print-signed", async (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
     const consultId = parseInt(req.params.id);
     const { signedBy, imageData, mimeType } = req.body || {};
     if (!signedBy || String(signedBy).trim().length < 2) return res.status(400).json({ error: "signedBy name is required" });
+    if (!imageData || !mimeType) return res.status(400).json({ error: "Photo or PDF evidence of the signed printout is required." });
     try {
-      // v20.31.0 - button audit: this was callable with no quote at all and
-      // even on an already-accepted consult (re-firing the work order email
-      // every click). Require a real quote and block once already signed.
       const existingForGate = getConsultRow(consultId);
       if (!existingForGate) return res.status(404).json({ error: "Consult not found" });
       if (!existingForGate.quote_token) return res.status(409).json({ error: "Generate the quote first." });
       if (existingForGate.status === "accepted") return res.status(409).json({ error: "This consult is already signed." });
-      let uploadUrl: string | null = null;
-      if (imageData && mimeType) {
+      const dir = repairPhotosDir();
+      let uploadUrl: string;
+      if (String(mimeType).toLowerCase() === "application/pdf") {
+        // PDF evidence: skip the sharp image pipeline, write raw bytes.
+        const filename = `${consultId}-print-signed-${Date.now()}.pdf`;
+        fs.writeFileSync(path.join(dir, filename), Buffer.from(imageData, "base64"));
+        uploadUrl = `/repair-photos/${filename}`;
+      } else {
         const sharp = require("sharp");
         const inputBuf = Buffer.from(imageData, "base64");
         const rotated = await sharp(inputBuf).rotate().toBuffer();
         const processed = await sharp(rotated).resize(1600, 1600, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85, progressive: true }).toBuffer();
-        const dir = repairPhotosDir();
         const filename = `${consultId}-print-signed-${Date.now()}.jpg`;
         fs.writeFileSync(path.join(dir, filename), processed);
         uploadUrl = `/repair-photos/${filename}`;
       }
       rawDb.prepare(`
-        UPDATE repair_consults SET status = 'accepted', signature_method = 'print_sign',
+        UPDATE repair_consults SET signature_method = 'print_sign',
           print_signed_at = datetime('now'), print_signed_by = ?, print_signed_upload_url = ?,
-          accepted_at = datetime('now'), accepted_signature_name = ?, updated_at = datetime('now')
+          print_signed_confirmed_at = NULL, print_signed_confirmed_by = NULL, updated_at = datetime('now')
         WHERE id = ?
-      `).run(String(signedBy).trim(), uploadUrl, String(signedBy).trim(), consultId);
-      try { await sendWorkOrderEmail(consultId); } catch (e) { console.error("work order send failed:", e); }
+      `).run(String(signedBy).trim(), uploadUrl, consultId);
       res.json({ ok: true, printSignedUploadUrl: uploadUrl });
     } catch (err: any) {
       console.error("mark-print-signed error:", err);
       res.status(500).json({ error: "Failed to record print-signed agreement", detail: err?.message });
+    }
+  });
+
+  // v20.32.0, new — Confirm Print-Signed: admin confirms the uploaded
+  // evidence is legitimate. THIS is the step that finalizes the contract:
+  // status → accepted, signed agreement + Work Order PDF generated,
+  // permanently archived, and the Work Order emailed to client + admins.
+  app.post("/api/repair-consult/:id/confirm-print-signed", async (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    try {
+      const consult = getConsultRow(consultId);
+      if (!consult) return res.status(404).json({ error: "Consult not found" });
+      if (!consult.print_signed_at) return res.status(409).json({ error: "No print-signed evidence on file yet." });
+      if (consult.print_signed_confirmed_at) return res.status(409).json({ error: "Already confirmed." });
+      const confirmedBy = req.currentAgent.name || req.currentAgent.email || "Admin";
+      rawDb.prepare(`
+        UPDATE repair_consults SET status = 'accepted', signature_method = 'print_sign',
+          print_signed_confirmed_at = datetime('now'), print_signed_confirmed_by = ?,
+          accepted_at = COALESCE(accepted_at, datetime('now')),
+          accepted_signature_name = COALESCE(accepted_signature_name, print_signed_by),
+          updated_at = datetime('now')
+        WHERE id = ?
+      `).run(confirmedBy, consultId);
+      await generateAgreementPdf(consultId, { blank: false });
+      await generateWorkOrderPdf(consultId);
+      await archiveSignedConsult(consultId, "print_sign");
+      try { await sendWorkOrderEmail(consultId); } catch (e) { console.error("work order send failed:", e); }
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("confirm-print-signed error:", err);
+      res.status(500).json({ error: "Failed to confirm print-signed agreement", detail: err?.message });
     }
   });
 
@@ -2117,21 +2387,31 @@ export function registerRepairConsultRoutes(app: Express) {
     }
   });
 
-  // ── Send one-click green Approval email ──
-  app.post("/api/repair-consult/:id/send-approval-email", async (req: any, res: Response) => {
+  // v20.32.0, new — Countersign: admin's half of the two-stage e-sign flow.
+  // Homeowner already e-signed (status === 'pending_countersignature').
+  // Countersigning finalizes the contract: signed agreement + Work Order
+  // PDF generated, permanently archived, and the Work Order emailed to
+  // client + admins.
+  app.post("/api/repair-consult/:id/countersign", async (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
     const consultId = parseInt(req.params.id);
     try {
       const consult = getConsultRow(consultId);
       if (!consult) return res.status(404).json({ error: "Consult not found" });
-      if (!consult.office_approved_at) {
-        return res.status(409).json({ error: "Needs office approval before it can be sent to the client." });
-      }
-      await sendApprovalEmail(consultId);
+      if (consult.status !== "pending_countersignature") return res.status(409).json({ error: "This consult isn't awaiting countersignature." });
+      const countersignedBy = req.currentAgent.name || req.currentAgent.email || "Admin";
+      rawDb.prepare(`
+        UPDATE repair_consults SET status = 'accepted', countersigned_at = datetime('now'), countersigned_by = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(countersignedBy, consultId);
+      await generateAgreementPdf(consultId, { blank: false });
+      await generateWorkOrderPdf(consultId);
+      await archiveSignedConsult(consultId, "e_sign");
+      try { await sendWorkOrderEmail(consultId); } catch (e) { console.error("work order send failed:", e); }
       res.json({ ok: true });
     } catch (err: any) {
-      console.error("send-approval-email error:", err);
-      res.status(500).json({ error: "Failed to send approval email", detail: err?.message });
+      console.error("countersign error:", err);
+      res.status(500).json({ error: "Failed to countersign", detail: err?.message });
     }
   });
 
@@ -2176,7 +2456,12 @@ export function registerRepairConsultRoutes(app: Express) {
     });
   });
 
-  // ── Public: client accepts + e-signs ──
+  // ── Public: client e-signs ── v20.32.0: two-stage flow. Homeowner e-signing
+  // no longer finalizes the contract by itself — it moves the consult to
+  // 'pending_countersignature' and waits for the admin to countersign
+  // (see POST /api/repair-consult/:id/countersign above). This is what
+  // generates the signed agreement, the Work Order PDF, archives, and
+  // sends the Work Order email — not this route.
   app.post("/api/repair-quote/:token/accept", async (req: Request, res: Response) => {
     const consult = rawDb.prepare(`SELECT * FROM repair_consults WHERE quote_token = ?`).get(req.params.token) as any;
     if (!consult) return res.status(404).json({ error: "Quote not found" });
@@ -2186,13 +2471,48 @@ export function registerRepairConsultRoutes(app: Express) {
     const signatureMethod = method === "email_approval" ? "email_approval" : "e_sign";
 
     rawDb.prepare(`
-      UPDATE repair_consults SET status = 'accepted', accepted_at = datetime('now'),
+      UPDATE repair_consults SET status = 'pending_countersignature', accepted_at = datetime('now'),
         accepted_signature_name = ?, accepted_ip = ?, signature_method = ?, updated_at = datetime('now')
       WHERE id = ?
     `).run(String(signatureName).trim(), ip, signatureMethod, consult.id);
 
-    try { await generateAgreementPdf(consult.id, { blank: false }); } catch (e) { console.error("signed agreement pdf failed:", e); }
-    try { await sendWorkOrderEmail(consult.id); } catch (e) { console.error("work order send failed:", e); }
+    if (resend) {
+      try {
+        await resend.emails.send({
+          from: FROM,
+          to: ADMIN_EMAILS,
+          subject: `Countersignature needed — ${consult.property_address}`,
+          html: `<p><strong>${String(signatureName).trim()}</strong> just e-signed the repair agreement for <strong>${consult.property_address}</strong>.</p>
+            <p>Open the Repair Program panel and click <strong>Countersign</strong> to finalize the contract and send the Work Order.</p>
+            <p><a href="${APP_URL}">${APP_URL}</a></p>`,
+        });
+      } catch (e) { console.error("countersign-needed notify failed:", e); }
+    }
+
+    res.json({ ok: true });
+  });
+
+  // ── Public: client declines ──
+  app.post("/api/repair-quote/:token/decline", async (req: Request, res: Response) => {
+    const consult = rawDb.prepare(`SELECT * FROM repair_consults WHERE quote_token = ?`).get(req.params.token) as any;
+    if (!consult) return res.status(404).json({ error: "Quote not found" });
+    const { reason } = req.body || {};
+    rawDb.prepare(`
+      UPDATE repair_consults SET status = 'declined', declined_at = datetime('now'), decline_reason = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(reason ? String(reason).trim().slice(0, 1000) : null, consult.id);
+
+    if (resend) {
+      try {
+        await resend.emails.send({
+          from: FROM,
+          to: ADMIN_EMAILS,
+          subject: `Quote declined — ${consult.property_address}`,
+          html: `<p>${consult.client_name || "The client"} declined the repair quote for <strong>${consult.property_address}</strong>.</p>
+            ${reason ? `<p><strong>Reason:</strong> ${String(reason).trim()}</p>` : ""}`,
+        });
+      } catch (e) { console.error("decline notify failed:", e); }
+    }
 
     res.json({ ok: true });
   });

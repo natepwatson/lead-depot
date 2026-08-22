@@ -1,12 +1,12 @@
-// v20.9.0 — Public, unauthenticated client-facing repair quote accept page.
+// v20.32.0 — Public, unauthenticated client-facing repair quote accept page.
 // Reached via /#/repair-quote/:token (hash route, outside the auth gate).
-// Default flow: client types their name to e-sign. ?mode=approve flow (from
-// the one-click green approval email): skips typing, shows a big green
-// one-click Approve button. Both flows render the full 13-section Terms &
-// Conditions (agreementSections) alongside the itemized quote.
+// Two-stage e-sign flow: client types their name to e-sign, which moves the
+// consult to 'pending_countersignature' — Alex/Nate then countersign in the
+// admin panel to finalize. Client can also Decline. Renders the full
+// Terms & Conditions (agreementSections) alongside the itemized quote.
 import { useEffect, useState } from "react";
-import { useParams, useSearch } from "wouter";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { useParams } from "wouter";
+import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
 type QuoteItem = {
   name: string; quantity: number; unit: string; line_total: number | null; two_story: number;
@@ -33,22 +33,23 @@ const resolveUrl = (u: string | null) => !u ? null : (u.startsWith("http") ? u :
 
 export default function RepairQuotePage() {
   const params = useParams<{ token: string }>();
-  const search = useSearch();
-  const isApproveMode = new URLSearchParams(search).get("mode") === "approve";
   const [data, setData] = useState<QuoteData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [signerName, setSignerName] = useState("");
-  const [accepted, setAccepted] = useState(false);
+  const [localStatus, setLocalStatus] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
+  const [declining, setDeclining] = useState(false);
 
   useEffect(() => {
     fetch(`/api/repair-quote/${params.token}`)
       .then(async r => { const b = await r.json(); if (!r.ok) throw new Error(b?.error || "Quote not found"); return b; })
-      .then((d: QuoteData) => { setData(d); if (d.consult.status === "accepted") setAccepted(true); })
+      .then((d: QuoteData) => setData(d))
       .catch(e => setError(e.message || "This quote link is invalid or has expired."))
       .finally(() => setLoading(false));
   }, [params.token]);
+
+  const effectiveStatus = localStatus || data?.consult.status || null;
 
   const handleAccept = async () => {
     if (!signerName.trim()) { setError("Please type your full name to sign."); return; }
@@ -60,23 +61,25 @@ export default function RepairQuotePage() {
       });
       const b = await r.json();
       if (!r.ok) throw new Error(b?.error || "Failed to accept quote");
-      setAccepted(true);
+      setLocalStatus("pending_countersignature");
     } catch (e: any) { setError(e.message || "Something went wrong. Please try again or call us."); }
     finally { setAccepting(false); }
   };
 
-  const handleApprove = async () => {
-    setAccepting(true); setError("");
+  const handleDecline = async () => {
+    if (!window.confirm("Are you sure you want to decline this proposal?")) return;
+    const reason = window.prompt("Optional — let us know why (or leave blank):") || "";
+    setDeclining(true); setError("");
     try {
-      const r = await fetch(`/api/repair-quote/${params.token}/accept`, {
+      const r = await fetch(`/api/repair-quote/${params.token}/decline`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureName: data?.consult.clientName || "Client", method: "email_approval" }),
+        body: JSON.stringify({ reason: reason.trim() }),
       });
       const b = await r.json();
-      if (!r.ok) throw new Error(b?.error || "Failed to approve quote");
-      setAccepted(true);
+      if (!r.ok) throw new Error(b?.error || "Failed to decline quote");
+      setLocalStatus("declined");
     } catch (e: any) { setError(e.message || "Something went wrong. Please try again or call us."); }
-    finally { setAccepting(false); }
+    finally { setDeclining(false); }
   };
 
   if (loading) {
@@ -186,23 +189,17 @@ export default function RepairQuotePage() {
             </div>
           )}
 
-          {accepted ? (
+          {effectiveStatus === "accepted" ? (
             <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(30,150,90,0.08)", color: "#1e7a45", padding: "14px 16px", borderRadius: 8, fontSize: 14 }}>
-              <CheckCircle2 size={20} /> Approved — thank you! We'll follow up with a signed agreement and confirm your start date.
+              <CheckCircle2 size={20} /> Fully executed — thank you! We'll be in touch to confirm your start date.
             </div>
-          ) : isApproveMode ? (
-            <div>
-              {error && <p style={{ color: "#c0392b", fontSize: 12.5, marginBottom: 8 }}>{error}</p>}
-              <p style={{ fontSize: 12, color: "#666", marginBottom: 12, lineHeight: 1.5 }}>
-                Review the proposal and Terms & Conditions above. When you're ready, tap below to approve — no typing or printing required.
-              </p>
-              <button
-                onClick={handleApprove} disabled={accepting}
-                style={{ width: "100%", padding: "16px 18px", borderRadius: 8, background: "#008000", color: "#fff", border: "none", fontSize: 15, fontWeight: 700, cursor: "pointer" }}
-              >{accepting ? "Submitting…" : `✓ Approve Proposal — $${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</button>
-              <p style={{ fontSize: 10.5, color: "#999", marginTop: 10, lineHeight: 1.5 }}>
-                By clicking Approve, you agree to the Terms & Conditions above and authorize Brothers Group / Nathaniel Peter Watson LLC and Alexander Gabriel Watson LLC to begin work upon receipt of the deposit.
-              </p>
+          ) : effectiveStatus === "pending_countersignature" ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(200,170,90,0.12)", color: "#8a6d1f", padding: "14px 16px", borderRadius: 8, fontSize: 14 }}>
+              <CheckCircle2 size={20} /> Signed — thank you! We're finalizing our countersignature and will send you the fully executed agreement shortly.
+            </div>
+          ) : effectiveStatus === "declined" ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(200,60,60,0.08)", color: "#a33", padding: "14px 16px", borderRadius: 8, fontSize: 14 }}>
+              <XCircle size={20} /> You've declined this proposal. If this was a mistake, please reach out to us directly.
             </div>
           ) : (
             <div>
@@ -213,9 +210,13 @@ export default function RepairQuotePage() {
                 style={{ width: "100%", padding: "12px 14px", borderRadius: 8, border: "1px solid #ccc", fontSize: 14, marginBottom: 12, boxSizing: "border-box" }}
               />
               <button
-                onClick={handleAccept} disabled={accepting}
-                style={{ width: "100%", padding: "14px 18px", borderRadius: 8, background: "#111", color: "#fff", border: "none", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}
+                onClick={handleAccept} disabled={accepting || declining}
+                style={{ width: "100%", padding: "14px 18px", borderRadius: 8, background: "#111", color: "#fff", border: "none", fontSize: 14.5, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}
               >{accepting ? "Submitting…" : `Accept Proposal — $${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</button>
+              <button
+                onClick={handleDecline} disabled={accepting || declining}
+                style={{ width: "100%", padding: "12px 18px", borderRadius: 8, background: "transparent", color: "#888", border: "1px solid #ccc", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              >{declining ? "Submitting…" : "Decline Proposal"}</button>
               <p style={{ fontSize: 10.5, color: "#999", marginTop: 10, lineHeight: 1.5 }}>
                 By clicking Accept, you agree to the Terms & Conditions above and authorize Brothers Group / Nathaniel Peter Watson LLC and Alexander Gabriel Watson LLC to begin work upon receipt of the deposit.
               </p>

@@ -1170,7 +1170,7 @@ export function RepairConsultSheet({
 
         {resumePhase === "picking" && (
           <ConsultResumePicker
-            title="Instant Quote"
+            title="Instant Repair Quote"
             subtitle="Pick up an in-progress consult, or start a new one."
             items={resumeList}
             onResume={handleResumeConsult}
@@ -1183,7 +1183,7 @@ export function RepairConsultSheet({
         <>
         {step === "info" && (
           <>
-            {header("Instant Quote", "Property + client info, front of house photo")}
+            {header("Instant Repair Quote", "Property + client info, front of house photo")}
             <label style={labelStyle}>Find in FUB</label>
             <div style={{ position: "relative", marginBottom: 6 }}>
               <input

@@ -1,10 +1,11 @@
-// v20.32.11 — "Sellers+" bottom-nav button opens this chooser overlay first:
-// dark radial-gradient backdrop with 3 gold-gradient bubbles ("Repair
-// Consult", "Listing Consultation", "Inspections+"), matching the Buyer
-// chooser's visual language (gold liquid-glass bubbles on a dark scrim).
-// Listing Consultation still nests Repair Consult inside its own flow
-// (unchanged) — the standalone "Repair Consult" bubble here is a NEW,
-// separate entry point for a repair quote that isn't tied to any listing.
+// v20.32.12 — "Sellers+" bottom-nav button opens this chooser overlay first:
+// dark radial-gradient backdrop with 3 gold-gradient bubbles, bottom-to-top
+// render order "Instant Repair Quote", "Inspections+", "Listing Consultation"
+// (Listing Consultation last per Alex), matching the Buyer chooser's visual
+// language (gold liquid-glass bubbles on a dark scrim). Listing Consultation
+// still nests its own repair-consult flow inside it (unchanged) — the
+// standalone "Instant Repair Quote" bubble here is a separate entry point
+// for a repair quote that isn't tied to any listing.
 import { useEffect } from "react";
 import { Wrench, ClipboardCheck, ClipboardList, X } from "lucide-react";
 
@@ -69,9 +70,9 @@ export function SellerChooserSheet({
       }}>What are we doing for this seller?</p>
 
       <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "center", justifyContent: "center", maxWidth: 340 }}>
-        <Bubble icon={<Wrench size={26} />} label="Repair Consult" onClick={onRepairConsult} />
-        <Bubble icon={<ClipboardList size={26} />} label="Listing Consultation" onClick={onListingConsult} />
+        <Bubble icon={<Wrench size={26} />} label="Instant Repair Quote" onClick={onRepairConsult} />
         <Bubble icon={<ClipboardCheck size={26} />} label="Inspections+" onClick={onInspectionsPlus} />
+        <Bubble icon={<ClipboardList size={26} />} label="Listing Consultation" onClick={onListingConsult} />
       </div>
     </div>
   );

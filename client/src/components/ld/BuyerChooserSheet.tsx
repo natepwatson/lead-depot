@@ -2,8 +2,9 @@
 // first: dark radial-gradient backdrop with gold-gradient bubbles ("Write an
 // Offer", "Inspections+", "Instant Quote Repair"), matching the Lead Gen
 // chooser's visual language (gold liquid-glass bubbles on a dark scrim).
-// v20.32.11 — added the third "Instant Quote Repair" bubble (standalone
-// repair consult, not tied to a listing) per Alex's ask.
+// v20.32.12 — added the third "Instant Repair Quote" bubble (standalone
+// repair consult, not tied to a listing) per Alex's ask. Renamed from
+// "Instant Quote Repair" to "Instant Repair Quote" to match the seller side.
 import { useEffect } from "react";
 import { FileSignature, ClipboardCheck, Wrench, X } from "lucide-react";
 
@@ -68,9 +69,9 @@ export function BuyerChooserSheet({
       }}>What are we doing for this buyer?</p>
 
       <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "center", justifyContent: "center", maxWidth: 340 }}>
-        <Bubble icon={<FileSignature size={26} />} label="Write an Offer" onClick={onWriteOffer} />
         <Bubble icon={<ClipboardCheck size={26} />} label="Inspections+" onClick={onInspectionsPlus} />
-        <Bubble icon={<Wrench size={26} />} label="Instant Quote Repair" onClick={onInstantQuoteRepair} />
+        <Bubble icon={<Wrench size={26} />} label="Instant Repair Quote" onClick={onInstantQuoteRepair} />
+        <Bubble icon={<FileSignature size={26} />} label="Write an Offer" onClick={onWriteOffer} />
       </div>
     </div>
   );

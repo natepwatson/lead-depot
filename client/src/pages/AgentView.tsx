@@ -32,6 +32,7 @@ import { ListingConsultSheet } from "../components/ld/ListingConsultSheet";
 import { WriteOfferSheet } from "../components/ld/WriteOfferSheet";
 import { InspectionsPlusSheet } from "../components/ld/InspectionsPlusSheet";
 import { BuyerChooserSheet } from "../components/ld/BuyerChooserSheet";
+import { SellerChooserSheet } from "../components/ld/SellerChooserSheet";
 import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
@@ -6090,9 +6091,9 @@ type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "ho
 // and the repairQuote tab, so the chooser shortcuts were redundant.
 const NAV: { id: Tab; label: string; icon: typeof Phone }[] = [
   { id: "home",          label: "Home",               icon: Home },
-  { id: "listingConsult", label: "Listing Consultation", icon: ClipboardCheck },
+  { id: "listingConsult", label: "Sellers+",           icon: ClipboardCheck },
   { id: "leads",         label: "Lead Generation",    icon: Phone },
-  { id: "placeOffer",    label: "Place an Offer",     icon: FileSignature },
+  { id: "placeOffer",    label: "Buyers",             icon: FileSignature },
   { id: "pipeline",      label: "Pipeline",           icon: Layers },
 ];
 
@@ -6105,7 +6106,8 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   // instead of navigating straight to Dial. Chooser has 4 tiles; Dial tile sets
   // tab="leads" and closes chooser. Other tiles open sub-sheets or forms.
   const [leadGenOpen, setLeadGenOpen] = useState(false);
-  const [buyerChooserOpen, setBuyerChooserOpen] = useState(false); // v20.33.0 — Place an Offer chooser: Write an Offer / Inspections+
+  const [buyerChooserOpen, setBuyerChooserOpen] = useState(false); // v20.33.0 — Buyers chooser: Write an Offer / Inspections+ / Instant Quote Repair
+  const [sellerChooserOpen, setSellerChooserOpen] = useState(false); // v20.32.11 — Sellers+ chooser: Repair Consult / Listing Consultation / Inspections+
   // v20.6.9 — motivational quote frozen at the moment Lead Gen opens so it
   // doesn't reshuffle mid-render. Refreshed each open. See leadgen-quotes.ts.
   const [leadGenQuote, setLeadGenQuote] = useState<MotivationalQuote | null>(null);
@@ -6390,7 +6392,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.32.9</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.32.11</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6648,12 +6650,26 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           />
         )}
 
-        {/* v20.33.0 — Place an Offer bottom-nav chooser: Write an Offer / Inspections+. */}
+        {/* v20.33.0 — Buyers bottom-nav chooser: Write an Offer / Inspections+ /
+            Instant Quote Repair (standalone repair consult, not tied to a listing). */}
         {buyerChooserOpen && (
           <BuyerChooserSheet
             onWriteOffer={() => { setBuyerChooserOpen(false); setTab("placeOffer"); }}
             onInspectionsPlus={() => { setBuyerChooserOpen(false); setTab("inspectionsPlus"); }}
+            onInstantQuoteRepair={() => { setBuyerChooserOpen(false); setTab("repairQuote"); }}
             onClose={() => setBuyerChooserOpen(false)}
+          />
+        )}
+
+        {/* v20.32.11 — Sellers+ bottom-nav chooser: Repair Consult (standalone) /
+            Listing Consultation (unchanged flow, still nests repair inside it) /
+            Inspections+. */}
+        {sellerChooserOpen && (
+          <SellerChooserSheet
+            onRepairConsult={() => { setSellerChooserOpen(false); setTab("repairQuote"); }}
+            onListingConsult={() => { setSellerChooserOpen(false); setTab("listingConsult"); }}
+            onInspectionsPlus={() => { setSellerChooserOpen(false); setTab("inspectionsPlus"); }}
+            onClose={() => setSellerChooserOpen(false)}
           />
         )}
 
@@ -7042,10 +7058,16 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                 setLeadGenOpen(true);
                 return;
               }
-              // v20.33.0 — Place an Offer now opens a chooser first: Write an
-              // Offer or Inspections+, same reveal pattern as Lead Gen.
+              // v20.33.0 — Buyers now opens a chooser first: Write an Offer,
+              // Inspections+, or Instant Quote Repair, same reveal pattern as Lead Gen.
               if (n.id === "placeOffer") {
                 setBuyerChooserOpen(true);
+                return;
+              }
+              // v20.32.11 — Sellers+ now opens a chooser first: Repair Consult
+              // (standalone), Listing Consultation, or Inspections+.
+              if (n.id === "listingConsult") {
+                setSellerChooserOpen(true);
                 return;
               }
               setTab(n.id);

@@ -1,11 +1,12 @@
-// v20.33.0 — "Buyers" bottom-nav button now opens this chooser overlay
-// first: dark radial-gradient backdrop with gold-gradient bubbles ("Write an
-// Offer", "Inspections+", "Instant Quote Repair"), matching the Lead Gen
+// v20.32.11 — "Sellers+" bottom-nav button opens this chooser overlay first:
+// dark radial-gradient backdrop with 3 gold-gradient bubbles ("Repair
+// Consult", "Listing Consultation", "Inspections+"), matching the Buyer
 // chooser's visual language (gold liquid-glass bubbles on a dark scrim).
-// v20.32.11 — added the third "Instant Quote Repair" bubble (standalone
-// repair consult, not tied to a listing) per Alex's ask.
+// Listing Consultation still nests Repair Consult inside its own flow
+// (unchanged) — the standalone "Repair Consult" bubble here is a NEW,
+// separate entry point for a repair quote that isn't tied to any listing.
 import { useEffect } from "react";
-import { FileSignature, ClipboardCheck, Wrench, X } from "lucide-react";
+import { Wrench, ClipboardCheck, ClipboardList, X } from "lucide-react";
 
 const GOLD_GRADIENT = "radial-gradient(circle at 50% 22%, rgba(255,240,180,0.65) 0%, rgba(253,224,71,0.42) 30%, rgba(200,170,90,0.32) 62%, rgba(138,111,42,0.42) 100%)";
 const GOLD_BORDER = "1px solid rgba(255,220,140,0.75)";
@@ -33,12 +34,12 @@ function Bubble({ icon, label, onClick }: { icon: React.ReactNode; label: string
   );
 }
 
-export function BuyerChooserSheet({
-  onWriteOffer, onInspectionsPlus, onInstantQuoteRepair, onClose,
+export function SellerChooserSheet({
+  onRepairConsult, onListingConsult, onInspectionsPlus, onClose,
 }: {
-  onWriteOffer: () => void;
+  onRepairConsult: () => void;
+  onListingConsult: () => void;
   onInspectionsPlus: () => void;
-  onInstantQuoteRepair: () => void;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -65,12 +66,12 @@ export function BuyerChooserSheet({
       <p style={{
         margin: 0, fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 22, fontWeight: 400,
         color: "#fff", textAlign: "center",
-      }}>What are we doing for this buyer?</p>
+      }}>What are we doing for this seller?</p>
 
       <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexWrap: "wrap", gap: 24, alignItems: "center", justifyContent: "center", maxWidth: 340 }}>
-        <Bubble icon={<FileSignature size={26} />} label="Write an Offer" onClick={onWriteOffer} />
+        <Bubble icon={<Wrench size={26} />} label="Repair Consult" onClick={onRepairConsult} />
+        <Bubble icon={<ClipboardList size={26} />} label="Listing Consultation" onClick={onListingConsult} />
         <Bubble icon={<ClipboardCheck size={26} />} label="Inspections+" onClick={onInspectionsPlus} />
-        <Bubble icon={<Wrench size={26} />} label="Instant Quote Repair" onClick={onInstantQuoteRepair} />
       </div>
     </div>
   );

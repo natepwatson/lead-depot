@@ -30,6 +30,8 @@ import { BookOpenHouseSheet } from "../components/ld/BookOpenHouseSheet";
 import { RepairConsultSheet } from "../components/ld/RepairConsultSheet";
 import { ListingConsultSheet } from "../components/ld/ListingConsultSheet";
 import { WriteOfferSheet } from "../components/ld/WriteOfferSheet";
+import { InspectionsPlusSheet } from "../components/ld/InspectionsPlusSheet";
+import { BuyerChooserSheet } from "../components/ld/BuyerChooserSheet";
 import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
@@ -6068,7 +6070,7 @@ export const WARM_LEAD_INTENTS: {
 // v18.4 — Leaderboard slot swapped for Challenges. Home tab still renders the
 // leaderboard content (that's the dashboard). "leaderboard" id kept in the union
 // to gracefully fall through for anyone with a stale initialTab or bookmark.
-type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home" | "inventory" | "repairQuote" | "listingConsult" | "placeOffer";
+type Tab = "leads" | "leaderboard" | "challenges" | "pipeline" | "profile" | "home" | "inventory" | "repairQuote" | "listingConsult" | "placeOffer" | "inspectionsPlus";
 // v20.6.8 — Profile removed from bottom nav (moved to header profile circle).
 // v20.10.0 — Inventory tab replaced with Repair Quote. "inventory" kept in the
 // Tab union so a stale bookmark/initialTab doesn't hard-crash; it just renders
@@ -6103,6 +6105,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   // instead of navigating straight to Dial. Chooser has 4 tiles; Dial tile sets
   // tab="leads" and closes chooser. Other tiles open sub-sheets or forms.
   const [leadGenOpen, setLeadGenOpen] = useState(false);
+  const [buyerChooserOpen, setBuyerChooserOpen] = useState(false); // v20.33.0 — Place an Offer chooser: Write an Offer / Inspections+
   // v20.6.9 — motivational quote frozen at the moment Lead Gen opens so it
   // doesn't reshuffle mid-render. Refreshed each open. See leadgen-quotes.ts.
   const [leadGenQuote, setLeadGenQuote] = useState<MotivationalQuote | null>(null);
@@ -6387,7 +6390,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.32.8</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.32.9</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6568,7 +6571,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
       <main ref={mainRef} style={{
         flex: 1, overflowY: "auto", padding: "16px 12px 90px",
         position: "relative",
-        zIndex: (tab === "placeOffer" || tab === "listingConsult" || tab === "repairQuote") ? 10000 : 2,
+        zIndex: (tab === "placeOffer" || tab === "listingConsult" || tab === "repairQuote" || tab === "inspectionsPlus") ? 10000 : 2,
       }}>
         {/* v17.2 — Both roles land on Home first. Home currently reuses the
             LeaderboardTab body (which already includes Prime Time / Team Pot /
@@ -6634,6 +6637,23 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             agentName={(user as any)?.name ?? ""}
             initialAddress=""
             onClose={() => setTab("home")}
+          />
+        )}
+
+        {/* v20.33.0 — Inspections+ buyer tool, opened from the Place an Offer chooser. */}
+        {tab === "inspectionsPlus" && (
+          <InspectionsPlusSheet
+            agentId={(user as any)?.id}
+            onClose={() => setTab("home")}
+          />
+        )}
+
+        {/* v20.33.0 — Place an Offer bottom-nav chooser: Write an Offer / Inspections+. */}
+        {buyerChooserOpen && (
+          <BuyerChooserSheet
+            onWriteOffer={() => { setBuyerChooserOpen(false); setTab("placeOffer"); }}
+            onInspectionsPlus={() => { setBuyerChooserOpen(false); setTab("inspectionsPlus"); }}
+            onClose={() => setBuyerChooserOpen(false)}
           />
         )}
 
@@ -7020,6 +7040,12 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                 setLeadGenView("root");
                 setLeadGenQuote(pickLeadGenQuote());   // v20.6.9
                 setLeadGenOpen(true);
+                return;
+              }
+              // v20.33.0 — Place an Offer now opens a chooser first: Write an
+              // Offer or Inspections+, same reveal pattern as Lead Gen.
+              if (n.id === "placeOffer") {
+                setBuyerChooserOpen(true);
                 return;
               }
               setTab(n.id);

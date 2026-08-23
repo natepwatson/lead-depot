@@ -9,6 +9,7 @@ import { ListingsPanel } from "../components/ld/ListingsPanel";
 // import { WeeklyWorkbookPanel } from "../components/ld/WeeklyWorkbookPanel";
 import { FubTagConfigPanel } from "../components/ld/FubTagConfigPanel";
 import { RepairPricingVendorPanel } from "../components/ld/RepairPricingVendorPanel";
+import { InspectionsPricingPanel } from "../components/ld/InspectionsPricingPanel";
 import { OpenHouseSchedulePanel } from "../components/ld/OpenHouseSchedulePanel";
 import { PendingOpenHousesPanel } from "../components/ld/PendingOpenHousesPanel";
 import ProfilePage from "./ProfilePage";
@@ -36,7 +37,7 @@ import {
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
   UserPlus, UserCircle2, KeyRound, RotateCcw,
   Sparkles, Database, Wrench, FileText, PlayCircle, Home, CalendarDays,
-  ClipboardList
+  ClipboardList, ClipboardCheck
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -1897,7 +1898,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.32.8
+              v20.32.9
             </p>
           </div>
         </div>
@@ -2013,6 +2014,7 @@ export default function AdminDashboard({
               { value: "agents",      icon: Users,       label: "Agents" },
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
               { value: "repairs",     icon: Wrench,      label: "Repair Program" },
+              { value: "inspections", icon: ClipboardCheck, label: "Inspections+" },
             ].map(tab => (
               <TabsTrigger
                 key={tab.value}
@@ -3050,6 +3052,22 @@ export default function AdminDashboard({
               </p>
             </div>
             <RepairPricingVendorPanel />
+          </TabsContent>
+
+          {/* v20.33.0 — Inspections+ admin: Pricing Catalog + Orders + Add-Ons queues. */}
+          <TabsContent value="inspections" className="mt-5">
+            <div>
+              <h2 style={{
+                fontFamily: "'Cormorant Garamond','Georgia',serif",
+                fontSize: "1.2rem", fontWeight: 300, color: "#fff",
+              }}>
+                Inspections+
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Buyer-side inspection ordering — pricing catalog, orders queue, and add-ons queue.
+              </p>
+            </div>
+            <InspectionsPricingPanel />
           </TabsContent>
 
           {/* v20.4.2 — Old admin Territory Map (MapView.tsx) removed. Team map lives in

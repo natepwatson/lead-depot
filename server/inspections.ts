@@ -1,0 +1,647 @@
+// ─── INSPECTIONS+ ───────────────────────────────────────────────────────────
+// v20.33.0 — Buyer-side inspection ordering tool. Agent picks the client from
+// FUB, checks off which inspections to order (Home Inspection, WDO, 4-Point,
+// Wind Mitigation, Pool, Septic), sets a needed-by date and the inspection
+// contingency expiration date, and sends the client a branded order summary
+// with a single-stage typed-name e-sign (no countersignature — simpler than
+// the Repair program by Alex's explicit design). Adding a service AFTER the
+// client has already signed (e.g. a pool inspection discovered later) is an
+// "add-on" and follows the EXACT same two-step pattern as Repair Change
+// Orders: agent requests -> admin office-approves -> client e-signs the
+// add-on specifically before it's folded into the order total.
+//
+// Pricing is 100% admin-editable (inspection_items catalog) — the numbers
+// Alex gave (~$450 HI / $150 WDO / $100 4pt / $75 WM / $150 pool / $150
+// septic, ~$400 vendor bundle cost from Jason Brown) are seeded as starting
+// placeholders only. Vendor cost is tracked per item so margin recalculates
+// automatically once real itemized vendor quotes come in.
+// ────────────────────────────────────────────────────────────────────────────
+
+import type { Express, Request, Response } from "express";
+import { rawDb } from "./db";
+import { Resend } from "resend";
+import { randomBytes } from "node:crypto";
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"];
+const FROM = "Lead Depot <noreply@watsonbrothersgroup.com>";
+const APP_URL = "https://depot.watsonbrothersgroup.com";
+const BRAND = {
+  black: "#0a0a0a",
+  gray: "#808080",
+  lightGray: "#f2f2f2",
+  border: "#999999",
+  green: "#008000",
+};
+
+// ─── SCHEMA ──────────────────────────────────────────────────────────────────
+export function ensureInspectionsSchema() {
+  rawDb.exec(`
+    CREATE TABLE IF NOT EXISTS inspection_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      client_price REAL NOT NULL DEFAULT 0,
+      vendor_cost REAL,                    -- NULL = TBD, awaiting real vendor quote
+      sequence_order INTEGER NOT NULL DEFAULT 100,
+      notes TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS inspection_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead_id INTEGER REFERENCES leads(id),
+      agent_id INTEGER REFERENCES agents(id),
+      fub_contact_id TEXT,
+      client_name TEXT NOT NULL,
+      client_email TEXT,
+      client_phone TEXT,
+      property_address TEXT NOT NULL,
+      needed_by TEXT NOT NULL DEFAULT 'asap',  -- 'asap' | 'specific'
+      needed_by_date TEXT,
+      contingency_expiration_date TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',    -- draft | sent | accepted | declined | completed
+      subtotal REAL DEFAULT 0,
+      total REAL DEFAULT 0,
+      vendor_cost_total REAL DEFAULT 0,
+      sign_token TEXT UNIQUE,
+      accepted_at TEXT,
+      accepted_signature_name TEXT,
+      accepted_ip TEXT,
+      declined_at TEXT,
+      decline_reason TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS inspection_order_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL REFERENCES inspection_orders(id),
+      item_key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      client_price REAL NOT NULL DEFAULT 0,
+      vendor_cost REAL,
+      vendor_id INTEGER REFERENCES repair_vendors(id),
+      is_addon INTEGER NOT NULL DEFAULT 0,
+      addon_status TEXT,               -- NULL for original items; pending|office_approved|declined|signed for add-ons
+      addon_reason TEXT,
+      addon_requested_by_agent_id INTEGER REFERENCES agents(id),
+      addon_requested_at TEXT,
+      addon_decided_at TEXT,
+      addon_decided_by TEXT,
+      addon_decline_reason TEXT,
+      addon_sign_token TEXT UNIQUE,
+      addon_sign_token_expires_at TEXT,
+      addon_signed_at TEXT,
+      addon_signature_name TEXT,
+      addon_signed_ip TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_inspection_order_items_order ON inspection_order_items(order_id);
+    CREATE INDEX IF NOT EXISTS idx_inspection_orders_status ON inspection_orders(status);
+    CREATE INDEX IF NOT EXISTS idx_inspection_orders_agent ON inspection_orders(agent_id);
+  `);
+  seedInspectionItems();
+}
+
+// Placeholder catalog per Alex's generalization (message: "pricing scheme I
+// gave you is a generalization... help build this out. We are going to get
+// a quote for all Inspectors on our vendor list so we know what we're
+// talking about and what our margins are."). Vendor costs for the 4 bundle
+// items are a proportional split of Jason Brown's known $400 all-in bundle
+// price (450+150+100+75=775 client total) so the seeded profit lines up with
+// Alex's own math ($775 - $400 = $375) until real itemized quotes replace
+// them. Pool/Septic vendor cost is left NULL (TBD — "need to request general
+// pricing" per Alex).
+function seedInspectionItems() {
+  const count = (rawDb.prepare(`SELECT COUNT(*) as c FROM inspection_items`).get() as any).c;
+  if (count > 0) return;
+  const rows: [string, string, number, number | null, number, string | null][] = [
+    ["hi", "Home Inspection", 450, 232.26, 10, "Vendor cost is a placeholder — proportional split of Jason Brown's $400 bundle price. Awaiting itemized vendor quote."],
+    ["wdo", "WDO (Wood-Destroying Organism) Inspection", 150, 77.42, 20, "Vendor cost is a placeholder — proportional split of Jason Brown's $400 bundle price. Awaiting itemized vendor quote."],
+    ["4pt", "4-Point Inspection", 100, 51.61, 30, "Vendor cost is a placeholder — proportional split of Jason Brown's $400 bundle price. Awaiting itemized vendor quote."],
+    ["wm", "Wind Mitigation Inspection", 75, 38.71, 40, "Vendor cost is a placeholder — proportional split of Jason Brown's $400 bundle price. Awaiting itemized vendor quote."],
+    ["pool", "Pool Inspection", 150, null, 50, "Vendor cost TBD — need to request general pricing from vendor list."],
+    ["septic", "Septic Inspection", 150, null, 60, "Vendor cost TBD — need to request general pricing from vendor list."],
+  ];
+  const ins = rawDb.prepare(`INSERT INTO inspection_items (key, name, client_price, vendor_cost, sequence_order, notes) VALUES (?, ?, ?, ?, ?, ?)`);
+  for (const r of rows) ins.run(...r);
+}
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+function getOrderRow(id: number): any {
+  return rawDb.prepare(`SELECT * FROM inspection_orders WHERE id = ?`).get(id);
+}
+function getOrderByToken(token: string): any {
+  return rawDb.prepare(`SELECT * FROM inspection_orders WHERE sign_token = ?`).get(token);
+}
+function getOrderItems(orderId: number): any[] {
+  return rawDb.prepare(`SELECT * FROM inspection_order_items WHERE order_id = ? ORDER BY is_addon ASC, id ASC`).all(orderId) as any[];
+}
+function getAddonRow(id: number): any {
+  return rawDb.prepare(`SELECT * FROM inspection_order_items WHERE id = ? AND is_addon = 1`).get(id);
+}
+function getAddonByToken(token: string): any {
+  return rawDb.prepare(`SELECT * FROM inspection_order_items WHERE addon_sign_token = ?`).get(token);
+}
+
+// Recomputes subtotal/total/vendor_cost_total from: all original items
+// (is_addon=0) PLUS any add-on that's been client-signed. Pending/declined
+// add-ons never count toward the total.
+function recalcOrderTotals(orderId: number) {
+  const rows = rawDb.prepare(`
+    SELECT client_price, vendor_cost FROM inspection_order_items
+    WHERE order_id = ? AND (is_addon = 0 OR addon_status = 'signed')
+  `).all(orderId) as any[];
+  const total = rows.reduce((s, r) => s + (r.client_price || 0), 0);
+  const vendorTotal = rows.reduce((s, r) => s + (r.vendor_cost || 0), 0);
+  rawDb.prepare(`UPDATE inspection_orders SET subtotal = ?, total = ?, vendor_cost_total = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(total, total, vendorTotal, orderId);
+}
+
+function neededByLabel(order: any): string {
+  if (order.needed_by === "specific" && order.needed_by_date) {
+    return `By ${new Date(order.needed_by_date + "T00:00:00").toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}`;
+  }
+  return "As soon as possible";
+}
+
+function brandedHeader(title: string, subtitle: string): string {
+  return `
+  <div style="background:${BRAND.black};padding:28px 32px;text-align:center">
+    <img src="${APP_URL}/brand-logo.jpg" alt="Brothers Group" style="width:220px;max-width:70%;height:auto;display:inline-block" />
+  </div>
+  <div style="padding:22px 32px 4px;text-align:center;border-bottom:3px solid ${BRAND.black}">
+    <h1 style="margin:0;font-size:19px;color:${BRAND.black};font-family:Helvetica,Arial,sans-serif;font-weight:700">${title}</h1>
+    ${subtitle ? `<p style="margin:6px 0 16px;font-size:12.5px;color:${BRAND.gray}">${subtitle}</p>` : ""}
+  </div>`;
+}
+function brandedFooter(): string {
+  return `
+  <div style="padding:16px 32px;background:${BRAND.gray};color:#fff;font-size:11px;text-align:center">
+    Alex &amp; Nate Watson — (904) 504-3794 — www.brothersgroup.realestate
+  </div>`;
+}
+function itemsTableHtml(items: any[]): string {
+  const rows = items.map(it => `
+    <tr style="border-bottom:1px solid #e2e2e2">
+      <td style="padding:8px 0;color:#333;font-size:13px">${it.name}${it.is_addon ? " (Add-On)" : ""}</td>
+      <td style="padding:8px 0;text-align:right;color:#333;font-size:13px">$${(it.client_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+    </tr>`).join("");
+  return `<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr style="border-bottom:2px solid ${BRAND.black}"><th style="text-align:left;padding:6px 0;color:${BRAND.black}">Service</th><th style="text-align:right;padding:6px 0;color:${BRAND.black}">Price</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// ─── EMAIL: Client-facing order w/ single-stage accept link ────────────────
+export async function sendInspectionOrderToClient(orderId: number) {
+  if (!resend) return;
+  const order = getOrderRow(orderId);
+  if (!order || !order.client_email) return;
+  const items = getOrderItems(orderId).filter(i => !i.is_addon);
+  const acceptUrl = `${APP_URL}/#/inspections/${order.sign_token}`;
+
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Inspections+ Order", order.property_address)}
+    <div style="padding:24px 32px">
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${order.client_name || "there"} — as we prepare to list your home, we'd like to get these inspections scheduled right away. We're referring you to our trusted inspection partner and will coordinate everything on our end so this moves quickly. This inspection will be scheduled in your name, ${order.client_name || "you"}, and we'll make sure the inspection company knows it's for you directly. Please review and approve below, and once it's scheduled we'll ask the inspector to send the quote/invoice our way to keep this on track.</p>
+      ${itemsTableHtml(items)}
+      <table style="width:100%;margin-top:14px">
+        <tr><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700;width:110px">$${order.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+      </table>
+      <div style="margin-top:14px;padding:14px 16px;background:${BRAND.lightGray};border-radius:8px;font-size:12.5px;color:#333">
+        <p style="margin:0 0 4px"><strong>Needed by:</strong> ${neededByLabel(order)}</p>
+        ${order.contingency_expiration_date ? `<p style="margin:0"><strong>Inspection contingency expires:</strong> ${new Date(order.contingency_expiration_date + "T00:00:00").toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })} — time is of the essence, so the sooner we get this approved and scheduled the better.</p>` : ""}
+      </div>
+      <div style="text-align:center;margin:28px 0 10px">
+        <a href="${acceptUrl}" style="background:${BRAND.black};color:#fff;text-decoration:none;padding:14px 36px;border-radius:6px;font-size:14px;font-weight:700;display:inline-block">Review &amp; Approve</a>
+      </div>
+      <p style="font-size:10.5px;color:${BRAND.gray};text-align:center">Or open on your phone: <a href="${acceptUrl}" style="color:${BRAND.gray}">${acceptUrl}</a></p>
+      <p style="font-size:11px;color:#333;text-align:center;margin-top:10px">We're working together as a team on your timeline — please let us know if you have any questions.</p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+
+  await resend.emails.send({
+    from: FROM, to: [order.client_email], cc: ADMIN_EMAILS,
+    subject: `Inspections+ Order — ${order.property_address}`,
+    html,
+  });
+  rawDb.prepare(`UPDATE inspection_orders SET status = 'sent', updated_at = datetime('now') WHERE id = ?`).run(orderId);
+}
+
+async function sendInspectionOrderAcceptedInternal(orderId: number) {
+  if (!resend) return;
+  const order = getOrderRow(orderId);
+  if (!order) return;
+  const items = getOrderItems(orderId).filter(i => !i.is_addon);
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Inspections+ Approved by Client", order.property_address)}
+    <div style="padding:20px 32px">
+      <table style="width:100%;font-size:12.5px;color:#333;margin-bottom:10px">
+        <tr><td style="padding:4px 0;color:${BRAND.gray};width:130px">Client</td><td style="font-weight:600">${order.client_name}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Signed</td><td>${order.accepted_signature_name}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Needed By</td><td>${neededByLabel(order)}</td></tr>
+        ${order.contingency_expiration_date ? `<tr><td style="padding:4px 0;color:${BRAND.gray}">Contingency Expires</td><td>${order.contingency_expiration_date}</td></tr>` : ""}
+      </table>
+      ${itemsTableHtml(items)}
+      <table style="width:100%;margin-top:10px">
+        <tr><td style="padding:4px 10px;text-align:right;font-size:14px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:14px;font-weight:700;width:110px">$${order.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+      </table>
+      <div style="margin-top:14px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
+        <p style="margin:0;font-size:12.5px;color:${BRAND.black};font-weight:700">Book this inspection in ${order.client_name}'s name — not Watson Brothers Group's.</p>
+        <p style="margin:6px 0 0;font-size:12px;color:#333">When you call or email the inspector, tell them this is for client <strong>${order.client_name}</strong> at <strong>${order.property_address}</strong>, so they schedule and invoice it under the client, not us.</p>
+      </div>
+      <p style="font-size:12px;color:#333;margin-top:14px">Go ahead and schedule with our vendor partner and get their quote/invoice back to us.</p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  await resend.emails.send({ from: FROM, to: ADMIN_EMAILS, subject: `Inspections+ Approved — ${order.property_address}`, html });
+}
+
+// ─── EMAIL: Add-on requested (internal notify to admins for office-approve) ─
+async function sendAddonRequestedInternal(itemId: number) {
+  if (!resend) return;
+  const addon = getAddonRow(itemId);
+  if (!addon) return;
+  const order = getOrderRow(addon.order_id);
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Inspections+ Add-On Requested — Needs Office Approval", order?.property_address || "")}
+    <div style="padding:20px 32px">
+      <p style="font-size:13px;color:#333"><strong>${addon.name}</strong> — $${(addon.client_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+      <p style="font-size:12.5px;color:${BRAND.gray}">Reason: ${addon.addon_reason || "—"}</p>
+      <p style="font-size:12px;color:#333;margin-top:14px">Open the Inspections+ admin queue in Lead Depot to office-approve and send the client their add-on e-sign link.</p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  await resend.emails.send({ from: FROM, to: ADMIN_EMAILS, subject: `Inspections+ Add-On Requested — ${order?.property_address || ""}`, html });
+}
+
+// ─── EMAIL: Add-on office-approved -> client sign link ─────────────────────
+async function sendAddonSignEmail(itemId: number) {
+  if (!resend) return;
+  const addon = getAddonRow(itemId);
+  if (!addon) return;
+  const order = getOrderRow(addon.order_id);
+  if (!order || !order.client_email) return;
+  const signUrl = `${APP_URL}/#/inspections/addon/${addon.addon_sign_token}`;
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Additional Inspection Requested", order.property_address)}
+    <div style="padding:24px 32px">
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${order.client_name || "there"} — we'd like to add one more inspection to your order:</p>
+      <div style="border:1px solid #e2e2e2;border-radius:8px;padding:14px 16px;margin:14px 0">
+        <p style="margin:0 0 4px;font-weight:700;font-size:14px">${addon.name}</p>
+        <p style="margin:0;font-size:16px;font-weight:700">$${(addon.client_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+      </div>
+      <div style="text-align:center;margin:24px 0 10px">
+        <a href="${signUrl}" style="background:${BRAND.black};color:#fff;text-decoration:none;padding:14px 36px;border-radius:6px;font-size:14px;font-weight:700;display:inline-block">Review &amp; Approve Add-On</a>
+      </div>
+      <p style="font-size:10.5px;color:${BRAND.gray};text-align:center">Or open on your phone: <a href="${signUrl}" style="color:${BRAND.gray}">${signUrl}</a></p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  await resend.emails.send({ from: FROM, to: [order.client_email], cc: ADMIN_EMAILS, subject: `Additional Inspection Requested — ${order.property_address}`, html });
+}
+
+async function sendAddonSignedInternal(itemId: number) {
+  if (!resend) return;
+  const addon = getAddonRow(itemId);
+  if (!addon) return;
+  const order = getOrderRow(addon.order_id);
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Inspections+ Add-On Signed", order?.property_address || "")}
+    <div style="padding:20px 32px">
+      <p style="font-size:13px;color:#333"><strong>${addon.name}</strong> — $${(addon.client_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+      <p style="font-size:12.5px;color:${BRAND.gray}">Signed by ${addon.addon_signature_name}. New order total: $${(order?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+      <div style="margin-top:14px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
+        <p style="margin:0;font-size:12.5px;color:${BRAND.black};font-weight:700">Book this add-on in ${order?.client_name || "the client's"}'s name — not Watson Brothers Group's.</p>
+        <p style="margin:6px 0 0;font-size:12px;color:#333">Tell the inspector this is for client <strong>${order?.client_name || ""}</strong> at <strong>${order?.property_address || ""}</strong> so it's scheduled and invoiced under the client, not us.</p>
+      </div>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  await resend.emails.send({ from: FROM, to: ADMIN_EMAILS, subject: `Inspections+ Add-On Signed — ${order?.property_address || ""}`, html });
+}
+
+// ─── ROUTES ──────────────────────────────────────────────────────────────────
+export function registerInspectionsRoutes(app: Express) {
+  ensureInspectionsSchema();
+
+  // ── Catalog: active items for the wizard checklist ──
+  app.get("/api/inspection-items", (req: any, res: Response) => {
+    const rows = rawDb.prepare(`SELECT * FROM inspection_items WHERE active = 1 ORDER BY sequence_order ASC`).all() as any[];
+    res.json({ items: rows.map(r => ({ key: r.key, name: r.name, clientPrice: r.client_price, sequenceOrder: r.sequence_order })) });
+  });
+
+  // ── Admin: full catalog CRUD (client price + vendor cost editable) ──
+  app.get("/api/admin/inspection-items", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const rows = rawDb.prepare(`SELECT * FROM inspection_items ORDER BY sequence_order ASC`).all();
+    res.json({ items: rows });
+  });
+  app.post("/api/admin/inspection-items", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const { key, name, clientPrice, vendorCost, sequenceOrder, notes } = req.body || {};
+    if (!key || !name) return res.status(400).json({ error: "key and name are required" });
+    const result = rawDb.prepare(`INSERT INTO inspection_items (key, name, client_price, vendor_cost, sequence_order, notes) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(key, name, clientPrice || 0, vendorCost ?? null, sequenceOrder || 100, notes || null);
+    res.json({ id: result.lastInsertRowid });
+  });
+  app.patch("/api/admin/inspection-items/:id", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const { name, clientPrice, vendorCost, active, notes, sequenceOrder } = req.body || {};
+    const fields: string[] = []; const vals: any[] = [];
+    if (name !== undefined) { fields.push("name = ?"); vals.push(name); }
+    if (clientPrice !== undefined) { fields.push("client_price = ?"); vals.push(clientPrice); }
+    if (vendorCost !== undefined) { fields.push("vendor_cost = ?"); vals.push(vendorCost); }
+    if (active !== undefined) { fields.push("active = ?"); vals.push(active ? 1 : 0); }
+    if (notes !== undefined) { fields.push("notes = ?"); vals.push(notes); }
+    if (sequenceOrder !== undefined) { fields.push("sequence_order = ?"); vals.push(sequenceOrder); }
+    if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
+    fields.push("updated_at = datetime('now')");
+    rawDb.prepare(`UPDATE inspection_items SET ${fields.join(", ")} WHERE id = ?`).run(...vals, req.params.id);
+    res.json({ ok: true });
+  });
+
+  // ── Agent: create draft order ──
+  app.post("/api/inspection-orders", (req: any, res: Response) => {
+    const {
+      leadId, agentId, fubContactId, clientName, clientEmail, clientPhone,
+      propertyAddress, neededBy, neededByDate, contingencyExpirationDate, itemKeys,
+    } = req.body || {};
+    if (!propertyAddress || !String(propertyAddress).trim()) return res.status(400).json({ error: "propertyAddress is required" });
+    if (!clientName || !String(clientName).trim()) return res.status(400).json({ error: "clientName is required" });
+    if (!Array.isArray(itemKeys) || itemKeys.length === 0) return res.status(400).json({ error: "Select at least one inspection" });
+
+    const resolvedAgentId = agentId || req.currentAgent?.id || null;
+    const token = randomBytes(20).toString("hex");
+    const result = rawDb.prepare(`
+      INSERT INTO inspection_orders
+        (lead_id, agent_id, fub_contact_id, client_name, client_email, client_phone, property_address,
+         needed_by, needed_by_date, contingency_expiration_date, sign_token)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      leadId || null, resolvedAgentId, fubContactId || null, String(clientName).trim(), clientEmail || null, clientPhone || null,
+      String(propertyAddress).trim(), neededBy === "specific" ? "specific" : "asap", neededBy === "specific" ? (neededByDate || null) : null,
+      contingencyExpirationDate || null, token
+    );
+    const orderId = Number(result.lastInsertRowid);
+
+    const catalog = rawDb.prepare(`SELECT * FROM inspection_items WHERE active = 1`).all() as any[];
+    const byKey = new Map(catalog.map(c => [c.key, c]));
+    const insItem = rawDb.prepare(`INSERT INTO inspection_order_items (order_id, item_key, name, client_price, vendor_cost) VALUES (?, ?, ?, ?, ?)`);
+    for (const key of itemKeys) {
+      const cat = byKey.get(key);
+      if (!cat) continue;
+      insItem.run(orderId, cat.key, cat.name, cat.client_price, cat.vendor_cost);
+    }
+    recalcOrderTotals(orderId);
+    res.json({ id: orderId });
+  });
+
+  // ── Agent: my recent orders (resume/history) — MUST be before "/:id" ──
+  app.get("/api/inspection-orders/mine", (req: any, res: Response) => {
+    const agentId = parseInt(req.query.agentId as string) || req.currentAgent?.id || null;
+    if (!agentId) return res.json({ orders: [] });
+    const rows = rawDb.prepare(`
+      SELECT id, property_address, client_name, status, total, updated_at, created_at
+      FROM inspection_orders WHERE agent_id = ? ORDER BY created_at DESC LIMIT 30
+    `).all(agentId);
+    res.json({ orders: rows });
+  });
+
+  // ── Agent: fetch one order (id + items) to hydrate the wizard / detail view ──
+  app.get("/api/inspection-orders/:id", (req: any, res: Response) => {
+    const id = parseInt(req.params.id);
+    const order = getOrderRow(id);
+    if (!order) return res.status(404).json({ error: "Not found" });
+    res.json({ order, items: getOrderItems(id) });
+  });
+
+  // ── Agent: send the order to the client (generates/reuses sign token) ──
+  app.post("/api/inspection-orders/:id/send", async (req: any, res: Response) => {
+    const id = parseInt(req.params.id);
+    const order = getOrderRow(id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (!order.client_email) return res.status(400).json({ error: "This client has no email on file — add one before sending." });
+    try {
+      await sendInspectionOrderToClient(id);
+      res.json({ ok: true, signToken: order.sign_token });
+    } catch (err: any) {
+      console.error("send inspection order error:", err);
+      res.status(500).json({ error: "Failed to send order", detail: err?.message });
+    }
+  });
+
+  // ── Public: client fetches order by token ──
+  app.get("/api/inspection-order/:token", (req: any, res: Response) => {
+    const order = getOrderByToken(req.params.token);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    const items = getOrderItems(order.id).filter((i: any) => !i.is_addon || i.addon_status === "signed");
+    res.json({
+      order: {
+        propertyAddress: order.property_address, clientName: order.client_name,
+        neededBy: order.needed_by, neededByDate: order.needed_by_date,
+        contingencyExpirationDate: order.contingency_expiration_date,
+        status: order.status, total: order.total,
+        acceptedSignatureName: order.accepted_signature_name, acceptedAt: order.accepted_at,
+      },
+      items: items.map((i: any) => ({ name: i.name, clientPrice: i.client_price, isAddon: !!i.is_addon })),
+    });
+  });
+
+  // ── Public: single-stage e-sign — flips straight to 'accepted', no countersign ──
+  app.post("/api/inspection-order/:token/accept", async (req: any, res: Response) => {
+    const order = getOrderByToken(req.params.token);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (order.status === "accepted") return res.status(409).json({ error: "This order has already been approved." });
+    if (order.status === "declined") return res.status(409).json({ error: "This order was declined. Contact us to reopen it." });
+    const { signatureName } = req.body || {};
+    if (!signatureName || String(signatureName).trim().length < 2) return res.status(400).json({ error: "Full name required to sign" });
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+    rawDb.prepare(`
+      UPDATE inspection_orders SET status = 'accepted', accepted_at = datetime('now'),
+        accepted_signature_name = ?, accepted_ip = ?, updated_at = datetime('now') WHERE id = ?
+    `).run(String(signatureName).trim(), ip, order.id);
+    try { await sendInspectionOrderAcceptedInternal(order.id); } catch (e) { console.error("inspection accepted email failed:", e); }
+    res.json({ ok: true });
+  });
+
+  // ── Public: decline ──
+  app.post("/api/inspection-order/:token/decline", (req: any, res: Response) => {
+    const order = getOrderByToken(req.params.token);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    const { reason } = req.body || {};
+    rawDb.prepare(`
+      UPDATE inspection_orders SET status = 'declined', declined_at = datetime('now'),
+        decline_reason = ?, updated_at = datetime('now') WHERE id = ?
+    `).run(reason || null, order.id);
+    res.json({ ok: true });
+  });
+
+  // ── ADD-ONS (mirrors Repair Change Orders exactly: request -> office-approve -> client sign) ──
+
+  // Agent/admin requests an add-on for an already-sent/accepted order.
+  app.post("/api/inspection-orders/:id/addons", async (req: any, res: Response) => {
+    const orderId = parseInt(req.params.id);
+    const order = getOrderRow(orderId);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    const { itemKey, customName, reason } = req.body || {};
+    if (!itemKey && (!customName || !String(customName).trim())) {
+      return res.status(400).json({ error: "Select a catalog item or enter a custom service name" });
+    }
+    if (!reason || !String(reason).trim()) return res.status(400).json({ error: "A reason is required" });
+    let name = customName ? String(customName).trim() : "";
+    let clientPrice = 0; let vendorCost: number | null = null;
+    if (itemKey) {
+      const cat = rawDb.prepare(`SELECT * FROM inspection_items WHERE key = ? AND active = 1`).get(itemKey) as any;
+      if (cat) { name = cat.name; clientPrice = cat.client_price; vendorCost = cat.vendor_cost; }
+    }
+    if (req.body.clientPrice !== undefined) clientPrice = Number(req.body.clientPrice) || 0;
+    try {
+      const result = rawDb.prepare(`
+        INSERT INTO inspection_order_items
+          (order_id, item_key, name, client_price, vendor_cost, is_addon, addon_status, addon_reason, addon_requested_by_agent_id, addon_requested_at)
+        VALUES (?, ?, ?, ?, ?, 1, 'pending', ?, ?, datetime('now'))
+      `).run(orderId, itemKey || `custom-${Date.now()}`, name, clientPrice, vendorCost, String(reason).trim(), req.currentAgent?.id || null);
+      const id = Number(result.lastInsertRowid);
+      try { await sendAddonRequestedInternal(id); } catch (e) { console.error("addon requested email failed:", e); }
+      res.json({ ok: true, id });
+    } catch (err: any) {
+      console.error("create inspection addon error:", err);
+      res.status(500).json({ error: "Failed to create add-on", detail: err?.message });
+    }
+  });
+
+  app.get("/api/inspection-orders/:id/addons", (req: any, res: Response) => {
+    const orderId = parseInt(req.params.id);
+    const rows = rawDb.prepare(`SELECT * FROM inspection_order_items WHERE order_id = ? AND is_addon = 1 ORDER BY id DESC`).all(orderId);
+    res.json({ addons: rows });
+  });
+
+  // Admin: queue of all pending add-ons across every order.
+  app.get("/api/admin/inspection-addons", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const rows = rawDb.prepare(`
+      SELECT ii.*, io.property_address, io.client_name, a.name AS requested_by_name
+      FROM inspection_order_items ii
+      JOIN inspection_orders io ON io.id = ii.order_id
+      LEFT JOIN agents a ON a.id = ii.addon_requested_by_agent_id
+      WHERE ii.is_addon = 1
+      ORDER BY ii.addon_requested_at DESC LIMIT 200
+    `).all();
+    res.json({ addons: rows });
+  });
+
+  // Admin office-approve: generates the client sign token + emails it.
+  app.post("/api/admin/inspection-addons/:id/office-approve", async (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const id = parseInt(req.params.id);
+    const addon = getAddonRow(id);
+    if (!addon) return res.status(404).json({ error: "Add-on not found" });
+    if (addon.addon_status !== "pending") return res.status(409).json({ error: `Add-on is already ${addon.addon_status}` });
+    const token = randomBytes(20).toString("hex");
+    const expires = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
+    rawDb.prepare(`
+      UPDATE inspection_order_items SET addon_status = 'office_approved', addon_decided_at = datetime('now'),
+        addon_decided_by = ?, addon_sign_token = ?, addon_sign_token_expires_at = ? WHERE id = ?
+    `).run(req.currentAgent.name || req.currentAgent.email || "Admin", token, expires, id);
+    try { await sendAddonSignEmail(id); } catch (e) { console.error("addon sign email failed:", e); }
+    res.json({ ok: true, signToken: token });
+  });
+
+  app.post("/api/admin/inspection-addons/:id/decline", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const id = parseInt(req.params.id);
+    const addon = getAddonRow(id);
+    if (!addon) return res.status(404).json({ error: "Add-on not found" });
+    if (addon.addon_status !== "pending") return res.status(409).json({ error: `Add-on is already ${addon.addon_status}` });
+    const { reason } = req.body || {};
+    rawDb.prepare(`
+      UPDATE inspection_order_items SET addon_status = 'declined', addon_decided_at = datetime('now'),
+        addon_decided_by = ?, addon_decline_reason = ? WHERE id = ?
+    `).run(req.currentAgent.name || req.currentAgent.email || "Admin", reason || null, id);
+    res.json({ ok: true });
+  });
+
+  // Public: fetch add-on by sign token.
+  app.get("/api/inspection-addon/:token", (req: any, res: Response) => {
+    const addon = getAddonByToken(req.params.token);
+    if (!addon) return res.status(404).json({ error: "Add-on not found" });
+    const order = getOrderRow(addon.order_id);
+    res.json({
+      addon: {
+        name: addon.name, clientPrice: addon.client_price, status: addon.addon_status,
+        signedAt: addon.addon_signed_at, signatureName: addon.addon_signature_name,
+      },
+      order: { propertyAddress: order?.property_address, clientName: order?.client_name, currentTotal: order?.total },
+    });
+  });
+
+  // Public: client e-signs the add-on -> folds into order total.
+  app.post("/api/inspection-addon/:token/sign", async (req: any, res: Response) => {
+    const addon = getAddonByToken(req.params.token);
+    if (!addon) return res.status(404).json({ error: "Add-on not found" });
+    if (addon.addon_status === "signed") return res.status(409).json({ error: "This add-on has already been signed." });
+    if (addon.addon_status !== "office_approved") return res.status(409).json({ error: "This add-on is not ready to sign." });
+    if (addon.addon_sign_token_expires_at && new Date(addon.addon_sign_token_expires_at) < new Date()) {
+      return res.status(410).json({ error: "This sign link has expired — ask your Brothers Group contact to resend it." });
+    }
+    const { signatureName } = req.body || {};
+    if (!signatureName || String(signatureName).trim().length < 2) return res.status(400).json({ error: "Full name required to sign" });
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+    try {
+      rawDb.prepare(`
+        UPDATE inspection_order_items SET addon_status = 'signed', addon_signed_at = datetime('now'),
+          addon_signature_name = ?, addon_signed_ip = ? WHERE id = ?
+      `).run(String(signatureName).trim(), ip, addon.id);
+      recalcOrderTotals(addon.order_id);
+      try { await sendAddonSignedInternal(addon.id); } catch (e) { console.error("addon signed email failed:", e); }
+      const updated = getOrderRow(addon.order_id);
+      res.json({ ok: true, newTotal: updated.total });
+    } catch (err: any) {
+      console.error("sign inspection addon error:", err);
+      res.status(500).json({ error: "Failed to sign add-on", detail: err?.message });
+    }
+  });
+
+  // ── Admin: orders queue + mark completed (final invoice = signed items sum) ──
+  app.get("/api/admin/inspection-orders", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const rows = rawDb.prepare(`
+      SELECT io.*, a.name AS agent_name FROM inspection_orders io
+      LEFT JOIN agents a ON a.id = io.agent_id ORDER BY io.created_at DESC LIMIT 200
+    `).all();
+    res.json({ orders: rows });
+  });
+
+  app.post("/api/admin/inspection-orders/:id/complete", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const id = parseInt(req.params.id);
+    const order = getOrderRow(id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    recalcOrderTotals(id);
+    rawDb.prepare(`UPDATE inspection_orders SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id);
+    const updated = getOrderRow(id);
+    const profit = (updated.total || 0) - (updated.vendor_cost_total || 0);
+    res.json({ ok: true, finalInvoiceTotal: updated.total, vendorCostTotal: updated.vendor_cost_total, profit });
+  });
+}

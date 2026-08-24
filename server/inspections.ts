@@ -1,5 +1,5 @@
 // ─── INSPECTIONS+ ───────────────────────────────────────────────────────────
-// v20.33.0 — Buyer-side inspection ordering tool. Agent picks the client from
+// v20.32.13 — Buyer-side inspection ordering tool. Agent picks the client from
 // FUB, checks off which inspections to order (Home Inspection, WDO, 4-Point,
 // Wind Mitigation, Pool, Septic), sets a needed-by date and the inspection
 // contingency expiration date, and sends the client a branded order summary
@@ -18,9 +18,26 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { Express, Request, Response } from "express";
+
 import { rawDb } from "./db";
 import { Resend } from "resend";
 import { randomBytes } from "node:crypto";
+import { fireMilestoneTasks } from "./fub";
+
+// ─── Part 8 (v20.32.13) — liability / disclosure terms shown on the client
+// e-sign page. Kept as one short array (not a multi-page contract) per
+// Alex's explicit design intent that Inspections+ stay simpler than the
+// Repair program's full Agreement. Modeled on the Repair & Renovation
+// Agreement's Section 8 pattern: non-GC/non-inspector disclaimer, licensed-
+// trade carve-out, vendor-pricing disclosure, client responsibility, and
+// limitation of liability.
+export const INSPECTION_TERMS = [
+  "Brothers Group is not the home inspector, WDO inspector, wind mitigation/4-point inspector, or any other inspecting party. All inspections in this order are performed by an independent, licensed, and insured third-party vendor engaged directly for this order — not by Brothers Group.",
+  "Vendor pricing may vary based on square footage, site conditions, and other criteria specific to each inspection type. The price shown above is confirmed at scheduling with the vendor.",
+  "You are responsible for providing the vendor access to the property at the scheduled time. Any rescheduling or cancellation fee charged by the vendor is passed through to you.",
+  "Brothers Group facilitates the introduction and coordination of this inspection order only. We assume no liability for the accuracy, completeness, or findings of any inspection report, or for the licensing, insurance, scheduling, or performance of the inspecting vendor.",
+  "Payment for inspection services is due as arranged at scheduling. Unpaid balances may be pursued through ordinary collection remedies available under Florida law.",
+] as const;
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -105,8 +122,120 @@ export function ensureInspectionsSchema() {
     CREATE INDEX IF NOT EXISTS idx_inspection_order_items_order ON inspection_order_items(order_id);
     CREATE INDEX IF NOT EXISTS idx_inspection_orders_status ON inspection_orders(status);
     CREATE INDEX IF NOT EXISTS idx_inspection_orders_agent ON inspection_orders(agent_id);
+
+    -- v20.32.13 — Part 1: per-vendor, sqft-tiered inspection pricing. Reuses
+    -- repair_vendors as the vendor table (inspection_order_items.vendor_id
+    -- already pointed there) instead of a separate inspection_vendors table.
+    CREATE TABLE IF NOT EXISTS inspection_vendor_pricing (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      vendor_id INTEGER NOT NULL REFERENCES repair_vendors(id),
+      item_key TEXT NOT NULL,                 -- hi | wdo | 4pt | wm | pool | septic
+      context TEXT NOT NULL DEFAULT 'standalone', -- 'standalone' | 'bundled_with_hi'
+      sqft_min INTEGER NOT NULL DEFAULT 0,
+      sqft_max INTEGER,                       -- NULL = no upper bound
+      vendor_cost REAL NOT NULL,
+      markup_pct_override REAL,               -- NULL = use vendor-level repair_vendors.markup_pct (or 0.25 global default)
+      notes TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_inspection_vendor_pricing_lookup ON inspection_vendor_pricing(vendor_id, item_key, context);
   `);
+
+  // v20.32.13 — subject_sqft + vendor_id on the order itself, so the correct
+  // tier resolves automatically and historical orders keep a record of what
+  // sqft/vendor were used at time of order.
+  const ioCols = (rawDb.prepare(`PRAGMA table_info(inspection_orders)`).all() as any[]).map((c: any) => c.name);
+  if (!ioCols.includes("subject_sqft")) rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN subject_sqft INTEGER").run();
+  if (!ioCols.includes("vendor_id"))    rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN vendor_id INTEGER REFERENCES repair_vendors(id)").run();
+
+  // v20.32.13 — vendor-level default markup (repair_vendors is shared by
+  // Repair AND Inspections vendors). NULL = fall back to the 25% global
+  // default in resolveInspectionPricing().
+  const rvCols2 = (rawDb.prepare(`PRAGMA table_info(repair_vendors)`).all() as any[]).map((c: any) => c.name);
+  if (!rvCols2.includes("markup_pct")) rawDb.prepare("ALTER TABLE repair_vendors ADD COLUMN markup_pct REAL").run();
+
   seedInspectionItems();
+  seedInspectionVendorPricing();
+}
+
+const DEFAULT_INSPECTION_MARKUP_PCT = 0.25;
+
+function roundToNearest5(n: number): number {
+  return Math.round(n / 5) * 5;
+}
+
+// Resolves the (vendor, item, context, sqft) tier into a vendor_cost /
+// client_price pair. Returns null when no vendor is selected or no tier
+// row matches — callers should fall back to the flat inspection_items
+// catalog price in that case.
+export function resolveInspectionPricing(vendorId: number | null | undefined, itemKey: string, context: "standalone" | "bundled_with_hi", sqft: number | null | undefined): { vendorCost: number; clientPrice: number; tierId: number } | null {
+  if (!vendorId || !sqft || sqft <= 0) return null;
+  const row = rawDb.prepare(`
+    SELECT * FROM inspection_vendor_pricing
+    WHERE vendor_id = ? AND item_key = ? AND context = ? AND active = 1
+      AND sqft_min <= ? AND (sqft_max IS NULL OR sqft_max >= ?)
+    ORDER BY sqft_min DESC LIMIT 1
+  `).get(vendorId, itemKey, context, sqft, sqft) as any;
+  if (!row) return null;
+  const vendor = rawDb.prepare(`SELECT markup_pct FROM repair_vendors WHERE id = ?`).get(vendorId) as any;
+  const markup = row.markup_pct_override ?? vendor?.markup_pct ?? DEFAULT_INSPECTION_MARKUP_PCT;
+  const clientPrice = roundToNearest5(row.vendor_cost * (1 + markup));
+  return { vendorCost: row.vendor_cost, clientPrice, tierId: row.id };
+}
+
+// Seeds Jason Brown as the first inspection vendor + his placeholder tier
+// ladder, built from his actual reply ("Home inspection starts at $349. WM
+// and 4pt differ, with a full home inspection start at $75 each depending on
+// sqft. Without a home inspection, insurance comp inspections start at $95
+// ea. WDO scheduled via Bug Man Express for ~$125, same-day.") plus
+// industry-standard per-sqft scaling for the bands he didn't specify.
+// CLEARLY A PLACEHOLDER — swap in Jason's real tier sheet the moment he
+// sends it (data update only, not a schema change).
+function seedInspectionVendorPricing() {
+  const existing = rawDb.prepare(`SELECT id FROM repair_vendors WHERE trade = 'inspection' AND name = 'Jason Brown'`).get() as any;
+  let vendorId: number;
+  if (existing) {
+    vendorId = existing.id;
+  } else {
+    const result = rawDb.prepare(`
+      INSERT INTO repair_vendors (trade, name, email, phone, notes, markup_pct)
+      VALUES ('inspection', 'Jason Brown', 'TBD@brothersgroup.realestate', NULL, 'Placeholder contact info — update with Jason''s real email/phone. WDO is subcontracted to Bug Man Express (flat $125, no sqft scaling given). Pricing tiers below are placeholders built from his starting-price reply + industry-standard scaling — swap in his real fee schedule when he sends it.', 0.25)
+    `).run();
+    vendorId = Number(result.lastInsertRowid);
+  }
+
+  const tierCount = (rawDb.prepare(`SELECT COUNT(*) as c FROM inspection_vendor_pricing WHERE vendor_id = ?`).get(vendorId) as any).c;
+  if (tierCount > 0) return;
+
+  const rows: [string, string, number, number | null, number, string][] = [
+    // Home Inspection — vendor_cost by sqft band (context irrelevant for HI itself, use 'standalone')
+    ["hi", "standalone", 0, 2000, 349, "Placeholder — Jason's actual starting price."],
+    ["hi", "standalone", 2001, 2500, 399, "Placeholder — industry-standard scaling above Jason's starting price."],
+    ["hi", "standalone", 2501, 3000, 449, "Placeholder — industry-standard scaling above Jason's starting price."],
+    ["hi", "standalone", 3001, 3500, 499, "Placeholder — industry-standard scaling above Jason's starting price."],
+    ["hi", "standalone", 3501, 4000, 549, "Placeholder — industry-standard scaling above Jason's starting price. 4,001+ sqft is \"Call for quote\" — no tier row seeded above 4,000."],
+    // WM + 4pt bundled with a full HI
+    ["wm", "bundled_with_hi", 0, 2500, 75, "Placeholder — Jason's actual starting price, bundled with HI."],
+    ["wm", "bundled_with_hi", 2501, 3500, 95, "Placeholder — industry-standard scaling."],
+    ["wm", "bundled_with_hi", 3501, null, 115, "Placeholder — industry-standard scaling."],
+    ["4pt", "bundled_with_hi", 0, 2500, 75, "Placeholder — Jason's actual starting price, bundled with HI."],
+    ["4pt", "bundled_with_hi", 2501, 3500, 95, "Placeholder — industry-standard scaling."],
+    ["4pt", "bundled_with_hi", 3501, null, 115, "Placeholder — industry-standard scaling."],
+    // WM + 4pt standalone / insurance-comp-only
+    ["wm", "standalone", 0, 2500, 95, "Placeholder — Jason's actual starting price, standalone/insurance-comp."],
+    ["wm", "standalone", 2501, 3500, 115, "Placeholder — industry-standard scaling."],
+    ["wm", "standalone", 3501, null, 135, "Placeholder — industry-standard scaling."],
+    ["4pt", "standalone", 0, 2500, 95, "Placeholder — Jason's actual starting price, standalone/insurance-comp."],
+    ["4pt", "standalone", 2501, 3500, 115, "Placeholder — industry-standard scaling."],
+    ["4pt", "standalone", 3501, null, 135, "Placeholder — industry-standard scaling."],
+    // WDO — flat, no sqft scaling given, via Bug Man Express subcontractor
+    ["wdo", "standalone", 0, null, 125, "Flat rate via Bug Man Express subcontractor — no sqft scaling given by Jason."],
+  ];
+  const ins = rawDb.prepare(`INSERT INTO inspection_vendor_pricing (vendor_id, item_key, context, sqft_min, sqft_max, vendor_cost, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`);
+  for (const [itemKey, context, sqftMin, sqftMax, vendorCost, notes] of rows) {
+    ins.run(vendorId, itemKey, context, sqftMin, sqftMax, vendorCost, notes);
+  }
 }
 
 // Placeholder catalog per Alex's generalization (message: "pricing scheme I
@@ -351,6 +480,81 @@ export function registerInspectionsRoutes(app: Express) {
     res.json({ items: rows.map(r => ({ key: r.key, name: r.name, clientPrice: r.client_price, sequenceOrder: r.sequence_order })) });
   });
 
+  // ── v20.32.13 Part 1: vendors that can be assigned to an inspection order ──
+  app.get("/api/inspection-vendors", (req: any, res: Response) => {
+    const rows = rawDb.prepare(`SELECT id, name, phone, email, notes FROM repair_vendors WHERE trade = 'inspection' AND active = 1 ORDER BY name ASC`).all();
+    res.json({ vendors: rows });
+  });
+
+  // ── v20.32.13 Part 1: live tiered-price preview for the order form. Given a
+  // vendor + sqft + the item keys currently checked, resolves each item's
+  // vendor cost / client price using the sqft-tiered catalog, falling back
+  // to the flat inspection_items price when no tier matches. ──
+  app.get("/api/inspection-vendor-pricing/preview", (req: any, res: Response) => {
+    const vendorId = req.query.vendorId ? Number(req.query.vendorId) : null;
+    const sqft = req.query.sqft ? Number(req.query.sqft) : null;
+    const itemKeys = String(req.query.itemKeys || "").split(",").map(s => s.trim()).filter(Boolean);
+    const catalog = rawDb.prepare(`SELECT * FROM inspection_items WHERE active = 1`).all() as any[];
+    const byKey = new Map(catalog.map(c => [c.key, c]));
+    const hasHi = itemKeys.includes("hi");
+    const results = itemKeys.map(key => {
+      const cat = byKey.get(key);
+      if (!cat) return null;
+      const context: "standalone" | "bundled_with_hi" = hasHi && key !== "hi" ? "bundled_with_hi" : "standalone";
+      const tier = resolveInspectionPricing(vendorId, key, context, sqft);
+      return {
+        key, name: cat.name,
+        clientPrice: tier ? tier.clientPrice : cat.client_price,
+        vendorCost: tier ? tier.vendorCost : cat.vendor_cost,
+        source: tier ? "vendor_tier" : "flat_catalog",
+      };
+    }).filter(Boolean);
+    res.json({ items: results });
+  });
+
+  // ── v20.32.13 Part 1: admin CRUD for per-vendor sqft-tiered pricing rows,
+  // so Alex/Nate can adjust Jason's real tiers (or add a new vendor's tiers)
+  // later without a code change. ──
+  app.get("/api/admin/inspection-vendor-pricing", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const vendorId = req.query.vendorId ? Number(req.query.vendorId) : null;
+    const rows = vendorId
+      ? rawDb.prepare(`SELECT * FROM inspection_vendor_pricing WHERE vendor_id = ? ORDER BY item_key ASC, context ASC, sqft_min ASC`).all(vendorId)
+      : rawDb.prepare(`SELECT * FROM inspection_vendor_pricing ORDER BY vendor_id ASC, item_key ASC, context ASC, sqft_min ASC`).all();
+    res.json({ rows });
+  });
+  app.post("/api/admin/inspection-vendor-pricing", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const { vendorId, itemKey, context, sqftMin, sqftMax, vendorCost, markupPctOverride, notes } = req.body || {};
+    if (!vendorId || !itemKey || !vendorCost) return res.status(400).json({ error: "vendorId, itemKey, and vendorCost are required" });
+    const result = rawDb.prepare(`
+      INSERT INTO inspection_vendor_pricing (vendor_id, item_key, context, sqft_min, sqft_max, vendor_cost, markup_pct_override, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(vendorId, itemKey, context || "standalone", sqftMin || 0, sqftMax ?? null, vendorCost, markupPctOverride ?? null, notes || null);
+    res.json({ id: Number(result.lastInsertRowid) });
+  });
+  app.patch("/api/admin/inspection-vendor-pricing/:id", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const { itemKey, context, sqftMin, sqftMax, vendorCost, markupPctOverride, notes, active } = req.body || {};
+    const fields: string[] = []; const vals: any[] = [];
+    if (itemKey !== undefined) { fields.push("item_key = ?"); vals.push(itemKey); }
+    if (context !== undefined) { fields.push("context = ?"); vals.push(context); }
+    if (sqftMin !== undefined) { fields.push("sqft_min = ?"); vals.push(sqftMin); }
+    if (sqftMax !== undefined) { fields.push("sqft_max = ?"); vals.push(sqftMax); }
+    if (vendorCost !== undefined) { fields.push("vendor_cost = ?"); vals.push(vendorCost); }
+    if (markupPctOverride !== undefined) { fields.push("markup_pct_override = ?"); vals.push(markupPctOverride); }
+    if (notes !== undefined) { fields.push("notes = ?"); vals.push(notes); }
+    if (active !== undefined) { fields.push("active = ?"); vals.push(active ? 1 : 0); }
+    if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
+    rawDb.prepare(`UPDATE inspection_vendor_pricing SET ${fields.join(", ")} WHERE id = ?`).run(...vals, req.params.id);
+    res.json({ ok: true });
+  });
+  app.delete("/api/admin/inspection-vendor-pricing/:id", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    rawDb.prepare(`DELETE FROM inspection_vendor_pricing WHERE id = ?`).run(req.params.id);
+    res.json({ ok: true });
+  });
+
   // ── Admin: full catalog CRUD (client price + vendor cost editable) ──
   app.get("/api/admin/inspection-items", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
@@ -386,32 +590,43 @@ export function registerInspectionsRoutes(app: Express) {
     const {
       leadId, agentId, fubContactId, clientName, clientEmail, clientPhone,
       propertyAddress, neededBy, neededByDate, contingencyExpirationDate, itemKeys,
+      vendorId, subjectSqft,
     } = req.body || {};
     if (!propertyAddress || !String(propertyAddress).trim()) return res.status(400).json({ error: "propertyAddress is required" });
     if (!clientName || !String(clientName).trim()) return res.status(400).json({ error: "clientName is required" });
     if (!Array.isArray(itemKeys) || itemKeys.length === 0) return res.status(400).json({ error: "Select at least one inspection" });
 
     const resolvedAgentId = agentId || req.currentAgent?.id || null;
+    const resolvedVendorId = vendorId ? Number(vendorId) : null;
+    const resolvedSqft = subjectSqft ? Number(subjectSqft) : null;
     const token = randomBytes(20).toString("hex");
     const result = rawDb.prepare(`
       INSERT INTO inspection_orders
         (lead_id, agent_id, fub_contact_id, client_name, client_email, client_phone, property_address,
-         needed_by, needed_by_date, contingency_expiration_date, sign_token)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         needed_by, needed_by_date, contingency_expiration_date, sign_token, vendor_id, subject_sqft)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       leadId || null, resolvedAgentId, fubContactId || null, String(clientName).trim(), clientEmail || null, clientPhone || null,
       String(propertyAddress).trim(), neededBy === "specific" ? "specific" : "asap", neededBy === "specific" ? (neededByDate || null) : null,
-      contingencyExpirationDate || null, token
+      contingencyExpirationDate || null, token, resolvedVendorId, resolvedSqft
     );
     const orderId = Number(result.lastInsertRowid);
 
+    // v20.32.13 — Part 1: resolve per-vendor sqft-tiered pricing when a vendor
+    // + sqft were provided. WM/4pt price differently depending on whether a
+    // full HI is also in this same order ("bundled_with_hi" vs "standalone").
+    const hasHi = itemKeys.includes("hi");
     const catalog = rawDb.prepare(`SELECT * FROM inspection_items WHERE active = 1`).all() as any[];
     const byKey = new Map(catalog.map(c => [c.key, c]));
-    const insItem = rawDb.prepare(`INSERT INTO inspection_order_items (order_id, item_key, name, client_price, vendor_cost) VALUES (?, ?, ?, ?, ?)`);
+    const insItem = rawDb.prepare(`INSERT INTO inspection_order_items (order_id, item_key, name, client_price, vendor_cost, vendor_id) VALUES (?, ?, ?, ?, ?, ?)`);
     for (const key of itemKeys) {
       const cat = byKey.get(key);
       if (!cat) continue;
-      insItem.run(orderId, cat.key, cat.name, cat.client_price, cat.vendor_cost);
+      const context: "standalone" | "bundled_with_hi" = hasHi && key !== "hi" ? "bundled_with_hi" : "standalone";
+      const tier = resolveInspectionPricing(resolvedVendorId, key, context, resolvedSqft);
+      const clientPrice = tier ? tier.clientPrice : cat.client_price;
+      const vendorCost = tier ? tier.vendorCost : cat.vendor_cost;
+      insItem.run(orderId, cat.key, cat.name, clientPrice, vendorCost, tier ? resolvedVendorId : null);
     }
     recalcOrderTotals(orderId);
     res.json({ id: orderId });
@@ -465,6 +680,7 @@ export function registerInspectionsRoutes(app: Express) {
         acceptedSignatureName: order.accepted_signature_name, acceptedAt: order.accepted_at,
       },
       items: items.map((i: any) => ({ name: i.name, clientPrice: i.client_price, isAddon: !!i.is_addon })),
+      terms: INSPECTION_TERMS,
     });
   });
 
@@ -482,6 +698,12 @@ export function registerInspectionsRoutes(app: Express) {
         accepted_signature_name = ?, accepted_ip = ?, updated_at = datetime('now') WHERE id = ?
     `).run(String(signatureName).trim(), ip, order.id);
     try { await sendInspectionOrderAcceptedInternal(order.id); } catch (e) { console.error("inspection accepted email failed:", e); }
+    // v20.32.13 Part 4 — milestone task: confirm inspection scheduling
+    fireMilestoneTasks("inspection_scheduled", {
+      personId: order.fub_contact_id ? Number(order.fub_contact_id) : null,
+      clientName: order.client_name, clientPhone: order.client_phone, clientEmail: order.client_email,
+      contextNote: `Inspection order approved — ${order.property_address}`,
+    }).catch((e) => console.warn("milestone fire failed (inspection_scheduled):", e));
     res.json({ ok: true });
   });
 
@@ -642,6 +864,20 @@ export function registerInspectionsRoutes(app: Express) {
     rawDb.prepare(`UPDATE inspection_orders SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id);
     const updated = getOrderRow(id);
     const profit = (updated.total || 0) - (updated.vendor_cost_total || 0);
+    // v20.32.13 Part 4 — milestone task: follow up on inspection results
+    fireMilestoneTasks("inspection_completed", {
+      personId: updated.fub_contact_id ? Number(updated.fub_contact_id) : null,
+      clientName: updated.client_name, clientPhone: updated.client_phone, clientEmail: updated.client_email,
+      contextNote: `Inspection completed — ${updated.property_address}`,
+    }).catch((e) => console.warn("milestone fire failed (inspection_completed):", e));
+    // v20.32.13 Part 4/7 — completion = the final invoice (total is now the
+    // signed items sum); fires a separate payment-due reminder alongside the
+    // results follow-up above.
+    fireMilestoneTasks("invoice_sent", {
+      personId: updated.fub_contact_id ? Number(updated.fub_contact_id) : null,
+      clientName: updated.client_name, clientPhone: updated.client_phone, clientEmail: updated.client_email,
+      contextNote: `Final invoice ready ($${(updated.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}) — ${updated.property_address}`,
+    }).catch((e) => console.warn("milestone fire failed (invoice_sent):", e));
     res.json({ ok: true, finalInvoiceTotal: updated.total, vendorCostTotal: updated.vendor_cost_total, profit });
   });
 }

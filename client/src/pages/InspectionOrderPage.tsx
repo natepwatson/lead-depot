@@ -1,4 +1,4 @@
-// v20.33.0 — Public, unauthenticated client-facing Inspections+ order e-sign
+// v20.32.13 — Public, unauthenticated client-facing Inspections+ order e-sign
 // page. Reached via /#/inspections/:token (hash route, outside the auth
 // gate). Single-stage typed-name e-sign — no countersignature step, unlike
 // the Repair program's two-stage flow (per Alex's explicit scope decision).
@@ -19,6 +19,7 @@ type OrderData = {
     acceptedAt: string | null;
   };
   items: { name: string; clientPrice: number; isAddon: boolean }[];
+  terms?: string[];
 };
 
 function fmtDate(d: string | null) {
@@ -175,6 +176,14 @@ export default function InspectionOrderPage() {
               <p style={{ fontSize: 10.5, color: "#999", marginTop: 10, lineHeight: 1.5 }}>
                 By signing, you authorize Brothers Group to coordinate this inspection order with our inspection partner on your behalf.
               </p>
+              {!!data?.terms?.length && (
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #eee" }}>
+                  <p style={{ fontSize: 10, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>Terms &amp; Disclosures</p>
+                  {data.terms.map((t, i) => (
+                    <p key={i} style={{ fontSize: 9.5, color: "#999", lineHeight: 1.5, margin: "0 0 6px" }}>{t}</p>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

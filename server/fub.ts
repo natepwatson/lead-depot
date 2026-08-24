@@ -29,6 +29,13 @@ function fubAuth(): string {
   return "Basic " + Buffer.from(FUB_API_KEY + ":").toString("base64");
 }
 
+// v20.32.13 Part 4 — module-level FUB user IDs, hoisted out of pushOutcomeToFub
+// so the generic milestone-task engine below can reuse them as default assignees.
+export const DENISE_FUB_USER_ID = 16;
+export const NATE_FUB_USER_ID = 1;
+export const ALEX_FUB_USER_ID = 2;
+export const COLLAB_USER_IDS = [DENISE_FUB_USER_ID, NATE_FUB_USER_ID, ALEX_FUB_USER_ID];
+
 // v14.27 — Push a note to a FUB contact recording that an email was sent from Lead Depot.
 // Used by Flow 2 (auto credibility), Flow 3 (2nd attempt), and Flow 4 (appointment warm).
 export async function pushEmailNoteToFub(opts: {
@@ -2144,4 +2151,167 @@ export async function fubListDeals(limitPerPage = 100): Promise<FubDeal[]> {
     }
   }
   return all;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// v20.32.13 Part 4 — Generic FUB milestone-task engine
+// Replaces the single hardcoded "Send accolades email" pattern with an
+// admin-configurable table of trigger_event -> task definitions. Each app
+// lifecycle event (inspection scheduled/completed, repair contract signed,
+// repair start date set, work order sent, final payment due, offer
+// submitted, invoice sent) can fan out to zero or more FUB tasks.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const FUB_MILESTONE_TRIGGER_EVENTS = [
+  "inspection_scheduled",
+  "inspection_completed",
+  "repair_contract_signed",
+  "repair_start_date",
+  "repair_punch_out",
+  "repair_final_payment_due",
+  "offer_submitted",
+  "invoice_sent",
+] as const;
+
+export type FubMilestoneTriggerEvent = typeof FUB_MILESTONE_TRIGGER_EVENTS[number];
+
+const DEFAULT_MILESTONE_TASKS: Array<{ trigger: FubMilestoneTriggerEvent; name: string; daysOffset: number }> = [
+  { trigger: "inspection_scheduled", name: "Confirm inspection scheduling with client", daysOffset: 0 },
+  { trigger: "inspection_completed", name: "Follow up with client on inspection results", daysOffset: 1 },
+  { trigger: "repair_contract_signed", name: "Initial Start Meeting", daysOffset: 1 },
+  { trigger: "repair_start_date", name: "On-site reminder — repair start date", daysOffset: 0 },
+  { trigger: "repair_punch_out", name: "Schedule Punch-Out Meeting", daysOffset: 3 },
+  { trigger: "repair_final_payment_due", name: "Final/Payment Meeting", daysOffset: 0 },
+  { trigger: "offer_submitted", name: "Track offer deadline", daysOffset: 0 },
+  { trigger: "invoice_sent", name: "Payment due reminder", daysOffset: 3 },
+];
+
+// Idempotent — safe to call at every server startup.
+export function ensureFubMilestoneSchema() {
+  const { rawDb } = require("./db");
+  rawDb.exec(`
+    CREATE TABLE IF NOT EXISTS fub_milestone_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trigger_event TEXT NOT NULL,
+      task_name TEXT NOT NULL,
+      days_offset INTEGER NOT NULL DEFAULT 0,
+      assigned_fub_user_id INTEGER,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_fub_milestone_tasks_trigger ON fub_milestone_tasks(trigger_event);`);
+
+  const count = (rawDb.prepare(`SELECT COUNT(*) as c FROM fub_milestone_tasks`).get() as any).c;
+  if (count === 0) {
+    const ins = rawDb.prepare(
+      `INSERT INTO fub_milestone_tasks (trigger_event, task_name, days_offset, assigned_fub_user_id) VALUES (?, ?, ?, ?)`
+    );
+    for (const t of DEFAULT_MILESTONE_TASKS) {
+      ins.run(t.trigger, t.name, t.daysOffset, DENISE_FUB_USER_ID);
+    }
+    console.log(`[FUB Milestone] Seeded ${DEFAULT_MILESTONE_TASKS.length} default milestone task rows.`);
+  }
+}
+
+// Best-effort FUB person lookup by phone, then email, then name — same
+// search pattern already proven in pushOutcomeToFub / pushColdOutcomeToFub.
+// Used as a fallback when the caller doesn't already have a personId on hand
+// (e.g. repair_consults has no stored FUB contact link today).
+export async function resolveFubPersonId(contact: {
+  phone?: string | null;
+  email?: string | null;
+  name?: string | null;
+}): Promise<number | null> {
+  if (contact.phone) {
+    const r = await fubRequest("GET", `/people?query=${encodeURIComponent(contact.phone)}&limit=1`);
+    const id = r.ok ? r.data?.people?.[0]?.id : null;
+    if (id) return id;
+  }
+  if (contact.email) {
+    const r = await fubRequest("GET", `/people?query=${encodeURIComponent(contact.email)}&limit=1`);
+    const id = r.ok ? r.data?.people?.[0]?.id : null;
+    if (id) return id;
+  }
+  if (contact.name) {
+    const r = await fubRequest("GET", `/people?query=${encodeURIComponent(contact.name)}&limit=1`);
+    const id = r.ok ? r.data?.people?.[0]?.id : null;
+    if (id) return id;
+  }
+  return null;
+}
+
+// Fires every active fub_milestone_tasks row configured for `triggerEvent`.
+// Non-fatal by design — a FUB outage or unresolved contact must never block
+// the app-side lifecycle transition that triggered it. Caller may pass an
+// already-known personId (preferred/fast path) or raw contact fields to fall
+// back on resolveFubPersonId. `anchorDate` defaults to now; days_offset is
+// added to it per-row to compute each task's dueDate.
+export async function fireMilestoneTasks(
+  triggerEvent: FubMilestoneTriggerEvent,
+  opts: {
+    personId?: number | null;
+    clientName?: string | null;
+    clientPhone?: string | null;
+    clientEmail?: string | null;
+    anchorDate?: Date;
+    contextNote?: string;
+  }
+): Promise<Array<{ taskId: number | null; taskName: string }>> {
+  const created: Array<{ taskId: number | null; taskName: string }> = [];
+  try {
+    const { rawDb } = require("./db");
+    const rows = rawDb
+      .prepare(`SELECT * FROM fub_milestone_tasks WHERE trigger_event = ? AND active = 1`)
+      .all(triggerEvent) as any[];
+    if (rows.length === 0) return created;
+
+    let personId = opts.personId ?? null;
+    if (!personId) {
+      personId = await resolveFubPersonId({
+        phone: opts.clientPhone,
+        email: opts.clientEmail,
+        name: opts.clientName,
+      });
+    }
+    if (!personId) {
+      console.warn(
+        `[FUB Milestone] trigger=${triggerEvent} — no FUB contact resolved, skipping ${rows.length} task(s).`
+      );
+      return created;
+    }
+
+    const anchor = opts.anchorDate ? new Date(opts.anchorDate) : new Date();
+    for (const row of rows) {
+      try {
+        const due = new Date(anchor);
+        due.setDate(due.getDate() + (row.days_offset || 0));
+        const dueDate = due.toISOString().slice(0, 10);
+        const taskPayload: any = {
+          personId,
+          name: row.task_name,
+          type: "To-Do",
+          dueDate,
+          assignedUserId: row.assigned_fub_user_id || DENISE_FUB_USER_ID,
+        };
+        if (opts.contextNote) taskPayload.description = opts.contextNote;
+        const taskRes = await fubRequest("POST", `/tasks`, taskPayload);
+        if (taskRes.ok) {
+          console.log(
+            `[FUB Milestone] '${row.task_name}' created (trigger=${triggerEvent}, person=${personId}, due=${dueDate})`
+          );
+          created.push({ taskId: taskRes.data?.id ?? null, taskName: row.task_name });
+        } else {
+          console.warn(`[FUB Milestone] task POST failed (trigger=${triggerEvent}):`, taskRes.status);
+          created.push({ taskId: null, taskName: row.task_name });
+        }
+      } catch (err: any) {
+        console.warn(`[FUB Milestone] task creation error (trigger=${triggerEvent}):`, err?.message || err);
+        created.push({ taskId: null, taskName: row.task_name });
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[FUB Milestone] fireMilestoneTasks failed (trigger=${triggerEvent}):`, err?.message || err);
+  }
+  return created;
 }

@@ -31,6 +31,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { fireMilestoneTasks } from "./fub";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -278,6 +279,50 @@ export function ensureRepairConsultSchema() {
       label TEXT NOT NULL DEFAULT 'Sign today and get Gutter Cleaning free',
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- v20.32.13 — Land Clearing pricing settings. Single admin-editable row
+    -- (id always 1). Modeled on Alex Porter's real pricing: $750 flat for
+    -- small jobs (his 4-hour brush-cutter minimum), ~$1,500/acre above the
+    -- threshold, with a default 20% markup applied on top of vendor cost to
+    -- get the client-facing suggested price. All four numbers are editable
+    -- from the Vendor Directory admin panel — no code deploy needed to retune.
+    CREATE TABLE IF NOT EXISTS land_clearing_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      base_price REAL NOT NULL DEFAULT 750,
+      acreage_threshold REAL NOT NULL DEFAULT 0.5,
+      per_acre_rate REAL NOT NULL DEFAULT 1500,
+      markup_pct REAL NOT NULL DEFAULT 0.20,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- v20.32.13 — Smart Data: county-record-sourced (or manually entered)
+    -- property characteristics, keyed by property_address. Populated either
+    -- by pushing county-record / sales-package data in (source =
+    -- 'county_record' | 'sales_package') via the ingest endpoint, or by an
+    -- agent typing in the minimum required fields by hand (source =
+    -- 'manual') when no other source has answers. heated_sqft and
+    -- lot_size_acres are the two minimum-required fields per Alex; every
+    -- other column is optional context.
+    CREATE TABLE IF NOT EXISTS property_smart_data (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      property_address TEXT NOT NULL UNIQUE,
+      lot_size_acres REAL,
+      lot_size_sqft REAL,
+      heated_sqft REAL,
+      cooled_sqft REAL,
+      effective_sqft REAL,
+      stories REAL,
+      bedrooms REAL,
+      bathrooms REAL,
+      year_built INTEGER,
+      source TEXT NOT NULL DEFAULT 'manual',        -- 'county_record' | 'sales_package' | 'manual'
+      source_url TEXT,
+      verified_by TEXT,
+      verified_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_property_smart_data_address ON property_smart_data(property_address);
   `);
 
   // v20.9.0 — signing-method tracking + agreement PDF paths (ALTER TABLE is safe to run
@@ -338,12 +383,47 @@ export function ensureRepairConsultSchema() {
   if (!rcCols.includes("work_order_pdf_url"))       rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN work_order_pdf_url TEXT").run();
   if (!rcCols.includes("target_completion_date"))   rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN target_completion_date TEXT").run();
 
+  // v20.32.13 Part 5 — meeting cadence + work order detail fields. tools_needed
+  // is a plain newline/comma list (rendered on the Work Order PDF alongside
+  // instructions/scope), time_block_estimate is a free-text window (e.g.
+  // "8:00 AM – 12:00 PM"). completed_at marks the full job (final walkthrough
+  // + final payment) done — status stays whatever it was (work_order_sent);
+  // completed_at is the source of truth for "is this job fully closed out."
+  if (!rcCols.includes("tools_needed"))             rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN tools_needed TEXT").run();
+  if (!rcCols.includes("time_block_estimate"))      rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN time_block_estimate TEXT").run();
+  if (!rcCols.includes("completed_at"))             rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN completed_at TEXT").run();
+  if (!rcCols.includes("completed_by"))             rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN completed_by TEXT").run();
+
+  rawDb.exec(`
+    CREATE TABLE IF NOT EXISTS repair_project_meetings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      consult_id INTEGER NOT NULL REFERENCES repair_consults(id),
+      meeting_type TEXT NOT NULL, -- initial_start | punch_out | final_payment
+      scheduled_at TEXT,
+      completed_at TEXT,
+      notes TEXT,
+      fub_task_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_repair_project_meetings_consult ON repair_project_meetings(consult_id);`);
+
   // v20.32.7 — Vendor Directory: separate on-site contact person from the
   // company name, plus a company mailing address. Both optional/nullable —
   // existing vendor rows (there are none live yet) just get NULLs.
   const rvCols = (rawDb.prepare(`PRAGMA table_info(repair_vendors)`).all() as any[]).map((c: any) => c.name);
   if (!rvCols.includes("contact_name")) rawDb.prepare("ALTER TABLE repair_vendors ADD COLUMN contact_name TEXT").run();
   if (!rvCols.includes("address"))      rawDb.prepare("ALTER TABLE repair_vendors ADD COLUMN address TEXT").run();
+
+  // v20.32.13 — Part 6: Vendor Directory upgrade. Shared by both Repair vendors
+  // AND Inspection vendors (inspection_order_items.vendor_id already points
+  // at this same table) so one profile serves both programs.
+  if (!rvCols.includes("pricing_sheet_url"))      rawDb.prepare("ALTER TABLE repair_vendors ADD COLUMN pricing_sheet_url TEXT").run();
+  if (!rvCols.includes("license_number"))         rawDb.prepare("ALTER TABLE repair_vendors ADD COLUMN license_number TEXT").run();
+  if (!rvCols.includes("insurance_expiration"))   rawDb.prepare("ALTER TABLE repair_vendors ADD COLUMN insurance_expiration TEXT").run();
+  if (!rvCols.includes("service_area"))           rawDb.prepare("ALTER TABLE repair_vendors ADD COLUMN service_area TEXT").run();
+  if (!rvCols.includes("credentials_notes"))      rawDb.prepare("ALTER TABLE repair_vendors ADD COLUMN credentials_notes TEXT").run();
 
   // v20.32.0 — permanent, un-deletable archive of every fully-executed
   // (countersigned or print-sign-confirmed) contract. Delete never touches
@@ -375,6 +455,7 @@ export function ensureRepairConsultSchema() {
   seedRepairItems();
   seedRepairPackages();
   seedIncentiveSettings();
+  seedLandClearingSettings();
 }
 
 // ─── CATALOG SEED (idempotent — only inserts keys that don't exist yet) ─────
@@ -411,6 +492,11 @@ const IN_HOUSE_ITEMS: SeedItem[] = [
   // what one visit can safely cover — anything bigger routes to a vendor item.
   { key: "switch_replace", category: "in_house", trade: "handyman", name: "Light Switch Replacement", unit: "each", rate: 20, min: 0, seq: 31, instruction: "Replace {qty} light switch(es). Standard single-pole/3-way only — no smart-switch rewiring." },
   { key: "outlet_replace", category: "in_house", trade: "handyman", name: "Outlet Replacement", unit: "each", rate: 22, min: 0, seq: 32, instruction: "Replace {qty} outlet(s). Standard 15/20A only — no GFCI or dedicated-circuit work." },
+  // v20.32.13 — GFCI, roofing minor repair, and water heater swap. Every task
+  // carries a hard cap per Alex's "defined line drawn" rule — beyond the cap
+  // routes to the matching vendor trade. Rates below are placeholders pending
+  // Alex's confirmation/adjustment.
+  { key: "gfci_install", category: "in_house", trade: "electrical", name: "GFCI Outlet Install/Replacement", unit: "each", rate: 45, min: 0, seq: 32.1, instruction: "Install/replace {qty} GFCI outlet(s). Existing circuit only, no new circuit run. Cap 6 per job — beyond that routes to vendor electrical work." },
   { key: "ceiling_fan_install", category: "in_house", trade: "handyman", name: "Ceiling Fan Replacement/Install", unit: "each", rate: 95, min: 95, seq: 33, instruction: "Replace/install {qty} ceiling fan(s). Requires existing electrical box/wiring — no new circuit run, standard fan up to 5 blades." },
   { key: "curtain_rod_install", category: "in_house", trade: "handyman", name: "Curtain Rod Install", unit: "each", rate: 35, min: 0, seq: 34, instruction: "Install {qty} curtain rod(s), per window. Drywall/wood mount only — no stone/tile." },
   { key: "light_fixture_replace", category: "in_house", trade: "handyman", name: "Small Light Fixture Replacement", unit: "each", rate: 65, min: 0, seq: 24.5, instruction: "Replace {qty} light fixture(s). Standard ceiling/wall fixture, existing wiring — nothing over 15 lbs." },
@@ -421,6 +507,10 @@ const IN_HOUSE_ITEMS: SeedItem[] = [
   { key: "pressure_wash_ext", category: "in_house", trade: "pressure_washing", name: "Pressure Washing — Exterior (Siding/Brick)", unit: "sqft", rate: 0.20, min: 200, twoStory: true, seq: 35, instruction: "Pressure wash exterior — {qty} sqft.{story}" },
   { key: "soft_wash_roof", category: "in_house", trade: "pressure_washing", name: "Soft Washing — Roof", unit: "sqft", rate: 0.35, min: 250, twoStory: true, seq: 36, instruction: "Soft wash roof — {qty} sqft.{story}" },
   { key: "pressure_wash_hard", category: "in_house", trade: "pressure_washing", name: "Pressure Washing — Driveway/Walkway/Patio", unit: "sqft", rate: 0.22, min: 150, seq: 37, instruction: "Pressure wash driveway/walkway/patio — {qty} sqft." },
+  { key: "roof_nail_pop", category: "in_house", trade: "roofing", name: "Roof Minor Repair — Nail Pops", unit: "each", rate: 35, min: 100, seq: 37.1, instruction: "Reseat/reseal {qty} popped roofing nail(s). Cap 15 per job — beyond that routes to vendor roofing work." },
+  { key: "roof_glue_shingle", category: "in_house", trade: "roofing", name: "Roof Minor Repair — Glue-Down Loose Shingles", unit: "each", rate: 45, min: 100, seq: 37.2, instruction: "Re-glue/reseat {qty} lifted or loose shingle(s). Cap 10 per job — beyond that routes to vendor roofing work." },
+  { key: "roof_seal_flashing", category: "in_house", trade: "roofing", name: "Roof Minor Repair — Seal Flashing/Small Holes", unit: "each", rate: 65, min: 150, seq: 37.3, instruction: "Seal {qty} flashing seam(s) or small hole(s), up to 6 linear inches each. Cap 3 spots per job — beyond that routes to vendor roofing work." },
+  { key: "water_heater_swap", category: "in_house", trade: "water_heater", name: "Water Heater — Like-for-Like Swap", unit: "flat", rate: 950, min: 950, seq: 37.4, instruction: "Like-for-like water heater swap only — same fuel type (gas or electric), same capacity ±5 gallons, up to 50-gallon unit. 1 unit per job. Different fuel type, larger capacity, or additional units routes to vendor water heater replacement." },
   { key: "paint_ext_body", category: "in_house", trade: "painting_exterior", name: "Exterior Painting — Body", unit: "sqft", rate: 2.25, min: 800, twoStory: true, seq: 40, instruction: "Paint exterior body — {qty} sqft. Color-matched to existing.{story}", notes: "Color match is visual-sample only; slight sheen/tone variance vs. original is possible." },
   { key: "paint_ext_trim", category: "in_house", trade: "painting_exterior", name: "Exterior Painting — Trim & Doors", unit: "linear_ft", rate: 3.50, min: 150, twoStory: true, seq: 41, instruction: "Paint exterior trim & doors — {qty} linear ft. Color-matched.{story}" },
   { key: "lawn_mow", category: "in_house", trade: "landscaping", name: "Lawn Mowing / Cut", unit: "sqft", rate: 0.03, min: 300, seq: 45, instruction: "Mow/cut lawn — {qty} sqft. (4-hour crew minimum)" },
@@ -452,6 +542,7 @@ const VENDOR_TRADES: SeedItem[] = [
   { key: "v_floor_refinish", category: "vendor", trade: "flooring_wood_refinish", name: "Wood Floor Refinishing", unit: "flat", seq: 212, instruction: "Vendor quote — wood floor refinishing." },
   { key: "v_floor_lvp", category: "vendor", trade: "flooring_lvp", name: "LVP Flooring Installation", unit: "flat", seq: 213, instruction: "Vendor quote — LVP flooring installation." },
   { key: "v_floor_carpet", category: "vendor", trade: "flooring_carpet", name: "Carpet Installation", unit: "flat", seq: 214, instruction: "Vendor quote — carpet installation." },
+  { key: "v_floor_epoxy", category: "vendor", trade: "flooring_epoxy", name: "Epoxy Flooring Installation", unit: "flat", seq: 214.5, instruction: "Vendor quote — epoxy flooring installation (garage, patio, concrete surfaces)." },
   { key: "v_appliances", category: "vendor", trade: "appliances", name: "Appliance Replacement / Repair", unit: "flat", seq: 215, instruction: "Vendor quote — appliance replacement/repair." },
   { key: "v_countertops", category: "vendor", trade: "countertops", name: "Countertop Installation", unit: "flat", seq: 216, instruction: "Vendor quote — countertop installation." },
   { key: "v_retexture", category: "vendor", trade: "retexture", name: "Re-Texturing", unit: "flat", seq: 217, instruction: "Vendor quote — wall/ceiling re-texturing." },
@@ -469,6 +560,7 @@ const VENDOR_TRADES: SeedItem[] = [
   { key: "v_water_damage", category: "vendor", trade: "water_damage", name: "Water Damage Restoration", unit: "flat", seq: 229, instruction: "Vendor quote — water damage restoration." },
   { key: "v_garage_door", category: "vendor", trade: "garage_door", name: "Garage Door Repair / Replacement", unit: "flat", seq: 230, instruction: "Vendor quote — garage door repair/replacement." },
   { key: "v_hardscape", category: "vendor", trade: "hardscape", name: "Hardscape / Pavers / Retaining Walls", unit: "flat", seq: 231, instruction: "Vendor quote — hardscape/pavers/retaining wall work." },
+  { key: "v_land_clearing", category: "vendor", trade: "land_clearing", name: "Land Clearing", unit: "flat", seq: 232, instruction: "Vendor quote — land clearing (acreage-based)." },
 ];
 
 export const REPAIR_CATALOG_SEED: SeedItem[] = [...IN_HOUSE_ITEMS, ...VENDOR_TRADES];
@@ -522,6 +614,25 @@ function seedRepairPackages() {
 
 function seedIncentiveSettings() {
   rawDb.prepare(`INSERT INTO repair_incentive_settings (id) VALUES (1) ON CONFLICT(id) DO NOTHING`).run();
+}
+
+function seedLandClearingSettings() {
+  rawDb.prepare(`INSERT INTO land_clearing_settings (id) VALUES (1) ON CONFLICT(id) DO NOTHING`).run();
+}
+
+// v20.32.13 — Land Clearing tiered pricing formula. Below the acreage
+// threshold, Alex Porter's real-world minimum applies (his 4-hour
+// brush-cutter minimum, ~$750 flat). At/above the threshold, cost scales
+// per-acre. Markup is applied on top of vendor cost to produce the
+// client-facing suggested price — both numbers are then fully editable by
+// whoever is entering the Change Order.
+function computeLandClearingEstimate(acres: number, settings: any) {
+  const a = Math.max(0, Number(acres) || 0);
+  const vendorCost = a < settings.acreage_threshold
+    ? settings.base_price
+    : Math.round(a * settings.per_acre_rate * 100) / 100;
+  const clientPrice = Math.round(vendorCost * (1 + settings.markup_pct) * 100) / 100;
+  return { acres: a, vendorCost, clientPrice, markupPct: settings.markup_pct };
 }
 
 function seedRepairItems() {
@@ -616,7 +727,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "8. Vendor-Quoted (Licensed Trade) Items",
-    body: "Any item in your quote marked \u201cVendor-Quoted\u201d is performed by an independent, licensed, and insured third-party contractor from our preferred vendor network — not by Brothers Group. We facilitate the introduction and quote request only. Pricing, licensing, insurance, scheduling, and workmanship for that work are solely between you and the vendor, under a separate agreement with them. Brothers Group assumes no liability for vendor-performed work.",
+    body: "Any item in your quote marked \u201cVendor-Quoted\u201d is performed by an independent, licensed, and insured third-party contractor from our preferred vendor network — not by Brothers Group. We facilitate the introduction and quote request only. Pricing, licensing, insurance, scheduling, and workmanship for that work are solely between you and the vendor, under a separate agreement with them. Brothers Group assumes no liability for vendor-performed work. Vendor pricing varies by square footage, site conditions, and other trade-specific criteria — the amount shown at consultation is an estimate, confirmed once the vendor schedules and assesses the job directly.",
   },
   {
     heading: "9. Our Work — Limited Warranty",
@@ -998,6 +1109,11 @@ export async function sendWorkOrderEmail(consultId: number) {
 
   if (!resend) {
     rawDb.prepare(`UPDATE repair_consults SET status = 'work_order_sent', work_order_sent_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(consultId);
+    fireMilestoneTasks("repair_punch_out", {
+      clientName: consult.client_name, clientPhone: consult.client_phone, clientEmail: consult.client_email,
+      contextNote: `Work order sent — ${consult.property_address}`,
+    }).then((created) => logProjectMeeting(consultId, "punch_out", created[0]?.taskId ?? null))
+      .catch((e) => console.warn("milestone fire failed (repair_punch_out):", e));
     return;
   }
 
@@ -1048,6 +1164,11 @@ export async function sendWorkOrderEmail(consultId: number) {
   });
 
   rawDb.prepare(`UPDATE repair_consults SET status = 'work_order_sent', work_order_sent_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(consultId);
+  fireMilestoneTasks("repair_punch_out", {
+    clientName: consult.client_name, clientPhone: consult.client_phone, clientEmail: consult.client_email,
+    contextNote: `Work order sent — ${consult.property_address}`,
+  }).then((created) => logProjectMeeting(consultId, "punch_out", created[0]?.taskId ?? null))
+    .catch((e) => console.warn("milestone fire failed (repair_punch_out):", e));
 }
 
 // ─── Draw an image into a fixed box WITHOUT distorting its aspect ratio ────
@@ -1591,6 +1712,17 @@ export async function generateWorkOrderPdf(consultId: number): Promise<string> {
   p1.drawText(targetCompletion || "To be set", { x: 300, y: y - 24, size: 10.5, font: fontBold, color: black });
   y -= 42;
 
+  // v20.32.13 Part 5 — tools needed + time-block estimate strip, only drawn
+  // when at least one is set (keeps older/unset jobs' PDFs unchanged).
+  if (consult.tools_needed || consult.time_block_estimate) {
+    p1.drawRectangle({ x: 38, y: y - 30, width: 536, height: 30, color: lightGray });
+    p1.drawText("TOOLS NEEDED", { x: 46, y: y - 11, size: 7.5, font: fontBold, color: gray });
+    p1.drawText((consult.tools_needed || "—").slice(0, 70), { x: 46, y: y - 24, size: 9.5, font: fontBold, color: black });
+    p1.drawText("TIME BLOCK ESTIMATE", { x: 300, y: y - 11, size: 7.5, font: fontBold, color: gray });
+    p1.drawText(consult.time_block_estimate || "—", { x: 300, y: y - 24, size: 9.5, font: fontBold, color: black });
+    y -= 42;
+  }
+
   const infoLine = [
     consult.client_name ? `Client: ${consult.client_name}` : null,
     `Contract Total: $${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
@@ -1710,6 +1842,23 @@ async function archiveSignedConsult(consultId: number, signatureMethod: string) 
 }
 
 // ─── ROW HELPERS ─────────────────────────────────────────────────────────────
+// v20.32.13 Part 5 — log a project-meeting row for the given consult/type,
+// linking the FUB task created for the same lifecycle event (if any). One
+// row per meeting_type per consult — if one already exists (e.g. re-firing
+// the same trigger), update it instead of duplicating.
+function logProjectMeeting(consultId: number, meetingType: "initial_start" | "punch_out" | "final_payment", fubTaskId: number | null, notes?: string) {
+  try {
+    const existing = rawDb.prepare(`SELECT id FROM repair_project_meetings WHERE consult_id = ? AND meeting_type = ?`).get(consultId, meetingType) as any;
+    if (existing) {
+      rawDb.prepare(`UPDATE repair_project_meetings SET fub_task_id = COALESCE(?, fub_task_id), notes = COALESCE(?, notes), updated_at = datetime('now') WHERE id = ?`).run(fubTaskId, notes || null, existing.id);
+    } else {
+      rawDb.prepare(`INSERT INTO repair_project_meetings (consult_id, meeting_type, fub_task_id, notes) VALUES (?, ?, ?, ?)`).run(consultId, meetingType, fubTaskId, notes || null);
+    }
+  } catch (err: any) {
+    console.warn("logProjectMeeting failed:", err?.message || err);
+  }
+}
+
 function getConsultRow(id: number): any {
   const row = rawDb.prepare(`
     SELECT rc.*, a.name AS agent_name, a.email AS agent_email
@@ -2032,6 +2181,144 @@ export function registerRepairConsultRoutes(app: Express) {
     });
   });
 
+  // ── v20.32.13 — Land Clearing pricing settings (read for any signed-in
+  // agent — needed by the Change Order acreage-estimate helper) ──
+  app.get("/api/land-clearing/settings", (req: any, res: Response) => {
+    const row = rawDb.prepare(`SELECT * FROM land_clearing_settings WHERE id = 1`).get() as any;
+    res.json({
+      basePrice: row.base_price, acreageThreshold: row.acreage_threshold,
+      perAcreRate: row.per_acre_rate, markupPct: row.markup_pct,
+    });
+  });
+
+  // ── v20.32.13 — Admin: update Land Clearing pricing settings ──
+  app.patch("/api/admin/land-clearing/settings", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const { basePrice, acreageThreshold, perAcreRate, markupPct } = req.body || {};
+    const fields: string[] = []; const vals: any[] = [];
+    if (basePrice !== undefined) { fields.push("base_price = ?"); vals.push(Number(basePrice)); }
+    if (acreageThreshold !== undefined) { fields.push("acreage_threshold = ?"); vals.push(Number(acreageThreshold)); }
+    if (perAcreRate !== undefined) { fields.push("per_acre_rate = ?"); vals.push(Number(perAcreRate)); }
+    if (markupPct !== undefined) { fields.push("markup_pct = ?"); vals.push(Number(markupPct)); }
+    if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
+    fields.push("updated_at = datetime('now')");
+    rawDb.prepare(`UPDATE land_clearing_settings SET ${fields.join(", ")} WHERE id = 1`).run(...vals);
+    const row = rawDb.prepare(`SELECT * FROM land_clearing_settings WHERE id = 1`).get() as any;
+    res.json({
+      basePrice: row.base_price, acreageThreshold: row.acreage_threshold,
+      perAcreRate: row.per_acre_rate, markupPct: row.markup_pct,
+    });
+  });
+
+  // ── v20.32.13 — Land Clearing acreage-based price estimate. Pulls acreage
+  // from Smart Data for the given property if not passed explicitly, applies
+  // the tiered formula, and returns both vendor cost and client price as a
+  // SUGGESTION only — both remain fully editable wherever this is used
+  // (Change Order form). ──
+  app.get("/api/land-clearing/estimate", (req: any, res: Response) => {
+    const settings = rawDb.prepare(`SELECT * FROM land_clearing_settings WHERE id = 1`).get() as any;
+    let acres = req.query.acres !== undefined ? Number(req.query.acres) : null;
+    let acresSource: string | null = acres !== null ? "manual_input" : null;
+    if ((acres === null || Number.isNaN(acres)) && req.query.propertyAddress) {
+      const sd = rawDb.prepare(`SELECT lot_size_acres, lot_size_sqft FROM property_smart_data WHERE property_address = ?`).get(String(req.query.propertyAddress)) as any;
+      if (sd?.lot_size_acres) { acres = Number(sd.lot_size_acres); acresSource = "smart_data"; }
+      else if (sd?.lot_size_sqft) { acres = Math.round((Number(sd.lot_size_sqft) / 43560) * 100) / 100; acresSource = "smart_data_sqft"; }
+    }
+    if (acres === null || Number.isNaN(acres)) return res.status(400).json({ error: "acres or a propertyAddress with Smart Data lot size is required" });
+    const est = computeLandClearingEstimate(acres, settings);
+    res.json({ ...est, acresSource });
+  });
+
+  // ── v20.32.13 — Smart Data: read property characteristics for the address.
+  // Returns null fields (never 404) so the UI can render an empty/"add
+  // manually" state cleanly when nothing has been captured yet. Also
+  // reports whether the two Alex-mandated minimum fields are present. ──
+  app.get("/api/smart-data", (req: any, res: Response) => {
+    const propertyAddress = String(req.query.propertyAddress || "").trim();
+    if (!propertyAddress) return res.status(400).json({ error: "propertyAddress is required" });
+    const row = rawDb.prepare(`SELECT * FROM property_smart_data WHERE property_address = ?`).get(propertyAddress) as any;
+    if (!row) {
+      return res.json({
+        found: false, propertyAddress, lotSizeAcres: null, lotSizeSqft: null,
+        heatedSqft: null, cooledSqft: null, effectiveSqft: null, stories: null,
+        bedrooms: null, bathrooms: null, yearBuilt: null, source: null, sourceUrl: null,
+        hasMinimumRequired: false,
+      });
+    }
+    res.json({
+      found: true, propertyAddress: row.property_address,
+      lotSizeAcres: row.lot_size_acres, lotSizeSqft: row.lot_size_sqft,
+      heatedSqft: row.heated_sqft, cooledSqft: row.cooled_sqft, effectiveSqft: row.effective_sqft,
+      stories: row.stories, bedrooms: row.bedrooms, bathrooms: row.bathrooms, yearBuilt: row.year_built,
+      source: row.source, sourceUrl: row.source_url, verifiedBy: row.verified_by, verifiedAt: row.verified_at,
+      hasMinimumRequired: row.heated_sqft != null && (row.lot_size_acres != null || row.lot_size_sqft != null),
+    });
+  });
+
+  // ── v20.32.13 — Smart Data: upsert by property_address. Used two ways:
+  //  (1) an agent manually filling in the minimum required fields
+  //      (heated_sqft + lot size) right in the Smart Data panel —
+  //      source defaults to 'manual'.
+  //  (2) pushing county-record / sales-package data gathered separately
+  //      (via the property-appraiser-lookup workflow or a sales package)
+  //      into Lead Depot — caller passes source: 'county_record' or
+  //      'sales_package' plus sourceUrl. NOTE: Lead Depot itself has no
+  //      browser-automation capability to run a live county lookup —
+  //      this endpoint only stores data that was gathered elsewhere and
+  //      is being pushed in. ──
+  app.post("/api/smart-data", (req: any, res: Response) => {
+    const {
+      propertyAddress, lotSizeAcres, lotSizeSqft, heatedSqft, cooledSqft, effectiveSqft,
+      stories, bedrooms, bathrooms, yearBuilt, source, sourceUrl, verifiedBy,
+    } = req.body || {};
+    const addr = String(propertyAddress || "").trim();
+    if (!addr) return res.status(400).json({ error: "propertyAddress is required" });
+    const src = source && ["county_record", "sales_package", "manual"].includes(source) ? source : "manual";
+    const verifier = verifiedBy || req.currentAgent?.name || null;
+    rawDb.prepare(`
+      INSERT INTO property_smart_data
+        (property_address, lot_size_acres, lot_size_sqft, heated_sqft, cooled_sqft, effective_sqft,
+         stories, bedrooms, bathrooms, year_built, source, source_url, verified_by, verified_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      ON CONFLICT(property_address) DO UPDATE SET
+        lot_size_acres = COALESCE(excluded.lot_size_acres, property_smart_data.lot_size_acres),
+        lot_size_sqft = COALESCE(excluded.lot_size_sqft, property_smart_data.lot_size_sqft),
+        heated_sqft = COALESCE(excluded.heated_sqft, property_smart_data.heated_sqft),
+        cooled_sqft = COALESCE(excluded.cooled_sqft, property_smart_data.cooled_sqft),
+        effective_sqft = COALESCE(excluded.effective_sqft, property_smart_data.effective_sqft),
+        stories = COALESCE(excluded.stories, property_smart_data.stories),
+        bedrooms = COALESCE(excluded.bedrooms, property_smart_data.bedrooms),
+        bathrooms = COALESCE(excluded.bathrooms, property_smart_data.bathrooms),
+        year_built = COALESCE(excluded.year_built, property_smart_data.year_built),
+        source = excluded.source,
+        source_url = COALESCE(excluded.source_url, property_smart_data.source_url),
+        verified_by = excluded.verified_by,
+        verified_at = datetime('now'),
+        updated_at = datetime('now')
+    `).run(
+      addr,
+      lotSizeAcres != null ? Number(lotSizeAcres) : null,
+      lotSizeSqft != null ? Number(lotSizeSqft) : null,
+      heatedSqft != null ? Number(heatedSqft) : null,
+      cooledSqft != null ? Number(cooledSqft) : null,
+      effectiveSqft != null ? Number(effectiveSqft) : null,
+      stories != null ? Number(stories) : null,
+      bedrooms != null ? Number(bedrooms) : null,
+      bathrooms != null ? Number(bathrooms) : null,
+      yearBuilt != null ? Number(yearBuilt) : null,
+      src, sourceUrl || null, verifier,
+    );
+    const row = rawDb.prepare(`SELECT * FROM property_smart_data WHERE property_address = ?`).get(addr) as any;
+    res.json({
+      found: true, propertyAddress: row.property_address,
+      lotSizeAcres: row.lot_size_acres, lotSizeSqft: row.lot_size_sqft,
+      heatedSqft: row.heated_sqft, cooledSqft: row.cooled_sqft, effectiveSqft: row.effective_sqft,
+      stories: row.stories, bedrooms: row.bedrooms, bathrooms: row.bathrooms, yearBuilt: row.year_built,
+      source: row.source, sourceUrl: row.source_url, verifiedBy: row.verified_by, verifiedAt: row.verified_at,
+      hasMinimumRequired: row.heated_sqft != null && (row.lot_size_acres != null || row.lot_size_sqft != null),
+    });
+  });
+
   // ── v20.14.5 — In-progress consults for this agent (resume picker). MUST be
   //    registered before the "/:id" GET below — otherwise Express would try
   //    to parse "mine" as a numeric id and 404. Resumable = not yet accepted
@@ -2220,6 +2507,13 @@ export function registerRepairConsultRoutes(app: Express) {
     rawDb.prepare(`
       UPDATE repair_consults SET start_window = ?, start_date = ?, start_time = ?, updated_at = datetime('now') WHERE id = ?
     `).run(startWindow || null, startDate || null, startTime || null, consultId);
+    if (startDate) {
+      fireMilestoneTasks("repair_start_date", {
+        clientName: consult.client_name, clientPhone: consult.client_phone, clientEmail: consult.client_email,
+        anchorDate: new Date(startDate),
+        contextNote: `Repair start date set (${startDate}) — ${consult.property_address}`,
+      }).catch((e) => console.warn("milestone fire failed (repair_start_date):", e));
+    }
     res.json({ ok: true });
   });
 
@@ -2384,6 +2678,12 @@ export function registerRepairConsultRoutes(app: Express) {
       await generateWorkOrderPdf(consultId);
       await archiveSignedConsult(consultId, "print_sign");
       try { await sendWorkOrderEmail(consultId); } catch (e) { console.error("work order send failed:", e); }
+      // v20.32.13 Part 4 — milestone task: Initial Start Meeting
+      fireMilestoneTasks("repair_contract_signed", {
+        clientName: consult.client_name, clientPhone: consult.client_phone, clientEmail: consult.client_email,
+        contextNote: `Repair contract signed (print-sign) — ${consult.property_address}`,
+      }).then((created) => logProjectMeeting(consultId, "initial_start", created[0]?.taskId ?? null))
+        .catch((e) => console.warn("milestone fire failed (repair_contract_signed):", e));
       res.json({ ok: true });
     } catch (err: any) {
       console.error("confirm-print-signed error:", err);
@@ -2436,11 +2736,99 @@ export function registerRepairConsultRoutes(app: Express) {
       await generateWorkOrderPdf(consultId);
       await archiveSignedConsult(consultId, "e_sign");
       try { await sendWorkOrderEmail(consultId); } catch (e) { console.error("work order send failed:", e); }
+      // v20.32.13 Part 4 — milestone task: Initial Start Meeting
+      fireMilestoneTasks("repair_contract_signed", {
+        clientName: consult.client_name, clientPhone: consult.client_phone, clientEmail: consult.client_email,
+        contextNote: `Repair contract signed (e-sign) — ${consult.property_address}`,
+      }).then((created) => logProjectMeeting(consultId, "initial_start", created[0]?.taskId ?? null))
+        .catch((e) => console.warn("milestone fire failed (repair_contract_signed):", e));
       res.json({ ok: true });
     } catch (err: any) {
       console.error("countersign error:", err);
       res.status(500).json({ error: "Failed to countersign", detail: err?.message });
     }
+  });
+
+  // v20.32.13 Part 5 — work order detail fields (tools needed + time-block
+  // estimate). Admin-editable any time before/after the work order is sent;
+  // if edited after send, the crew-facing PDF is NOT auto-regenerated here —
+  // admin should re-send the work order if the crew needs the updated PDF.
+  app.patch("/api/repair-consult/:id/work-order-details", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    const { toolsNeeded, timeBlockEstimate } = req.body;
+    const consult = getConsultRow(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+    rawDb.prepare(`UPDATE repair_consults SET tools_needed = ?, time_block_estimate = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(toolsNeeded ?? consult.tools_needed ?? null, timeBlockEstimate ?? consult.time_block_estimate ?? null, consultId);
+    res.json({ ok: true });
+  });
+
+  // v20.32.13 Part 5 — list the 3 project-meeting rows (initial_start,
+  // punch_out, final_payment) for a consult. Rows are created automatically
+  // by the milestone engine as each lifecycle stage fires; this is a
+  // read/schedule surface, not a create surface (rows always originate from
+  // a real lifecycle event so they stay tied to a real FUB task).
+  app.get("/api/repair-consult/:id/meetings", (req: any, res: Response) => {
+    if (!req.currentAgent) return res.status(401).json({ error: "Not authenticated" });
+    const consultId = parseInt(req.params.id);
+    const rows = rawDb.prepare(`SELECT * FROM repair_project_meetings WHERE consult_id = ? ORDER BY id ASC`).all(consultId);
+    res.json({ meetings: rows });
+  });
+
+  // v20.32.13 Part 5 — admin schedules or completes one of the 3 meetings.
+  // meeting_type in the URL must be one of initial_start | punch_out |
+  // final_payment. If the row doesn't exist yet (lifecycle event hasn't
+  // fired), it's created here so admin can pre-schedule ahead of the trigger.
+  app.patch("/api/admin/repair-consult/:id/meetings/:type", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    const meetingType = req.params.type;
+    if (!["initial_start", "punch_out", "final_payment"].includes(meetingType)) {
+      return res.status(400).json({ error: "Invalid meeting type" });
+    }
+    const { scheduledAt, completedAt, notes } = req.body;
+    const existing = rawDb.prepare(`SELECT id FROM repair_project_meetings WHERE consult_id = ? AND meeting_type = ?`).get(consultId, meetingType) as any;
+    if (existing) {
+      rawDb.prepare(`UPDATE repair_project_meetings SET scheduled_at = COALESCE(?, scheduled_at), completed_at = COALESCE(?, completed_at), notes = COALESCE(?, notes), updated_at = datetime('now') WHERE id = ?`)
+        .run(scheduledAt ?? null, completedAt ?? null, notes ?? null, existing.id);
+    } else {
+      rawDb.prepare(`INSERT INTO repair_project_meetings (consult_id, meeting_type, scheduled_at, completed_at, notes) VALUES (?, ?, ?, ?, ?)`)
+        .run(consultId, meetingType, scheduledAt ?? null, completedAt ?? null, notes ?? null);
+    }
+    res.json({ ok: true });
+  });
+
+  // v20.32.13 Part 5 — mark the full repair job complete (final walkthrough +
+  // final payment released). Logs the final_payment meeting row and fires
+  // the repair_final_payment_due milestone (invoice/payment-due reminder in
+  // FUB) anchored to right now, since "complete" means the job is done and
+  // final payment collection starts immediately.
+  app.post("/api/repair-consult/:id/mark-complete", async (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    const consult = getConsultRow(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+    if (consult.completed_at) return res.status(409).json({ error: "This job is already marked complete." });
+    const completedBy = req.currentAgent.name || req.currentAgent.email || "Admin";
+    rawDb.prepare(`UPDATE repair_consults SET completed_at = datetime('now'), completed_by = ?, updated_at = datetime('now') WHERE id = ?`).run(completedBy, consultId);
+    try {
+      const created = await fireMilestoneTasks("repair_final_payment_due", {
+        clientName: consult.client_name, clientPhone: consult.client_phone, clientEmail: consult.client_email,
+        contextNote: `Repair job complete, final payment due — ${consult.property_address}`,
+      });
+      logProjectMeeting(consultId, "final_payment", created[0]?.taskId ?? null, req.body?.notes || null);
+    } catch (e) {
+      console.warn("milestone fire failed (repair_final_payment_due):", e);
+    }
+    // v20.32.13 Part 4/7 — completion is also the final-invoice event; fires a
+    // separate payment-due reminder (3-day default) alongside the day-0
+    // Final/Payment Meeting task fired above.
+    fireMilestoneTasks("invoice_sent", {
+      clientName: consult.client_name, clientPhone: consult.client_phone, clientEmail: consult.client_email,
+      contextNote: `Final invoice ready ($${(consult.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}) — ${consult.property_address}`,
+    }).catch((e) => console.warn("milestone fire failed (invoice_sent):", e));
+    res.json({ ok: true });
   });
 
   // ── Dispatch vendor quote requests ──
@@ -2622,14 +3010,15 @@ export function registerRepairConsultRoutes(app: Express) {
   });
   app.post("/api/admin/repair-vendors", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
-    const { trade, name, email, phone, notes, contact_name, address } = req.body || {};
+    const { trade, name, email, phone, notes, contact_name, address, pricing_sheet_url, license_number, insurance_expiration, service_area, credentials_notes } = req.body || {};
     if (!trade || !name || !email) return res.status(400).json({ error: "trade, name, and email are required" });
-    const result = rawDb.prepare(`INSERT INTO repair_vendors (trade, name, email, phone, notes, contact_name, address) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(trade, name, email, phone || null, notes || null, contact_name || null, address || null);
+    const result = rawDb.prepare(`INSERT INTO repair_vendors (trade, name, email, phone, notes, contact_name, address, pricing_sheet_url, license_number, insurance_expiration, service_area, credentials_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(trade, name, email, phone || null, notes || null, contact_name || null, address || null, pricing_sheet_url || null, license_number || null, insurance_expiration || null, service_area || null, credentials_notes || null);
     res.json({ id: result.lastInsertRowid });
   });
   app.patch("/api/admin/repair-vendors/:id", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
-    const { name, email, phone, notes, active, contact_name, address } = req.body || {};
+    const { name, email, phone, notes, active, contact_name, address, pricing_sheet_url, license_number, insurance_expiration, service_area, credentials_notes } = req.body || {};
     const fields: string[] = []; const vals: any[] = [];
     if (name !== undefined) { fields.push("name = ?"); vals.push(name); }
     if (email !== undefined) { fields.push("email = ?"); vals.push(email); }
@@ -2637,6 +3026,11 @@ export function registerRepairConsultRoutes(app: Express) {
     if (notes !== undefined) { fields.push("notes = ?"); vals.push(notes); }
     if (contact_name !== undefined) { fields.push("contact_name = ?"); vals.push(contact_name); }
     if (address !== undefined) { fields.push("address = ?"); vals.push(address); }
+    if (pricing_sheet_url !== undefined) { fields.push("pricing_sheet_url = ?"); vals.push(pricing_sheet_url); }
+    if (license_number !== undefined) { fields.push("license_number = ?"); vals.push(license_number); }
+    if (insurance_expiration !== undefined) { fields.push("insurance_expiration = ?"); vals.push(insurance_expiration); }
+    if (service_area !== undefined) { fields.push("service_area = ?"); vals.push(service_area); }
+    if (credentials_notes !== undefined) { fields.push("credentials_notes = ?"); vals.push(credentials_notes); }
     if (active !== undefined) { fields.push("active = ?"); vals.push(active ? 1 : 0); }
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
     rawDb.prepare(`UPDATE repair_vendors SET ${fields.join(", ")} WHERE id = ?`).run(...vals, req.params.id);

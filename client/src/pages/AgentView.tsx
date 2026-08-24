@@ -6106,7 +6106,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   // instead of navigating straight to Dial. Chooser has 4 tiles; Dial tile sets
   // tab="leads" and closes chooser. Other tiles open sub-sheets or forms.
   const [leadGenOpen, setLeadGenOpen] = useState(false);
-  const [buyerChooserOpen, setBuyerChooserOpen] = useState(false); // v20.33.0 — Buyers chooser: Write an Offer / Inspections+ / Instant Repair Quote (order: Inspections+, Instant Repair Quote, Write an Offer)
+  const [buyerChooserOpen, setBuyerChooserOpen] = useState(false); // v20.32.13 — Buyers chooser: Write an Offer / Inspections+ / Instant Repair Quote (order: Inspections+, Instant Repair Quote, Write an Offer)
   const [sellerChooserOpen, setSellerChooserOpen] = useState(false); // v20.32.12 — Sellers+ chooser: Repair Consult / Listing Consultation / Inspections+
   // v20.6.9 — motivational quote frozen at the moment Lead Gen opens so it
   // doesn't reshuffle mid-render. Refreshed each open. See leadgen-quotes.ts.
@@ -6392,7 +6392,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.32.12</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.32.13</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6642,7 +6642,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           />
         )}
 
-        {/* v20.33.0 — Inspections+ buyer tool, opened from the Place an Offer chooser. */}
+        {/* v20.32.13 — Inspections+ buyer tool, opened from the Place an Offer chooser. */}
         {tab === "inspectionsPlus" && (
           <InspectionsPlusSheet
             agentId={(user as any)?.id}
@@ -6650,7 +6650,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           />
         )}
 
-        {/* v20.33.0 — Buyers bottom-nav chooser, bubble order: Inspections+ /
+        {/* v20.32.13 — Buyers bottom-nav chooser, bubble order: Inspections+ /
             Instant Repair Quote / Write an Offer (Write an Offer last per Alex). */}
         {buyerChooserOpen && (
           <BuyerChooserSheet
@@ -7058,7 +7058,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                 setLeadGenOpen(true);
                 return;
               }
-              // v20.33.0 — Buyers now opens a chooser first: Write an Offer,
+              // v20.32.13 — Buyers now opens a chooser first: Write an Offer,
               // Inspections+, or Instant Repair Quote, same reveal pattern as Lead Gen.
               if (n.id === "placeOffer") {
                 setBuyerChooserOpen(true);

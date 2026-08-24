@@ -1,4 +1,4 @@
-// v20.33.0 — "Inspections+" buyer tool. Lives inside the new "Place an Offer"
+// v20.32.13 — "Inspections+" buyer tool. Lives inside the new "Place an Offer"
 // bottom-nav chooser (BuyerChooserSheet), alongside "Write an Offer". Picks
 // the client from FUB, checks off which inspections to order, sets the
 // needed-by timing and inspection contingency expiration date, and sends the
@@ -36,6 +36,8 @@ const sectionTitleStyle: React.CSSProperties = {
 
 type FubContact = { id: number; name: string; email: string | null; phone: string | null; address: string | null };
 type CatalogItem = { key: string; name: string; clientPrice: number; sequenceOrder: number };
+type InspectionVendor = { id: number; name: string; phone: string | null; email: string | null };
+type PricePreviewItem = { key: string; name: string; clientPrice: number; vendorCost: number | null; source: "vendor_tier" | "flat_catalog" };
 
 export function InspectionsPlusSheet({
   agentId, onClose,
@@ -95,14 +97,62 @@ export function InspectionsPlusSheet({
   const [neededByDate, setNeededByDate] = useState("");
   const [contingencyDate, setContingencyDate] = useState("");
 
+  // v20.32.13 Part 1 — optional vendor + sqft, resolves sqft-tiered pricing
+  // (e.g. Jason Brown's inspection fee ladder) instead of the flat catalog
+  // price. Leaving vendor unselected keeps the flat catalog price exactly
+  // as before — fully backward compatible.
+  const [vendors, setVendors] = useState<InspectionVendor[]>([]);
+  const [selectedVendorId, setSelectedVendorId] = useState<string>("");
+  const [subjectSqft, setSubjectSqft] = useState("");
+  const [pricePreview, setPricePreview] = useState<Map<string, PricePreviewItem>>(new Map());
+  const [smartDataLoading, setSmartDataLoading] = useState(false);
+  const [smartDataNote, setSmartDataNote] = useState("");
+
   useEffect(() => {
     if (step !== 2 || catalog.length > 0) return;
     setCatalogLoading(true);
-    fetchJson("/api/inspection-items")
-      .then(d => setCatalog(d.items || []))
+    Promise.all([
+      fetchJson("/api/inspection-items"),
+      fetchJson("/api/inspection-vendors").catch(() => ({ vendors: [] })),
+    ])
+      .then(([itemsRes, vendorsRes]) => { setCatalog(itemsRes.items || []); setVendors(vendorsRes.vendors || []); })
       .catch(() => setError("Couldn't load inspection catalog."))
       .finally(() => setCatalogLoading(false));
   }, [step]);
+
+  // Live tiered-price preview — refetches whenever the vendor, sqft, or the
+  // checked items change. Debounced so typing sqft doesn't hammer the API.
+  useEffect(() => {
+    if (selectedKeys.size === 0) { setPricePreview(new Map()); return; }
+    if (!selectedVendorId || !subjectSqft || Number(subjectSqft) <= 0) { setPricePreview(new Map()); return; }
+    const t = setTimeout(() => {
+      const params = new URLSearchParams({ vendorId: selectedVendorId, sqft: subjectSqft, itemKeys: Array.from(selectedKeys).join(",") });
+      fetchJson(`/api/inspection-vendor-pricing/preview?${params.toString()}`)
+        .then(d => setPricePreview(new Map((d.items || []).map((i: PricePreviewItem) => [i.key, i]))))
+        .catch(() => setPricePreview(new Map()));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [selectedVendorId, subjectSqft, selectedKeys]);
+
+  // v20.32.13 — pull heated sqft from Smart Data for the entered property
+  // address instead of requiring the agent to know/type it from memory.
+  const autoFillSqftFromSmartData = async () => {
+    if (!propertyAddress.trim()) return;
+    setSmartDataLoading(true);
+    setSmartDataNote("");
+    try {
+      const r = await fetchJson(`/api/smart-data?propertyAddress=${encodeURIComponent(propertyAddress.trim())}`);
+      if (r.heatedSqft) {
+        setSubjectSqft(String(r.heatedSqft));
+        const sourceLabel = r.source === "county_record" ? "county record" : r.source === "sales_package" ? "sales package" : "manual entry";
+        setSmartDataNote(`Filled from Smart Data (${sourceLabel}).`);
+      } else {
+        setSmartDataNote("No Smart Data on file for this address yet — enter sqft manually.");
+      }
+    } catch {
+      setSmartDataNote("Couldn't reach Smart Data — enter sqft manually.");
+    } finally { setSmartDataLoading(false); }
+  };
 
   const toggleKey = (key: string) => {
     setSelectedKeys(prev => {
@@ -112,7 +162,8 @@ export function InspectionsPlusSheet({
     });
   };
 
-  const total = catalog.filter(c => selectedKeys.has(c.key)).reduce((s, c) => s + c.clientPrice, 0);
+  const priceFor = (item: CatalogItem) => pricePreview.get(item.key)?.clientPrice ?? item.clientPrice;
+  const total = catalog.filter(c => selectedKeys.has(c.key)).reduce((s, c) => s + priceFor(c), 0);
 
   const canGoStep2 = clientName.trim().length > 1 && propertyAddress.trim().length > 3;
   const canSend = canGoStep2 && selectedKeys.size > 0 && clientEmail.trim().length > 3
@@ -145,6 +196,8 @@ export function InspectionsPlusSheet({
           neededBy, neededByDate: neededBy === "specific" ? neededByDate : undefined,
           contingencyExpirationDate: contingencyDate,
           itemKeys: Array.from(selectedKeys),
+          vendorId: selectedVendorId || undefined,
+          subjectSqft: subjectSqft || undefined,
         }),
       });
       await fetchJson(`/api/inspection-orders/${created.id}/send`, { method: "POST" });
@@ -266,7 +319,7 @@ export function InspectionsPlusSheet({
                       border: checked ? `1px solid ${GOLD}` : "1px solid rgba(255,255,255,0.1)",
                     }}>
                       <span style={{ fontSize: 13.5, color: "#fff", fontWeight: checked ? 700 : 500, textAlign: "left" }}>{item.name}</span>
-                      <span style={{ fontSize: 13, color: checked ? GOLD : "rgba(255,255,255,0.5)", fontWeight: 700 }}>${item.clientPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      <span style={{ fontSize: 13, color: checked ? GOLD : "rgba(255,255,255,0.5)", fontWeight: 700 }}>${priceFor(item).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                     </button>
                   );
                 })
@@ -276,6 +329,46 @@ export function InspectionsPlusSheet({
                   <span style={{ fontSize: 13, color: "rgba(255,255,255,0.6)", fontWeight: 700 }}>Total</span>
                   <span style={{ fontSize: 15, color: GOLD, fontWeight: 700 }}>${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
+              )}
+            </div>
+
+            <div style={sectionTitleStyle}>Vendor & Property Size <span style={{ color: "rgba(255,255,255,0.35)", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>(optional — for sqft-tiered vendor pricing)</span></div>
+            <div style={cardStyle}>
+              <label style={labelStyle}>Vendor</label>
+              <select
+                style={{ ...inputStyle, marginBottom: 10, appearance: "auto" }}
+                value={selectedVendorId}
+                onChange={e => setSelectedVendorId(e.target.value)}
+              >
+                <option value="">Flat catalog price (no vendor selected)</option>
+                {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+              <label style={labelStyle}>Subject Property Sqft</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  type="number" inputMode="numeric" style={inputStyle} value={subjectSqft}
+                  onChange={e => setSubjectSqft(e.target.value)} placeholder="e.g. 2200"
+                  disabled={!selectedVendorId}
+                />
+                {/* v20.32.13 — Smart Data auto-fill. Pulls heated sqft captured from
+                    county records / sales package / manual entry for this property
+                    instead of requiring the agent to look it up or retype it. */}
+                <button type="button" disabled={!selectedVendorId || !propertyAddress.trim() || smartDataLoading}
+                  onClick={autoFillSqftFromSmartData}
+                  style={{
+                    padding: "0 10px", borderRadius: 6, whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    background: "rgba(200,170,90,0.12)", border: "1px solid rgba(200,170,90,0.4)", color: "#e8d8a8",
+                    opacity: (!selectedVendorId || !propertyAddress.trim()) ? 0.5 : 1,
+                  }}
+                >{smartDataLoading ? "…" : "From Smart Data"}</button>
+              </div>
+              {smartDataNote && (
+                <p style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 4, marginBottom: 0 }}>{smartDataNote}</p>
+              )}
+              {selectedVendorId && (
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 8, marginBottom: 0 }}>
+                  Enter the heated/cooled sqft to pull this vendor's real tiered pricing above. Leave blank to keep the flat catalog price.
+                </p>
               )}
             </div>
 

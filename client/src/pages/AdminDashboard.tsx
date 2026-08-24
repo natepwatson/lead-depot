@@ -1898,7 +1898,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.32.12
+              v20.32.13
             </p>
           </div>
         </div>
@@ -3054,7 +3054,7 @@ export default function AdminDashboard({
             <RepairPricingVendorPanel />
           </TabsContent>
 
-          {/* v20.33.0 — Inspections+ admin: Pricing Catalog + Orders + Add-Ons queues. */}
+          {/* v20.32.13 — Inspections+ admin: Pricing Catalog + Orders + Add-Ons queues. */}
           <TabsContent value="inspections" className="mt-5">
             <div>
               <h2 style={{

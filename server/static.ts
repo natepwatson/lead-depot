@@ -53,6 +53,11 @@ export function serveStatic(app: Express) {
   if (!fs.existsSync(listingPhotosPath)) fs.mkdirSync(listingPhotosPath, { recursive: true });
   app.use("/listing-photos", express.static(listingPhotosPath, headshotOpts));
 
+  // ── Payment evidence + signed-receipt photos (Part 7, v20.32.13) → no-cache ──
+  const paymentPhotosPath = isProduction ? "/app/data/payment-photos" : path.join(distPath, "payment-photos");
+  if (!fs.existsSync(paymentPhotosPath)) fs.mkdirSync(paymentPhotosPath, { recursive: true });
+  app.use("/payment-photos", express.static(paymentPhotosPath, headshotOpts));
+
   // ── Hashed assets (JS/CSS bundles) → 1 year immutable cache ──────────────
   // Vite fingerprints filenames: index-AbCdEfGh.js — safe to cache forever
   app.use("/assets", express.static(path.join(distPath, "assets"), {

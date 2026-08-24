@@ -2,7 +2,7 @@
 // In-house items (repair_items) get an editable default rate / min charge / active toggle.
 // Vendor directory (repair_vendors) is admin-managed contacts routed a quote request per trade
 // (auto-emailed from the Repair Consult client flow when an item needs a licensed trade).
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2, FilePlus2, XCircle, Pencil } from "lucide-react";
 // v20.30.0 — lets Alex open ANY repair consult (any agent's, any status)
@@ -11,6 +11,7 @@ import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Downl
 // read-only row in this table.
 import { RepairConsultSheet } from "./RepairConsultSheet";
 import { PdfViewerModal } from "./PdfViewerModal";
+import { PaymentRecordModal } from "./PaymentRecordModal";
 
 type PricingItem = {
   id: number;
@@ -39,6 +40,11 @@ type Vendor = {
   notes: string | null;
   active: number;
   created_at: string;
+  pricing_sheet_url: string | null;
+  license_number: string | null;
+  insurance_expiration: string | null;
+  service_area: string | null;
+  credentials_notes: string | null;
 };
 
 type Consult = {
@@ -286,12 +292,97 @@ function PricingCatalogPanel() {
 }
 
 // ── VENDOR DIRECTORY ────────────────────────────────────────────────────────
+// ── v20.32.13 — Land Clearing pricing settings card (Alex Porter's tiered
+// formula). Lives at the top of the Vendor Directory tab since there is no
+// generic Settings panel anywhere in the admin dashboard yet. All four
+// numbers are admin-editable — nothing here is hardcoded past the defaults
+// seeded on first run. ──
+function LandClearingSettingsCard() {
+  const [settings, setSettings] = useState<{ basePrice: number; acreageThreshold: number; perAcreRate: number; markupPct: number } | null>(null);
+  const [draft, setDraft] = useState({ basePrice: "", acreageThreshold: "", perAcreRate: "", markupPct: "" });
+  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const load = async () => {
+    const r = await fetch("/api/land-clearing/settings", { credentials: "include" });
+    const d = await r.json();
+    setSettings(d);
+    setDraft({
+      basePrice: String(d.basePrice), acreageThreshold: String(d.acreageThreshold),
+      perAcreRate: String(d.perAcreRate), markupPct: String(Math.round(d.markupPct * 100)),
+    });
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await fetch("/api/admin/land-clearing/settings", {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          basePrice: parseFloat(draft.basePrice) || 0,
+          acreageThreshold: parseFloat(draft.acreageThreshold) || 0,
+          perAcreRate: parseFloat(draft.perAcreRate) || 0,
+          markupPct: (parseFloat(draft.markupPct) || 0) / 100,
+        }),
+      });
+      setExpanded(false);
+      load();
+    } finally { setSaving(false); }
+  };
+
+  if (!settings) return null;
+
+  return (
+    <div style={{ marginBottom: 14, padding: 12, borderRadius: 8, background: "rgba(200,170,90,0.05)", border: "1px solid rgba(200,170,90,0.2)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: "#e8d8a8" }}>Land Clearing Pricing (Alex Porter)</div>
+          <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 2 }}>
+            Below {settings.acreageThreshold} acre{settings.acreageThreshold === 1 ? "" : "s"}: flat ${settings.basePrice.toLocaleString()} (4-hr minimum).
+            At/above: ${settings.perAcreRate.toLocaleString()}/acre. Client price adds {Math.round(settings.markupPct * 100)}% markup.
+          </div>
+        </div>
+        <button onClick={() => setExpanded(e => !e)} style={{
+          padding: "5px 10px", borderRadius: 6, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.10)",
+          color: "#94a3b8", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap",
+        }}>{expanded ? "Cancel" : "Edit"}</button>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <label style={{ fontSize: 10, color: "#94a3b8" }}>Flat base price ($)
+            <input type="number" value={draft.basePrice} onChange={e => setDraft(d => ({ ...d, basePrice: e.target.value }))} style={{ ...inputStyle, marginTop: 3 }} />
+          </label>
+          <label style={{ fontSize: 10, color: "#94a3b8" }}>Acreage threshold
+            <input type="number" step="0.01" value={draft.acreageThreshold} onChange={e => setDraft(d => ({ ...d, acreageThreshold: e.target.value }))} style={{ ...inputStyle, marginTop: 3 }} />
+          </label>
+          <label style={{ fontSize: 10, color: "#94a3b8" }}>Per-acre rate ($)
+            <input type="number" value={draft.perAcreRate} onChange={e => setDraft(d => ({ ...d, perAcreRate: e.target.value }))} style={{ ...inputStyle, marginTop: 3 }} />
+          </label>
+          <label style={{ fontSize: 10, color: "#94a3b8" }}>Markup (%)
+            <input type="number" value={draft.markupPct} onChange={e => setDraft(d => ({ ...d, markupPct: e.target.value }))} style={{ ...inputStyle, marginTop: 3 }} />
+          </label>
+          <button onClick={save} disabled={saving} style={{
+            gridColumn: "1 / -1", padding: "7px 10px", borderRadius: 6, background: "rgba(200,170,90,0.15)",
+            border: "1px solid rgba(200,170,90,0.4)", color: "#e8d8a8", fontSize: 11, fontWeight: 600, cursor: "pointer",
+          }}>{saving ? "Saving…" : "Save Settings"}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VendorDirectoryPanel() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ trade: "", name: "", contact_name: "", email: "", phone: "", address: "", notes: "" });
+  const [form, setForm] = useState({ trade: "", name: "", contact_name: "", email: "", phone: "", address: "", notes: "", pricing_sheet_url: "", license_number: "", insurance_expiration: "", service_area: "", credentials_notes: "" });
   const [saving, setSaving] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<Record<string, string>>({});
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -313,10 +404,40 @@ function VendorDirectoryPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      setForm({ trade: "", name: "", contact_name: "", email: "", phone: "", address: "", notes: "" });
+      setForm({ trade: "", name: "", contact_name: "", email: "", phone: "", address: "", notes: "", pricing_sheet_url: "", license_number: "", insurance_expiration: "", service_area: "", credentials_notes: "" });
       setShowAdd(false);
       load();
     } finally { setSaving(false); }
+  };
+
+  const openEdit = (v: Vendor) => {
+    if (expandedId === v.id) { setExpandedId(null); return; }
+    setExpandedId(v.id);
+    setEditDraft({
+      pricing_sheet_url: v.pricing_sheet_url || "", license_number: v.license_number || "",
+      insurance_expiration: v.insurance_expiration || "", service_area: v.service_area || "",
+      credentials_notes: v.credentials_notes || "",
+    });
+  };
+
+  const saveEdit = async (v: Vendor) => {
+    setSavingEdit(true);
+    try {
+      await fetch(`/api/admin/repair-vendors/${v.id}`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editDraft),
+      });
+      setExpandedId(null);
+      load();
+    } finally { setSavingEdit(false); }
+  };
+
+  const insuranceIsExpiring = (dateStr: string | null) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr + "T00:00:00").getTime();
+    const in30 = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    return d < in30;
   };
 
   const toggleActive = async (v: Vendor) => {
@@ -337,6 +458,7 @@ function VendorDirectoryPanel() {
 
   return (
     <div style={{ padding: 16, borderRadius: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}>
+      <LandClearingSettingsCard />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <h3 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.15rem", fontWeight: 300, color: "#fff" }}>
           Vendor Directory
@@ -382,6 +504,21 @@ function VendorDirectoryPanel() {
           <input placeholder="Notes (optional)" value={form.notes}
             onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
             style={{ ...inputStyle, gridColumn: "1 / -1" }} />
+          <input placeholder="License # (optional)" value={form.license_number}
+            onChange={e => setForm(f => ({ ...f, license_number: e.target.value }))}
+            style={inputStyle} />
+          <input placeholder="Service area (optional, e.g. Nassau/Duval/St Johns)" value={form.service_area}
+            onChange={e => setForm(f => ({ ...f, service_area: e.target.value }))}
+            style={inputStyle} />
+          <input type="date" placeholder="Insurance expiration (optional)" value={form.insurance_expiration}
+            onChange={e => setForm(f => ({ ...f, insurance_expiration: e.target.value }))}
+            style={inputStyle} />
+          <input placeholder="Pricing sheet URL (optional)" value={form.pricing_sheet_url}
+            onChange={e => setForm(f => ({ ...f, pricing_sheet_url: e.target.value }))}
+            style={inputStyle} />
+          <input placeholder="Credentials notes (optional, e.g. certifications)" value={form.credentials_notes}
+            onChange={e => setForm(f => ({ ...f, credentials_notes: e.target.value }))}
+            style={{ ...inputStyle, gridColumn: "1 / -1" }} />
           <button onClick={addVendor} disabled={saving || !form.trade || !form.name || !form.email}
             style={{
               gridColumn: "1 / -1", padding: "6px 10px", borderRadius: 6,
@@ -405,13 +542,15 @@ function VendorDirectoryPanel() {
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Contact Name</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Email / Phone</th>
                 <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Address</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Credentials</th>
                 <th style={{ textAlign: "center", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Active</th>
                 <th style={{ textAlign: "center", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}></th>
               </tr>
             </thead>
             <tbody>
               {vendors.map(v => (
-                <tr key={v.id} style={{ borderTop: "1px solid rgba(255,255,255,0.04)", opacity: v.active ? 1 : 0.45 }}>
+                <Fragment key={v.id}>
+                <tr style={{ borderTop: "1px solid rgba(255,255,255,0.04)", opacity: v.active ? 1 : 0.45 }}>
                   <td style={{ padding: "6px 10px", color: "#c8aa5a", textTransform: "capitalize" }}>{v.trade.replace(/_/g, " ")}</td>
                   <td style={{ padding: "6px 10px", color: "#e5e7eb" }}>{v.name}</td>
                   <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11 }}>{v.contact_name || "—"}</td>
@@ -419,6 +558,14 @@ function VendorDirectoryPanel() {
                     {v.email}{v.phone ? ` · ${v.phone}` : ""}
                   </td>
                   <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11 }}>{v.address || "—"}</td>
+                  <td style={{ padding: "6px 10px", fontSize: 10.5 }}>
+                    <button onClick={() => openEdit(v)} style={{ background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}>
+                      {v.license_number ? <div style={{ color: "#94a3b8" }}>Lic #{v.license_number}</div> : null}
+                      {v.insurance_expiration ? <div style={{ color: insuranceIsExpiring(v.insurance_expiration) ? "#f87171" : "#94a3b8" }}>Ins. exp {v.insurance_expiration}</div> : null}
+                      {v.service_area ? <div style={{ color: "#94a3b8" }}>{v.service_area}</div> : null}
+                      {!v.license_number && !v.insurance_expiration && !v.service_area ? <span style={{ color: "#c8aa5a" }}>+ Add credentials</span> : null}
+                    </button>
+                  </td>
                   <td style={{ padding: "6px 10px", textAlign: "center" }}>
                     <input type="checkbox" checked={!!v.active} onChange={() => toggleActive(v)} />
                   </td>
@@ -428,6 +575,30 @@ function VendorDirectoryPanel() {
                     </button>
                   </td>
                 </tr>
+                {expandedId === v.id && (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 10, background: "rgba(200,170,90,0.04)", borderTop: "1px solid rgba(200,170,90,0.15)" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <input placeholder="License #" value={editDraft.license_number || ""}
+                          onChange={e => setEditDraft(d => ({ ...d, license_number: e.target.value }))} style={inputStyle} />
+                        <input placeholder="Service area" value={editDraft.service_area || ""}
+                          onChange={e => setEditDraft(d => ({ ...d, service_area: e.target.value }))} style={inputStyle} />
+                        <input type="date" placeholder="Insurance expiration" value={editDraft.insurance_expiration || ""}
+                          onChange={e => setEditDraft(d => ({ ...d, insurance_expiration: e.target.value }))} style={inputStyle} />
+                        <input placeholder="Pricing sheet URL" value={editDraft.pricing_sheet_url || ""}
+                          onChange={e => setEditDraft(d => ({ ...d, pricing_sheet_url: e.target.value }))} style={inputStyle} />
+                        <input placeholder="Credentials notes" value={editDraft.credentials_notes || ""}
+                          onChange={e => setEditDraft(d => ({ ...d, credentials_notes: e.target.value }))} style={{ ...inputStyle, gridColumn: "1 / -1" }} />
+                        <button onClick={() => saveEdit(v)} disabled={savingEdit} style={{
+                          gridColumn: "1 / -1", padding: "6px 10px", borderRadius: 6,
+                          background: "rgba(94,234,212,0.12)", border: "1px solid rgba(94,234,212,0.4)",
+                          color: "#5eead4", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                        }}>{savingEdit ? "Saving…" : "Save Credentials"}</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -443,6 +614,7 @@ function ConsultsPanel() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
   const [changeOrderFor, setChangeOrderFor] = useState<Consult | null>(null);
+  const [paymentFor, setPaymentFor] = useState<Consult | null>(null);
   // v20.30.0 — admin "Edit" launch point: opens the full RepairConsultSheet
   // pointed at this consult id so Alex can view/edit scope at any point.
   const [editingConsultId, setEditingConsultId] = useState<number | null>(null);
@@ -742,6 +914,10 @@ function ConsultsPanel() {
                         <button disabled={busy === c.id} onClick={() => setChangeOrderFor(c)} title="Request a Change Order — additional work found once work began"
                           style={{ ...actionBtnStyle, color: "#c8aa5a", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><FilePlus2 size={11} /> Change Order</button>
                       )}
+                      {(c.status === "accepted" || c.status === "work_order_sent") && (
+                        <button disabled={busy === c.id} onClick={() => setPaymentFor(c)} title="Record Payment — Alex, Nate, or Denise only"
+                          style={{ ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)" }}><DollarSign size={11} /> Record Payment</button>
+                      )}
                       {c.status === "declined" ? (
                         <button disabled={busy === c.id} onClick={() => reopenConsult(c)} title="Owner changed their mind — reopen this consult"
                           style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.08)" }}><RefreshCw size={11} /> Reopen</button>
@@ -776,6 +952,17 @@ function ConsultsPanel() {
       {pdfModal && (
         <PdfViewerModal url={pdfModal.url} title={pdfModal.title} onClose={() => setPdfModal(null)} />
       )}
+      {paymentFor && (
+        <PaymentRecordModal
+          sourceType="repair_consult"
+          sourceId={paymentFor.id}
+          propertyAddress={paymentFor.property_address}
+          contractTotal={paymentFor.total}
+          balanceRemaining={paymentFor.total}
+          onClose={() => setPaymentFor(null)}
+          onRecorded={() => { setPaymentFor(null); load(); }}
+        />
+      )}
     </div>
   );
 }
@@ -792,13 +979,52 @@ function RequestChangeOrderModal({ consult, onClose, onSaved }: { consult: Consu
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  // v20.32.13 — Land Clearing acreage price helper. Vendor-category items
+  // (like Land Clearing) never appear in the catalog dropdown above — this
+  // is a small standalone tool that auto-suggests a price from acreage so
+  // whoever is filling in the Custom / Off-Catalog change order for Alex
+  // Porter's land clearing work doesn't have to do the math by hand. The
+  // suggestion is just a starting point — Rate/Quantity stay fully editable.
+  const [lcAcres, setLcAcres] = useState("");
+  const [lcEstimate, setLcEstimate] = useState<{ vendorCost: number; clientPrice: number; markupPct: number; acresSource: string | null } | null>(null);
+  const [lcLoading, setLcLoading] = useState(false);
+
   useEffect(() => {
     (async () => {
       const r = await fetch("/api/admin/repair-pricing", { credentials: "include" });
       const d = await r.json();
       setCatalog((d.items || []).filter((i: PricingItem) => i.category === "in_house" && i.active));
     })();
+    // Try to prefill acreage from Smart Data for this property so the estimate
+    // is one click away instead of requiring the acreage to be typed in.
+    (async () => {
+      try {
+        const r = await fetch(`/api/smart-data?propertyAddress=${encodeURIComponent(consult.property_address)}`, { credentials: "include" });
+        const d = await r.json();
+        if (d?.lotSizeAcres) setLcAcres(String(d.lotSizeAcres));
+        else if (d?.lotSizeSqft) setLcAcres((Number(d.lotSizeSqft) / 43560).toFixed(2));
+      } catch { /* Smart Data is optional — silently skip if unavailable */ }
+    })();
   }, []);
+
+  const getLandClearingEstimate = async () => {
+    const acres = parseFloat(lcAcres);
+    if (!acres || acres <= 0) return;
+    setLcLoading(true);
+    try {
+      const r = await fetch(`/api/land-clearing/estimate?acres=${acres}`, { credentials: "include" });
+      const d = await r.json();
+      if (r.ok) setLcEstimate({ vendorCost: d.vendorCost, clientPrice: d.clientPrice, markupPct: d.markupPct, acresSource: d.acresSource });
+    } finally { setLcLoading(false); }
+  };
+
+  const useLandClearingEstimate = () => {
+    if (!lcEstimate) return;
+    setMode("custom");
+    setCustomDescription(`Land Clearing — ${lcAcres} acre${parseFloat(lcAcres) === 1 ? "" : "s"} (Alex Porter)`);
+    setQuantity("1");
+    setUnitRate(String(lcEstimate.clientPrice));
+  };
 
   const selectedCat = catalog.find(c => c.key === itemKey);
   const effectiveRate = unitRate !== "" ? parseFloat(unitRate) || 0 : (selectedCat?.default_rate || 0);
@@ -837,6 +1063,33 @@ function RequestChangeOrderModal({ consult, onClose, onSaved }: { consult: Consu
           Request Change Order
         </h3>
         <p style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 14 }}>{consult.property_address}</p>
+
+        <div style={{ background: "rgba(200,170,90,0.05)", border: "1px solid rgba(200,170,90,0.2)", borderRadius: 8, padding: 10, marginBottom: 12 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: "#c8aa5a", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>
+            Land Clearing Price Helper (optional)
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input type="number" step="0.01" placeholder="Acres" value={lcAcres} onChange={e => setLcAcres(e.target.value)}
+              style={{ ...inputStyle, width: 90 }} />
+            <button onClick={getLandClearingEstimate} disabled={lcLoading || !lcAcres} style={{
+              padding: "7px 10px", borderRadius: 6, background: "rgba(200,170,90,0.15)", border: "1px solid rgba(200,170,90,0.4)",
+              color: "#e8d8a8", fontSize: 11, fontWeight: 600, cursor: "pointer",
+            }}>{lcLoading ? "…" : "Get Estimate"}</button>
+            {lcEstimate && (
+              <button onClick={useLandClearingEstimate} style={{
+                padding: "7px 10px", borderRadius: 6, background: "rgba(126,212,154,0.12)", border: "1px solid rgba(126,212,154,0.4)",
+                color: "#7ed49a", fontSize: 11, fontWeight: 600, cursor: "pointer",
+              }}>Use ${lcEstimate.clientPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</button>
+            )}
+          </div>
+          {lcEstimate && (
+            <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>
+              Vendor cost ${lcEstimate.vendorCost.toLocaleString(undefined, { minimumFractionDigits: 2 })} + {Math.round(lcEstimate.markupPct * 100)}% markup
+              {lcEstimate.acresSource === "smart_data" || lcEstimate.acresSource === "smart_data_sqft" ? " — acreage from Smart Data" : ""}.
+              Suggestion only — click “Use” then adjust the description/rate below as needed.
+            </div>
+          )}
+        </div>
 
         <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
           <button onClick={() => setMode("catalog")} style={{ flex: 1, padding: "6px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer",

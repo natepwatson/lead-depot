@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X, Plus, Pencil } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 import { PdfViewerModal } from "./PdfViewerModal";
+import { SmartDataPanel } from "./SmartDataPanel";
 
 type RepairItem = {
   id: number; key: string; category: "in_house" | "vendor"; trade: string; name: string;
@@ -239,12 +240,12 @@ const TRADE_LABELS: Record<string, string> = {
   roofing: "Roofing", electrical: "Electrical", plumbing: "Plumbing", hvac: "HVAC",
   stucco_masonry: "Stucco & Masonry", carpentry: "Carpentry", wdo: "WDO / Termite",
   windows: "Windows", backflow: "Backflow Prevention", flooring_wood_refinish: "Wood Floor Refinishing",
-  flooring_lvp: "LVP Flooring", flooring_carpet: "Carpet Installation", appliances: "Appliances",
+  flooring_lvp: "LVP Flooring", flooring_carpet: "Carpet Installation", flooring_epoxy: "Epoxy Flooring", appliances: "Appliances",
   countertops: "Countertops", retexture: "Re-Texturing", shower_doors: "Frameless Shower Doors",
   irrigation: "Irrigation", fencing: "Fencing", pool_equipment: "Pool Equipment", septic: "Septic",
   water_heater: "Water Heater", tree_removal_large: "Large Tree Removal", structural: "Structural / Foundation",
   mold_remediation: "Mold Remediation", chimney: "Chimney", solar: "Solar", water_damage: "Water Damage Restoration",
-  garage_door: "Garage Door", hardscape: "Hardscape / Pavers",
+  garage_door: "Garage Door", hardscape: "Hardscape / Pavers", land_clearing: "Land Clearing",
 };
 
 const GOLD = "#c8aa5a";
@@ -1220,6 +1221,7 @@ export function RepairConsultSheet({
             </p>
             <label style={labelStyle}>Property Address</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
+            <SmartDataPanel propertyAddress={propertyAddress} />
             <label style={labelStyle}>Client Name</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={clientName} onChange={e => { setClientName(e.target.value); setFubPickedName(null); }} placeholder="Client full name" />
             <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>

@@ -6,7 +6,7 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, pushColdOutcomeToFub, pushIngestToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD, fubListTags } from "./fub";
+import { pushOutcomeToFub, pushColdOutcomeToFub, pushIngestToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD, fubListTags, ensureFubMilestoneSchema, fireMilestoneTasks, FUB_MILESTONE_TRIGGER_EVENTS } from "./fub";
 import { runFubInventorySweep } from "./fubSweep";
 import { parseWeeklyWorkbook } from "./workbookParser";
 import { enrichAddress, lookupCityState } from "./zipToCity";
@@ -80,6 +80,7 @@ import { registerListingConsultRoutes } from "./listingConsult";
 import { registerFubContactsRoutes } from "./fubContacts";
 import { registerWriteOfferRoutes } from "./writeOffer";
 import { registerInspectionsRoutes } from "./inspections";
+import { registerPaymentRoutes } from "./payments";
 // v15.11.10 — web push module removed; replaced by prime-email-scheduler.
 import { checkPassword } from "../shared/password-rules";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
@@ -262,7 +263,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.12 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.13 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -491,7 +492,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.32.12 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.32.13 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -550,7 +551,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.12 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.13 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -598,7 +599,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.12 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.13 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -684,6 +685,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   registerFubContactsRoutes(app);
   registerWriteOfferRoutes(app);
   registerInspectionsRoutes(app);
+  registerPaymentRoutes(app);
 
   // ─── v15.11.11 — Emergency force-reset endpoint (INGEST_SECRET-guarded) ───
   // Reason: reset-password emails weren't reaching some agents; this bypasses email
@@ -1845,7 +1847,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.32.12</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.32.13</p>
             </div>
           `,
         });
@@ -2005,7 +2007,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.32.12 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.32.13 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -6137,6 +6139,71 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     }
   });
 
+  // ─── v20.32.13 FUB MILESTONE TASK ENGINE (Part 4) ───────────
+  // Admin-configurable trigger_event -> task fan-out, replacing the single
+  // hardcoded "Send accolades email" pattern. See server/fub.ts for the
+  // schema, seed defaults, and fireMilestoneTasks() engine.
+  ensureFubMilestoneSchema();
+
+  app.get("/api/admin/fub-milestone-tasks", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const rows = rawDb.prepare(`SELECT * FROM fub_milestone_tasks ORDER BY trigger_event ASC, id ASC`).all();
+      res.json({ rows, triggerEvents: FUB_MILESTONE_TRIGGER_EVENTS });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "fub_milestone_list_error" });
+    }
+  });
+
+  app.post("/api/admin/fub-milestone-tasks", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const { triggerEvent, taskName, daysOffset, assignedFubUserId } = req.body || {};
+      if (!triggerEvent || !FUB_MILESTONE_TRIGGER_EVENTS.includes(triggerEvent)) {
+        return res.status(400).json({ error: "Invalid or missing triggerEvent" });
+      }
+      if (!taskName || !String(taskName).trim()) return res.status(400).json({ error: "taskName required" });
+      const info = rawDb.prepare(
+        `INSERT INTO fub_milestone_tasks (trigger_event, task_name, days_offset, assigned_fub_user_id, active) VALUES (?, ?, ?, ?, 1)`
+      ).run(triggerEvent, String(taskName).trim(), Number(daysOffset) || 0, assignedFubUserId || null);
+      res.json({ ok: true, id: info.lastInsertRowid });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "fub_milestone_create_error" });
+    }
+  });
+
+  app.patch("/api/admin/fub-milestone-tasks/:id", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const id = parseInt(req.params.id);
+      const row = rawDb.prepare(`SELECT * FROM fub_milestone_tasks WHERE id = ?`).get(id) as any;
+      if (!row) return res.status(404).json({ error: "Not found" });
+      const { taskName, daysOffset, assignedFubUserId, active } = req.body || {};
+      rawDb.prepare(
+        `UPDATE fub_milestone_tasks SET task_name = ?, days_offset = ?, assigned_fub_user_id = ?, active = ? WHERE id = ?`
+      ).run(
+        taskName !== undefined ? String(taskName).trim() : row.task_name,
+        daysOffset !== undefined ? Number(daysOffset) || 0 : row.days_offset,
+        assignedFubUserId !== undefined ? assignedFubUserId : row.assigned_fub_user_id,
+        active !== undefined ? (active ? 1 : 0) : row.active,
+        id
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "fub_milestone_update_error" });
+    }
+  });
+
+  app.delete("/api/admin/fub-milestone-tasks/:id", (req: any, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      rawDb.prepare(`DELETE FROM fub_milestone_tasks WHERE id = ?`).run(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "fub_milestone_delete_error" });
+    }
+  });
+
   // ─── v17.6 DIVERSITY CHALLENGE ─────────────────────────────
   // Weekly bonus tiers: 3 cats = +150, 4 cats = +200, 5 cats = +250.
   // Categories: phone, open_house, door_knock, direct_mail, social.
@@ -8517,7 +8584,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.32.12 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.32.13 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -9637,7 +9704,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.32.12",
+      version: "v20.32.13",
       services: results,
     });
   });
@@ -11051,7 +11118,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.32.12</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.32.13</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

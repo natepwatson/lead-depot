@@ -1,4 +1,4 @@
-// v20.33.0 — Inspections+ admin: Pricing Catalog (client price + vendor cost,
+// v20.32.13 — Inspections+ admin: Pricing Catalog (client price + vendor cost,
 // admin-editable per Alex's requirement) + Orders Queue + Add-Ons Queue.
 // Vendor contacts (Jason Brown, Pro-Spect, etc.) live in the SAME repair_vendors
 // table as the Repair Program — they're just rows with trade='inspections' — so
@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { RefreshCw, DollarSign, ClipboardList, FilePlus2, CheckCircle2, XCircle } from "lucide-react";
+import { PaymentRecordModal } from "./PaymentRecordModal";
 
 const GOLD = "#c8aa5a";
 
@@ -182,6 +183,7 @@ function OrdersPanel() {
   const [orders, setOrders] = useState<InspectionOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
+  const [paymentFor, setPaymentFor] = useState<InspectionOrder | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -239,17 +241,37 @@ function OrdersPanel() {
                   <td style={{ padding: "6px 10px", textAlign: "center", color: statusColor(o.status), textTransform: "capitalize" }}>{o.status}</td>
                   <td style={{ padding: "6px 10px", textAlign: "right", color: "#e5e7eb" }}>${(o.total || 0).toFixed(2)}</td>
                   <td style={{ padding: "6px 10px", textAlign: "center" }}>
-                    {o.status === "accepted" ? (
-                      <button disabled={busy === o.id} onClick={() => complete(o)} style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.10)" }}>
-                        <CheckCircle2 size={11} /> Complete
-                      </button>
-                    ) : <span style={{ fontSize: 10, color: "#64748b" }}>—</span>}
+                    <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap" }}>
+                      {o.status === "accepted" ? (
+                        <button disabled={busy === o.id} onClick={() => complete(o)} style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.10)" }}>
+                          <CheckCircle2 size={11} /> Complete
+                        </button>
+                      ) : null}
+                      {(o.status === "accepted" || o.status === "completed") ? (
+                        <button disabled={busy === o.id} onClick={() => setPaymentFor(o)} title="Record Payment — Alex, Nate, or Denise only"
+                          style={{ ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)" }}>
+                          <DollarSign size={11} /> Record Payment
+                        </button>
+                      ) : null}
+                      {o.status !== "accepted" && o.status !== "completed" ? <span style={{ fontSize: 10, color: "#64748b" }}>—</span> : null}
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+      {paymentFor && (
+        <PaymentRecordModal
+          sourceType="inspection_order"
+          sourceId={paymentFor.id}
+          propertyAddress={paymentFor.property_address}
+          contractTotal={paymentFor.total}
+          balanceRemaining={paymentFor.total}
+          onClose={() => setPaymentFor(null)}
+          onRecorded={() => { setPaymentFor(null); load(); }}
+        />
       )}
     </div>
   );

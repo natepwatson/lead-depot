@@ -19,6 +19,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { CheckCircle2, ChevronRight, ChevronLeft, X, Wrench, Loader2, Camera } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
+import { FubAddressChooser, type FubAddress } from "./FubAddressChooser";
 
 // v20.19.x — Timeline Forecaster. Cleaning and repairs are never scheduled
 // to a hard date/time in Lock In anymore (that's an after-the-contract
@@ -453,13 +454,16 @@ export function ListingConsultSheet({
   // v20.15.0 — live FUB contact picker. Agent types a name, we search FUB's
   // cached people list server-side, tap a result to autofill phone/email.
   const [fubQuery, setFubQuery] = useState("");
-  const [fubResults, setFubResults] = useState<{ id: number; name: string; email: string | null; phone: string | null; address: string | null }[]>([]);
+  const [fubResults, setFubResults] = useState<{ id: number; name: string; email: string | null; phone: string | null; address: string | null; addresses?: FubAddress[] }[]>([]);
   const [fubSearching, setFubSearching] = useState(false);
   const [fubPickedName, setFubPickedName] = useState<string | null>(null);
   // v20.18.0 — the real FUB personId, now actually captured (previously
   // discarded) so the outcome-routing FUB push can update the exact same
   // person instead of re-searching by phone/name.
   const [fubPersonId, setFubPersonId] = useState<number | null>(null);
+  // v20.32.14 — multi-property FUB clients: hold off autofilling Property
+  // Address until the agent picks which property this consult is about.
+  const [fubAddressChoices, setFubAddressChoices] = useState<FubAddress[]>([]);
 
   useEffect(() => {
     if (fubQuery.trim().length < 2 || fubPickedName) { setFubResults([]); return; }
@@ -475,11 +479,17 @@ export function ListingConsultSheet({
     return () => clearTimeout(t);
   }, [fubQuery, fubPickedName]);
 
-  const pickFubContact = (c: { id: number; name: string; email: string | null; phone: string | null; address: string | null }) => {
+  const pickFubContact = (c: { id: number; name: string; email: string | null; phone: string | null; address: string | null; addresses?: FubAddress[] }) => {
     setClientName(c.name);
     if (c.email) setClientEmail(c.email);
     if (c.phone) setClientPhone(c.phone);
-    if (c.address) setPropertyAddress(c.address);
+    const addrs = c.addresses || [];
+    if (addrs.length > 1) {
+      setFubAddressChoices(addrs);
+    } else {
+      setFubAddressChoices([]);
+      if (c.address) setPropertyAddress(c.address);
+    }
     setFubPersonId(c.id);
     setFubPickedName(c.name);
     setFubQuery(c.name);
@@ -1147,7 +1157,9 @@ export function ListingConsultSheet({
                     }}>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
                       <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{[c.phone, c.email].filter(Boolean).join(" · ") || "No phone/email on file"}</div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>{c.address || "No address on file"}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>
+                        {(c.addresses?.length || 0) > 1 ? `${c.addresses!.length} properties on file — pick one next` : (c.address || "No address on file")}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -1156,6 +1168,14 @@ export function ListingConsultSheet({
             <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 14 }}>
               Start here — selecting a match autofills name, phone, email, and their current home address below. You can still edit any of it. If FUB shows a nickname, you'll enter their full legal name separately on the Lock In step.
             </p>
+            {fubAddressChoices.length > 0 && (
+              <FubAddressChooser
+                clientName={clientName || "This client"}
+                addresses={fubAddressChoices}
+                onPick={(addr) => { setPropertyAddress(addr); setFubAddressChoices([]); }}
+                onManual={() => setFubAddressChoices([])}
+              />
+            )}
             <label style={labelStyle}>Property Address</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
             <label style={labelStyle}>Client Name</label>

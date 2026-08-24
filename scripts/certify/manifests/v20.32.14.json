@@ -1,0 +1,28 @@
+{
+  "version": "v20.32.14",
+  "changes": [
+    "FUB multi-property fix: when a searched-and-picked FUB contact has more than one address on file (e.g. Ross Wood: a Colorado home + a vacant Jacksonville lot at '0 Charles Ave'), the Property Address field no longer silently autofills the first/primary address. A new shared FubAddressChooser component lists every on-file address and lets the agent pick the correct one, with an explicit manual-entry fallback ('None of these — I'll enter the property address myself') for properties not in FUB at all. Wired into Repair Consult, Listing Consult, and Inspections+ FUB pickers. The FUB contacts search endpoint now returns a full `addresses` array per person (kept the old single `address` field for backward compat).",
+    "Smart Data: added `parcelNumber` (county Property Appraiser parcel #) and `isVacantLand` fields to property_smart_data, since vacant/zero-address properties (e.g. '0 Charles Ave') have no heated/cooled square footage to enter. SmartDataPanel now shows a 'Vacant land' checkbox that swaps the Heated/Cooled Sqft fields for a required Parcel # field, and the minimum-required-data check branches accordingly (vacant land requires parcel # + lot size; normal properties require heated sqft + lot size)."
+  ],
+  "endpoints": [
+    { "path": "/api/health", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["version"] },
+    { "path": "/api/fub/contacts/search?q=al", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["results"] },
+    { "path": "/api/smart-data?propertyAddress=0%20Charles%20Ave%20Certify%20Test%20(v20.32.14%20Tier%20V)", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["found", "hasMinimumRequired"] },
+    { "path": "/api/smart-data", "method": "POST", "auth": "none", "expectStatus": 200, "expectKeys": ["found", "hasMinimumRequired", "isVacantLand", "parcelNumber"], "body": { "propertyAddress": "0 Charles Ave Certify Test (v20.32.14 Tier V)", "isVacantLand": true, "parcelNumber": "12-3456-0000", "lotSizeAcres": 1.2, "source": "manual" } }
+  ],
+  "bundleMustContain": [
+    "properties on file",
+    "which one is this about",
+    "I'll enter the property address myself",
+    "Vacant land",
+    "Parcel #"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "'properties on file' / 'which one is this about' / \"I'll enter the property address myself\" come from FubAddressChooser.tsx's own copy (also echoed as a shorter dropdown hint in each FUB search list). 'Vacant land' and 'Parcel #' are SmartDataPanel.tsx's new checkbox label and read-only/edit field label. None are common enough English phrases to risk false positives in this codebase.",
+  "mathChecks": [
+    { "name": "health endpoint reports v20.32.14", "path": "/api/health", "auth": "none", "expr": "body.version === 'v20.32.14'" },
+    { "name": "fub contacts search returns a results array", "path": "/api/fub/contacts/search?q=al", "auth": "none", "expr": "Array.isArray(body.results)" },
+    { "name": "smart data vacant-land test row persisted with parcel number + vacant flag, minimum required satisfied via parcel# + lot size", "path": "/api/smart-data?propertyAddress=0%20Charles%20Ave%20Certify%20Test%20(v20.32.14%20Tier%20V)", "auth": "none", "expr": "body.found === true && body.isVacantLand === true && body.parcelNumber === '12-3456-0000' && body.hasMinimumRequired === true && body.source === 'manual'" }
+  ],
+  "__testDataNote": "This release's Tier V run creates one throw-away property_smart_data row via POST /api/smart-data with a '(v20.32.14 Tier V)' marker in propertyAddress, mirroring the v20.32.13 pattern — there is no destructive-free way to verify the write path since there's no admin delete-by-address endpoint yet. Safe to leave or manually delete from the Smart Data panel later. The FUB contacts search check is structural only (array shape) since results depend on live FUB account data that Tier V can't control deterministically."
+}

@@ -36,6 +36,7 @@ export type SmartData = {
   heatedSqft: number | null; cooledSqft: number | null; effectiveSqft: number | null;
   stories: number | null; bedrooms: number | null; bathrooms: number | null; yearBuilt: number | null;
   source: string | null; sourceUrl: string | null; verifiedBy: string | null; verifiedAt: string | null;
+  parcelNumber: string | null; isVacantLand: boolean;
   hasMinimumRequired: boolean;
 };
 
@@ -43,7 +44,7 @@ export function SmartDataPanel({ propertyAddress, onChange }: { propertyAddress:
   const [data, setData] = useState<SmartData | null>(null);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ heatedSqft: "", cooledSqft: "", lotSizeAcres: "", effectiveSqft: "" });
+  const [draft, setDraft] = useState({ heatedSqft: "", cooledSqft: "", lotSizeAcres: "", effectiveSqft: "", parcelNumber: "", isVacantLand: false });
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
@@ -59,6 +60,8 @@ export function SmartDataPanel({ propertyAddress, onChange }: { propertyAddress:
         cooledSqft: d.cooledSqft != null ? String(d.cooledSqft) : "",
         lotSizeAcres: d.lotSizeAcres != null ? String(d.lotSizeAcres) : "",
         effectiveSqft: d.effectiveSqft != null ? String(d.effectiveSqft) : "",
+        parcelNumber: d.parcelNumber != null ? String(d.parcelNumber) : "",
+        isVacantLand: !!d.isVacantLand,
       });
     } finally { setLoading(false); }
   };
@@ -77,6 +80,8 @@ export function SmartDataPanel({ propertyAddress, onChange }: { propertyAddress:
           cooledSqft: draft.cooledSqft !== "" ? parseFloat(draft.cooledSqft) : null,
           lotSizeAcres: draft.lotSizeAcres !== "" ? parseFloat(draft.lotSizeAcres) : null,
           effectiveSqft: draft.effectiveSqft !== "" ? parseFloat(draft.effectiveSqft) : null,
+          parcelNumber: draft.parcelNumber !== "" ? draft.parcelNumber.trim() : null,
+          isVacantLand: draft.isVacantLand,
           source: "manual",
         }),
       });
@@ -113,16 +118,31 @@ export function SmartDataPanel({ propertyAddress, onChange }: { propertyAddress:
       {!editing ? (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, fontSize: 11.5 }}>
-            <div><span style={{ color: "#94a3b8" }}>Heated Sqft: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.heatedSqft ?? "—"}</span></div>
-            <div><span style={{ color: "#94a3b8" }}>Cooled Sqft: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.cooledSqft ?? "—"}</span></div>
+            {data?.isVacantLand ? (
+              <div style={{ gridColumn: "1 / -1" }}><span style={{ color: "#94a3b8" }}>Parcel #: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.parcelNumber ?? "—"}</span></div>
+            ) : (
+              <>
+                <div><span style={{ color: "#94a3b8" }}>Heated Sqft: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.heatedSqft ?? "—"}</span></div>
+                <div><span style={{ color: "#94a3b8" }}>Cooled Sqft: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.cooledSqft ?? "—"}</span></div>
+              </>
+            )}
             <div><span style={{ color: "#94a3b8" }}>Lot (acres): </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.lotSizeAcres ?? "—"}</span></div>
-            <div><span style={{ color: "#94a3b8" }}>Effective Sqft: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.effectiveSqft ?? "—"}</span></div>
+            {!data?.isVacantLand && (
+              <div><span style={{ color: "#94a3b8" }}>Effective Sqft: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.effectiveSqft ?? "—"}</span></div>
+            )}
             <div><span style={{ color: "#94a3b8" }}>Year Built: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.yearBuilt ?? "—"}</span></div>
-            <div><span style={{ color: "#94a3b8" }}>Beds/Baths: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.bedrooms ?? "—"}/{data?.bathrooms ?? "—"}</span></div>
+            {!data?.isVacantLand && (
+              <div><span style={{ color: "#94a3b8" }}>Beds/Baths: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.bedrooms ?? "—"}/{data?.bathrooms ?? "—"}</span></div>
+            )}
           </div>
+          {data?.isVacantLand && (
+            <div style={{ marginTop: 6, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Vacant land — no structure on file.</div>
+          )}
           {data && !data.hasMinimumRequired && (
             <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 8, fontSize: 10.5, color: "#f0b060" }}>
-              <AlertTriangle size={11} /> Minimum required data missing — enter heated sqft + lot size (acres or sqft) manually.
+              <AlertTriangle size={11} /> {data.isVacantLand
+                ? "Minimum required data missing — enter the county Parcel # + lot size (acres or sqft) manually."
+                : "Minimum required data missing — enter heated sqft + lot size (acres or sqft) manually."}
             </div>
           )}
           {data && data.hasMinimumRequired && (
@@ -133,22 +153,37 @@ export function SmartDataPanel({ propertyAddress, onChange }: { propertyAddress:
         </>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <label>
-            <span style={labelStyle}>Heated Sqft *</span>
-            <input type="number" style={inputStyle} value={draft.heatedSqft} onChange={e => setDraft(d => ({ ...d, heatedSqft: e.target.value }))} />
+          <label style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#e8d8a8" }}>
+            <input type="checkbox" checked={draft.isVacantLand} onChange={e => setDraft(d => ({ ...d, isVacantLand: e.target.checked }))} />
+            Vacant land (no structure) — e.g. "0 Charles Ave"
           </label>
-          <label>
-            <span style={labelStyle}>Cooled Sqft</span>
-            <input type="number" style={inputStyle} value={draft.cooledSqft} onChange={e => setDraft(d => ({ ...d, cooledSqft: e.target.value }))} />
-          </label>
+          {draft.isVacantLand ? (
+            <label style={{ gridColumn: "1 / -1" }}>
+              <span style={labelStyle}>Parcel # (county Property Appraiser) *</span>
+              <input style={inputStyle} value={draft.parcelNumber} onChange={e => setDraft(d => ({ ...d, parcelNumber: e.target.value }))} placeholder="e.g. 123456-0000" />
+            </label>
+          ) : (
+            <>
+              <label>
+                <span style={labelStyle}>Heated Sqft *</span>
+                <input type="number" style={inputStyle} value={draft.heatedSqft} onChange={e => setDraft(d => ({ ...d, heatedSqft: e.target.value }))} />
+              </label>
+              <label>
+                <span style={labelStyle}>Cooled Sqft</span>
+                <input type="number" style={inputStyle} value={draft.cooledSqft} onChange={e => setDraft(d => ({ ...d, cooledSqft: e.target.value }))} />
+              </label>
+            </>
+          )}
           <label>
             <span style={labelStyle}>Lot Size (acres) *</span>
             <input type="number" step="0.01" style={inputStyle} value={draft.lotSizeAcres} onChange={e => setDraft(d => ({ ...d, lotSizeAcres: e.target.value }))} />
           </label>
-          <label>
-            <span style={labelStyle}>Effective Sqft</span>
-            <input type="number" style={inputStyle} value={draft.effectiveSqft} onChange={e => setDraft(d => ({ ...d, effectiveSqft: e.target.value }))} />
-          </label>
+          {!draft.isVacantLand && (
+            <label>
+              <span style={labelStyle}>Effective Sqft</span>
+              <input type="number" style={inputStyle} value={draft.effectiveSqft} onChange={e => setDraft(d => ({ ...d, effectiveSqft: e.target.value }))} />
+            </label>
+          )}
           <p style={{ gridColumn: "1 / -1", fontSize: 10, color: "rgba(255,255,255,0.35)", margin: 0 }}>
             * Minimum required if no county record or sales package data is on file.
           </p>

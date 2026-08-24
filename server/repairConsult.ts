@@ -325,6 +325,15 @@ export function ensureRepairConsultSchema() {
     CREATE INDEX IF NOT EXISTS idx_property_smart_data_address ON property_smart_data(property_address);
   `);
 
+  // v20.32.14 — Vacant land support: a lot like "0 Charles Ave" has no
+  // validated mailing address and no structure, so heated sqft can never be
+  // populated. The county Property Appraiser Parcel # is the reliable
+  // identifier for these — store it, and a flag so the minimum-required
+  // check swaps heated_sqft for parcel_number on vacant parcels.
+  const psdCols = (rawDb.prepare(`PRAGMA table_info(property_smart_data)`).all() as any[]).map((c: any) => c.name);
+  if (!psdCols.includes("parcel_number")) rawDb.prepare("ALTER TABLE property_smart_data ADD COLUMN parcel_number TEXT").run();
+  if (!psdCols.includes("is_vacant_land")) rawDb.prepare("ALTER TABLE property_smart_data ADD COLUMN is_vacant_land INTEGER NOT NULL DEFAULT 0").run();
+
   // v20.9.0 — signing-method tracking + agreement PDF paths (ALTER TABLE is safe to run
   // repeatedly — guarded by PRAGMA table_info check, same pattern as server/db.ts)
   const rcCols = (rawDb.prepare(`PRAGMA table_info(repair_consults)`).all() as any[]).map((c: any) => c.name);
@@ -2242,6 +2251,7 @@ export function registerRepairConsultRoutes(app: Express) {
         found: false, propertyAddress, lotSizeAcres: null, lotSizeSqft: null,
         heatedSqft: null, cooledSqft: null, effectiveSqft: null, stories: null,
         bedrooms: null, bathrooms: null, yearBuilt: null, source: null, sourceUrl: null,
+        parcelNumber: null, isVacantLand: false,
         hasMinimumRequired: false,
       });
     }
@@ -2251,7 +2261,12 @@ export function registerRepairConsultRoutes(app: Express) {
       heatedSqft: row.heated_sqft, cooledSqft: row.cooled_sqft, effectiveSqft: row.effective_sqft,
       stories: row.stories, bedrooms: row.bedrooms, bathrooms: row.bathrooms, yearBuilt: row.year_built,
       source: row.source, sourceUrl: row.source_url, verifiedBy: row.verified_by, verifiedAt: row.verified_at,
-      hasMinimumRequired: row.heated_sqft != null && (row.lot_size_acres != null || row.lot_size_sqft != null),
+      parcelNumber: row.parcel_number, isVacantLand: !!row.is_vacant_land,
+      // v20.32.14 — vacant land has no structure, so a parcel # substitutes
+      // for heated sqft as the required identifying field.
+      hasMinimumRequired: row.is_vacant_land
+        ? (row.parcel_number != null && row.parcel_number !== "" && (row.lot_size_acres != null || row.lot_size_sqft != null))
+        : (row.heated_sqft != null && (row.lot_size_acres != null || row.lot_size_sqft != null)),
     });
   });
 
@@ -2270,16 +2285,24 @@ export function registerRepairConsultRoutes(app: Express) {
     const {
       propertyAddress, lotSizeAcres, lotSizeSqft, heatedSqft, cooledSqft, effectiveSqft,
       stories, bedrooms, bathrooms, yearBuilt, source, sourceUrl, verifiedBy,
+      parcelNumber, isVacantLand,
     } = req.body || {};
     const addr = String(propertyAddress || "").trim();
     if (!addr) return res.status(400).json({ error: "propertyAddress is required" });
     const src = source && ["county_record", "sales_package", "manual"].includes(source) ? source : "manual";
     const verifier = verifiedBy || req.currentAgent?.name || null;
+    // v20.32.14 — is_vacant_land is a real boolean toggle (not a "only fill
+    // if blank" field like heated_sqft), so an omitted flag on a push that
+    // doesn't mention it should preserve whatever's already on file rather
+    // than silently resetting a marked vacant lot back to false.
+    const existingRow = rawDb.prepare(`SELECT is_vacant_land FROM property_smart_data WHERE property_address = ?`).get(addr) as any;
+    const vacantLandValue = isVacantLand !== undefined ? (isVacantLand ? 1 : 0) : (existingRow ? existingRow.is_vacant_land : 0);
     rawDb.prepare(`
       INSERT INTO property_smart_data
         (property_address, lot_size_acres, lot_size_sqft, heated_sqft, cooled_sqft, effective_sqft,
-         stories, bedrooms, bathrooms, year_built, source, source_url, verified_by, verified_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+         stories, bedrooms, bathrooms, year_built, source, source_url, verified_by, verified_at, updated_at,
+         parcel_number, is_vacant_land)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?)
       ON CONFLICT(property_address) DO UPDATE SET
         lot_size_acres = COALESCE(excluded.lot_size_acres, property_smart_data.lot_size_acres),
         lot_size_sqft = COALESCE(excluded.lot_size_sqft, property_smart_data.lot_size_sqft),
@@ -2294,7 +2317,9 @@ export function registerRepairConsultRoutes(app: Express) {
         source_url = COALESCE(excluded.source_url, property_smart_data.source_url),
         verified_by = excluded.verified_by,
         verified_at = datetime('now'),
-        updated_at = datetime('now')
+        updated_at = datetime('now'),
+        parcel_number = COALESCE(excluded.parcel_number, property_smart_data.parcel_number),
+        is_vacant_land = excluded.is_vacant_land
     `).run(
       addr,
       lotSizeAcres != null ? Number(lotSizeAcres) : null,
@@ -2307,6 +2332,8 @@ export function registerRepairConsultRoutes(app: Express) {
       bathrooms != null ? Number(bathrooms) : null,
       yearBuilt != null ? Number(yearBuilt) : null,
       src, sourceUrl || null, verifier,
+      parcelNumber != null && String(parcelNumber).trim() !== "" ? String(parcelNumber).trim() : null,
+      vacantLandValue,
     );
     const row = rawDb.prepare(`SELECT * FROM property_smart_data WHERE property_address = ?`).get(addr) as any;
     res.json({
@@ -2315,7 +2342,10 @@ export function registerRepairConsultRoutes(app: Express) {
       heatedSqft: row.heated_sqft, cooledSqft: row.cooled_sqft, effectiveSqft: row.effective_sqft,
       stories: row.stories, bedrooms: row.bedrooms, bathrooms: row.bathrooms, yearBuilt: row.year_built,
       source: row.source, sourceUrl: row.source_url, verifiedBy: row.verified_by, verifiedAt: row.verified_at,
-      hasMinimumRequired: row.heated_sqft != null && (row.lot_size_acres != null || row.lot_size_sqft != null),
+      parcelNumber: row.parcel_number, isVacantLand: !!row.is_vacant_land,
+      hasMinimumRequired: row.is_vacant_land
+        ? (row.parcel_number != null && row.parcel_number !== "" && (row.lot_size_acres != null || row.lot_size_sqft != null))
+        : (row.heated_sqft != null && (row.lot_size_acres != null || row.lot_size_sqft != null)),
     });
   });
 

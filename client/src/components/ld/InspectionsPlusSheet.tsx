@@ -7,6 +7,7 @@
 // pattern exactly.
 import { useState, useEffect } from "react";
 import { CheckCircle2, X, Loader2, ClipboardCheck } from "lucide-react";
+import { FubAddressChooser, type FubAddress } from "./FubAddressChooser";
 
 const fetchJson = async (url: string, opts: RequestInit = {}) => {
   const r = await fetch(url, { credentials: "include", ...opts });
@@ -34,7 +35,7 @@ const sectionTitleStyle: React.CSSProperties = {
   marginBottom: 10, marginTop: 4,
 };
 
-type FubContact = { id: number; name: string; email: string | null; phone: string | null; address: string | null };
+type FubContact = { id: number; name: string; email: string | null; phone: string | null; address: string | null; addresses?: FubAddress[] };
 type CatalogItem = { key: string; name: string; clientPrice: number; sequenceOrder: number };
 type InspectionVendor = { id: number; name: string; phone: string | null; email: string | null };
 type PricePreviewItem = { key: string; name: string; clientPrice: number; vendorCost: number | null; source: "vendor_tier" | "flat_catalog" };
@@ -79,13 +80,23 @@ export function InspectionsPlusSheet({
     return () => clearTimeout(t);
   }, [clientQuery]);
 
+  // v20.32.14 — hold off autofilling the property address when the picked
+  // client has more than one property on file; surface a chooser instead.
+  const [fubAddressChoices, setFubAddressChoices] = useState<FubAddress[]>([]);
+
   const pickContact = (c: FubContact) => {
     setPickedContact(c);
     setClientName(c.name);
     setClientQuery(c.name);
     setClientEmail(c.email || "");
     setClientPhone(c.phone || "");
-    if (c.address) setPropertyAddress(c.address);
+    const addrs = c.addresses || [];
+    if (addrs.length > 1) {
+      setFubAddressChoices(addrs);
+    } else {
+      setFubAddressChoices([]);
+      if (c.address) setPropertyAddress(c.address);
+    }
     setClientResults([]);
   };
 
@@ -224,7 +235,9 @@ export function InspectionsPlusSheet({
               background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", color: "#fff",
             }}>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{c.address || [c.phone, c.email].filter(Boolean).join(" · ") || "No details on file"}</div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>
+                {(c.addresses?.length || 0) > 1 ? `${c.addresses!.length} properties on file — pick one next` : (c.address || [c.phone, c.email].filter(Boolean).join(" · ") || "No details on file")}
+              </div>
             </button>
           ))}
         </div>
@@ -293,6 +306,14 @@ export function InspectionsPlusSheet({
 
             <div style={sectionTitleStyle}>Property</div>
             <div style={cardStyle}>
+              {fubAddressChoices.length > 0 && (
+                <FubAddressChooser
+                  clientName={clientName || "This client"}
+                  addresses={fubAddressChoices}
+                  onPick={(addr) => { setPropertyAddress(addr); setFubAddressChoices([]); }}
+                  onManual={() => setFubAddressChoices([])}
+                />
+              )}
               <label style={labelStyle}>Property Address</label>
               <input style={inputStyle} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
             </div>

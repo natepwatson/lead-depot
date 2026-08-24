@@ -5,6 +5,8 @@
 // refreshes lazily on first stale search — no cron, no DB table.
 import type { Express, Request, Response } from "express";
 
+type FubAddress = { street: string; city: string | null; state: string | null; zip: string | null; label: string | null };
+
 type FubContact = {
   id: number;
   name: string;
@@ -13,7 +15,14 @@ type FubContact = {
   // v20.14.7 — on-file address, used by the "Contingent on Home Sale" FUB
   // lookup in Place an Offer to pull a buyer's current home address when
   // it's already logged in FUB, instead of retyping it.
+  // v20.32.14 — kept for backward compat (first/primary address as a flat
+  // string); ALSO see `addresses` below, which carries every address FUB
+  // has on file for this person. A client can own multiple properties
+  // (e.g. an out-of-state primary residence plus a local vacant lot) —
+  // callers must let the agent pick which one a given consult is about
+  // instead of silently assuming the primary/first address is correct.
   address: string | null;
+  addresses: FubAddress[];
 };
 
 let cache: FubContact[] = [];
@@ -58,18 +67,32 @@ async function fetchAllContacts(): Promise<FubContact[]> {
       const phones: any[] = p.phones || [];
       const primaryEmail = emails.find((e) => e.isPrimary) || emails[0];
       const primaryPhone = phones.find((ph) => ph.isPrimary) || phones[0];
-      const addresses: any[] = p.addresses || [];
-      const primaryAddress = addresses.find((a) => a.isPrimary) || addresses[0];
+      const rawAddresses: any[] = p.addresses || [];
+      const primaryAddress = rawAddresses.find((a) => a.isPrimary) || rawAddresses[0];
       const addressStr = primaryAddress
         ? [primaryAddress.street, [primaryAddress.city, primaryAddress.state].filter(Boolean).join(", "), primaryAddress.code]
             .filter(Boolean).join(", ")
         : null;
+      // v20.32.14 — carry every on-file address (not just the primary/first)
+      // so a multi-property client (e.g. Ross Wood: Colorado home + a
+      // Jacksonville vacant lot) can be picked correctly instead of the
+      // consult always defaulting to whichever address FUB lists first.
+      const allAddresses: FubAddress[] = rawAddresses
+        .filter((a) => a && a.street)
+        .map((a) => ({
+          street: String(a.street).trim(),
+          city: a.city ? String(a.city).trim() : null,
+          state: a.state ? String(a.state).trim() : null,
+          zip: a.code ? String(a.code).trim() : null,
+          label: a.isPrimary ? "Primary" : (a.type ? String(a.type) : null),
+        }));
       out.push({
         id: p.id,
         name,
         email: primaryEmail?.value || null,
         phone: primaryPhone?.value || null,
         address: addressStr || null,
+        addresses: allAddresses,
       });
     }
     const total = body?._metadata?.total ?? 0;

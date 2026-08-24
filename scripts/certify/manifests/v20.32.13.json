@@ -1,0 +1,31 @@
+{
+  "version": "v20.32.13",
+  "changes": [
+    "Land Clearing pricing: admin-editable settings (base price, acreage threshold, per-acre rate, markup) seeded from Alex Porter's/Palmetto Land Solutions real quote ($750 flat under 0.5 acres, $1,500/acre at or above), a GET estimate endpoint that pulls acreage from Smart Data when not passed explicitly, an acreage price-helper block inside the Change Order modal, and a settings card at the top of the Vendor Directory admin panel.",
+    "Smart Data: new property_smart_data table + GET/POST endpoints for property characteristics (heated/cooled sqft, lot size, year built, beds/baths) with source tracking (county_record / sales_package / manual) and a hasMinimumRequired flag (heated sqft + lot size). New reusable SmartDataPanel component wired into the Repair Consult intake step; a 'From Smart Data' auto-fill button added to the Inspections+ subject-sqft field. Kept push-based per Alex's decision (no paid property-data API integration) — manual entry is the fallback when no data is on file.",
+    "Epoxy Flooring added as a flooring installation catalog item (flooring_epoxy trade, flat unit)."
+  ],
+  "endpoints": [
+    { "path": "/api/health", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["version"] },
+    { "path": "/api/land-clearing/settings", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["basePrice", "acreageThreshold", "perAcreRate", "markupPct"] },
+    { "path": "/api/land-clearing/estimate?acres=0.38", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["vendorCost", "clientPrice", "acresSource"] },
+    { "path": "/api/land-clearing/estimate?acres=2", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["vendorCost", "clientPrice"] },
+    { "path": "/api/smart-data?propertyAddress=999%20Certify%20Verify%20Test%20Ln%20NOT%20ON%20FILE", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["found", "hasMinimumRequired"] },
+    { "path": "/api/smart-data", "method": "POST", "auth": "none", "expectStatus": 200, "expectKeys": ["found", "hasMinimumRequired"], "body": { "propertyAddress": "999 Certify Verify Test Ln — DELETE ME (v20.32.13 Tier V)", "heatedSqft": 1800, "lotSizeAcres": 0.38, "source": "manual" } }
+  ],
+  "bundleMustContain": [
+    "Epoxy Flooring",
+    "Land Clearing",
+    "Smart Data"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "'Land Clearing' and 'Epoxy Flooring' are the new trade labels added to TRADE_LABELS in RepairConsultSheet.tsx (also used in the settings card / Change Order helper). 'Smart Data' is the panel's own heading text in SmartDataPanel.tsx. None of these are common enough English phrases to risk false positives.",
+  "mathChecks": [
+    { "name": "health endpoint reports v20.32.13", "path": "/api/health", "auth": "none", "expr": "body.version === 'v20.32.13'" },
+    { "name": "land clearing settings match Porter's real quote defaults", "path": "/api/land-clearing/settings", "auth": "none", "expr": "body.basePrice === 750 && body.acreageThreshold === 0.5 && body.perAcreRate === 1500 && body.markupPct === 0.2" },
+    { "name": "land clearing estimate below threshold (0.38ac) matches Porter's flat $750 job, 20% markup client price $900", "path": "/api/land-clearing/estimate?acres=0.38", "auth": "none", "expr": "body.vendorCost === 750 && body.clientPrice === 900" },
+    { "name": "land clearing estimate at/above threshold (2ac) uses per-acre rate: $3000 vendor, $3600 client", "path": "/api/land-clearing/estimate?acres=2", "auth": "none", "expr": "body.vendorCost === 3000 && body.clientPrice === 3600" },
+    { "name": "smart data test row persisted with minimum required fields satisfied", "path": "/api/smart-data?propertyAddress=999%20Certify%20Verify%20Test%20Ln%20%E2%80%94%20DELETE%20ME%20(v20.32.13%20Tier%20V)", "auth": "none", "expr": "body.found === true && body.heatedSqft === 1800 && body.lotSizeAcres === 0.38 && body.hasMinimumRequired === true && body.source === 'manual'" }
+  ],
+  "__testDataNote": "This release's Tier V run creates one throw-away property_smart_data row via POST /api/smart-data with a 'DELETE ME (v20.32.13 Tier V)' marker in propertyAddress, mirroring the v20.14.0 pattern — there is no destructive-free way to verify the write path since there's no admin delete-by-address endpoint yet. Safe to leave or manually delete from the Smart Data panel later."
+}

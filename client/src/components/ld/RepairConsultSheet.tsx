@@ -13,6 +13,7 @@ import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, 
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 import { PdfViewerModal } from "./PdfViewerModal";
 import { SmartDataPanel } from "./SmartDataPanel";
+import { FubAddressChooser, type FubAddress } from "./FubAddressChooser";
 
 type RepairItem = {
   id: number; key: string; category: "in_house" | "vendor"; trade: string; name: string;
@@ -376,9 +377,12 @@ export function RepairConsultSheet({
   // Consult (not nested from a Listing Consult, which already carries this
   // info) — search a name, autofill everything FUB already knows.
   const [fubQuery, setFubQuery] = useState("");
-  const [fubResults, setFubResults] = useState<{ id: number; name: string; email: string | null; phone: string | null; address: string | null }[]>([]);
+  const [fubResults, setFubResults] = useState<{ id: number; name: string; email: string | null; phone: string | null; address: string | null; addresses?: FubAddress[] }[]>([]);
   const [fubSearching, setFubSearching] = useState(false);
   const [fubPickedName, setFubPickedName] = useState<string | null>(null);
+  // v20.32.14 — when the picked FUB contact owns more than one property,
+  // hold off autofilling Property Address and show a chooser instead.
+  const [fubAddressChoices, setFubAddressChoices] = useState<FubAddress[]>([]);
 
   useEffect(() => {
     if (fubQuery.trim().length < 2 || fubPickedName) { setFubResults([]); return; }
@@ -394,11 +398,21 @@ export function RepairConsultSheet({
     return () => clearTimeout(t);
   }, [fubQuery, fubPickedName]);
 
-  const pickFubContact = (c: { name: string; email: string | null; phone: string | null; address: string | null }) => {
+  const pickFubContact = (c: { name: string; email: string | null; phone: string | null; address: string | null; addresses?: FubAddress[] }) => {
     setClientName(c.name);
     if (c.email) setClientEmail(c.email);
     if (c.phone) setClientPhone(c.phone);
-    if (c.address) setPropertyAddress(c.address);
+    // v20.32.14 — a client can own multiple properties (out-of-state home,
+    // local vacant lot, etc.). Only auto-fill when there's exactly one
+    // address on file — otherwise show a chooser so the agent picks the
+    // right property instead of always getting whichever FUB lists first.
+    const addrs = c.addresses || [];
+    if (addrs.length > 1) {
+      setFubAddressChoices(addrs);
+    } else {
+      setFubAddressChoices([]);
+      if (c.address) setPropertyAddress(c.address);
+    }
     setFubPickedName(c.name);
     setFubQuery(c.name);
     setFubResults([]);
@@ -1210,7 +1224,9 @@ export function RepairConsultSheet({
                     }}>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
                       <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{[c.phone, c.email].filter(Boolean).join(" · ") || "No phone/email on file"}</div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>{c.address || "No address on file"}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>
+                        {(c.addresses?.length || 0) > 1 ? `${c.addresses!.length} properties on file — pick one next` : (c.address || "No address on file")}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -1219,8 +1235,19 @@ export function RepairConsultSheet({
             <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 14 }}>
               Start here — selecting a match autofills name, phone, email, and their current home address below.
             </p>
+            {fubAddressChoices.length > 0 && (
+              <FubAddressChooser
+                clientName={clientName || "This client"}
+                addresses={fubAddressChoices}
+                onPick={(addr) => { setPropertyAddress(addr); setFubAddressChoices([]); }}
+                onManual={() => setFubAddressChoices([])}
+              />
+            )}
             <label style={labelStyle}>Property Address</label>
-            <input style={{ ...inputStyle, marginBottom: 14 }} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
+            <input style={{ ...inputStyle, marginBottom: 4 }} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 0, marginBottom: 14 }}>
+              Not in FUB yet, or a vacant lot with no mailing address? Type the property address (or a placeholder like "0 Charles Ave") here manually — use the Parcel # field below for vacant land.
+            </p>
             <SmartDataPanel propertyAddress={propertyAddress} />
             <label style={labelStyle}>Client Name</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={clientName} onChange={e => { setClientName(e.target.value); setFubPickedName(null); }} placeholder="Client full name" />

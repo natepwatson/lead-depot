@@ -116,6 +116,13 @@ export const VERSION_BUMP_SPOTS = [
   { file: 'client/src/pages/LoginPage.tsx',      pattern: /Lead Depot (v\d+\.\d+(?:\.\d+)?)/,        label: 'LoginPage footer' },
   // AdminDashboard header renders as JSX text — no quotes
   { file: 'client/src/pages/AdminDashboard.tsx', pattern: />\s*(v\d+\.\d+(?:\.\d+)?)\s*</,          label: 'AdminDashboard header pill' },
+  // v20.32.14 — AgentView's own unified-shell header pill (rendered even for
+  // admin logins that land on AgentView with an "Open admin"/back-to-admin
+  // button). This was NOT in VERSION_BUMP_SPOTS before v20.32.14, which is
+  // why it silently drifted a full version behind and only got caught by
+  // Tier V's J1 browser render check post-deploy, not by preflight. Never
+  // remove this spot without also removing the pill from AgentView.tsx.
+  { file: 'client/src/pages/AgentView.tsx',      pattern: /letterSpacing: "0\.10em", fontWeight: 700 \}\}>(v\d+\.\d+(?:\.\d+)?)<\/span>/, label: 'AgentView header pill' },
   { file: 'client/public/sw.js',                 pattern: /SW_VERSION\s*=\s*"(v\d+\.\d+(?:\.\d+)?)"/, label: 'sw.js SW_VERSION' },
   { file: 'server/routes.ts',                    pattern: /Lead Depot (v\d+\.\d+(?:\.\d+)?)/g,       label: 'routes.ts digest footer(s)', multi: true },
   // /api/health JSON: `version: "v14.66"` — no colon-space in JSON key form; source is JS object literal

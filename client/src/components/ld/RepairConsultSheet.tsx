@@ -317,11 +317,17 @@ async function fileToImageData(file: File, opts: { maxDim?: number; quality?: nu
 export function RepairConsultSheet({
   leadId, agentId, initialAddress, initialClientName, initialClientEmail, initialClientPhone, onClose, manageNavVisibility = true,
   nestedFromListing = false, prefillHeroPhotoUrl = null, prefillGalleryUrls = null, prefillFlaggedPillars = null,
-  initialConsultId = null,
+  initialConsultId = null, dealSide = "seller",
 }: {
   leadId?: number | null; agentId?: number | null;
   initialAddress?: string; initialClientName?: string; initialClientEmail?: string; initialClientPhone?: string;
   onClose: () => void;
+  // v20.33.0 — which side of the deal this consult is for. Sellers can only
+  // repair/inspect property they already own (their FUB address is a valid
+  // candidate for the subject property). Buyers are inspecting/repairing a
+  // property they don't own yet (their FUB address is just their current
+  // home) — never a candidate. Defaults to "seller" for existing callers.
+  dealSide?: "buyer" | "seller";
   // v20.30.0 — Admin Repair Program panel: open THIS sheet already pointed at
   // an existing consult (any agent's), skipping the resume picker entirely,
   // so Alex can view/edit the full scope from the admin side at any point —
@@ -383,6 +389,12 @@ export function RepairConsultSheet({
   // v20.32.14 — when the picked FUB contact owns more than one property,
   // hold off autofilling Property Address and show a chooser instead.
   const [fubAddressChoices, setFubAddressChoices] = useState<FubAddress[]>([]);
+  // v20.33.0 — seller-side-only escape hatch: if this consult is actually
+  // about a DIFFERENT property than the one auto-filled/chosen above (e.g.
+  // the seller owns more than one place and picked the wrong one, or wants
+  // to override), type it here. Blank means "the address above is correct."
+  const [subjectAddressOverride, setSubjectAddressOverride] = useState("");
+  const effectiveAddress = (subjectAddressOverride.trim() || propertyAddress.trim());
 
   useEffect(() => {
     if (fubQuery.trim().length < 2 || fubPickedName) { setFubResults([]); return; }
@@ -402,16 +414,24 @@ export function RepairConsultSheet({
     setClientName(c.name);
     if (c.email) setClientEmail(c.email);
     if (c.phone) setClientPhone(c.phone);
-    // v20.32.14 — a client can own multiple properties (out-of-state home,
-    // local vacant lot, etc.). Only auto-fill when there's exactly one
-    // address on file — otherwise show a chooser so the agent picks the
-    // right property instead of always getting whichever FUB lists first.
-    const addrs = c.addresses || [];
-    if (addrs.length > 1) {
-      setFubAddressChoices(addrs);
-    } else {
+    // v20.33.0 — buyers can't repair/inspect a home they don't own yet, so a
+    // buyer's FUB address (their current home) is never a candidate for the
+    // subject property. Never auto-fill and never show the property chooser
+    // on the buyer side — always leave it blank for manual entry.
+    if (dealSide === "buyer") {
       setFubAddressChoices([]);
-      if (c.address) setPropertyAddress(c.address);
+    } else {
+      // v20.32.14 — a client can own multiple properties (out-of-state home,
+      // local vacant lot, etc.). Only auto-fill when there's exactly one
+      // address on file — otherwise show a chooser so the agent picks the
+      // right property instead of always getting whichever FUB lists first.
+      const addrs = c.addresses || [];
+      if (addrs.length > 1) {
+        setFubAddressChoices(addrs);
+      } else {
+        setFubAddressChoices([]);
+        if (c.address) setPropertyAddress(c.address);
+      }
     }
     setFubPickedName(c.name);
     setFubQuery(c.name);
@@ -820,7 +840,7 @@ export function RepairConsultSheet({
       try {
         const d = await fetchJson("/api/repair-consult", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress, heroPhotoUrl: prefillHeroPhotoUrl || null }),
+          body: JSON.stringify({ leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress: effectiveAddress, heroPhotoUrl: prefillHeroPhotoUrl || null }),
         });
         consultIdRef.current = d.id;
         setConsultId(d.id);
@@ -899,7 +919,7 @@ export function RepairConsultSheet({
   };
 
   const handleInfoNext = async () => {
-    if (!propertyAddress.trim()) { setError("Property address is required."); return; }
+    if (!effectiveAddress.trim()) { setError("Property address is required."); return; }
     setError("");
     try { await ensureConsult(); setStep("checklist"); }
     catch (e: any) { setError(e.message || "Failed to start consult."); }
@@ -1225,7 +1245,9 @@ export function RepairConsultSheet({
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
                       <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>{[c.phone, c.email].filter(Boolean).join(" · ") || "No phone/email on file"}</div>
                       <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>
-                        {(c.addresses?.length || 0) > 1 ? `${c.addresses!.length} properties on file — pick one next` : (c.address || "No address on file")}
+                        {dealSide === "buyer"
+                          ? (c.address ? `Current address on file: ${c.address} (not what they're buying)` : "No address on file")
+                          : ((c.addresses?.length || 0) > 1 ? `${c.addresses!.length} properties on file — pick one next` : (c.address || "No address on file"))}
                       </div>
                     </button>
                   ))}
@@ -1233,7 +1255,9 @@ export function RepairConsultSheet({
               )}
             </div>
             <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 14 }}>
-              Start here — selecting a match autofills name, phone, email, and their current home address below.
+              {dealSide === "buyer"
+                ? "Start here — selecting a match autofills name, phone, and email. This is a buyer, so type the NEW property they're inspecting/repairing below \u2014 their FUB address is just their current home."
+                : "Start here — selecting a match autofills name, phone, email, and their current home address below."}
             </p>
             {fubAddressChoices.length > 0 && (
               <FubAddressChooser
@@ -1243,12 +1267,28 @@ export function RepairConsultSheet({
                 onManual={() => setFubAddressChoices([])}
               />
             )}
-            <label style={labelStyle}>Property Address</label>
+            <label style={labelStyle}>Property Address{dealSide === "buyer" ? " (the property they're buying)" : ""}</label>
             <input style={{ ...inputStyle, marginBottom: 4 }} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
             <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 0, marginBottom: 14 }}>
-              Not in FUB yet, or a vacant lot with no mailing address? Type the property address (or a placeholder like "0 Charles Ave") here manually — use the Parcel # field below for vacant land.
+              {dealSide === "buyer"
+                ? "This is the NEW property they're purchasing — not their current home. It won't be on file in FUB yet; type it in (or a placeholder like \"0 Charles Ave\" for vacant land — use the Parcel # field below)."
+                : "Not in FUB yet, or a vacant lot with no mailing address? Type the property address (or a placeholder like \"0 Charles Ave\") here manually — use the Parcel # field below for vacant land."}
             </p>
-            <SmartDataPanel propertyAddress={propertyAddress} />
+            {dealSide !== "buyer" && (
+              <>
+                <label style={labelStyle}>Subject Address (if different)</label>
+                <input
+                  style={{ ...inputStyle, marginBottom: 4 }}
+                  value={subjectAddressOverride}
+                  onChange={e => setSubjectAddressOverride(e.target.value)}
+                  placeholder="Leave blank to use the address above"
+                />
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 0, marginBottom: 14 }}>
+                  If this seller owns another property and this order is actually about a different one, type it here — it'll be used instead of the address above. Leave blank if the address above is correct.
+                </p>
+              </>
+            )}
+            <SmartDataPanel propertyAddress={effectiveAddress} />
             <label style={labelStyle}>Client Name</label>
             <input style={{ ...inputStyle, marginBottom: 14 }} value={clientName} onChange={e => { setClientName(e.target.value); setFubPickedName(null); }} placeholder="Client full name" />
             <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
@@ -1288,7 +1328,7 @@ export function RepairConsultSheet({
             <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 4 }}>
               Snap interior and detail photos as you walk through, or shoot them all with your phone's own camera and pick them from your camera roll later — either way, you'll bulk-upload the full set together at the end, right before sending the quote.
             </p>
-            {navButtons({ onNext: handleInfoNext, nextBusy: creating, nextDisabled: !propertyAddress.trim() })}
+            {navButtons({ onNext: handleInfoNext, nextBusy: creating, nextDisabled: !effectiveAddress.trim() })}
           </>
         )}
 
@@ -1490,7 +1530,7 @@ export function RepairConsultSheet({
 
         {step === "review" && (
           <>
-            {header("Review & Send", propertyAddress)}
+            {header("Review & Send", effectiveAddress)}
             {gallerySkipped && (
               <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: -4, marginBottom: 12 }}>
                 Reused the walkthrough photos already captured during Listing Consult — no need to shoot them twice.
@@ -1675,7 +1715,7 @@ export function RepairConsultSheet({
                     </div>
                     {(quoteResult.agreementPdfUrl || quoteResult.pdfUrl) && (
                       <button
-                        onClick={() => setPdfModal({ url: quoteResult.agreementPdfUrl || quoteResult.pdfUrl, title: `${propertyAddress} — Quote` })}
+                        onClick={() => setPdfModal({ url: quoteResult.agreementPdfUrl || quoteResult.pdfUrl, title: `${effectiveAddress} — Quote` })}
                         style={{ display: "block", width: "100%", textAlign: "center", padding: "10px 14px", borderRadius: 8, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, fontSize: 12.5, fontWeight: 700, marginBottom: 10, cursor: "pointer" }}
                       >
                         View Quote

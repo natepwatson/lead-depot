@@ -41,10 +41,17 @@ type InspectionVendor = { id: number; name: string; phone: string | null; email:
 type PricePreviewItem = { key: string; name: string; clientPrice: number; vendorCost: number | null; source: "vendor_tier" | "flat_catalog" };
 
 export function InspectionsPlusSheet({
-  agentId, onClose,
+  agentId, onClose, dealSide = "buyer",
 }: {
   agentId?: number;
   onClose: () => void;
+  // v20.33.0 — Inspections+ is opened from BOTH the Buyer and Seller
+  // choosers. Buyers order inspections on a property they don't own yet
+  // (their FUB address is just their current home — never the subject
+  // property). Sellers order a pre-listing inspection on a property they DO
+  // own, so their FUB address(es) are valid candidates. Defaults to "buyer"
+  // (this sheet's original, buyer-only behavior) for backward compatibility.
+  dealSide?: "buyer" | "seller";
 }) {
   useEffect(() => {
     document.body.classList.add("ld-modal-open");
@@ -83,6 +90,11 @@ export function InspectionsPlusSheet({
   // v20.32.14 — hold off autofilling the property address when the picked
   // client has more than one property on file; surface a chooser instead.
   const [fubAddressChoices, setFubAddressChoices] = useState<FubAddress[]>([]);
+  // v20.33.0 — seller-side-only escape hatch, mirrors RepairConsultSheet:
+  // blank means "the address above is correct," filled means "use this
+  // instead" (seller owns another property this order is actually about).
+  const [subjectAddressOverride, setSubjectAddressOverride] = useState("");
+  const effectiveAddress = (subjectAddressOverride.trim() || propertyAddress.trim());
 
   const pickContact = (c: FubContact) => {
     setPickedContact(c);
@@ -90,12 +102,18 @@ export function InspectionsPlusSheet({
     setClientQuery(c.name);
     setClientEmail(c.email || "");
     setClientPhone(c.phone || "");
-    const addrs = c.addresses || [];
-    if (addrs.length > 1) {
-      setFubAddressChoices(addrs);
-    } else {
+    if (dealSide === "buyer") {
+      // Buyers can't be inspecting a home they already own — never auto-fill
+      // or offer a property chooser from their FUB address on the buy side.
       setFubAddressChoices([]);
-      if (c.address) setPropertyAddress(c.address);
+    } else {
+      const addrs = c.addresses || [];
+      if (addrs.length > 1) {
+        setFubAddressChoices(addrs);
+      } else {
+        setFubAddressChoices([]);
+        if (c.address) setPropertyAddress(c.address);
+      }
     }
     setClientResults([]);
   };
@@ -148,11 +166,11 @@ export function InspectionsPlusSheet({
   // v20.32.13 — pull heated sqft from Smart Data for the entered property
   // address instead of requiring the agent to know/type it from memory.
   const autoFillSqftFromSmartData = async () => {
-    if (!propertyAddress.trim()) return;
+    if (!effectiveAddress.trim()) return;
     setSmartDataLoading(true);
     setSmartDataNote("");
     try {
-      const r = await fetchJson(`/api/smart-data?propertyAddress=${encodeURIComponent(propertyAddress.trim())}`);
+      const r = await fetchJson(`/api/smart-data?propertyAddress=${encodeURIComponent(effectiveAddress.trim())}`);
       if (r.heatedSqft) {
         setSubjectSqft(String(r.heatedSqft));
         const sourceLabel = r.source === "county_record" ? "county record" : r.source === "sales_package" ? "sales package" : "manual entry";
@@ -176,7 +194,7 @@ export function InspectionsPlusSheet({
   const priceFor = (item: CatalogItem) => pricePreview.get(item.key)?.clientPrice ?? item.clientPrice;
   const total = catalog.filter(c => selectedKeys.has(c.key)).reduce((s, c) => s + priceFor(c), 0);
 
-  const canGoStep2 = clientName.trim().length > 1 && propertyAddress.trim().length > 3;
+  const canGoStep2 = clientName.trim().length > 1 && effectiveAddress.trim().length > 3;
   const canSend = canGoStep2 && selectedKeys.size > 0 && clientEmail.trim().length > 3
     && (neededBy === "asap" || neededByDate) && contingencyDate;
 
@@ -203,7 +221,7 @@ export function InspectionsPlusSheet({
           clientName: clientName.trim(),
           clientEmail: clientEmail.trim(),
           clientPhone: clientPhone.trim(),
-          propertyAddress: propertyAddress.trim(),
+          propertyAddress: effectiveAddress.trim(),
           neededBy, neededByDate: neededBy === "specific" ? neededByDate : undefined,
           contingencyExpirationDate: contingencyDate,
           itemKeys: Array.from(selectedKeys),
@@ -236,7 +254,9 @@ export function InspectionsPlusSheet({
             }}>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>
-                {(c.addresses?.length || 0) > 1 ? `${c.addresses!.length} properties on file — pick one next` : (c.address || [c.phone, c.email].filter(Boolean).join(" · ") || "No details on file")}
+                {dealSide === "buyer"
+                  ? (c.address ? `Current address on file: ${c.address} (not what they're buying)` : ([c.phone, c.email].filter(Boolean).join(" · ") || "No details on file"))
+                  : ((c.addresses?.length || 0) > 1 ? `${c.addresses!.length} properties on file — pick one next` : (c.address || [c.phone, c.email].filter(Boolean).join(" · ") || "No details on file"))}
               </div>
             </button>
           ))}
@@ -267,7 +287,9 @@ export function InspectionsPlusSheet({
             <h2 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 24, fontWeight: 400, color: "#fff", margin: 0 }}>Inspections+</h2>
           </div>
           <p style={{ fontSize: 12.5, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>
-            Order inspections for a buyer client — sends them a branded approval link to e-sign.
+            {dealSide === "buyer"
+              ? "Order inspections for a buyer client — sends them a branded approval link to e-sign."
+              : "Order a pre-listing inspection for a seller client — sends them a branded approval link to e-sign."}
           </p>
         </div>
 
@@ -314,8 +336,26 @@ export function InspectionsPlusSheet({
                   onManual={() => setFubAddressChoices([])}
                 />
               )}
-              <label style={labelStyle}>Property Address</label>
-              <input style={inputStyle} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
+              <label style={labelStyle}>Property Address{dealSide === "buyer" ? " (the property they're buying)" : ""}</label>
+              <input style={{ ...inputStyle, marginBottom: dealSide === "buyer" ? 0 : 4 }} value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL" />
+              {dealSide === "buyer" ? (
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 6, marginBottom: 0 }}>
+                  This is the NEW property they're purchasing — not their current home. It won't be on file in FUB yet.
+                </p>
+              ) : (
+                <>
+                  <label style={{ ...labelStyle, marginTop: 12 }}>Subject Address (if different)</label>
+                  <input
+                    style={inputStyle}
+                    value={subjectAddressOverride}
+                    onChange={e => setSubjectAddressOverride(e.target.value)}
+                    placeholder="Leave blank to use the address above"
+                  />
+                  <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 4, marginBottom: 0 }}>
+                    If this seller owns another property and this order is actually about a different one, type it here — it'll be used instead of the address above.
+                  </p>
+                </>
+              )}
             </div>
 
             <button type="button" onClick={() => canGoStep2 ? setStep(2) : setError("Enter the client name and property address to continue.")} style={{
@@ -374,12 +414,12 @@ export function InspectionsPlusSheet({
                 {/* v20.32.13 — Smart Data auto-fill. Pulls heated sqft captured from
                     county records / sales package / manual entry for this property
                     instead of requiring the agent to look it up or retype it. */}
-                <button type="button" disabled={!selectedVendorId || !propertyAddress.trim() || smartDataLoading}
+                <button type="button" disabled={!selectedVendorId || !effectiveAddress.trim() || smartDataLoading}
                   onClick={autoFillSqftFromSmartData}
                   style={{
                     padding: "0 10px", borderRadius: 6, whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, cursor: "pointer",
                     background: "rgba(200,170,90,0.12)", border: "1px solid rgba(200,170,90,0.4)", color: "#e8d8a8",
-                    opacity: (!selectedVendorId || !propertyAddress.trim()) ? 0.5 : 1,
+                    opacity: (!selectedVendorId || !effectiveAddress.trim()) ? 0.5 : 1,
                   }}
                 >{smartDataLoading ? "…" : "From Smart Data"}</button>
               </div>

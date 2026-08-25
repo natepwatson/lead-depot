@@ -6108,6 +6108,12 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   const [leadGenOpen, setLeadGenOpen] = useState(false);
   const [buyerChooserOpen, setBuyerChooserOpen] = useState(false); // v20.32.13 — Buyers chooser: Write an Offer / Inspections+ / Instant Repair Quote (order: Inspections+, Instant Repair Quote, Write an Offer)
   const [sellerChooserOpen, setSellerChooserOpen] = useState(false); // v20.32.12 — Sellers+ chooser: Repair Consult / Listing Consultation / Inspections+
+  // v20.33.0 — Repair Consult and Inspections+ are shared, single-mount tools
+  // reachable from BOTH the Buyer and Seller choosers. Track which side of
+  // the deal launched the tool so it knows whether the client's FUB
+  // address(es) are valid candidates for the subject property (seller: yes,
+  // they may own the property; buyer: no, that's just their current home).
+  const [sharedToolDealSide, setSharedToolDealSide] = useState<"buyer" | "seller">("seller");
   // v20.6.9 — motivational quote frozen at the moment Lead Gen opens so it
   // doesn't reshuffle mid-render. Refreshed each open. See leadgen-quotes.ts.
   const [leadGenQuote, setLeadGenQuote] = useState<MotivationalQuote | null>(null);
@@ -6392,7 +6398,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.32.14</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.32.15</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6596,6 +6602,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             initialClientEmail=""
             initialClientPhone=""
             onClose={() => setTab("home")}
+            dealSide={sharedToolDealSide}
           />
         )}
 
@@ -6628,6 +6635,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             prefillHeroPhotoUrl={listingRepairPrefill?.heroPhotoUrl ?? null}
             prefillGalleryUrls={listingRepairPrefill?.galleryUrls ?? null}
             prefillFlaggedPillars={listingRepairPrefill?.flaggedPillars ?? null}
+            dealSide="seller"
           />
         )}
 
@@ -6647,6 +6655,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
           <InspectionsPlusSheet
             agentId={(user as any)?.id}
             onClose={() => setTab("home")}
+            dealSide={sharedToolDealSide}
           />
         )}
 
@@ -6655,8 +6664,8 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
         {buyerChooserOpen && (
           <BuyerChooserSheet
             onWriteOffer={() => { setBuyerChooserOpen(false); setTab("placeOffer"); }}
-            onInspectionsPlus={() => { setBuyerChooserOpen(false); setTab("inspectionsPlus"); }}
-            onInstantQuoteRepair={() => { setBuyerChooserOpen(false); setTab("repairQuote"); }}
+            onInspectionsPlus={() => { setSharedToolDealSide("buyer"); setBuyerChooserOpen(false); setTab("inspectionsPlus"); }}
+            onInstantQuoteRepair={() => { setSharedToolDealSide("buyer"); setBuyerChooserOpen(false); setTab("repairQuote"); }}
             onClose={() => setBuyerChooserOpen(false)}
           />
         )}
@@ -6666,9 +6675,9 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             Alex; unchanged flow, still nests repair inside it). */}
         {sellerChooserOpen && (
           <SellerChooserSheet
-            onRepairConsult={() => { setSellerChooserOpen(false); setTab("repairQuote"); }}
+            onRepairConsult={() => { setSharedToolDealSide("seller"); setSellerChooserOpen(false); setTab("repairQuote"); }}
             onListingConsult={() => { setSellerChooserOpen(false); setTab("listingConsult"); }}
-            onInspectionsPlus={() => { setSellerChooserOpen(false); setTab("inspectionsPlus"); }}
+            onInspectionsPlus={() => { setSharedToolDealSide("seller"); setSellerChooserOpen(false); setTab("inspectionsPlus"); }}
             onClose={() => setSellerChooserOpen(false)}
           />
         )}

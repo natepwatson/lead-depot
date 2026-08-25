@@ -1,0 +1,23 @@
+{
+  "version": "v20.32.27",
+  "changes": [
+    "Buyer/seller copy audit across both client-facing tools, per Alex's request to review Inspections+ and Repair Consult flows on both the Listing (seller) side and the Buyer side.",
+    "Inspections+: greeting/intro paragraph now branches on order.deal_side — buyer variant says 'as part of your due-diligence period' instead of the old hardcoded 'as we prepare to list your home' seller-only line. Applies to the real send email, the admin preview, the public accept page, and the new agent-facing preview-draft endpoint.",
+    "Repair Consult: added deal_side column (default 'seller', matching historical behavior). Section 1 of the signature-ready Agreement PDF/page ('Full Transparency...') now has a buyer variant via getAgreementSections(dealSide) — reframes 'your listing agents / market-ready / your sale' into 'your buyer's agents / move-in ready / your purchase'.",
+    "Repair Consult: the client 'Start Momentum' line (shown in both the proposal email and the approval email) now branches via startMomentumHtml/startMomentumPlain — seller keeps 'we move right into photos & video for your listing', buyer gets 'you're that much closer to a smooth closing'.",
+    "Repair Consult: outside-vendor dispatch email now branches its intro sentence on deal_side ('preparing to list... a listing timeline' vs 'helping a client close... a closing timeline') instead of always assuming a seller/listing context.",
+    "Client-facing greetings in both tools now use first-name-only (e.g. 'Hi Alex —') instead of the full name, across the Inspections order email, the Repair Consult proposal email, the Repair Consult approval email, and the Change Order signature email.",
+    "Both InspectionsPlusSheet and RepairConsultSheet now actually send their existing dealSide prop to the backend on creation — previously the UI-level buyer/seller toggle never reached the server, so copy leaked from whichever side was hardcoded regardless of which tool/chooser the agent used."
+  ],
+  "endpoints": [
+    { "path": "/api/health", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["version"] }
+  ],
+  "bundleMustContain": [
+    "As part of your due-diligence period"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "This is the Inspections+ buyer-side intro paragraph, a client-rendered string literal in InspectionOrderPage.tsx — appears verbatim (unminified as a string) in the bundle when this build is live. The Repair Consult copy fixes are server-only (email HTML / PDF text), so they're verified live via direct endpoint smoke tests rather than a bundle string.",
+  "mathChecks": [
+    { "name": "health endpoint reports v20.32.27", "path": "/api/health", "auth": "none", "expr": "body.version === 'v20.32.27'" }
+  ]
+}

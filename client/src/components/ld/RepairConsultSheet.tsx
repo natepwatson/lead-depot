@@ -917,7 +917,7 @@ export function RepairConsultSheet({
       try {
         const d = await fetchJson("/api/repair-consult", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress: effectiveAddress, heroPhotoUrl: prefillHeroPhotoUrl || null }),
+          body: JSON.stringify({ leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress: effectiveAddress, heroPhotoUrl: prefillHeroPhotoUrl || null, dealSide }),
         });
         consultIdRef.current = d.id;
         setConsultId(d.id);

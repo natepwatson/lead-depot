@@ -428,6 +428,15 @@ export function ensureRepairConsultSchema() {
   // pricing is always separate from the Brothers Group in-house total).
   if (!rcCols.includes("vendor_quoted_subtotal")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN vendor_quoted_subtotal REAL NOT NULL DEFAULT 0").run();
 
+  // v20.32.27 — Repair Consult defaults to the seller side (pre-listing
+  // turnover work) but the shared bottom-nav chooser lets an agent launch it
+  // from the buyer side too (sharedToolDealSide). Persist which side this
+  // consult was created for so client-facing copy (email, agreement PDF,
+  // vendor dispatch, "what happens next" momentum message) never tells a
+  // buyer we're about to list their home, or a seller we're closing on their
+  // purchase.
+  if (!rcCols.includes("deal_side")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN deal_side TEXT NOT NULL DEFAULT 'seller'").run();
+
   rawDb.exec(`
     CREATE TABLE IF NOT EXISTS repair_project_meetings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -736,6 +745,8 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
     heading: "1. Full Transparency: Why We're Both Your Agents and Your Repair Team",
     body: `As your listing agents, Alex and Nate Watson are also the owners of ${ENTITY_ALEX} and ${ENTITY_NATE} — together operating as ${DIVISION_NAME}, the team performing this work. We want to be upfront about that — not because it's a conflict, but because it's the whole reason this program exists. Rather than handing you off to a stranger and hoping it goes well, we put our own name, our own crew, and our own schedule behind the work, because we have just as much riding on a smooth, successful sale as you do. That means no marked-up middleman, one point of contact instead of three, and a team that's motivated to get your home market-ready — right, and on time. Florida law requires us to disclose that we (and our companies) are paid separately for this work, in addition to any real estate commission we earn on your sale. Consider this that disclosure — given openly, because we think it's a better way to do business, not something to bury in the fine print.`,
   },
+  // v20.32.27 — remaining sections continue below, index-aligned with the
+  // buyer variant of Section 1 built in getAgreementSections().
   {
     heading: "2. Not a Licensed General Contractor — Scope of Work",
     body: `Neither ${ENTITY_NATE} nor ${ENTITY_ALEX} is a licensed general contractor. The work covered by this Agreement is limited to non-structural, non-permitted cosmetic and maintenance items only — the kind listed in your itemized quote (painting, pressure washing, landscaping, cleaning, junk removal, and minor handyman repairs). Anything requiring a licensed trade — electrical, plumbing, roofing, HVAC, structural work, and similar — is not performed by us. See Section 8.`,
@@ -786,6 +797,27 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
 ];
 
+// v20.32.27 — Repair Consult defaults to seller/listing context, but the
+// shared bottom-nav chooser also lets an agent launch it on the buyer side
+// (e.g. pre-closing repair work on a home under contract to purchase).
+// Section 1's disclosure language is the only section that's inherently
+// listing-specific ("your listing agents", "market-ready", "your sale") —
+// every other section already reads fine for either side. Returns the full
+// 13-section array with Section 1 swapped for the correct variant.
+function firstNameRC(fullName: string | null | undefined): string {
+  const n = (fullName || "").trim();
+  return n ? n.split(/\s+/)[0] : "there";
+}
+
+export function getAgreementSections(dealSide: "buyer" | "seller" = "seller"): AgreementSection[] {
+  if (dealSide !== "buyer") return AGREEMENT_SECTIONS;
+  const buyerSection1: AgreementSection = {
+    heading: AGREEMENT_SECTIONS[0].heading,
+    body: `As your buyer's agents, Alex and Nate Watson are also the owners of ${ENTITY_ALEX} and ${ENTITY_NATE} — together operating as ${DIVISION_NAME}, the team performing this work. We want to be upfront about that — not because it's a conflict, but because it's the whole reason this program exists. Rather than handing you off to a stranger and hoping it goes well, we put our own name, our own crew, and our own schedule behind the work, because we have just as much riding on a smooth closing as you do. That means no marked-up middleman, one point of contact instead of three, and a team that's motivated to get your new home move-in ready — right, and on time. Florida law requires us to disclose that we (and our companies) are paid separately for this work, in addition to any real estate commission we earn on your purchase. Consider this that disclosure — given openly, because we think it's a better way to do business, not something to bury in the fine print.`,
+  };
+  return [buyerSection1, ...AGREEMENT_SECTIONS.slice(1)];
+}
+
 // ─── EMAIL: In-house quote (to agent + admin, always fires the moment a quote is generated) ─
 // v20.24.0 — Alex: "remove the itemized breakdown but keep the total
 // pricing." No more per-line dollar amount here — scope is listed (so the
@@ -824,12 +856,25 @@ function startWindowLabel(consult: any): string {
 // to keep the homeowner hopeful and ready to move forward. Deliberately
 // non-committal ("often", "depending on trade") — the real start date is
 // still locked behind the signed + deposit-received gate; this is copy only.
-const START_MOMENTUM_HTML =
-  "Good news — depending on the trade, we can often get crews started as soon as tomorrow. " +
-  "And the moment repairs wrap up, we move right into photos &amp; video for your listing. Let's keep this moving!";
-const START_MOMENTUM_PLAIN =
-  "Good news — depending on the trade, we can often get crews started as soon as tomorrow. " +
-  "And the moment repairs wrap up, we move right into photos & video for your listing. Let's keep this moving!";
+// v20.32.27 — dealSide-aware momentum copy. Seller side keeps the original
+// "straight into listing photos" framing; buyer side reframes the same
+// urgency around getting repairs done before closing instead.
+function startMomentumHtml(dealSide: "buyer" | "seller" = "seller"): string {
+  if (dealSide === "buyer") {
+    return "Good news — depending on the trade, we can often get crews started as soon as tomorrow. " +
+      "And the moment repairs wrap up, you're that much closer to a smooth closing. Let's keep this moving!";
+  }
+  return "Good news — depending on the trade, we can often get crews started as soon as tomorrow. " +
+    "And the moment repairs wrap up, we move right into photos &amp; video for your listing. Let's keep this moving!";
+}
+function startMomentumPlain(dealSide: "buyer" | "seller" = "seller"): string {
+  if (dealSide === "buyer") {
+    return "Good news — depending on the trade, we can often get crews started as soon as tomorrow. " +
+      "And the moment repairs wrap up, you're that much closer to a smooth closing. Let's keep this moving!";
+  }
+  return "Good news — depending on the trade, we can often get crews started as soon as tomorrow. " +
+    "And the moment repairs wrap up, we move right into photos & video for your listing. Let's keep this moving!";
+}
 const START_MOMENTUM_PDF_LINE =
   "Start Availability: Often as soon as tomorrow, depending on trade.";
 
@@ -976,7 +1021,7 @@ function buildClientQuoteEmailHtml(consult: any, items: any[], vendorItems: any[
     ${brandedHeader("Your Repair Proposal", consult.property_address)}
     ${heroImg}
     <div style="padding:24px 32px">
-      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${consult.client_name || "there"} — here's the proposal we walked through together. Everything below is work our own crew handles in-house.</p>
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${firstNameRC(consult.client_name)} — here's the proposal we walked through together. Everything below is work our own crew handles in-house.</p>
       ${quoteItemsTable(items)}
       <table style="width:100%;margin-top:14px">
         <tr><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700;width:110px">$${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
@@ -984,7 +1029,7 @@ function buildClientQuoteEmailHtml(consult: any, items: any[], vendorItems: any[
       ${depositSplitHtml(consult)}
       ${vendorScopeHtml(vendorItems)}
       <div style="margin-top:16px;padding:14px 16px;background:#f0f9f0;border:1px solid #cfe8cf;border-radius:6px">
-        <p style="font-size:13px;color:#1a1a1a;line-height:1.55;margin:0"><strong style="color:${BRAND.green}">${START_MOMENTUM_HTML}</strong></p>
+        <p style="font-size:13px;color:#1a1a1a;line-height:1.55;margin:0"><strong style="color:${BRAND.green}">${startMomentumHtml(consult.deal_side)}</strong></p>
       </div>
       <div style="text-align:center;margin:28px 0 10px">
         <a href="${acceptUrl}" style="background:${BRAND.black};color:#fff;text-decoration:none;padding:14px 36px;border-radius:6px;font-size:14px;font-weight:700;display:inline-block">Review &amp; Accept Proposal</a>
@@ -1043,7 +1088,7 @@ export async function sendApprovalEmail(consultId: number) {
     ${brandedHeader("Ready for Your Approval", consult.property_address)}
     ${heroImg}
     <div style="padding:24px 32px">
-      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${consult.client_name || "there"} — your repair proposal and full agreement are ready. Tap the button below to review and approve — no printing or typing required.</p>
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${firstNameRC(consult.client_name)} — your repair proposal and full agreement are ready. Tap the button below to review and approve — no printing or typing required.</p>
       ${quoteItemsTable(items)}
       <table style="width:100%;margin-top:14px">
         <tr><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700;width:110px">$${consult.total.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
@@ -1051,7 +1096,7 @@ export async function sendApprovalEmail(consultId: number) {
       ${depositSplitHtml(consult)}
       ${vendorScopeHtml(vendorItems)}
       <div style="margin-top:16px;padding:14px 16px;background:#f0f9f0;border:1px solid #cfe8cf;border-radius:6px">
-        <p style="font-size:13px;color:#1a1a1a;line-height:1.55;margin:0"><strong style="color:${BRAND.green}">${START_MOMENTUM_HTML}</strong></p>
+        <p style="font-size:13px;color:#1a1a1a;line-height:1.55;margin:0"><strong style="color:${BRAND.green}">${startMomentumHtml(consult.deal_side)}</strong></p>
       </div>
       <div style="text-align:center;margin:28px 0 10px">
         <a href="${approveUrl}" style="background:${BRAND.green};color:#fff;text-decoration:none;padding:16px 44px;border-radius:6px;font-size:15px;font-weight:700;display:inline-block">✓ Approve Proposal</a>
@@ -1121,7 +1166,7 @@ export async function dispatchVendorEmails(consultId: number) {
     <div style="max-width:600px;margin:0 auto;background:#fff">
       ${brandedHeader("Quote Request", consult.property_address)}
       <div style="padding:24px 32px">
-        <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi${(vendor.contact_name || vendor.name) ? " " + (vendor.contact_name || vendor.name) : ""} — this is a referral from Brothers Group. We're preparing to list one of our clients' homes for sale, and they need the following done at their property. We'd like you to quote it for them directly — since we're working against a listing timeline, time is of the essence and we appreciate you teaming up with us to keep this moving:</p>
+        <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi${(vendor.contact_name || vendor.name) ? " " + (vendor.contact_name || vendor.name) : ""} — this is a referral from Brothers Group. ${consult.deal_side === "buyer" ? "We're helping a client of ours close on a home they're purchasing, and they need the following done at the property before closing." : "We're preparing to list one of our clients' homes for sale, and they need the following done at their property."} We'd like you to quote it for them directly — since we're working against a ${consult.deal_side === "buyer" ? "closing" : "listing"} timeline, time is of the essence and we appreciate you teaming up with us to keep this moving:</p>
         <ul style="padding-left:18px">${itemsHtml}</ul>
         ${photosHtml}
         <p style="font-size:13px;color:#333;margin-top:16px"><strong>Property:</strong> ${consult.property_address}</p>
@@ -1667,7 +1712,7 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     }
   };
 
-  for (const section of AGREEMENT_SECTIONS) {
+  for (const section of getAgreementSections(consult.deal_side)) {
     const headingLines = wrapText(section.heading, fontBold, 7.8, colWidth);
     const bodyLines = wrapText(section.body, font, 7, colWidth);
     const totalLines = headingLines.length + bodyLines.length + 1;
@@ -2124,7 +2169,7 @@ async function sendChangeOrderSignEmail(changeOrderId: number) {
   <div style="max-width:600px;margin:0 auto;background:#fff">
     ${brandedHeader("Change Order \u2014 Signature Needed", co.property_address)}
     <div style="padding:24px 32px">
-      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${co.client_name || "there"} \u2014 while working on your property, we found something that needs your approval before we continue. Nothing further will be done, and nothing further will be charged, until you review and sign below.</p>
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${firstNameRC(co.client_name)} \u2014 while working on your property, we found something that needs your approval before we continue. Nothing further will be done, and nothing further will be charged, until you review and sign below.</p>
       <table style="width:100%;font-size:12.5px;color:#333;margin:14px 0">
         <tr><td style="padding:4px 0;color:${BRAND.gray};width:120px">Description</td><td style="font-weight:600">${changeOrderDescription(co)}</td></tr>
         <tr><td style="padding:4px 0;color:${BRAND.gray}">Why</td><td>${co.reason}</td></tr>
@@ -2216,8 +2261,9 @@ export function registerRepairConsultRoutes(app: Express) {
   // no-ops without GOOGLE_MAPS_API_KEY or if imagery isn't found. Manual
   // upload always wins and is never overwritten (see photo route below).
   app.post("/api/repair-consult", async (req: any, res: Response) => {
-    const { leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress, heroPhotoUrl } = req.body || {};
+    const { leadId, agentId, clientName, clientEmail, clientPhone, propertyAddress, heroPhotoUrl, dealSide } = req.body || {};
     if (!propertyAddress) return res.status(400).json({ error: "propertyAddress is required" });
+    const resolvedDealSide = dealSide === "buyer" ? "buyer" : "seller";
     let resolvedHero = heroPhotoUrl || null;
     let heroSource: string | null = resolvedHero ? "manual" : null;
     if (!resolvedHero) {
@@ -2225,9 +2271,9 @@ export function registerRepairConsultRoutes(app: Express) {
       if (streetViewUrl) { resolvedHero = streetViewUrl; heroSource = "street_view"; }
     }
     const result = rawDb.prepare(`
-      INSERT INTO repair_consults (lead_id, agent_id, client_name, client_email, client_phone, property_address, hero_photo_url, hero_photo_source)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(leadId || null, agentId || req.currentAgent?.id || null, clientName || null, clientEmail || null, clientPhone || null, propertyAddress, resolvedHero, heroSource);
+      INSERT INTO repair_consults (lead_id, agent_id, client_name, client_email, client_phone, property_address, hero_photo_url, hero_photo_source, deal_side)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(leadId || null, agentId || req.currentAgent?.id || null, clientName || null, clientEmail || null, clientPhone || null, propertyAddress, resolvedHero, heroSource, resolvedDealSide);
     res.json({ id: result.lastInsertRowid, heroPhotoUrl: resolvedHero });
   });
 
@@ -2768,17 +2814,18 @@ export function registerRepairConsultRoutes(app: Express) {
           subtotal: consult.subtotal, total: consult.total,
           depositAmount: consult.deposit_amount, finalAmount: consult.final_amount,
           startWindow: consult.start_window, startDate: consult.start_date, startTime: consult.start_time,
-          startMomentum: START_MOMENTUM_PLAIN,
+          startMomentum: startMomentumPlain(consult.deal_side),
           status: consult.status,
           signatureMethod: consult.signature_method,
           agreementPdfUrl,
           clientEmail: consult.client_email || null,
           hasQuoteToken: !!consult.quote_token,
+          dealSide: consult.deal_side === "buyer" ? "buyer" : "seller",
         },
         items,
         vendorItems,
         terms: IN_HOUSE_TERMS,
-        agreementSections: AGREEMENT_SECTIONS,
+        agreementSections: getAgreementSections(consult.deal_side),
         emailHtml,
         emailSubject: `Your Repair Proposal — ${consult.property_address}`,
       });
@@ -3039,16 +3086,17 @@ export function registerRepairConsultRoutes(app: Express) {
         subtotal: consult.subtotal, total: consult.total,
         depositAmount: consult.deposit_amount, finalAmount: consult.final_amount,
         startWindow: consult.start_window, startDate: consult.start_date, startTime: consult.start_time,
-        startMomentum: START_MOMENTUM_PLAIN,
+        startMomentum: startMomentumPlain(consult.deal_side),
         status: consult.status, acceptedAt: consult.accepted_at,
         quoteExpiresAt: consult.quote_expires_at,
         signatureMethod: consult.signature_method,
         agreementPdfUrl: consult.agreement_pdf_url || null,
+        dealSide: consult.deal_side === "buyer" ? "buyer" : "seller",
       },
       items,
       vendorItems,
       terms: IN_HOUSE_TERMS,
-      agreementSections: AGREEMENT_SECTIONS,
+      agreementSections: getAgreementSections(consult.deal_side),
     });
   });
 

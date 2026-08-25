@@ -230,6 +230,7 @@ export function InspectionsPlusSheet({
           itemKeys: Array.from(selectedKeys),
           vendorId: selectedVendorId || undefined,
           subjectSqft: subjectSqft || undefined,
+          dealSide,
         }),
       });
       await fetchJson(`/api/inspection-orders/${created.id}/send`, { method: "POST" });
@@ -500,6 +501,7 @@ export function InspectionsPlusSheet({
               itemKeys: Array.from(selectedKeys),
               vendorId: selectedVendorId || undefined,
               subjectSqft: subjectSqft || undefined,
+              dealSide,
             }),
           })}
         />

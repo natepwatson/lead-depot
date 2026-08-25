@@ -149,6 +149,13 @@ export function ensureInspectionsSchema() {
   const ioCols = (rawDb.prepare(`PRAGMA table_info(inspection_orders)`).all() as any[]).map((c: any) => c.name);
   if (!ioCols.includes("subject_sqft")) rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN subject_sqft INTEGER").run();
   if (!ioCols.includes("vendor_id"))    rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN vendor_id INTEGER REFERENCES repair_vendors(id)").run();
+  // v20.32.27 — Inspections+ is buyer-tooled by default (Home Inspection,
+  // WDO, 4pt, etc. ordered during a buyer's due-diligence period), but the
+  // shared bottom-nav chooser lets an agent launch it from the seller side
+  // too (sharedToolDealSide). Persist which side this order was created for
+  // so client-facing copy (email + accept page) never says "as we prepare to
+  // list your home" to a buyer, or vice versa.
+  if (!ioCols.includes("deal_side"))    rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN deal_side TEXT NOT NULL DEFAULT 'buyer'").run();
 
   // v20.32.13 — vendor-level default markup (repair_vendors is shared by
   // Repair AND Inspections vendors). NULL = fall back to the 25% global
@@ -433,6 +440,26 @@ function itemsTableHtml(items: any[]): string {
 }
 
 // ─── EMAIL: Client-facing order w/ single-stage accept link ────────────────
+// v20.32.27 — first-name-only greeting helper. Full-name greetings ("Hi
+// Alex Watson —") read stiff/formal; every client-facing salutation should
+// use just the first name, falling back to "there" when no name is on file.
+function firstName(fullName: string | null | undefined): string {
+  const n = (fullName || "").trim();
+  return n ? n.split(/\s+/)[0] : "there";
+}
+
+// v20.32.27 — deal-side-aware intro paragraph. Inspections+ defaults to the
+// buyer side (due-diligence inspections), but the shared bottom-nav chooser
+// lets an agent launch it from the seller side too — so the copy can no
+// longer hardcode "as we prepare to list your home" for every order.
+function inspectionsIntroParagraph(order: any): string {
+  const name = firstName(order.client_name);
+  if (order.deal_side === "seller") {
+    return `Hi ${name} — as we prepare to list your home, we'd like to get these inspections scheduled right away. We're referring you to our trusted inspection partner and will coordinate everything on our end so this moves quickly. This inspection will be scheduled in your name, ${name}, and we'll make sure the inspection company knows it's for you directly. Please review and approve below, and once it's scheduled we'll ask the inspector to send the quote/invoice our way to keep this on track.`;
+  }
+  return `Hi ${name} — as part of your due-diligence period, we'd like to get these inspections scheduled right away. We're referring you to our trusted inspection partner and will coordinate everything on our end so this moves quickly. This inspection will be scheduled in your name, ${name}, and we'll make sure the inspection company knows it's for you directly. Please review and approve below, and once it's scheduled we'll ask the inspector to send the quote/invoice our way to keep this on track.`;
+}
+
 // v20.32.25 — html-building extracted into buildInspectionOrderEmailHtml() so
 // the admin "Preview" feature renders the exact same markup the client will
 // receive, byte-for-byte, before "Send to Client" is ever clicked.
@@ -446,7 +473,7 @@ function buildInspectionOrderEmailHtml(order: any, items: any[], opts: { preview
   <div style="max-width:600px;margin:0 auto;background:#fff">
     ${brandedHeader("Inspections+ Order", order.property_address)}
     <div style="padding:24px 32px">
-      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${order.client_name || "there"} — as we prepare to list your home, we'd like to get these inspections scheduled right away. We're referring you to our trusted inspection partner and will coordinate everything on our end so this moves quickly. This inspection will be scheduled in your name, ${order.client_name || "you"}, and we'll make sure the inspection company knows it's for you directly. Please review and approve below, and once it's scheduled we'll ask the inspector to send the quote/invoice our way to keep this on track.</p>
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">${inspectionsIntroParagraph(order)}</p>
       ${itemsTableHtml(items)}
       <table style="width:100%;margin-top:14px">
         <tr><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:16px;font-weight:700;width:110px">$${order.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
@@ -706,7 +733,7 @@ export function registerInspectionsRoutes(app: Express) {
     const {
       leadId, agentId, fubContactId, clientName, clientEmail, clientPhone,
       propertyAddress, neededBy, neededByDate, contingencyExpirationDate, itemKeys,
-      vendorId, subjectSqft,
+      vendorId, subjectSqft, dealSide,
     } = req.body || {};
     if (!propertyAddress || !String(propertyAddress).trim()) return res.status(400).json({ error: "propertyAddress is required" });
     if (!clientName || !String(clientName).trim()) return res.status(400).json({ error: "clientName is required" });
@@ -715,16 +742,17 @@ export function registerInspectionsRoutes(app: Express) {
     const resolvedAgentId = agentId || req.currentAgent?.id || null;
     const resolvedVendorId = vendorId ? Number(vendorId) : null;
     const resolvedSqft = subjectSqft ? Number(subjectSqft) : null;
+    const resolvedDealSide = dealSide === "seller" ? "seller" : "buyer";
     const token = randomBytes(20).toString("hex");
     const result = rawDb.prepare(`
       INSERT INTO inspection_orders
         (lead_id, agent_id, fub_contact_id, client_name, client_email, client_phone, property_address,
-         needed_by, needed_by_date, contingency_expiration_date, sign_token, vendor_id, subject_sqft)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         needed_by, needed_by_date, contingency_expiration_date, sign_token, vendor_id, subject_sqft, deal_side)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       leadId || null, resolvedAgentId, fubContactId || null, String(clientName).trim(), clientEmail || null, clientPhone || null,
       String(propertyAddress).trim(), neededBy === "specific" ? "specific" : "asap", neededBy === "specific" ? (neededByDate || null) : null,
-      contingencyExpirationDate || null, token, resolvedVendorId, resolvedSqft
+      contingencyExpirationDate || null, token, resolvedVendorId, resolvedSqft, resolvedDealSide
     );
     const orderId = Number(result.lastInsertRowid);
 
@@ -768,7 +796,7 @@ export function registerInspectionsRoutes(app: Express) {
     if (!req.currentAgent) return res.status(401).json({ error: "Not signed in" });
     const {
       clientName, clientEmail, propertyAddress, neededBy, neededByDate,
-      contingencyExpirationDate, itemKeys, vendorId, subjectSqft,
+      contingencyExpirationDate, itemKeys, vendorId, subjectSqft, dealSide,
     } = req.body || {};
     if (!propertyAddress || !String(propertyAddress).trim()) return res.status(400).json({ error: "propertyAddress is required" });
     if (!Array.isArray(itemKeys) || itemKeys.length === 0) return res.status(400).json({ error: "Select at least one inspection" });
@@ -799,6 +827,7 @@ export function registerInspectionsRoutes(app: Express) {
       contingency_expiration_date: contingencyExpirationDate || null,
       total,
       sign_token: null,
+      deal_side: dealSide === "seller" ? "seller" : "buyer",
     };
     const emailHtml = buildInspectionOrderEmailHtml(fakeOrder, draftItems, { preview: true });
 
@@ -810,6 +839,7 @@ export function registerInspectionsRoutes(app: Express) {
         status: "draft", total: fakeOrder.total,
         acceptedSignatureName: null, acceptedAt: null,
         clientEmail: clientEmail || null,
+        dealSide: fakeOrder.deal_side,
       },
       items: draftItems.map(it => ({ name: it.name, clientPrice: it.client_price, isAddon: it.is_addon })),
       terms: INSPECTION_TERMS,
@@ -873,6 +903,7 @@ export function registerInspectionsRoutes(app: Express) {
         status: order.status, total: order.total,
         acceptedSignatureName: order.accepted_signature_name, acceptedAt: order.accepted_at,
         clientEmail: order.client_email || null,
+        dealSide: order.deal_side === "seller" ? "seller" : "buyer",
       },
       items: items.map((it: any) => ({ name: it.name, clientPrice: it.client_price, isAddon: !!it.is_addon })),
       terms: INSPECTION_TERMS,
@@ -893,6 +924,7 @@ export function registerInspectionsRoutes(app: Express) {
         contingencyExpirationDate: order.contingency_expiration_date,
         status: order.status, total: order.total,
         acceptedSignatureName: order.accepted_signature_name, acceptedAt: order.accepted_at,
+        dealSide: order.deal_side === "seller" ? "seller" : "buyer",
       },
       items: items.map((i: any) => ({ name: i.name, clientPrice: i.client_price, isAddon: !!i.is_addon })),
       terms: INSPECTION_TERMS,

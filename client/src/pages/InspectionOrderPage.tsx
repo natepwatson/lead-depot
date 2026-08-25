@@ -17,6 +17,7 @@ export type OrderData = {
     total: number;
     acceptedSignatureName: string | null;
     acceptedAt: string | null;
+    dealSide?: "buyer" | "seller";
   };
   items: { name: string; clientPrice: number; isAddon: boolean }[];
   terms?: string[];
@@ -58,9 +59,9 @@ export function InspectionOrderBody({
           {order.clientName && <p style={{ fontSize: 13, color: "#666", margin: "0 0 20px" }}>Prepared for {order.clientName}</p>}
 
           <p style={{ fontSize: 13, color: "#333", lineHeight: 1.6, marginBottom: 18 }}>
-            As we prepare to list your home, we'd like to get these inspections scheduled with our trusted inspection partner. We're referring
-            you to them directly, and we'll coordinate with them on our end to keep things moving quickly — time is of the essence here since
-            we're working together as a team on your timeline. Once approved, please ask the inspector to send the quote/invoice our way too.
+            {order.dealSide === "seller"
+              ? "As we prepare to list your home, we'd like to get these inspections scheduled with our trusted inspection partner. We're referring you to them directly, and we'll coordinate with them on our end to keep things moving quickly — time is of the essence here since we're working together as a team on your timeline. Once approved, please ask the inspector to send the quote/invoice our way too."
+              : "As part of your due-diligence period, we'd like to get these inspections scheduled with our trusted inspection partner. We're referring you to them directly, and we'll coordinate with them on our end to keep things moving quickly — time is of the essence here since we're working together as a team on your timeline. Once approved, please ask the inspector to send the quote/invoice our way too."}
           </p>
 
           <table style={{ width: "100%", fontSize: 13, marginBottom: 6, borderCollapse: "collapse" }}>

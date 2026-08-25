@@ -1,0 +1,21 @@
+{
+  "version": "v20.32.26",
+  "changes": [
+    "Added 'Preview Before Sending' button to the agent-facing InspectionsPlusSheet (buyer/seller Inspections+ flow) — previously only the admin InspectionsPricingPanel had a preview; agents creating an order in the field had none.",
+    "Added a new stateless POST /api/inspection-orders/preview-draft endpoint that renders the exact client email (via buildInspectionOrderEmailHtml, same as the real send path) from in-memory form state before any DB row exists.",
+    "Added 'Preview Before Sending' button to the agent-facing RepairConsultSheet, reusing the existing by-id GET /api/repair-consults/:id/preview endpoint and ClientPreviewModal (no backend change needed there — consultId already persisted by that point in the flow).",
+    "Extended ClientPreviewModal to accept an optional draftFetcher prop (stateless fetch) as an alternative to the existing id-based GET fetch."
+  ],
+  "endpoints": [
+    { "path": "/api/health", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["version"] }
+  ],
+  "bundleMustContain": [
+    "Preview Before Sending",
+    "inspection-orders/preview-draft"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "'Preview Before Sending' is the new button label shared by both InspectionsPlusSheet and RepairConsultSheet. 'inspection-orders/preview-draft' is the literal new endpoint path called from InspectionsPlusSheet's draftFetcher. Both must appear in the live bundle to confirm this build shipped, not v20.32.25.",
+  "mathChecks": [
+    { "name": "health endpoint reports v20.32.26", "path": "/api/health", "auth": "none", "expr": "body.version === 'v20.32.26'" }
+  ]
+}

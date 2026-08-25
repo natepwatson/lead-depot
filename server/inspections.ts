@@ -158,6 +158,8 @@ export function ensureInspectionsSchema() {
 
   seedInspectionItems();
   seedInspectionVendorPricing();
+  fixInspectionVendorDataIntegrity();
+  seedProSpectVendorPricing();
 }
 
 const DEFAULT_INSPECTION_MARKUP_PCT = 0.25;
@@ -261,6 +263,104 @@ function seedInspectionItems() {
   ];
   const ins = rawDb.prepare(`INSERT INTO inspection_items (key, name, client_price, vendor_cost, sequence_order, notes) VALUES (?, ?, ?, ?, ?, ?)`);
   for (const r of rows) ins.run(...r);
+}
+
+// v20.32.20 — Fixes a real data-integrity bug uncovered while incorporating
+// Pro-Spect's real pricing reply: her vendor row was saved with
+// trade = 'inspections' (PLURAL), but /api/inspection-vendors (the picker
+// that populates the Inspections+ order form) filters on the SINGULAR
+// 'inspection' — so she has never actually appeared as a selectable vendor.
+// The same typo also orphaned Jason Brown's real contact info onto a
+// separate dead vendor row ("1st Class Home Inspections Plus") while his
+// sqft-tiered pricing lived on a second row ("Jason Brown") stuck with
+// placeholder contact info. Idempotent — safe to run on every boot.
+function fixInspectionVendorDataIntegrity() {
+  // Fix 1: Pro-Spect's trade typo, so she actually shows up in the picker.
+  rawDb.prepare(`UPDATE repair_vendors SET trade = 'inspection' WHERE name = 'Pro-Spect Inspection Services' AND trade = 'inspections'`).run();
+
+  // Fix 2: merge Jason Brown's two vendor rows — copy the real contact info
+  // onto the pricing row, then deactivate the duplicate.
+  const dup = rawDb.prepare(`SELECT * FROM repair_vendors WHERE name = '1st Class Home Inspections Plus' AND active = 1`).get() as any;
+  const jasonPricing = rawDb.prepare(`SELECT * FROM repair_vendors WHERE trade = 'inspection' AND name = 'Jason Brown'`).get() as any;
+  if (dup && jasonPricing && jasonPricing.email === "TBD@brothersgroup.realestate") {
+    rawDb.prepare(`UPDATE repair_vendors SET email = ?, phone = ?, notes = ? WHERE id = ?`).run(
+      dup.email,
+      dup.phone,
+      "Jason Brown, 1st Class Home Inspections Plus. Contact info merged in from a duplicate vendor row (previously split across two rows by a trade-field typo, fixed 8/25/26). WDO subcontracted to Bug Man Express (flat $125, no sqft scaling given). Pricing tiers below are placeholders built from his starting-price reply + industry-standard scaling — swap in his real fee schedule when he sends it.",
+      jasonPricing.id
+    );
+    rawDb.prepare(`UPDATE repair_vendors SET active = 0, notes = COALESCE(notes, '') || ' [Merged into vendor id ' || ? || ' — Jason Brown — on 2026-08-25, do not reactivate.]' WHERE id = ?`).run(jasonPricing.id, dup.id);
+  }
+
+  // New service types Pro-Spect offers that Jason's catalog doesn't have
+  // yet: pool inspection w/ leak detection, mold swab, mold air test, sewer
+  // scope. Client price = her vendor cost x the same 25% markup convention
+  // used elsewhere, rounded to the nearest $5. Checked per-key (not gated
+  // behind a single count()), so it still inserts even though the original
+  // 6-item seed already ran.
+  const newCatalogRows: [string, string, number, number, number, string][] = [
+    ["pool_leak", "Pool Inspection w/ Leak Detection", 425, 339, 55, "Vendor cost from Pro-Spect Inspection Services (8/25/26 reply). Leak-detection portion is subcontracted by Pro-Spect; she coordinates it for the same visit as the home inspection."],
+    ["mold_swab", "Mold Swab Test", 245, 197, 70, "Vendor cost from Pro-Spect Inspection Services (8/25/26 reply)."],
+    ["mold_air", "Mold Air Test", 295, 237, 80, "Vendor cost from Pro-Spect Inspection Services (8/25/26 reply)."],
+    ["sewer_scope", "Sewer Scope Inspection", 305, 245, 90, "Vendor cost from Pro-Spect Inspection Services (8/25/26 reply)."],
+  ];
+  const catalogExists = rawDb.prepare(`SELECT 1 FROM inspection_items WHERE key = ?`);
+  const catalogIns = rawDb.prepare(`INSERT INTO inspection_items (key, name, client_price, vendor_cost, sequence_order, notes) VALUES (?, ?, ?, ?, ?, ?)`);
+  for (const [key, name, clientPrice, vendorCost, seq, notes] of newCatalogRows) {
+    if (!catalogExists.get(key)) catalogIns.run(key, name, clientPrice, vendorCost, seq, notes);
+  }
+}
+
+// Seeds Pro-Spect Inspection Services' real reply pricing (8/25/26 email):
+// Condo HI starts $237, Home HI starts $325, 4pt+WM bundle $120 total, WDO
+// $131, Pool $85, Pool w/ leak detection $339, Mold swab $197, Mold air test
+// $237, Sewer scope $245 — she does not offer septic inspections. She gave
+// single "starts at" numbers, not a full sqft ladder like Jason's, so every
+// tier below is seeded as ONE flat band (0 to no max) rather than guessing
+// scaling. Swap in her real sqft tiers the moment she sends them.
+function seedProSpectVendorPricing() {
+  const existing = rawDb.prepare(`SELECT id FROM repair_vendors WHERE trade = 'inspection' AND name = 'Pro-Spect Inspection Services'`).get() as any;
+  let vendorId: number;
+  if (existing) {
+    vendorId = existing.id;
+  } else {
+    const result = rawDb.prepare(`
+      INSERT INTO repair_vendors (trade, name, email, phone, notes, markup_pct)
+      VALUES ('inspection', 'Pro-Spect Inspection Services', 'clientcare@pro-spectfl.com', '863-999-0002', 'Real contact info from Pro-Spect''s 8/25/26 pricing reply. Handles mold and sewer scope in-house; pool leak detection is subcontracted but coordinated for the same visit as the home inspection. Does not offer septic inspection.', 0.25)
+    `).run();
+    vendorId = Number(result.lastInsertRowid);
+  }
+
+  const tierCount = (rawDb.prepare(`SELECT COUNT(*) as c FROM inspection_vendor_pricing WHERE vendor_id = ?`).get(vendorId) as any).c;
+  if (tierCount > 0) return;
+
+  const rows: [string, string, number, number | null, number, string][] = [
+    // Home Inspection — she quoted Condo ($237) vs Home ($325) by PROPERTY
+    // TYPE, not sqft band. Schema only supports sqft tiers today, so this
+    // seeds her Home (single-family) starting price; the lower Condo rate
+    // isn't representable yet — flag to Alex if condo-specific pricing is
+    // needed on a future job.
+    ["hi", "standalone", 0, null, 325, "Starting price only (her reply: \"starts at $325\" for a home; scales with sqft, no ladder given yet). Condo starts lower at $237 — schema doesn't support property-type pricing yet, only sqft bands."],
+    // 4pt+WM — she quotes ONE combined bundle price ($120 total), unlike
+    // Jason who prices 4pt and WM separately. Split evenly for schema
+    // compatibility ($60 each) — this is an assumption, not her literal
+    // per-item breakdown.
+    ["wm", "bundled_with_hi", 0, null, 60, "Half of her $120 combined 4pt+WM bundle price — split assumption, not her literal per-item price."],
+    ["4pt", "bundled_with_hi", 0, null, 60, "Half of her $120 combined 4pt+WM bundle price — split assumption, not her literal per-item price."],
+    // WDO — flat, no sqft scaling given.
+    ["wdo", "standalone", 0, null, 131, "Starting price from her 8/25/26 reply — no sqft scaling given."],
+    // Pool — plain inspection, flat.
+    ["pool", "standalone", 0, null, 85, "Starting price from her 8/25/26 reply — no sqft scaling given."],
+    // Pool + leak detection, mold, sewer scope — new item keys, flat.
+    ["pool_leak", "standalone", 0, null, 339, "Starting price from her 8/25/26 reply. Leak-detection portion is subcontracted by Pro-Spect; she coordinates it for the same visit as the HI."],
+    ["mold_swab", "standalone", 0, null, 197, "Starting price from her 8/25/26 reply — no sqft scaling given."],
+    ["mold_air", "standalone", 0, null, 237, "Starting price from her 8/25/26 reply — no sqft scaling given."],
+    ["sewer_scope", "standalone", 0, null, 245, "Starting price from her 8/25/26 reply — no sqft scaling given."],
+  ];
+  const ins = rawDb.prepare(`INSERT INTO inspection_vendor_pricing (vendor_id, item_key, context, sqft_min, sqft_max, vendor_cost, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`);
+  for (const [itemKey, context, sqftMin, sqftMax, vendorCost, notes] of rows) {
+    ins.run(vendorId, itemKey, context, sqftMin, sqftMax, vendorCost, notes);
+  }
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────

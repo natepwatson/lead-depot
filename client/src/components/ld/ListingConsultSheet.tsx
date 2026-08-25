@@ -226,6 +226,15 @@ const NOT_MOVING_OPTIONS: { key: string; label: string }[] = [
   { key: "not_interested", label: "Not interested" },
 ];
 
+// v20.32.24 — What happens with pets during showings, asked on Lock In
+// when "Are there pets in the home?" is Yes.
+const PET_SHOWING_PLAN_OPTIONS: { key: string; label: string }[] = [
+  { key: "kenneled", label: "Kenneled/crated during showings" },
+  { key: "removed", label: "Removed from the home during showings" },
+  { key: "contained", label: "Contained in a room/garage during showings" },
+  { key: "other", label: "Other" },
+];
+
 // v20.32.23 — Optional Listing Agreement Addenda. Selecting one here flags
 // it in the signed-TC email so the TC knows to pull that addendum into the
 // DocuSign envelope alongside the base listing agreement. Add future
@@ -598,6 +607,13 @@ export function ListingConsultSheet({
   // a specific forecasted date — everything computes off the rule-of-thumb
   // gaps until then.
   const [forecastOverrides, setForecastOverrides] = useState<Partial<Record<MilestoneKey, string>>>({});
+  // v20.32.24 — Occupancy + Pets, asked on Lock In right before Access.
+  // Feeds the ShowingTime setup / TC email so showing logistics (who's
+  // in the home, what happens with pets) are known before the first showing.
+  const [homeOccupied, setHomeOccupied] = useState<"" | "yes" | "no">("");
+  const [hasPets, setHasPets] = useState<"" | "yes" | "no">("");
+  const [petShowingPlan, setPetShowingPlan] = useState<"" | "kenneled" | "removed" | "contained" | "other">("");
+  const [petShowingPlanOther, setPetShowingPlanOther] = useState("");
   // v20.32.2 — Access is now Key OR Code (toggle), never a single free-text
   // field. Code path asks for the code + how to get in; Key path asks
   // whether the key has already been exchanged into the lockbox for the agent.
@@ -781,6 +797,7 @@ export function ListingConsultSheet({
           goLiveDate: timelineForecast ? toISO(timelineForecast.goLive) : null,
           showingsBeginDate: timelineForecast ? toISO(timelineForecast.showingsBegin) : null,
           openHouseDate: timelineForecast ? toISO(timelineForecast.openHouse) : null,
+          homeOccupied, hasPets, petShowingPlan, petShowingPlanOther,
           accessType, accessCode, accessCodeInstructions, keyInLockbox, hasGate, gateCode, gateGuarded, gateAccessInstructions, ownerNames, ownerNames2, owner2Phone, owner2Email,
           showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail,
           showingRestrictions,
@@ -797,6 +814,7 @@ export function ListingConsultSheet({
     walkthroughNotes, needsRepairs, pillarFlags, mortgageBalance, buyingToo, buyingNotes, timeline,
     whereAreWe, recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms, selectedAddenda,
     needsCleaning, forecastStartDate, forecastOverrides,
+    homeOccupied, hasPets, petShowingPlan, petShowingPlanOther,
     accessType, accessCode, accessCodeInstructions, keyInLockbox, hasGate, gateCode, gateGuarded, gateAccessInstructions,
     ownerNames, ownerNames2, owner2Phone, owner2Email,
     showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail, showingRestrictions,
@@ -945,6 +963,10 @@ export function ListingConsultSheet({
         if (savedCleaning && savedCleaning !== derivedFromPillar) setCleaningManualOverride(true);
         setNeedsCleaning(savedCleaning || derivedFromPillar);
         setForecastStartDate(data.lockin.forecastStartDate || toISO(new Date()));
+        setHomeOccupied(data.lockin.homeOccupied || "");
+        setHasPets(data.lockin.hasPets || "");
+        setPetShowingPlan(data.lockin.petShowingPlan || "");
+        setPetShowingPlanOther(data.lockin.petShowingPlanOther || "");
         // v20.32.2 — migrate any older saved consult that still only has the
         // free-text accessKeyOrCode by defaulting the toggle to "code" so
         // nothing already on file silently disappears.
@@ -1074,6 +1096,10 @@ export function ListingConsultSheet({
     if (!ownerNames.trim()) missing.push("Owner 1 Legal Name");
     if (!propertyAddress.trim()) missing.push("Property Address");
     if (!finalListingPrice.trim()) missing.push("Final Listing Price");
+    if (!homeOccupied) missing.push("Home Occupied? (Yes/No)");
+    if (!hasPets) missing.push("Pets In The Home? (Yes/No)");
+    if (hasPets === "yes" && !petShowingPlan) missing.push("Pet Plan During Showings");
+    if (hasPets === "yes" && petShowingPlan === "other" && !petShowingPlanOther.trim()) missing.push("Pet Plan Details");
     if (!accessType) missing.push("Access: Key or Code");
     if (accessType === "code" && !accessCode.trim()) missing.push("Access Code");
     if (accessType === "code" && !accessCodeInstructions.trim()) missing.push("How To Get In");
@@ -1097,6 +1123,7 @@ export function ListingConsultSheet({
         goLiveDate: timelineForecast ? toISO(timelineForecast.goLive) : null,
         showingsBeginDate: timelineForecast ? toISO(timelineForecast.showingsBegin) : null,
         openHouseDate: timelineForecast ? toISO(timelineForecast.openHouse) : null,
+        homeOccupied, hasPets, petShowingPlan, petShowingPlanOther,
         accessType, accessCode, accessCodeInstructions, keyInLockbox, hasGate, gateCode, gateGuarded, gateAccessInstructions, ownerNames, ownerNames2, owner2Phone, owner2Email,
         showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail,
         showingRestrictions,
@@ -1708,6 +1735,38 @@ export function ListingConsultSheet({
               </div>
             )}
 
+            <label style={{ ...labelStyle, marginTop: 10 }}>Will The Home Be Occupied?</label>
+            <div style={{ marginBottom: 10 }}>
+              {segmented(homeOccupied, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => setHomeOccupied(v as "yes" | "no"))}
+            </div>
+
+            <label style={labelStyle}>Are There Pets In The Home?</label>
+            <div style={{ marginBottom: hasPets === "yes" ? 8 : 10 }}>
+              {segmented(hasPets, [{ key: "yes", label: "Yes" }, { key: "no", label: "No" }], v => {
+                setHasPets(v as "yes" | "no");
+                if (v === "no") { setPetShowingPlan(""); setPetShowingPlanOther(""); }
+              })}
+            </div>
+
+            {hasPets === "yes" && (
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>What Happens With Pets During Showings?</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: petShowingPlan === "other" ? 8 : 0 }}>
+                  {PET_SHOWING_PLAN_OPTIONS.map(o => (
+                    <button key={o.key} type="button" onClick={() => setPetShowingPlan(o.key as any)} style={{
+                      textAlign: "left", padding: "10px 12px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600,
+                      background: petShowingPlan === o.key ? "rgba(200,170,90,0.14)" : "rgba(255,255,255,0.04)",
+                      border: petShowingPlan === o.key ? "1px solid rgba(200,170,90,0.5)" : "1px solid rgba(255,255,255,0.1)",
+                      color: petShowingPlan === o.key ? GOLD : "rgba(255,255,255,0.8)",
+                    }}>{o.label}</button>
+                  ))}
+                </div>
+                {petShowingPlan === "other" && (
+                  <input style={inputStyle} value={petShowingPlanOther} onChange={e => setPetShowingPlanOther(e.target.value)} placeholder="Describe the pet plan for showings" />
+                )}
+              </div>
+            )}
+
             <label style={{ ...labelStyle, marginTop: 10 }}>Access</label>
             <div style={{ marginBottom: 10 }}>
               {segmented(accessType, [{ key: "key", label: "Key" }, { key: "code", label: "Code" }], v => setAccessType(v as "key" | "code"))}
@@ -1860,6 +1919,8 @@ export function ListingConsultSheet({
               <tbody>
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", width: 100, verticalAlign: "top" }}>Address</td><td style={{ padding: "5px 0" }}>{propertyAddress}</td></tr>
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Owner(s)</td><td style={{ padding: "5px 0" }}>{[ownerNames, ownerNames2].filter(Boolean).join(" & ") || "—"}</td></tr>
+                <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Occupied</td><td style={{ padding: "5px 0" }}>{homeOccupied === "yes" ? "Yes" : homeOccupied === "no" ? "No" : "—"}</td></tr>
+                <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Pets</td><td style={{ padding: "5px 0" }}>{hasPets === "yes" ? `Yes — ${petShowingPlan === "other" ? petShowingPlanOther : PET_SHOWING_PLAN_OPTIONS.find(o => o.key === petShowingPlan)?.label || "plan TBD"}` : hasPets === "no" ? "No" : "—"}</td></tr>
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Final Price</td><td style={{ padding: "5px 0" }}>{finalListingPrice || "—"}</td></tr>
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Commission</td><td style={{ padding: "5px 0" }}>{listingAgentCommission || "3.0"}% listing / {buyerAgentCommission || "2.5"}% buyer's</td></tr>
                 {!!additionalTerms.trim() && (

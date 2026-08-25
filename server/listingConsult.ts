@@ -224,6 +224,21 @@ function addendaSummary(close: any): string {
   return keys.map(k => ADDENDA_LABELS[k] || k).join(", ");
 }
 
+// v20.32.24 — Pets-during-showings plan, asked on Lock In right before
+// Access. Keys must match PET_SHOWING_PLAN_OPTIONS in ListingConsultSheet.tsx.
+const PET_SHOWING_PLAN_LABELS: Record<string, string> = {
+  kenneled: "Kenneled/crated during showings",
+  removed: "Removed from the home during showings",
+  contained: "Contained in a room/garage during showings",
+  other: "Other",
+};
+
+function petsSummary(lockin: any): string {
+  if (lockin?.hasPets !== "yes") return lockin?.hasPets === "no" ? "No" : "—";
+  const plan = lockin.petShowingPlan === "other" ? (lockin.petShowingPlanOther || "Other — details TBD") : (PET_SHOWING_PLAN_LABELS[lockin.petShowingPlan] || "Plan TBD");
+  return `Yes — ${plan}`;
+}
+
 // ─── EMAIL: "Not moving forward" outcome sent to office admin ──────────────
 async function sendNotMovingForwardEmail(consultId: number) {
   if (!resend) return;
@@ -286,6 +301,8 @@ async function sendSignedTcEmail(consultId: number) {
         ${close.additionalTerms ? row("Additional Terms", close.additionalTerms) : ""}
         ${row("Timeline", d.walkthrough?.timeline || "—")}
         ${addendaSummary(close) ? `<tr><td style="padding:6px 0;color:${BRAND.gray};width:170px;font-size:12.5px;font-weight:700;vertical-align:top">Addenda for DocuSign</td><td style="padding:6px 0;font-size:13px;font-weight:700;color:#8a6d1d">${addendaSummary(close)}</td></tr>` : ""}
+        ${row("Home Occupied", lockin.homeOccupied === "yes" ? "Yes" : lockin.homeOccupied === "no" ? "No" : "—")}
+        ${row("Pets", petsSummary(lockin))}
         ${row("Access", accessSummary(lockin))}
         ${row("Gate", gateSummary(lockin))}
         ${row("Showing Approval Contact", lockin.showingContactName || "—")}
@@ -648,6 +665,9 @@ export function registerListingConsultRoutes(app: Express) {
     if (!lockin.ownerNames) missing.push("Owner 1 Legal Name");
     if (!r.property_address) missing.push("Property Address");
     if (!close.finalListingPrice) missing.push("Final Listing Price");
+    if (!lockin.homeOccupied) missing.push("Home Occupied? (Yes/No)");
+    if (!lockin.hasPets) missing.push("Pets In The Home? (Yes/No)");
+    if (lockin.hasPets === "yes" && !lockin.petShowingPlan) missing.push("Pet Plan During Showings");
     if (!lockin.accessType) missing.push("Access: Key or Code");
     if (lockin.accessType === "code" && !lockin.accessCode) missing.push("Access Code");
     if (lockin.accessType === "key" && !lockin.keyInLockbox) missing.push("Key Exchanged To Lockbox? (Yes/No)");

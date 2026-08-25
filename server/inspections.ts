@@ -23,6 +23,7 @@ import { rawDb } from "./db";
 import { Resend } from "resend";
 import { randomBytes } from "node:crypto";
 import { fireMilestoneTasks } from "./fub";
+import { ACCEPTED_PAYMENT_METHODS_LABEL } from "./payments";
 
 // ─── Part 8 (v20.32.13) — liability / disclosure terms shown on the client
 // e-sign page. Kept as one short array (not a multi-page contract) per
@@ -36,7 +37,7 @@ export const INSPECTION_TERMS = [
   "Vendor pricing may vary based on square footage, site conditions, and other criteria specific to each inspection type. The price shown above is confirmed at scheduling with the vendor.",
   "You are responsible for providing the vendor access to the property at the scheduled time. Any rescheduling or cancellation fee charged by the vendor is passed through to you.",
   "Brothers Group facilitates the introduction and coordination of this inspection order only. We assume no liability for the accuracy, completeness, or findings of any inspection report, or for the licensing, insurance, scheduling, or performance of the inspecting vendor.",
-  "Payment for inspection services is due as arranged at scheduling. Unpaid balances may be pursued through ordinary collection remedies available under Florida law.",
+  `Payment for inspection services is due as arranged at scheduling. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL} — the same forms of payment we accept for your earnest money deposit, so if you're ordering inspections around the same time as putting down your deposit on the home, you're welcome to submit both together for a seamless experience. Unpaid balances may be pursued through ordinary collection remedies available under Florida law.`,
 ] as const;
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;

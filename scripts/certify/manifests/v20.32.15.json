@@ -1,0 +1,18 @@
+{
+  "version": "v20.32.15",
+  "changes": [
+    "Franco Hunter fix: Repair Consult and Inspections+ are shared, single-mount tools reachable from BOTH the Buyer and Seller choosers. Added a dealSide prop (\"buyer\" | \"seller\") threaded from AgentView's BuyerChooserSheet/SellerChooserSheet callbacks.",
+    "Buyer side: a client's FUB address (their current home) is NEVER auto-filled into the subject Property Address field and the multi-property FUB address chooser never renders — buyers can't repair/inspect a home they don't own yet. Copy updated to clarify the field means 'the property they're buying' and that FUB search results show the client's current address is not the purchase target.",
+    "Seller side: existing auto-fill + multi-property chooser behavior unchanged, PLUS a new optional 'Subject Address (if different)' override field for when a seller owns multiple properties and this order is actually about a different one than what got auto-filled/chosen. Blank override = the address above is correct. All downstream usage (POST body, validation, SmartDataPanel, review header, PDF title) now reads from the computed effectiveAddress (override || propertyAddress) instead of raw propertyAddress.",
+    "Client-only change — no server route or payload shape changed (still posts propertyAddress as a plain string)."
+  ],
+  "endpoints": [],
+  "bundleMustContain": [
+    "Subject Address (if different)",
+    "the property they're buying",
+    "not what they're buying"
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "Pure client-side fix (RepairConsultSheet.tsx, InspectionsPlusSheet.tsx, AgentView.tsx dealSide wiring). No new/changed endpoints, so Layer 1/3 checks are empty — Layer 2 bundle string checks are the only verifiable signal for this release.",
+  "mathChecks": []
+}

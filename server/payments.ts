@@ -1,7 +1,9 @@
 // ─── PAYMENT RECORDS (Part 7, v20.32.13) ───────────────────────────────────
 // Fully manual/person-to-person payment collection — no processor, no API,
-// no webhooks (Nate's explicit call, 8/24/26). Accepted rails: check, wire,
-// Zelle, Cash App, Apple Pay, Venmo, cash. Every payment gets evidence (a
+// no webhooks (Nate's explicit call, 8/24/26). Accepted rails (v20.32.16,
+// Alex's confirmed list): cash, wire, check, money order, Venmo, Zelle,
+// Apple Pay. Cash App was swapped out for Money Order to match exactly.
+// Every payment gets evidence (a
 // photo of the cash/check, or a screenshot of the digital confirmation) PLUS
 // a photo of the fully-signed "Payment Received" line (Company Representative
 // + Client) — that signed photo IS the receipt, which is what makes an
@@ -36,8 +38,13 @@ function paymentPhotosDir(): string {
   return dir;
 }
 
-export const PAYMENT_METHODS = ["check", "wire", "zelle", "cash_app", "apple_pay", "venmo", "cash"] as const;
+export const PAYMENT_METHODS = ["check", "wire", "zelle", "money_order", "apple_pay", "venmo", "cash"] as const;
 export type PaymentMethod = typeof PAYMENT_METHODS[number];
+
+// v20.32.16 — single source of truth for the client-facing accepted-forms
+// sentence, used in repair/inspection quote emails, agreements, and terms so
+// the wording never drifts across files.
+export const ACCEPTED_PAYMENT_METHODS_LABEL = "Cash, Wire, Check, Money Order, Venmo, Zelle, or Apple Pay";
 
 export const PAYMENT_SOURCE_TYPES = ["repair_consult", "inspection_order"] as const;
 export type PaymentSourceType = typeof PAYMENT_SOURCE_TYPES[number];
@@ -62,8 +69,8 @@ export function ensurePaymentRecordsSchema() {
       source_type TEXT NOT NULL,             -- repair_consult | inspection_order
       source_id INTEGER NOT NULL,
       amount REAL NOT NULL,
-      method TEXT NOT NULL,                  -- check|wire|zelle|cash_app|apple_pay|venmo|cash
-      reference_note TEXT,                   -- check #, wire confirmation #, Zelle/Venmo/Cash App txn id
+      method TEXT NOT NULL,                  -- check|wire|zelle|money_order|apple_pay|venmo|cash
+      reference_note TEXT,                   -- check #, wire confirmation #, Zelle/Venmo txn id, money order serial #
       evidence_photo_url TEXT,               -- photo of cash/check, or screenshot of digital confirmation
       receipt_photo_url TEXT,                -- photo of the fully-signed Payment Received line
       company_rep_agent_id INTEGER REFERENCES agents(id),   -- must be Alex, Nate, or Denise

@@ -32,6 +32,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { fireMilestoneTasks } from "./fub";
+import { ACCEPTED_PAYMENT_METHODS_LABEL } from "./payments";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -683,7 +684,7 @@ function fillInstruction(template: string, qty: number, unit: string, twoStory: 
 // edit here updates every quote + PDF + work order footnote.
 export const IN_HOUSE_TERMS = [
   "Price reflects the scope, quantities, and condition observed at this consultation. Conditions discovered once work begins (rot, mold, structural issues, pest damage, code violations, etc.) are not included and will be presented as a separate change order requiring written approval before we proceed.",
-  "Payment: 50% deposit due before work begins, 50% due upon completion.",
+  `Payment: 50% deposit due before work begins, 50% due upon completion. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL}.`,
   "Color-matched paint is matched by visual sample only; minor sheen/tone variance from the original surface is possible due to substrate age, weathering, or manufacturer formulation changes. Client approves the color sample before purchase.",
   "This quote covers in-house labor & materials for the items listed only. It does not include permits, HOA approval, or any item requiring a licensed trade (electrical, plumbing, roofing, HVAC, structural, etc.) — those are quoted separately by our licensed vendor partners and are not performed or warrantied by Brothers Group's in-house crew.",
   "Client provides on-site access, water, and electrical, and secures pets and personal property in work areas. Delays caused by lack of access may incur a rescheduling fee.",
@@ -716,7 +717,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "3. Pricing & Payment",
-    body: "Total price for the Scope of Work is set out in your itemized quote and is part of this Agreement. 50% deposit is due before work begins. The remaining 50% is due upon completion, before the job is considered closed out. Deposits are non-refundable once materials have been purchased or labor has been scheduled with less than 48 hours' notice. Your quote is valid for 14 days from the date it's issued.",
+    body: `Total price for the Scope of Work is set out in your itemized quote and is part of this Agreement. 50% deposit is due before work begins. The remaining 50% is due upon completion, before the job is considered closed out. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL} — no other payment processor is used. Deposits are non-refundable once materials have been purchased or labor has been scheduled with less than 48 hours' notice. Your quote is valid for 14 days from the date it's issued.`,
   },
   {
     heading: "4. If Payment Isn't Made",

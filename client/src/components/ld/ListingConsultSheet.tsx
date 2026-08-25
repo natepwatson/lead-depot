@@ -720,6 +720,65 @@ export function ListingConsultSheet({
     return cid;
   };
 
+  // v20.32.16 — Autosave fix. Previously each step's fields were ONLY
+  // persisted server-side when the agent clicked that step's "Next" button
+  // (handlePrepNext/handleWalkthroughNext/handleCloseNext/handleReviewContract).
+  // If the agent typed data into a step and exited the sheet before hitting
+  // Next, saveSection never fired, so handleResumeConsult (which rebuilds
+  // state ONLY from whatever data.<section> the server has) came back with
+  // that step's fields empty on resume. This debounced (~1.1s) autosave
+  // mirrors each step's exact existing save payload so resuming mid-step no
+  // longer loses typed data, while still leaving the explicit Next-click
+  // saves in place (harmless no-op re-save of the same values).
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (resumePhase !== "ready") return;
+    if (!propertyAddress.trim() && !clientName.trim()) return; // nothing meaningful yet — don't create an empty consult
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      if (step === "prep") {
+        saveSection("prep", { checklist: prepChecklist, fubPersonId }).catch(() => {});
+      } else if (step === "walkthrough") {
+        saveSection("walkthrough", {
+          notes: walkthroughNotes, needsRepairs: needsRepairs === "yes", pillars: pillarFlags,
+          mortgageBalance, buyingToo, buyingNotes, timeline,
+        }).catch(() => {});
+      } else if (step === "close") {
+        saveSection("close", {
+          whereAreWe, recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms,
+        }).catch(() => {});
+      } else if (step === "lockin") {
+        saveSection("lockin", {
+          needsCleaning, forecastStartDate,
+          repairWindowStart: timelineForecast?.repairStart ? toISO(timelineForecast.repairStart) : null,
+          repairWindowEnd: timelineForecast?.repairEnd ? toISO(timelineForecast.repairEnd) : null,
+          forecastCleaningDate: timelineForecast?.cleaningDay ? toISO(timelineForecast.cleaningDay) : null,
+          photosScheduledDate: timelineForecast ? toISO(timelineForecast.photosScheduled) : null,
+          photosBackDate: timelineForecast ? toISO(timelineForecast.photosBack) : null,
+          goLiveDate: timelineForecast ? toISO(timelineForecast.goLive) : null,
+          showingsBeginDate: timelineForecast ? toISO(timelineForecast.showingsBegin) : null,
+          openHouseDate: timelineForecast ? toISO(timelineForecast.openHouse) : null,
+          accessType, accessCode, accessCodeInstructions, keyInLockbox, hasGate, gateCode, gateGuarded, gateAccessInstructions, ownerNames, ownerNames2, owner2Phone, owner2Email,
+          showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail,
+          showingRestrictions,
+          showingContactName: derivedShowingContact.name,
+          accessEmail: derivedShowingContact.email,
+        }).catch(() => {});
+      }
+    }, 1100);
+    return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    step, resumePhase, propertyAddress, clientName, clientEmail, clientPhone,
+    prepChecklist, fubPersonId,
+    walkthroughNotes, needsRepairs, pillarFlags, mortgageBalance, buyingToo, buyingNotes, timeline,
+    whereAreWe, recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms,
+    needsCleaning, forecastStartDate, forecastOverrides,
+    accessType, accessCode, accessCodeInstructions, keyInLockbox, hasGate, gateCode, gateGuarded, gateAccessInstructions,
+    ownerNames, ownerNames2, owner2Phone, owner2Email,
+    showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail, showingRestrictions,
+  ]);
+
   const toggleChip = (state: ChecklistState, setState: (s: ChecklistState) => void, key: string) =>
     setState({ ...state, [key]: !state[key] });
 

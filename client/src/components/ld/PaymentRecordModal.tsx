@@ -7,8 +7,11 @@ import { useEffect, useRef, useState } from "react";
 
 const GOLD = "#c8aa5a";
 
+// v20.32.16 — Alex's confirmed accepted-payment list is Cash, Wire, Check,
+// Money Order, Venmo, Zelle, Apple Pay. Cash App was never on that list and
+// Money Order was missing entirely — swapped to match exactly.
 const METHOD_LABELS: Record<string, string> = {
-  check: "Check", wire: "Wire", zelle: "Zelle", cash_app: "Cash App",
+  check: "Check", wire: "Wire", zelle: "Zelle", money_order: "Money Order",
   apple_pay: "Apple Pay", venmo: "Venmo", cash: "Cash",
 };
 const METHODS = Object.keys(METHOD_LABELS);
@@ -126,7 +129,7 @@ export function PaymentRecordModal({
     if (!companyRepAgentId) return setError("Select the Company Representative.");
     if (!companyRepSignatureName.trim()) return setError("Company Representative signature is required.");
     if (!clientSignatureName.trim()) return setError("Client signature is required.");
-    if (!evidencePhotoUrl) return setError(`Upload evidence: ${method === "cash" ? "a photo of the cash" : method === "check" ? "a photo of the check" : "a screenshot of the confirmation"}.`);
+    if (!evidencePhotoUrl) return setError(`Upload evidence: ${method === "cash" ? "a photo of the cash" : method === "check" ? "a photo of the check" : method === "money_order" ? "a photo of the money order" : "a screenshot of the confirmation"}.`);
     if (!receiptPhotoUrl) return setError("Upload a photo of the fully-signed Payment Received line.");
     setSaving(true);
     try {
@@ -149,7 +152,7 @@ export function PaymentRecordModal({
     }
   }
 
-  const evidenceLabel = method === "cash" ? "Photo of the cash" : method === "check" ? "Photo of the check" : "Screenshot of the confirmation";
+  const evidenceLabel = method === "cash" ? "Photo of the cash" : method === "check" ? "Photo of the check" : method === "money_order" ? "Photo of the money order" : "Screenshot of the confirmation";
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>

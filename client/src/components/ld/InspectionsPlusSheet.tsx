@@ -6,8 +6,9 @@
 // link. Mirrors WriteOfferSheet's dark/gold modal styling and FUB search
 // pattern exactly.
 import { useState, useEffect } from "react";
-import { CheckCircle2, X, Loader2, ClipboardCheck } from "lucide-react";
+import { CheckCircle2, X, Loader2, ClipboardCheck, Eye } from "lucide-react";
 import { FubAddressChooser, type FubAddress } from "./FubAddressChooser";
+import { ClientPreviewModal } from "./ClientPreviewModal";
 
 const fetchJson = async (url: string, opts: RequestInit = {}) => {
   const r = await fetch(url, { credentials: "include", ...opts });
@@ -62,6 +63,7 @@ export function InspectionsPlusSheet({
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   // ── Step 1: client + property ──
   const [clientQuery, setClientQuery] = useState("");
@@ -197,6 +199,7 @@ export function InspectionsPlusSheet({
   const canGoStep2 = clientName.trim().length > 1 && effectiveAddress.trim().length > 3;
   const canSend = canGoStep2 && selectedKeys.size > 0 && clientEmail.trim().length > 3
     && (neededBy === "asap" || neededByDate) && contingencyDate;
+  const canPreview = canGoStep2 && selectedKeys.size > 0;
 
   const handleSend = async () => {
     if (!canSend) {
@@ -453,6 +456,16 @@ export function InspectionsPlusSheet({
               <input type="date" style={inputStyle} value={contingencyDate} onChange={e => setContingencyDate(e.target.value)} />
             </div>
 
+            {canPreview && (
+              <button type="button" onClick={() => setShowPreview(true)} style={{
+                width: "100%", padding: "11px 14px", borderRadius: 10, marginTop: 4, marginBottom: 4,
+                background: "transparent", border: `1px solid ${GOLD}`, color: GOLD, fontSize: 12.5, fontWeight: 700,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}>
+                <Eye size={14} /> Preview Before Sending
+              </button>
+            )}
+
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
               <button type="button" onClick={() => setStep(1)} style={{
                 flex: "0 0 auto", padding: "14px 18px", borderRadius: 10,
@@ -471,6 +484,26 @@ export function InspectionsPlusSheet({
           </>
         )}
       </div>
+      {showPreview && (
+        <ClientPreviewModal
+          kind="inspection"
+          title={`Preview — ${effectiveAddress || "Inspections+ Order"}`}
+          onClose={() => setShowPreview(false)}
+          draftFetcher={() => fetchJson("/api/inspection-orders/preview-draft", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clientName: clientName.trim(),
+              clientEmail: clientEmail.trim(),
+              propertyAddress: effectiveAddress.trim(),
+              neededBy, neededByDate: neededBy === "specific" ? neededByDate : undefined,
+              contingencyExpirationDate: contingencyDate || undefined,
+              itemKeys: Array.from(selectedKeys),
+              vendorId: selectedVendorId || undefined,
+              subjectSqft: subjectSqft || undefined,
+            }),
+          })}
+        />
+      )}
     </div>
   );
 }

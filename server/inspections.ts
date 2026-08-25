@@ -756,6 +756,68 @@ export function registerInspectionsRoutes(app: Express) {
     res.json({ id: orderId });
   });
 
+  // ── Agent: preview a draft order BEFORE it's ever created/sent ──
+  // v20.32.26 — InspectionsPlusSheet creates + sends an order in one atomic
+  // call (there's no draft id to preview beforehand, unlike the Repair
+  // Consult flow). This endpoint takes the exact same payload shape as the
+  // create endpoint above, resolves pricing the identical way, and renders
+  // the identical email via buildInspectionOrderEmailHtml — but never
+  // touches the database. Safe to call repeatedly while the agent is still
+  // filling out the form.
+  app.post("/api/inspection-orders/preview-draft", (req: any, res: Response) => {
+    if (!req.currentAgent) return res.status(401).json({ error: "Not signed in" });
+    const {
+      clientName, clientEmail, propertyAddress, neededBy, neededByDate,
+      contingencyExpirationDate, itemKeys, vendorId, subjectSqft,
+    } = req.body || {};
+    if (!propertyAddress || !String(propertyAddress).trim()) return res.status(400).json({ error: "propertyAddress is required" });
+    if (!Array.isArray(itemKeys) || itemKeys.length === 0) return res.status(400).json({ error: "Select at least one inspection" });
+
+    const resolvedVendorId = vendorId ? Number(vendorId) : null;
+    const resolvedSqft = subjectSqft ? Number(subjectSqft) : null;
+    const hasHi = itemKeys.includes("hi");
+    const catalog = rawDb.prepare(`SELECT * FROM inspection_items WHERE active = 1`).all() as any[];
+    const byKey = new Map(catalog.map(c => [c.key, c]));
+
+    const draftItems: { name: string; client_price: number; is_addon: boolean }[] = [];
+    let total = 0;
+    for (const key of itemKeys) {
+      const cat = byKey.get(key);
+      if (!cat) continue;
+      const context: "standalone" | "bundled_with_hi" = hasHi && BUNDLABLE_WITH_HI_KEYS.has(key) ? "bundled_with_hi" : "standalone";
+      const tier = resolveInspectionPricing(resolvedVendorId, key, context, resolvedSqft);
+      const clientPrice = tier ? tier.clientPrice : cat.client_price;
+      draftItems.push({ name: cat.name, client_price: clientPrice, is_addon: false });
+      total += clientPrice;
+    }
+
+    const fakeOrder = {
+      property_address: String(propertyAddress).trim(),
+      client_name: (clientName || "").trim() || "there",
+      needed_by: neededBy === "specific" ? "specific" : "asap",
+      needed_by_date: neededBy === "specific" ? (neededByDate || null) : null,
+      contingency_expiration_date: contingencyExpirationDate || null,
+      total,
+      sign_token: null,
+    };
+    const emailHtml = buildInspectionOrderEmailHtml(fakeOrder, draftItems, { preview: true });
+
+    res.json({
+      order: {
+        propertyAddress: fakeOrder.property_address, clientName: fakeOrder.client_name,
+        neededBy: fakeOrder.needed_by, neededByDate: fakeOrder.needed_by_date,
+        contingencyExpirationDate: fakeOrder.contingency_expiration_date,
+        status: "draft", total: fakeOrder.total,
+        acceptedSignatureName: null, acceptedAt: null,
+        clientEmail: clientEmail || null,
+      },
+      items: draftItems.map(it => ({ name: it.name, clientPrice: it.client_price, isAddon: it.is_addon })),
+      terms: INSPECTION_TERMS,
+      emailHtml,
+      emailSubject: `Inspections+ Order — ${fakeOrder.property_address}`,
+    });
+  });
+
   // ── Agent: my recent orders (resume/history) — MUST be before "/:id" ──
   app.get("/api/inspection-orders/mine", (req: any, res: Response) => {
     const agentId = parseInt(req.query.agentId as string) || req.currentAgent?.id || null;

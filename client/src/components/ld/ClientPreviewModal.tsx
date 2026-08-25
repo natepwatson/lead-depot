@@ -7,6 +7,13 @@
 //      fed from a fresh server-side snapshot including any disclosures/terms.
 // This is read-only and safe to open at any point in a consult/order's life —
 // it never mutates state, sends anything, or requires a token to exist yet.
+//
+// v20.32.26 — added `draftFetcher`: when a consult/order doesn't have a
+// persisted DB id yet (e.g. the agent-facing InspectionsPlusSheet builds an
+// order and sends it in one atomic create+send call, so there's no id to
+// GET a preview for beforehand), pass a fetcher that POSTs the current
+// in-progress form state to a stateless "preview-draft" endpoint instead.
+// Exactly one of `id` or `draftFetcher` should be provided.
 import { useEffect, useState } from "react";
 import { Loader2, X, Mail, FileText } from "lucide-react";
 import { RepairQuoteBody, type QuoteData } from "../../pages/RepairQuotePage";
@@ -17,21 +24,23 @@ type Kind = "repair" | "inspection";
 type RepairPreview = QuoteData & { emailHtml: string; emailSubject: string };
 type InspectionPreview = OrderData & { emailHtml: string; emailSubject: string };
 
-export function ClientPreviewModal({ kind, id, title, onClose }: { kind: Kind; id: number; title: string; onClose: () => void }) {
+export function ClientPreviewModal({ kind, id, draftFetcher, title, onClose }: { kind: Kind; id?: number; draftFetcher?: () => Promise<any>; title: string; onClose: () => void }) {
   const [tab, setTab] = useState<"email" | "page">("email");
   const [data, setData] = useState<RepairPreview | InspectionPreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const url = kind === "repair" ? `/api/repair-consult/${id}/preview` : `/api/inspection-orders/${id}/preview`;
     setLoading(true); setError("");
-    fetch(url, { credentials: "include" })
-      .then(async r => { const b = await r.json(); if (!r.ok) throw new Error(b?.error || "Failed to build preview"); return b; })
+    const run = draftFetcher
+      ? draftFetcher()
+      : fetch(kind === "repair" ? `/api/repair-consult/${id}/preview` : `/api/inspection-orders/${id}/preview`, { credentials: "include" })
+          .then(async r => { const b = await r.json(); if (!r.ok) throw new Error(b?.error || "Failed to build preview"); return b; });
+    run
       .then(setData)
       .catch(e => setError(e.message || "Failed to build preview"))
       .finally(() => setLoading(false));
-  }, [kind, id]);
+  }, [kind, id, draftFetcher]);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>

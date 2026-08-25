@@ -12,6 +12,7 @@ import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Downl
 import { RepairConsultSheet } from "./RepairConsultSheet";
 import { PdfViewerModal } from "./PdfViewerModal";
 import { PaymentRecordModal } from "./PaymentRecordModal";
+import { ProjectMeetingsModal } from "./ProjectMeetingsModal";
 
 type PricingItem = {
   id: number;
@@ -615,6 +616,7 @@ function ConsultsPanel() {
   const [busy, setBusy] = useState<number | null>(null);
   const [changeOrderFor, setChangeOrderFor] = useState<Consult | null>(null);
   const [paymentFor, setPaymentFor] = useState<Consult | null>(null);
+  const [meetingsFor, setMeetingsFor] = useState<Consult | null>(null);
   // v20.30.0 — admin "Edit" launch point: opens the full RepairConsultSheet
   // pointed at this consult id so Alex can view/edit scope at any point.
   const [editingConsultId, setEditingConsultId] = useState<number | null>(null);
@@ -918,6 +920,10 @@ function ConsultsPanel() {
                         <button disabled={busy === c.id} onClick={() => setPaymentFor(c)} title="Record Payment — Alex, Nate, or Denise only"
                           style={{ ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)" }}><DollarSign size={11} /> Record Payment</button>
                       )}
+                      {(c.status === "accepted" || c.status === "work_order_sent") && (
+                        <button disabled={busy === c.id} onClick={() => setMeetingsFor(c)} title="View/schedule the 3 project meetings — Initial Start, Punch-Out, Final Payment"
+                          style={{ ...actionBtnStyle, color: "#93c5fd", borderColor: "rgba(147,197,253,0.4)", background: "rgba(147,197,253,0.08)" }}>Meetings</button>
+                      )}
                       {c.status === "declined" ? (
                         <button disabled={busy === c.id} onClick={() => reopenConsult(c)} title="Owner changed their mind — reopen this consult"
                           style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.08)" }}><RefreshCw size={11} /> Reopen</button>
@@ -961,6 +967,13 @@ function ConsultsPanel() {
           balanceRemaining={paymentFor.total}
           onClose={() => setPaymentFor(null)}
           onRecorded={() => { setPaymentFor(null); load(); }}
+        />
+      )}
+      {meetingsFor && (
+        <ProjectMeetingsModal
+          consultId={meetingsFor.id}
+          propertyAddress={meetingsFor.property_address}
+          onClose={() => setMeetingsFor(null)}
         />
       )}
     </div>

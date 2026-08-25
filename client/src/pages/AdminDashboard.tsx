@@ -1898,7 +1898,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.32.17
+              v20.32.18
             </p>
           </div>
         </div>
@@ -2867,6 +2867,34 @@ export default function AdminDashboard({
                         >⬇ Export Activity CSV</button>
                       </div>
                       {/* v20.4.2 — Add Agent removed. Agents now come in through Candidates → Approve. */}
+                      {/* v20.32.18 — Quick link to the public /join application page so Alex/Nate can pull it up on the spot to show a prospect. */}
+                      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                        <a
+                          href="/join"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase",
+                            color: "rgba(200,170,90,0.7)", background: "rgba(200,170,90,0.06)",
+                            border: "1px solid rgba(200,170,90,0.2)", borderRadius: 6,
+                            padding: "3px 10px", cursor: "pointer", textDecoration: "none",
+                            display: "inline-flex", alignItems: "center", gap: 5,
+                          }}
+                        >↗ Join Page</a>
+                        <button
+                          onClick={async () => {
+                            const url = `${window.location.origin}/join`;
+                            try { await navigator.clipboard.writeText(url); toast?.({ title: "Join page link copied" }); }
+                            catch { toast?.({ title: "Copy failed — link is /join", variant: "destructive" }); }
+                          }}
+                          style={{
+                            fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase",
+                            color: "rgba(200,170,90,0.7)", background: "rgba(200,170,90,0.06)",
+                            border: "1px solid rgba(200,170,90,0.2)", borderRadius: 6,
+                            padding: "3px 10px", cursor: "pointer",
+                          }}
+                        >⧉ Copy Link</button>
+                      </div>
                     </div>
 
                     {/* v13.1 — Agent Inactivity Alert moved to Admin tab */}

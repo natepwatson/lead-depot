@@ -172,6 +172,12 @@ function roundToNearest5(n: number): number {
 // client_price pair. Returns null when no vendor is selected or no tier
 // row matches — callers should fall back to the flat inspection_items
 // catalog price in that case.
+// v20.32.21 — the only items with a genuine price difference when a full HI
+// is also ordered are WM and 4pt (per Jason Brown's real quote structure).
+// Every other item (wdo, pool, pool_leak, mold_swab, mold_air, sewer_scope,
+// septic) only ever has a 'standalone' tier row seeded for any vendor.
+export const BUNDLABLE_WITH_HI_KEYS = new Set(["wm", "4pt"]);
+
 export function resolveInspectionPricing(vendorId: number | null | undefined, itemKey: string, context: "standalone" | "bundled_with_hi", sqft: number | null | undefined): { vendorCost: number; clientPrice: number; tierId: number } | null {
   if (!vendorId || !sqft || sqft <= 0) return null;
   const row = rawDb.prepare(`
@@ -601,7 +607,7 @@ export function registerInspectionsRoutes(app: Express) {
     const results = itemKeys.map(key => {
       const cat = byKey.get(key);
       if (!cat) return null;
-      const context: "standalone" | "bundled_with_hi" = hasHi && key !== "hi" ? "bundled_with_hi" : "standalone";
+      const context: "standalone" | "bundled_with_hi" = hasHi && BUNDLABLE_WITH_HI_KEYS.has(key) ? "bundled_with_hi" : "standalone";
       const tier = resolveInspectionPricing(vendorId, key, context, sqft);
       return {
         key, name: cat.name,
@@ -723,7 +729,15 @@ export function registerInspectionsRoutes(app: Express) {
     for (const key of itemKeys) {
       const cat = byKey.get(key);
       if (!cat) continue;
-      const context: "standalone" | "bundled_with_hi" = hasHi && key !== "hi" ? "bundled_with_hi" : "standalone";
+      // v20.32.21 — only WM/4pt actually have separate "bundled_with_hi" vs
+      // "standalone" tier rows seeded (they're the only items whose price
+      // legitimately changes when a full HI is also ordered). Every other
+      // item (wdo, pool, pool_leak, mold_swab, mold_air, sewer_scope, septic)
+      // only ever has a 'standalone' row — tagging them 'bundled_with_hi'
+      // just because HI is also in the order caused resolveInspectionPricing
+      // to find no match and silently fall back to the flat catalog default
+      // instead of the real vendor price. Fixed: only WM/4pt get re-tagged.
+      const context: "standalone" | "bundled_with_hi" = hasHi && BUNDLABLE_WITH_HI_KEYS.has(key) ? "bundled_with_hi" : "standalone";
       const tier = resolveInspectionPricing(resolvedVendorId, key, context, resolvedSqft);
       const clientPrice = tier ? tier.clientPrice : cat.client_price;
       const vendorCost = tier ? tier.vendorCost : cat.vendor_cost;

@@ -1,0 +1,29 @@
+{
+  "version": "v20.32.16",
+  "changes": [
+    "Listing Consult autosave fix: previously each step (prep/walkthrough/close/lockin) only persisted to the server when the agent clicked that step's explicit Next button. Exiting mid-step (as Alex reported for the Present & Close page) silently discarded everything typed on that step because handleResumeConsult only rebuilds state from server-saved data.section values. Added a debounced (~1.1s) autosave useEffect, gated on resumePhase===\"ready\" and non-empty client/address, that mirrors each step's exact existing saveSection payload so mid-step exits no longer lose data. Client-only change, same merge-patch endpoint (/api/listing-consult/:id/data) as before.",
+    "Payment methods audit: PAYMENT_METHODS enum and PaymentRecordModal's METHOD_LABELS swapped \"cash_app\" for \"money_order\" so the accepted list exactly matches Alex's confirmed list (Cash, Wire, Check, Money Order, Venmo, Zelle, Apple Pay). Added evidence-label handling for money_order (\"a photo of the money order\"). Added a single-source-of-truth ACCEPTED_PAYMENT_METHODS_LABEL constant in server/payments.ts, referenced from Repair Consult's IN_HOUSE_TERMS + Section 3 of the Repair & Renovation Agreement, and from Inspections+' INSPECTION_TERMS (with added seamless buyer earnest-deposit sequencing language)."
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/payments",
+      "auth": "admin",
+      "body": { "sourceType": "repair_consult", "sourceId": 999999999, "method": "money_order", "amount": 50, "companyRepSignatureName": "QA Test", "clientSignatureName": "QA Test" },
+      "expectStatus": 404,
+      "__note": "sourceId is a nonexistent throwaway id. Expecting 404 'Source record not found' proves money_order passed the PAYMENT_METHODS/amount/signature checks and reached the source lookup (no DB write occurs before that lookup)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/payments",
+      "auth": "admin",
+      "body": { "sourceType": "repair_consult", "sourceId": 999999999, "method": "cash_app", "amount": 50, "companyRepSignatureName": "QA Test", "clientSignatureName": "QA Test" },
+      "expectStatus": 400,
+      "__note": "Same body as above except the retired cash_app method. Expecting 400 (rejected at the PAYMENT_METHODS.includes check, before ever reaching source lookup) proves cash_app is no longer accepted in production."
+    }
+  ],
+  "bundleMustContain": ["money_order", "Money Order"],
+  "bundleMustNotContain": ["cash_app", "Cash App"],
+  "__bundleNotes": "money_order/Money Order and cash_app/Cash App are plain string literals (object keys + comparisons), never minified away, so their presence/absence in the deployed bundle is a reliable signal.",
+  "mathChecks": []
+}

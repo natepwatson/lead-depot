@@ -296,6 +296,18 @@ export function ensureRepairConsultSchema() {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- v20.32.17 — Vendor Quote markup: single admin-editable row (id always 1),
+    -- used across EVERY vendor trade (not just Land Clearing) when an agent
+    -- already has an instant quote from a vendor (texted, emailed, verbal) and
+    -- wants to present a real client price on the spot instead of waiting on a
+    -- formal dispatch. Kept as its own table (not folded into
+    -- land_clearing_settings) since it applies to all ~30 vendor catalog items.
+    CREATE TABLE IF NOT EXISTS vendor_quote_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      markup_pct REAL NOT NULL DEFAULT 0.20,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- v20.32.13 — Smart Data: county-record-sourced (or manually entered)
     -- property characteristics, keyed by property_address. Populated either
     -- by pushing county-record / sales-package data in (source =
@@ -364,6 +376,12 @@ export function ensureRepairConsultSchema() {
   const rciCols = (rawDb.prepare(`PRAGMA table_info(repair_consult_items)`).all() as any[]).map((c: any) => c.name);
   if (!rciCols.includes("change_order_id")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN change_order_id INTEGER").run();
 
+  // v20.32.17 — Vendor Quote Upload: persist the vendor's raw quoted amount
+  // and the markup % actually applied at save-time (so historical rows stay
+  // accurate even if the admin retunes markup_pct later).
+  if (!rciCols.includes("vendor_quote_amount")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN vendor_quote_amount REAL").run();
+  if (!rciCols.includes("markup_pct_applied"))  rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN markup_pct_applied REAL").run();
+
   // v20.32.0 — E-Sign redesign: two-stage signature chain. Homeowner signs
   // first (status -> 'pending_countersignature', reusing accepted_at /
   // accepted_signature_name / accepted_ip / signature_method exactly as
@@ -403,6 +421,12 @@ export function ensureRepairConsultSchema() {
   if (!rcCols.includes("time_block_estimate"))      rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN time_block_estimate TEXT").run();
   if (!rcCols.includes("completed_at"))             rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN completed_at TEXT").run();
   if (!rcCols.includes("completed_by"))             rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN completed_by TEXT").run();
+
+  // v20.32.17 — Vendor Quote Upload: informational grand-total of every
+  // vendor item that has a quoted client price. Deliberately kept OUT of
+  // subtotal/total/deposit_amount/final_amount (standing rule: vendor
+  // pricing is always separate from the Brothers Group in-house total).
+  if (!rcCols.includes("vendor_quoted_subtotal")) rawDb.prepare("ALTER TABLE repair_consults ADD COLUMN vendor_quoted_subtotal REAL NOT NULL DEFAULT 0").run();
 
   rawDb.exec(`
     CREATE TABLE IF NOT EXISTS repair_project_meetings (
@@ -628,6 +652,7 @@ function seedIncentiveSettings() {
 
 function seedLandClearingSettings() {
   rawDb.prepare(`INSERT INTO land_clearing_settings (id) VALUES (1) ON CONFLICT(id) DO NOTHING`).run();
+  rawDb.prepare(`INSERT INTO vendor_quote_settings (id) VALUES (1) ON CONFLICT(id) DO NOTHING`).run();
 }
 
 // v20.32.13 — Land Clearing tiered pricing formula. Below the acreage
@@ -849,13 +874,31 @@ function depositSplitHtml(consult: any): string {
 // (licensed trade) service NAMES ONLY — never a dollar amount, and never
 // summed into Brothers Group's total/deposit math. Standing rule from Alex:
 // vendor pricing is always separate.
+//
+// v20.32.17 — Vendor Quote Upload: when an agent has already uploaded a real
+// vendor-quoted amount for an item (vendor_quote_amount / line_total set),
+// show the computed client price inline next to that item instead of the
+// bare name, and roll a "Vendor-Coordinated Subtotal" line into the block.
+// Items with no quote entered yet still render name-only exactly as before.
 function vendorScopeHtml(vendorItems: any[]): string {
   if (!vendorItems || vendorItems.length === 0) return "";
-  const names = vendorItems.map((v: any) => `<li style="margin-bottom:4px">${v.name}</li>`).join("");
+  let quotedSubtotal = 0;
+  const rows = vendorItems.map((v: any) => {
+    const priced = v.line_total != null && Number(v.line_total) > 0;
+    if (priced) quotedSubtotal += Number(v.line_total);
+    const priceHtml = priced
+      ? `<span style="float:right;font-weight:700;color:${BRAND.black}">$${Number(v.line_total).toLocaleString(undefined,{minimumFractionDigits:2})}</span>`
+      : "";
+    return `<li style="margin-bottom:4px;overflow:hidden">${v.name}${priceHtml}</li>`;
+  }).join("");
+  const subtotalHtml = quotedSubtotal > 0
+    ? `<p style="margin:8px 0 0;font-size:12px;color:${BRAND.black};font-weight:700">Vendor-Coordinated Subtotal: $${quotedSubtotal.toLocaleString(undefined,{minimumFractionDigits:2})}</p>`
+    : "";
   return `
   <div style="margin-top:16px;padding:14px 16px;background:${BRAND.lightGray};border-radius:8px">
     <p style="margin:0 0 6px;font-size:11px;color:${BRAND.gray};text-transform:uppercase;letter-spacing:0.06em;font-weight:700">Also Coordinating For You (Licensed Trade — One Stop Shop)</p>
-    <ul style="margin:0;padding-left:18px;font-size:12.5px;color:#333">${names}</ul>
+    <ul style="margin:0;padding-left:18px;font-size:12.5px;color:#333">${rows}</ul>
+    ${subtotalHtml}
     <p style="margin:8px 0 0;font-size:10.5px;color:${BRAND.gray};font-style:italic">These are quoted and billed separately by our vetted vendor partners — not included in the Brothers Group total above.</p>
   </div>`;
 }
@@ -1371,7 +1414,14 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   if (vendorItems.length > 0 && y > 95) {
     page.drawText("ALSO COORDINATING (licensed trade — quoted separately by our vendor partners):", { x: 38, y, size: 7.5, font: fontBold, color: gray });
     y -= 10;
-    const vendorNames = vendorItems.map((v: any) => v.name).join("  ·  ");
+    // v20.32.17 — show a computed client price inline for any vendor item
+    // that already has an uploaded vendor quote (line_total set); untouched
+    // items still render name-only exactly as before.
+    const vendorNames = vendorItems.map((v: any) =>
+      v.line_total != null && Number(v.line_total) > 0
+        ? `${v.name} ($${Number(v.line_total).toLocaleString(undefined,{minimumFractionDigits:0})})`
+        : v.name
+    ).join("  ·  ");
     for (const line of wrapText(vendorNames, font, 7.5, 536).slice(0, 2)) {
       page.drawText(line, { x: 38, y, size: 7.5, font, color: rgb(0.3, 0.3, 0.3) });
       y -= 9;
@@ -1782,7 +1832,12 @@ export async function generateWorkOrderPdf(consultId: number): Promise<string> {
     page.drawText("Vendor-Coordinated (billed separately — confirm with vendor, not this checklist)", { x: 38, y, size: 8.5, font: fontBold, color: gray });
     y -= 12;
     for (const v of vendorItems) {
-      page.drawText(`\u2022 ${v.name}`, { x: 46, y, size: 8, font: fontItalic, color: gray });
+      // v20.32.17 — internal work order still shows a computed client price
+      // when a vendor quote has already been uploaded, so the team has it
+      // on hand without digging back into the app.
+      const priced = v.line_total != null && Number(v.line_total) > 0;
+      const label = priced ? `\u2022 ${v.name} — $${Number(v.line_total).toLocaleString(undefined,{minimumFractionDigits:2})}` : `\u2022 ${v.name}`;
+      page.drawText(label, { x: 46, y, size: 8, font: fontItalic, color: gray });
       y -= 11;
     }
   }
@@ -2220,6 +2275,23 @@ export function registerRepairConsultRoutes(app: Express) {
     });
   });
 
+  // ── v20.32.17 — Vendor Quote markup settings (read for any signed-in
+  // agent — needed by the checklist's live client-price preview) ──
+  app.get("/api/vendor-quote-settings", (req: any, res: Response) => {
+    const row = rawDb.prepare(`SELECT * FROM vendor_quote_settings WHERE id = 1`).get() as any;
+    res.json({ markupPct: row.markup_pct });
+  });
+
+  // ── v20.32.17 — Admin: update Vendor Quote markup settings ──
+  app.patch("/api/admin/vendor-quote-settings", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const { markupPct } = req.body || {};
+    if (markupPct === undefined) return res.status(400).json({ error: "markupPct is required" });
+    rawDb.prepare(`UPDATE vendor_quote_settings SET markup_pct = ?, updated_at = datetime('now') WHERE id = 1`).run(Number(markupPct));
+    const row = rawDb.prepare(`SELECT * FROM vendor_quote_settings WHERE id = 1`).get() as any;
+    res.json({ markupPct: row.markup_pct });
+  });
+
   // ── v20.32.13 — Land Clearing acreage-based price estimate. Pulls acreage
   // from Smart Data for the given property if not passed explicitly, applies
   // the tiered formula, and returns both vendor cost and client price as a
@@ -2472,14 +2544,20 @@ export function registerRepairConsultRoutes(app: Express) {
     const del = rawDb.prepare(`DELETE FROM repair_consult_items WHERE consult_id = ?`);
     const insert = rawDb.prepare(`
       INSERT INTO repair_consult_items
-        (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order, vendor_quote_amount, markup_pct_applied)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const catalogStmt = rawDb.prepare(`SELECT * FROM repair_items WHERE key = ? AND active = 1`);
+    // v20.32.17 — Vendor Quote Upload: markup applied to any vendor item that
+    // arrives with a raw vendor-quoted amount (agent already has an instant
+    // quote from the vendor and wants an on-the-spot client price).
+    const vqSettings = rawDb.prepare(`SELECT * FROM vendor_quote_settings WHERE id = 1`).get() as any;
+    const vqMarkupPct = Number(vqSettings?.markup_pct) || 0;
 
     let subtotal = 0;
     let packageEligibleSubtotal = 0;
     let anyTwoStory = 0;
+    let vendorQuotedSubtotal = 0;
     const tx = rawDb.transaction(() => {
       del.run(consultId);
       for (const raw of items) {
@@ -2489,16 +2567,30 @@ export function registerRepairConsultRoutes(app: Express) {
         const twoStory = !!raw.twoStory && !!cat.two_story_eligible;
         if (twoStory) anyTwoStory = 1;
         let lineTotal: number | null = null;
+        let unitRate: number | null = null;
+        let vendorQuoteAmount: number | null = null;
+        let markupPctApplied: number | null = null;
         if (cat.category === "in_house") {
           lineTotal = computeLineTotal(cat.default_rate || 0, qty, cat.min_charge || 0, twoStory, !!cat.two_story_eligible);
+          unitRate = cat.default_rate;
           subtotal += lineTotal;
           if (pkg && pkgItemKeys.includes(cat.key)) packageEligibleSubtotal += lineTotal;
+        } else if (cat.category === "vendor" && raw.vendorQuoteAmount !== undefined && raw.vendorQuoteAmount !== null && raw.vendorQuoteAmount !== "") {
+          // Vendor-quoted client price is tracked SEPARATELY from
+          // subtotal/total/deposit math (standing rule: vendor pricing is
+          // always separate) — it only feeds vendorQuotedSubtotal below.
+          vendorQuoteAmount = Number(raw.vendorQuoteAmount) || 0;
+          markupPctApplied = vqMarkupPct;
+          lineTotal = Math.round(vendorQuoteAmount * (1 + markupPctApplied) * 100) / 100;
+          unitRate = vendorQuoteAmount;
+          vendorQuotedSubtotal += lineTotal;
         }
         const instruction = fillInstruction(cat.instruction || cat.name, qty, cat.unit, twoStory);
         insert.run(
           consultId, cat.key, cat.category, cat.trade, cat.name, cat.unit, qty,
-          cat.category === "in_house" ? cat.default_rate : null, twoStory ? 1 : 0, lineTotal,
-          instruction, JSON.stringify(raw.photos || []), raw.measurementNotes || null, cat.sequence_order
+          unitRate, twoStory ? 1 : 0, lineTotal,
+          instruction, JSON.stringify(raw.photos || []), raw.measurementNotes || null, cat.sequence_order,
+          vendorQuoteAmount, markupPctApplied
         );
       }
     });
@@ -2515,11 +2607,11 @@ export function registerRepairConsultRoutes(app: Express) {
     rawDb.prepare(`
       UPDATE repair_consults SET subtotal = ?, total = ?, two_story = ?,
         package_discount_pct = ?, package_discount_amount = ?, free_item_applied_key = ?,
-        deposit_amount = ?, final_amount = ?, updated_at = datetime('now')
+        deposit_amount = ?, final_amount = ?, vendor_quoted_subtotal = ?, updated_at = datetime('now')
       WHERE id = ?
-    `).run(subtotal, total, anyTwoStory, discountPct, discountAmount, freeItemKey, total / 2, total / 2, consultId);
+    `).run(subtotal, total, anyTwoStory, discountPct, discountAmount, freeItemKey, total / 2, total / 2, vendorQuotedSubtotal, consultId);
 
-    res.json({ ok: true, subtotal, discountAmount, total, freeItemKey });
+    res.json({ ok: true, subtotal, discountAmount, total, freeItemKey, vendorQuotedSubtotal });
   });
 
   // ── Set start window / specific date+time ──

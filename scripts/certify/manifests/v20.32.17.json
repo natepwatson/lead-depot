@@ -1,0 +1,39 @@
+{
+  "version": "v20.32.17",
+  "changes": [
+    "Vendor Quote Upload: for any vendor-trade item on Repair Consult (buyer or seller side), the agent can now toggle \"Already have a vendor quote?\", type in the raw amount the vendor already texted/quoted, optionally attach a photo of that quote, and instantly see the computed client price (vendor amount + admin-configurable markup %, default 20%) — no waiting on a formal dispatch round-trip. Real-world case: Ross Woods / 0 Charles Avenue Jacksonville land-clearing quote from vendor Alex.",
+    "New vendor_quote_settings table + GET /api/vendor-quote-settings + PATCH /api/admin/vendor-quote-settings (markupPct, default 0.20).",
+    "repair_consult_items gained vendor_quote_amount + markup_pct_applied columns; repair_consults gained vendor_quoted_subtotal column. POST /api/repair-consult/:id/items now computes and persists these for any vendor item where the agent supplied vendorQuoteAmount, and returns vendorQuotedSubtotal in the response.",
+    "Client: RepairConsultSheet's vendor item cards render the toggle, $ input, live client-price preview, and photo attach (reuses the existing /api/repair-consult/:id/photo pipeline with kind: 'vendor_quote'). Sticky checklist total bar and Review step summary card each gained a 'Vendor-Coordinated' line plus a Grand Total line when both in-house and vendor-quoted amounts are present. Resume/load-existing-consult path restores hasVendorQuote/vendorQuoteAmount per item.",
+    "Vendor-facing scope emails (vendorScopeHtml, feeding all 3 vendor-email call sites) and both PDF exports (compact quote + internal work order) now show the priced amount inline for any vendor item that has a vendor quote on file, plus a Vendor-Coordinated Subtotal line.",
+    "Deliberately unchanged: public client-facing accept-page endpoint (GET /api/repair-quote/:token) still returns vendor items as name-only, no price shown to the client on that page.",
+    "Deliberately out of scope: InspectionsPlusSheet.tsx untouched — feature is repair-trades-only per explicit request wording."
+  ],
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/vendor-quote-settings",
+      "auth": "none",
+      "expectStatus": 200,
+      "expectKeys": ["markupPct"],
+      "__note": "Confirms the settings row was seeded and the GET endpoint is registered and returns the expected shape."
+    }
+  ],
+  "bundleMustContain": ["Already have a vendor quote", "Vendor-Coordinated", "vendor_quote"],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "'Already have a vendor quote' and 'Vendor-Coordinated' are literal UI copy strings that survive minification unchanged. 'vendor_quote' appears in the kind literal passed to the photo upload endpoint.",
+  "mathChecks": [
+    {
+      "name": "health endpoint reports v20.32.17",
+      "path": "/api/health",
+      "auth": "none",
+      "expr": "body.version === 'v20.32.17'"
+    },
+    {
+      "name": "vendor-quote-settings markupPct is a valid fraction between 0 and 1",
+      "path": "/api/vendor-quote-settings",
+      "auth": "none",
+      "expr": "typeof body.markupPct === 'number' && body.markupPct >= 0 && body.markupPct <= 1"
+    }
+  ]
+}

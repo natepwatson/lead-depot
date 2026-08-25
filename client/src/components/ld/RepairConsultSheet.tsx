@@ -25,6 +25,11 @@ type RepairItem = {
 type CheckedState = {
   checked: boolean; quantity: string; twoStory: boolean;
   photos: string[]; measurementNotes: string;
+  // v20.32.17 — Vendor Quote Upload: agent already has an instant quote from
+  // the vendor (texted, emailed, verbal) and wants an on-the-spot client
+  // price without waiting on a formal dispatch. Only meaningful on vendor
+  // (category === "vendor") items — ignored for in-house items.
+  hasVendorQuote: boolean; vendorQuoteAmount: string;
 };
 
 // v20.19.0 — bundled discount packages. itemKeys are auto-checked in-house
@@ -472,7 +477,7 @@ export function RepairConsultSheet({
   // scheduling happens later from the admin panel once deposit is received.
 
   const [submittingItems, setSubmittingItems] = useState(false);
-  const [totals, setTotals] = useState<{ subtotal: number; total: number; discountAmount?: number; freeItemKey?: string | null } | null>(null);
+  const [totals, setTotals] = useState<{ subtotal: number; total: number; discountAmount?: number; freeItemKey?: string | null; vendorQuotedSubtotal?: number } | null>(null);
   const [quoteResult, setQuoteResult] = useState<{ pdfUrl: string; agreementPdfUrl: string; acceptUrl: string; total: number } | null>(null);
   // v20.31.0 — in-app PDF viewer state. Replaces target="_blank" links,
   // which get stuck with no way back when the app runs as an installed
@@ -649,6 +654,14 @@ export function RepairConsultSheet({
     fetchJson("/api/repair-consult/incentive-settings").then(setIncentiveSettings).catch(() => {});
   }, []);
 
+  // v20.32.17 — Vendor Quote Upload: markup % applied to any vendor item
+  // where the agent has already entered a vendor-quoted amount. Fetched once
+  // so the checklist can show a live client-price preview as the agent types.
+  const [vendorQuoteSettings, setVendorQuoteSettings] = useState<{ markupPct: number }>({ markupPct: 0.20 });
+  useEffect(() => {
+    fetchJson("/api/vendor-quote-settings").then(setVendorQuoteSettings).catch(() => {});
+  }, []);
+
   // v20.21.0 — Sticky Live Total. Mirrors server computeLineTotal exactly
   // (rate × qty, +25% two-story surcharge if eligible, floored at min_charge)
   // plus the same package-discount-on-eligible-subtotal logic, so the agent
@@ -680,8 +693,21 @@ export function RepairConsultSheet({
     const threshold = incentiveSettings.active ? incentiveSettings.thresholdAmount || 0 : null;
     const freeItemHit = threshold !== null && total >= threshold;
     const remainingToFreeItem = threshold !== null && !freeItemHit ? Math.max(threshold - total, 0) : 0;
-    return { subtotal, discountAmount, total, threshold, freeItemHit, remainingToFreeItem };
-  }, [checked, inHouseItems, selectedPackageKey, packages, incentiveSettings]);
+
+    // v20.32.17 — Vendor Quote Upload: live client-price preview for any
+    // checked vendor item that already has an uploaded vendor quote amount.
+    // Deliberately kept OUT of subtotal/total above (standing rule: vendor
+    // pricing is always separate) — surfaced as its own field.
+    let vendorQuotedSubtotal = 0;
+    for (const item of vendorItems) {
+      const st = checked[item.key];
+      if (!st?.checked || !st.hasVendorQuote) continue;
+      const amt = Number(st.vendorQuoteAmount) || 0;
+      if (amt > 0) vendorQuotedSubtotal += Math.round(amt * (1 + (vendorQuoteSettings.markupPct || 0)) * 100) / 100;
+    }
+
+    return { subtotal, discountAmount, total, threshold, freeItemHit, remainingToFreeItem, vendorQuotedSubtotal };
+  }, [checked, inHouseItems, vendorItems, selectedPackageKey, packages, incentiveSettings, vendorQuoteSettings]);
 
   const groupedByTrade = (items: RepairItem[]) => {
     const map = new Map<string, RepairItem[]>();
@@ -692,7 +718,7 @@ export function RepairConsultSheet({
     return [...map.entries()];
   };
 
-  const DEFAULT_ITEM_STATE: CheckedState = { checked: false, quantity: "1", twoStory: false, photos: [], measurementNotes: "" };
+  const DEFAULT_ITEM_STATE: CheckedState = { checked: false, quantity: "1", twoStory: false, photos: [], measurementNotes: "", hasVendorQuote: false, vendorQuoteAmount: "" };
   const setItemState = (key: string, patch: Partial<CheckedState>) => {
     setChecked(prev => {
       const base = prev[key] || DEFAULT_ITEM_STATE;
@@ -807,6 +833,12 @@ export function RepairConsultSheet({
 
   const renderVendorCard = (it: RepairItem) => {
     const st = checked[it.key];
+    // v20.32.17 — Vendor Quote Upload: live client price = vendor's raw
+    // quoted amount + admin-set markup. Mirrors the exact same formula the
+    // server persists on save (server/repairConsult.ts computeLineTotal
+    // path for category === "vendor").
+    const quoteAmt = Number(st?.vendorQuoteAmount) || 0;
+    const clientPrice = quoteAmt > 0 ? quoteAmt * (1 + (vendorQuoteSettings.markupPct || 0)) : 0;
     return (
       <div key={it.key} style={cardStyle}>
         <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
@@ -817,6 +849,49 @@ export function RepairConsultSheet({
           <div style={{ marginTop: 10, paddingLeft: 28 }}>
             <input placeholder="Notes for the vendor (scope, measurements, etc.)" value={st.measurementNotes} onChange={e => setItemState(it.key, { measurementNotes: e.target.value })}
               style={{ ...inputStyle, fontSize: 12.5 }} />
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12, color: "rgba(255,255,255,0.6)", cursor: "pointer" }}>
+              <input type="checkbox" checked={!!st.hasVendorQuote} onChange={e => setItemState(it.key, { hasVendorQuote: e.target.checked })} style={{ accentColor: GOLD }} />
+              Already have a vendor quote?
+            </label>
+
+            {st.hasVendorQuote && (
+              <div style={{ marginTop: 8, padding: 10, borderRadius: 8, background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.2)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>$</span>
+                  <input type="number" min={0} step="any" placeholder="Vendor's quoted amount" value={st.vendorQuoteAmount}
+                    onChange={e => setItemState(it.key, { vendorQuoteAmount: e.target.value })}
+                    style={{ ...inputStyle, fontSize: 12.5, width: 150 }} />
+                </div>
+                {clientPrice > 0 && (
+                  <p style={{ fontSize: 12, color: "#7ed49a", fontWeight: 700, margin: "8px 0 0" }}>
+                    Client price: ${clientPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{Math.round((vendorQuoteSettings.markupPct || 0) * 100)}% our fee)</span>
+                  </p>
+                )}
+
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, padding: "6px 10px", borderRadius: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 11.5, cursor: "pointer" }}>
+                  {uploadingVendorQuoteKey === it.key ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
+                  {uploadingVendorQuoteKey === it.key ? "Uploading\u2026" : "Attach vendor quote photo"}
+                  <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploadingVendorQuoteKey === it.key}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleVendorQuotePhotoUpload(it.key, f); e.target.value = ""; }} />
+                </label>
+
+                {(st.photos || []).length > 0 && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                    {st.photos.map((url, i) => (
+                      <div key={i} style={{ position: "relative" }}>
+                        <img src={url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: "cover", display: "block" }} />
+                        <button onClick={() => setItemState(it.key, { photos: st.photos.filter((_, idx) => idx !== i) })}
+                          style={{ position: "absolute", top: -5, right: -5, width: 16, height: 16, borderRadius: 8, background: "#ff5a5a", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                          <X size={9} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -892,12 +967,14 @@ export function RepairConsultSheet({
             twoStory: !!it.two_story,
             photos,
             measurementNotes: it.measurement_notes || "",
+            hasVendorQuote: it.vendor_quote_amount != null,
+            vendorQuoteAmount: it.vendor_quote_amount != null ? String(it.vendor_quote_amount) : "",
           };
         }
         setChecked(nextChecked);
       }
 
-      if (d.subtotal || d.total) setTotals({ subtotal: d.subtotal || 0, total: d.total || 0 });
+      if (d.subtotal || d.total) setTotals({ subtotal: d.subtotal || 0, total: d.total || 0, vendorQuotedSubtotal: d.vendor_quoted_subtotal || 0 });
 
       if (d.quote_token) {
         // v20.30.0 — Quote already generated — jump to Review with the
@@ -945,6 +1022,28 @@ export function RepairConsultSheet({
       else setGalleryUrls(prev => [...prev, { url: d.url, tag: galleryTagMode }]);
     } catch (e: any) { setError(e.message || "Photo upload failed. Check your connection and try again."); }
     finally { setBusy(false); }
+  };
+
+  // v20.32.17 — Vendor Quote Upload: attach a photo of the raw vendor quote
+  // (text message screenshot, emailed PDF-as-photo, etc.) to a checked
+  // vendor item. Reuses the same photo pipeline as handlePhotoPick but posts
+  // kind: "vendor_quote" (server just writes the file + returns a URL for
+  // that kind — no side effects on hero/gallery state) and appends the URL
+  // into that item's own photos array instead of global hero/gallery state.
+  const [uploadingVendorQuoteKey, setUploadingVendorQuoteKey] = useState<string | null>(null);
+  const handleVendorQuotePhotoUpload = async (itemKey: string, file: File) => {
+    setUploadingVendorQuoteKey(itemKey);
+    try {
+      const id = await ensureConsult();
+      const conv = await fileToImageData(file);
+      if (!conv) { setError("Couldn't read that photo. Try another."); return; }
+      const d = await fetchJson(`/api/repair-consult/${id}/photo`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageData: conv.imageData, mimeType: conv.mimeType, kind: "vendor_quote" }),
+      });
+      setItemState(itemKey, { photos: [...(checked[itemKey]?.photos || []), d.url] });
+    } catch (e: any) { setError(e.message || "Vendor quote photo upload failed. Check your connection and try again."); }
+    finally { setUploadingVendorQuoteKey(null); }
   };
 
   // Bulk end-of-walkthrough upload — agent shoots photos with the phone's own
@@ -1012,12 +1111,13 @@ export function RepairConsultSheet({
       .map(([itemKey, v]) => ({
         itemKey, quantity: Number(v.quantity) || 1, twoStory: v.twoStory,
         photos: v.photos, measurementNotes: v.measurementNotes || undefined,
+        vendorQuoteAmount: v.hasVendorQuote && Number(v.vendorQuoteAmount) > 0 ? Number(v.vendorQuoteAmount) : undefined,
       }));
     if (items.length === 0) throw new Error("Check off at least one repair item before continuing.");
     const d = await fetchJson(`/api/repair-consult/${id}/items`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }),
     });
-    setTotals({ subtotal: d.subtotal, total: d.total, discountAmount: d.discountAmount, freeItemKey: d.freeItemKey });
+    setTotals({ subtotal: d.subtotal, total: d.total, discountAmount: d.discountAmount, freeItemKey: d.freeItemKey, vendorQuotedSubtotal: d.vendorQuotedSubtotal });
     return d;
   };
 
@@ -1431,21 +1531,42 @@ export function RepairConsultSheet({
                 ))}
               </>
             )}
-            {liveTotals.subtotal > 0 && (
+            {(liveTotals.subtotal > 0 || liveTotals.vendorQuotedSubtotal > 0) && (
               <div style={{
                 position: "sticky", bottom: 8, zIndex: 5, marginTop: 12, marginBottom: 4,
                 background: "rgba(20,18,14,0.97)", border: `1px solid rgba(200,170,90,0.4)`, borderRadius: 12,
                 padding: "10px 14px", boxShadow: "0 6px 20px rgba(0,0,0,0.5)", backdropFilter: "blur(6px)",
               }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", fontWeight: 600 }}>
-                    In-House Subtotal{!!liveTotals.discountAmount && ` \u2212 $${liveTotals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} discount`}
-                  </span>
-                  <span style={{ fontSize: 17, fontWeight: 800, color: GOLD }}>
-                    ${liveTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
+                {liveTotals.subtotal > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", fontWeight: 600 }}>
+                      In-House Subtotal{!!liveTotals.discountAmount && ` \u2212 $${liveTotals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} discount`}
+                    </span>
+                    <span style={{ fontSize: 17, fontWeight: 800, color: GOLD }}>
+                      ${liveTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
+                {liveTotals.vendorQuotedSubtotal > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: liveTotals.subtotal > 0 ? 6 : 0 }}>
+                    <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", fontWeight: 600 }}>
+                      Vendor-Coordinated
+                    </span>
+                    <span style={{ fontSize: 17, fontWeight: 800, color: "#7ed49a" }}>
+                      ${liveTotals.vendorQuotedSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
+                {liveTotals.subtotal > 0 && liveTotals.vendorQuotedSubtotal > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+                    <span style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Grand Total</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
+                      ${(liveTotals.total + liveTotals.vendorQuotedSubtotal).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
                 {liveTotals.threshold !== null && (
+
                   <p style={{ fontSize: 10.5, margin: "4px 0 0", color: liveTotals.freeItemHit ? "#7ed49a" : "rgba(255,255,255,0.4)", fontWeight: liveTotals.freeItemHit ? 700 : 500 }}>
                     {liveTotals.freeItemHit
                       ? `\u2713 ${incentiveSettings.label || "Sign-today incentive"} unlocked`
@@ -1665,22 +1786,38 @@ export function RepairConsultSheet({
               </div>
             )}
 
-            {liveTotals.subtotal > 0 && (
+            {(liveTotals.subtotal > 0 || liveTotals.vendorQuotedSubtotal > 0) && (
               <div style={{ ...cardStyle, background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.25)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ fontSize: 12.5, color: "rgba(255,255,255,0.6)" }}>In-House Subtotal</span>
-                  <span style={{ fontSize: 12.5, color: "#fff" }}>${liveTotals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                </div>
+                {liveTotals.subtotal > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 12.5, color: "rgba(255,255,255,0.6)" }}>In-House Subtotal</span>
+                    <span style={{ fontSize: 12.5, color: "#fff" }}>${liveTotals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
                 {!!liveTotals.discountAmount && (
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                     <span style={{ fontSize: 12.5, color: "#7ed49a" }}>Package Discount{selectedPackageKey ? ` (${packages.find(p => p.key === selectedPackageKey)?.name || selectedPackageKey})` : ""}</span>
                     <span style={{ fontSize: 12.5, color: "#7ed49a" }}>−${liveTotals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Total</span>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: GOLD }}>${liveTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                </div>
+                {liveTotals.subtotal > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Total</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: GOLD }}>${liveTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+                {liveTotals.vendorQuotedSubtotal > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: liveTotals.subtotal > 0 ? 10 : 0, paddingTop: liveTotals.subtotal > 0 ? 10 : 0, borderTop: liveTotals.subtotal > 0 ? "1px solid rgba(255,255,255,0.15)" : "none" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#7ed49a" }}>Vendor-Coordinated</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#7ed49a" }}>${liveTotals.vendorQuotedSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+                {liveTotals.subtotal > 0 && liveTotals.vendorQuotedSubtotal > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Grand Total</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>${(liveTotals.total + liveTotals.vendorQuotedSubtotal).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
                 {liveTotals.freeItemHit && incentiveSettings.freeItemKey && (
                   <p style={{ fontSize: 11.5, color: GOLD, marginTop: 8, fontWeight: 600 }}>
                     ✓ Free: {catalog.find(i => i.key === incentiveSettings.freeItemKey)?.name || incentiveSettings.freeItemKey} (sign-today incentive)

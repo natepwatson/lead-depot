@@ -8,12 +8,12 @@ import { useEffect, useState } from "react";
 import { useParams } from "wouter";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
-type QuoteItem = {
+export type QuoteItem = {
   name: string; quantity: number; unit: string; line_total: number | null; two_story: number;
 };
-type VendorItem = { name: string };
-type AgreementSection = { heading: string; body: string };
-type QuoteData = {
+export type VendorItem = { name: string };
+export type AgreementSection = { heading: string; body: string };
+export type QuoteData = {
   consult: {
     propertyAddress: string; clientName: string | null; heroPhotoUrl: string | null;
     subtotal: number; total: number; depositAmount: number; finalAmount: number;
@@ -31,83 +31,26 @@ type QuoteData = {
 const APP_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
 const resolveUrl = (u: string | null) => !u ? null : (u.startsWith("http") ? u : APP_ORIGIN + u);
 
-export default function RepairQuotePage() {
-  const params = useParams<{ token: string }>();
-  const [data, setData] = useState<QuoteData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [signerName, setSignerName] = useState("");
-  const [localStatus, setLocalStatus] = useState<string | null>(null);
-  const [accepting, setAccepting] = useState(false);
-  const [declining, setDeclining] = useState(false);
-
-  useEffect(() => {
-    fetch(`/api/repair-quote/${params.token}`)
-      .then(async r => { const b = await r.json(); if (!r.ok) throw new Error(b?.error || "Quote not found"); return b; })
-      .then((d: QuoteData) => setData(d))
-      .catch(e => setError(e.message || "This quote link is invalid or has expired."))
-      .finally(() => setLoading(false));
-  }, [params.token]);
-
-  const effectiveStatus = localStatus || data?.consult.status || null;
-
-  const handleAccept = async () => {
-    if (!signerName.trim()) { setError("Please type your full name to sign."); return; }
-    setAccepting(true); setError("");
-    try {
-      const r = await fetch(`/api/repair-quote/${params.token}/accept`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signatureName: signerName.trim(), method: "e_sign" }),
-      });
-      const b = await r.json();
-      if (!r.ok) throw new Error(b?.error || "Failed to accept quote");
-      setLocalStatus("pending_countersignature");
-    } catch (e: any) { setError(e.message || "Something went wrong. Please try again or call us."); }
-    finally { setAccepting(false); }
-  };
-
-  const handleDecline = async () => {
-    if (!window.confirm("Are you sure you want to decline this proposal?")) return;
-    const reason = window.prompt("Optional — let us know why (or leave blank):") || "";
-    setDeclining(true); setError("");
-    try {
-      const r = await fetch(`/api/repair-quote/${params.token}/decline`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: reason.trim() }),
-      });
-      const b = await r.json();
-      if (!r.ok) throw new Error(b?.error || "Failed to decline quote");
-      setLocalStatus("declined");
-    } catch (e: any) { setError(e.message || "Something went wrong. Please try again or call us."); }
-    finally { setDeclining(false); }
-  };
-
-  if (loading) {
-    return (
-      <div style={{ minHeight: "100dvh", background: "#f4f4f2", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Loader2 size={26} className="animate-spin" style={{ color: "#1a1a1a" }} />
-      </div>
-    );
-  }
-
-  if (error && !data) {
-    return (
-      <div style={{ minHeight: "100dvh", background: "#f4f4f2", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <div style={{ maxWidth: 420, textAlign: "center", fontFamily: "Helvetica,Arial,sans-serif" }}>
-          <h2 style={{ color: "#1a1a1a" }}>Quote Not Found</h2>
-          <p style={{ color: "#555", fontSize: 14 }}>{error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!data) return null;
+// v20.32.25 — presentational body extracted so the admin "Preview" modal
+// (RepairPricingVendorPanel) can render the EXACT same JSX the client sees
+// on the real /#/repair-quote/:token page — zero drift, one source of truth.
+// When previewMode is true, the sign/decline form is replaced with a plain
+// notice; accept/decline handlers are optional and unused in that mode.
+export function RepairQuoteBody({
+  data, effectiveStatus, error, signerName = "", setSignerName, accepting, declining,
+  onAccept, onDecline, previewMode,
+}: {
+  data: QuoteData; effectiveStatus: string | null; error?: string;
+  signerName?: string; setSignerName?: (v: string) => void;
+  accepting?: boolean; declining?: boolean;
+  onAccept?: () => void; onDecline?: () => void; previewMode?: boolean;
+}) {
   const { consult, items, agreementSections, vendorItems } = data;
   const hero = resolveUrl(consult.heroPhotoUrl);
   const agreementUrl = resolveUrl(consult.agreementPdfUrl || null);
 
   return (
-    <div style={{ minHeight: "100dvh", background: "#eeeeec", fontFamily: "Helvetica,Arial,sans-serif", padding: "0 0 60px" }}>
+    <div style={{ minHeight: previewMode ? "auto" : "100dvh", background: "#eeeeec", fontFamily: "Helvetica,Arial,sans-serif", padding: "0 0 60px" }}>
       <div style={{ maxWidth: 640, margin: "0 auto", background: "#fff", boxShadow: "0 4px 30px rgba(0,0,0,0.08)" }}>
         <div style={{ background: "#111", padding: "26px 32px", textAlign: "center" }}>
           <p style={{ color: "#fff", fontSize: 20, fontWeight: 700, letterSpacing: "0.06em", margin: 0 }}>BROTHERS GROUP</p>
@@ -189,7 +132,11 @@ export default function RepairQuotePage() {
             </div>
           )}
 
-          {effectiveStatus === "accepted" ? (
+          {previewMode ? (
+            <div style={{ background: "#eef2fb", border: "1px solid #c7d4ef", borderRadius: 8, padding: "14px 16px", fontSize: 13, color: "#2a3f6b" }}>
+              <strong>Preview only</strong> — this is exactly what {consult.clientName || "the client"} will see and sign. The name field and Accept/Decline buttons are disabled here.
+            </div>
+          ) : effectiveStatus === "accepted" ? (
             <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(30,150,90,0.08)", color: "#1e7a45", padding: "14px 16px", borderRadius: 8, fontSize: 14 }}>
               <CheckCircle2 size={20} /> Fully executed — thank you! We'll be in touch to confirm your start date.
             </div>
@@ -206,15 +153,15 @@ export default function RepairQuotePage() {
               {error && <p style={{ color: "#c0392b", fontSize: 12.5, marginBottom: 8 }}>{error}</p>}
               <label style={{ fontSize: 11.5, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Type your full name to accept & e-sign</label>
               <input
-                value={signerName} onChange={e => setSignerName(e.target.value)} placeholder="Full legal name"
+                value={signerName} onChange={e => setSignerName?.(e.target.value)} placeholder="Full legal name"
                 style={{ width: "100%", padding: "12px 14px", borderRadius: 8, border: "1px solid #ccc", fontSize: 14, marginBottom: 12, boxSizing: "border-box" }}
               />
               <button
-                onClick={handleAccept} disabled={accepting || declining}
+                onClick={onAccept} disabled={accepting || declining}
                 style={{ width: "100%", padding: "14px 18px", borderRadius: 8, background: "#111", color: "#fff", border: "none", fontSize: 14.5, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}
               >{accepting ? "Submitting…" : `Accept Proposal — $${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</button>
               <button
-                onClick={handleDecline} disabled={accepting || declining}
+                onClick={onDecline} disabled={accepting || declining}
                 style={{ width: "100%", padding: "12px 18px", borderRadius: 8, background: "transparent", color: "#888", border: "1px solid #ccc", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
               >{declining ? "Submitting…" : "Decline Proposal"}</button>
               <p style={{ fontSize: 10.5, color: "#999", marginTop: 10, lineHeight: 1.5 }}>
@@ -229,5 +176,87 @@ export default function RepairQuotePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RepairQuotePage() {
+  const params = useParams<{ token: string }>();
+  const [data, setData] = useState<QuoteData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [signerName, setSignerName] = useState("");
+  const [localStatus, setLocalStatus] = useState<string | null>(null);
+  const [accepting, setAccepting] = useState(false);
+  const [declining, setDeclining] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/repair-quote/${params.token}`)
+      .then(async r => { const b = await r.json(); if (!r.ok) throw new Error(b?.error || "Quote not found"); return b; })
+      .then((d: QuoteData) => setData(d))
+      .catch(e => setError(e.message || "This quote link is invalid or has expired."))
+      .finally(() => setLoading(false));
+  }, [params.token]);
+
+  const effectiveStatus = localStatus || data?.consult.status || null;
+
+  const handleAccept = async () => {
+    if (!signerName.trim()) { setError("Please type your full name to sign."); return; }
+    setAccepting(true); setError("");
+    try {
+      const r = await fetch(`/api/repair-quote/${params.token}/accept`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signatureName: signerName.trim(), method: "e_sign" }),
+      });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b?.error || "Failed to accept quote");
+      setLocalStatus("pending_countersignature");
+    } catch (e: any) { setError(e.message || "Something went wrong. Please try again or call us."); }
+    finally { setAccepting(false); }
+  };
+
+  const handleDecline = async () => {
+    if (!window.confirm("Are you sure you want to decline this proposal?")) return;
+    const reason = window.prompt("Optional — let us know why (or leave blank):") || "";
+    setDeclining(true); setError("");
+    try {
+      const r = await fetch(`/api/repair-quote/${params.token}/decline`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b?.error || "Failed to decline quote");
+      setLocalStatus("declined");
+    } catch (e: any) { setError(e.message || "Something went wrong. Please try again or call us."); }
+    finally { setDeclining(false); }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100dvh", background: "#f4f4f2", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Loader2 size={26} className="animate-spin" style={{ color: "#1a1a1a" }} />
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div style={{ minHeight: "100dvh", background: "#f4f4f2", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ maxWidth: 420, textAlign: "center", fontFamily: "Helvetica,Arial,sans-serif" }}>
+          <h2 style={{ color: "#1a1a1a" }}>Quote Not Found</h2>
+          <p style={{ color: "#555", fontSize: 14 }}>{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  return (
+    <RepairQuoteBody
+      data={data} effectiveStatus={effectiveStatus} error={error}
+      signerName={signerName} setSignerName={setSignerName}
+      accepting={accepting} declining={declining}
+      onAccept={handleAccept} onDecline={handleDecline}
+    />
   );
 }

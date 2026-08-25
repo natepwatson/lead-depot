@@ -433,14 +433,15 @@ function itemsTableHtml(items: any[]): string {
 }
 
 // ─── EMAIL: Client-facing order w/ single-stage accept link ────────────────
-export async function sendInspectionOrderToClient(orderId: number) {
-  if (!resend) return;
-  const order = getOrderRow(orderId);
-  if (!order || !order.client_email) return;
-  const items = getOrderItems(orderId).filter(i => !i.is_addon);
-  const acceptUrl = `${APP_URL}/#/inspections/${order.sign_token}`;
+// v20.32.25 — html-building extracted into buildInspectionOrderEmailHtml() so
+// the admin "Preview" feature renders the exact same markup the client will
+// receive, byte-for-byte, before "Send to Client" is ever clicked.
+function buildInspectionOrderEmailHtml(order: any, items: any[], opts: { preview?: boolean } = {}): string {
+  const acceptUrl = order.sign_token
+    ? `${APP_URL}/#/inspections/${order.sign_token}`
+    : (opts.preview ? "#" : `${APP_URL}/#/inspections/`);
 
-  const html = `
+  return `
   <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
   <div style="max-width:600px;margin:0 auto;background:#fff">
     ${brandedHeader("Inspections+ Order", order.property_address)}
@@ -463,6 +464,14 @@ export async function sendInspectionOrderToClient(orderId: number) {
     ${brandedFooter()}
   </div>
   </body></html>`;
+}
+
+export async function sendInspectionOrderToClient(orderId: number) {
+  if (!resend) return;
+  const order = getOrderRow(orderId);
+  if (!order || !order.client_email) return;
+  const items = getOrderItems(orderId).filter(i => !i.is_addon);
+  const html = buildInspectionOrderEmailHtml(order, items);
 
   await resend.emails.send({
     from: FROM, to: [order.client_email], cc: ADMIN_EMAILS,
@@ -779,6 +788,35 @@ export function registerInspectionsRoutes(app: Express) {
       console.error("send inspection order error:", err);
       res.status(500).json({ error: "Failed to send order", detail: err?.message });
     }
+  });
+
+  // ── Preview exactly what the client will receive — email + approval page ──
+  // v20.32.25 — mirrors the repair-consult preview endpoint. Returns the same
+  // data shape /api/inspection-order/:token uses plus the rendered email HTML,
+  // built via buildInspectionOrderEmailHtml() so there is zero drift from the
+  // real send path.
+  app.get("/api/inspection-orders/:id/preview", (req: any, res: Response) => {
+    if (!req.currentAgent) return res.status(401).json({ error: "Not signed in" });
+    const id = parseInt(req.params.id);
+    const order = getOrderRow(id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    const items = getOrderItems(id).filter((i: any) => !i.is_addon || i.addon_status === "signed");
+    const emailItems = getOrderItems(id).filter((i: any) => !i.is_addon);
+    const emailHtml = buildInspectionOrderEmailHtml(order, emailItems, { preview: true });
+    res.json({
+      order: {
+        propertyAddress: order.property_address, clientName: order.client_name,
+        neededBy: order.needed_by, neededByDate: order.needed_by_date,
+        contingencyExpirationDate: order.contingency_expiration_date,
+        status: order.status, total: order.total,
+        acceptedSignatureName: order.accepted_signature_name, acceptedAt: order.accepted_at,
+        clientEmail: order.client_email || null,
+      },
+      items: items.map((it: any) => ({ name: it.name, clientPrice: it.client_price, isAddon: !!it.is_addon })),
+      terms: INSPECTION_TERMS,
+      emailHtml,
+      emailSubject: `Inspections+ Order — ${order.property_address}`,
+    });
   });
 
   // ── Public: client fetches order by token ──

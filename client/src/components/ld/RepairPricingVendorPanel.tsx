@@ -4,7 +4,7 @@
 // (auto-emailed from the Repair Consult client flow when an item needs a licensed trade).
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2, FilePlus2, XCircle, Pencil } from "lucide-react";
+import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2, FilePlus2, XCircle, Pencil, Eye } from "lucide-react";
 // v20.30.0 — lets Alex open ANY repair consult (any agent's, any status)
 // from the admin Repair Program panel and edit the scope/items directly,
 // same tool the field agent uses, instead of only being able to view a
@@ -13,6 +13,7 @@ import { RepairConsultSheet } from "./RepairConsultSheet";
 import { PdfViewerModal } from "./PdfViewerModal";
 import { PaymentRecordModal } from "./PaymentRecordModal";
 import { ProjectMeetingsModal } from "./ProjectMeetingsModal";
+import { ClientPreviewModal } from "./ClientPreviewModal";
 
 type PricingItem = {
   id: number;
@@ -623,6 +624,8 @@ function ConsultsPanel() {
   // v20.31.0 — in-app PDF viewer state, replaces window.open (which gets
   // stuck with no way back when the app is running as an installed PWA).
   const [pdfModal, setPdfModal] = useState<{ url: string; title: string } | null>(null);
+  // v20.32.25 — "see exactly what the client will get" preview modal.
+  const [previewFor, setPreviewFor] = useState<Consult | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -891,6 +894,8 @@ function ConsultsPanel() {
                           title={!c.quote_token ? "Generate the quote first" : c.status === "accepted" ? "Already signed" : c.status === "declined" ? "Client declined — re-generate a new quote first" : "Send for Signature (E-Sign)"}
                           style={actionBtnStyle}><Mail size={11} /> E-Sign</button>
                       )}
+                      <button disabled={busy === c.id} onClick={() => setPreviewFor(c)} title="Preview EXACTLY what the client will receive — email + approval page + disclosures — before sending"
+                        style={{ ...actionBtnStyle, color: "#c4b5fd", borderColor: "rgba(196,181,253,0.4)", background: "rgba(196,181,253,0.08)" }}><Eye size={11} /> Preview</button>
                       <button disabled={!c.quote_token || busy === c.id} onClick={() => downloadPdf(c)}
                         title={!c.quote_token ? "Generate the quote first" : "View / Download Print & Sign Agreement PDF"}
                         style={actionBtnStyle}><Download size={11} /> Print PDF</button>
@@ -957,6 +962,9 @@ function ConsultsPanel() {
       )}
       {pdfModal && (
         <PdfViewerModal url={pdfModal.url} title={pdfModal.title} onClose={() => setPdfModal(null)} />
+      )}
+      {previewFor && (
+        <ClientPreviewModal kind="repair" id={previewFor.id} title={`${previewFor.property_address} — Client Preview`} onClose={() => setPreviewFor(null)} />
       )}
       {paymentFor && (
         <PaymentRecordModal

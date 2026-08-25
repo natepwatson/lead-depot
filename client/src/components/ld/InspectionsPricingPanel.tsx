@@ -6,8 +6,9 @@
 // UI needed here; this panel links over to that tab instead of rebuilding it.
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { RefreshCw, DollarSign, ClipboardList, FilePlus2, CheckCircle2, XCircle } from "lucide-react";
+import { RefreshCw, DollarSign, ClipboardList, FilePlus2, CheckCircle2, XCircle, Eye } from "lucide-react";
 import { PaymentRecordModal } from "./PaymentRecordModal";
+import { ClientPreviewModal } from "./ClientPreviewModal";
 
 const GOLD = "#c8aa5a";
 
@@ -203,6 +204,9 @@ function OrdersPanel() {
     } finally { setBusy(null); }
   };
 
+  // v20.32.25 — "see exactly what the client will get" preview modal.
+  const [previewFor, setPreviewFor] = useState<InspectionOrder | null>(null);
+
   const statusColor = (s: string) => s === "accepted" ? "#5eead4" : s === "completed" ? "#94a3b8" : s === "declined" ? "#f87171" : s === "sent" ? GOLD : "#64748b";
 
   return (
@@ -253,7 +257,10 @@ function OrdersPanel() {
                           <DollarSign size={11} /> Record Payment
                         </button>
                       ) : null}
-                      {o.status !== "accepted" && o.status !== "completed" ? <span style={{ fontSize: 10, color: "#64748b" }}>—</span> : null}
+                      <button disabled={busy === o.id} onClick={() => setPreviewFor(o)} title="Preview EXACTLY what the client will receive — email + approval page + disclosures — before sending"
+                        style={{ ...actionBtnStyle, color: "#c4b5fd", borderColor: "rgba(196,181,253,0.4)", background: "rgba(196,181,253,0.08)" }}>
+                        <Eye size={11} /> Preview
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -261,6 +268,9 @@ function OrdersPanel() {
             </tbody>
           </table>
         </div>
+      )}
+      {previewFor && (
+        <ClientPreviewModal kind="inspection" id={previewFor.id} title={`${previewFor.property_address} — Client Preview`} onClose={() => setPreviewFor(null)} />
       )}
       {paymentFor && (
         <PaymentRecordModal

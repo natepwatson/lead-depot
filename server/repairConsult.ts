@@ -959,20 +959,18 @@ export async function sendInHouseQuoteInternal(consultId: number) {
 }
 
 // ─── EMAIL: Client-facing quote w/ accept link ──────────────────────────────
-export async function sendClientQuoteEmail(consultId: number) {
-  if (!resend) return;
-  const consult = getConsultRow(consultId);
-  const allItems = getConsultItems(consultId);
-  const items = allItems.filter((i: any) => i.category === "in_house");
-  const vendorItems = allItems.filter((i: any) => i.category === "vendor");
-  if (!consult || !consult.client_email) return;
-
-  const acceptUrl = `${APP_URL}/#/repair-quote/${consult.quote_token}`;
+// v20.32.25 — html-building extracted into buildClientQuoteEmailHtml() so the
+// admin "Preview" feature can render the exact same markup the client will
+// receive, byte-for-byte, before Send to Client is ever clicked.
+function buildClientQuoteEmailHtml(consult: any, items: any[], vendorItems: any[], opts: { preview?: boolean } = {}): string {
+  const acceptUrl = consult.quote_token
+    ? `${APP_URL}/#/repair-quote/${consult.quote_token}`
+    : (opts.preview ? "#" : `${APP_URL}/#/repair-quote/`);
   const heroImg = consult.hero_photo_url
     ? `<img src="${consult.hero_photo_url.startsWith("http") ? consult.hero_photo_url : APP_URL + consult.hero_photo_url}" alt="${consult.property_address}" style="width:100%;max-height:260px;object-fit:cover;display:block" />`
     : "";
 
-  const html = `
+  return `
   <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
   <div style="max-width:600px;margin:0 auto;background:#fff">
     ${brandedHeader("Your Repair Proposal", consult.property_address)}
@@ -1000,6 +998,17 @@ export async function sendClientQuoteEmail(consultId: number) {
     ${brandedFooter()}
   </div>
   </body></html>`;
+}
+
+export async function sendClientQuoteEmail(consultId: number) {
+  if (!resend) return;
+  const consult = getConsultRow(consultId);
+  const allItems = getConsultItems(consultId);
+  const items = allItems.filter((i: any) => i.category === "in_house");
+  const vendorItems = allItems.filter((i: any) => i.category === "vendor");
+  if (!consult || !consult.client_email) return;
+
+  const html = buildClientQuoteEmailHtml(consult, items, vendorItems);
 
   await resend.emails.send({
     from: FROM,
@@ -2728,6 +2737,54 @@ export function registerRepairConsultRoutes(app: Express) {
     } catch (err: any) {
       console.error("quote-pdf error:", err);
       res.status(500).json({ error: "Failed to generate quote PDF", detail: err?.message });
+    }
+  });
+
+  // ── Preview exactly what the client will receive — email + approval page ──
+  // v20.32.25 — Alex asked to see the real thing before it goes out. This
+  // regenerates a fresh agreement PDF from current live data (so pricing/
+  // scope edits are reflected) and returns the SAME data shape + email HTML
+  // that the real send path uses — zero drift by construction, since both
+  // paths call buildClientQuoteEmailHtml(). No quote_token required, so this
+  // works at any point during the consult, even before "Generate Quote".
+  app.get("/api/repair-consult/:id/preview", async (req: any, res: Response) => {
+    if (!req.currentAgent) return res.status(401).json({ error: "Not signed in" });
+    const consultId = parseInt(req.params.id);
+    try {
+      const consult = getConsultRow(consultId);
+      if (!consult) return res.status(404).json({ error: "Consult not found" });
+      const allItems = getConsultItems(consultId);
+      const items = allItems.filter((i: any) => i.category === "in_house");
+      const vendorItemsFull = allItems.filter((i: any) => i.category === "vendor");
+      const vendorItems = vendorItemsFull.map((v: any) => ({ name: v.name }));
+      const agreementPdfUrl = await generateAgreementPdf(consultId, { blank: true });
+      const emailHtml = buildClientQuoteEmailHtml(consult, items, vendorItemsFull, { preview: true });
+      res.json({
+        consult: {
+          propertyAddress: consult.property_address,
+          clientName: consult.client_name,
+          heroPhotoUrl: consult.hero_photo_url,
+          propertyPhotos: consult.property_photos ? JSON.parse(consult.property_photos).map((e: any) => typeof e === "string" ? { url: e, tag: "overview" } : e) : [],
+          subtotal: consult.subtotal, total: consult.total,
+          depositAmount: consult.deposit_amount, finalAmount: consult.final_amount,
+          startWindow: consult.start_window, startDate: consult.start_date, startTime: consult.start_time,
+          startMomentum: START_MOMENTUM_PLAIN,
+          status: consult.status,
+          signatureMethod: consult.signature_method,
+          agreementPdfUrl,
+          clientEmail: consult.client_email || null,
+          hasQuoteToken: !!consult.quote_token,
+        },
+        items,
+        vendorItems,
+        terms: IN_HOUSE_TERMS,
+        agreementSections: AGREEMENT_SECTIONS,
+        emailHtml,
+        emailSubject: `Your Repair Proposal — ${consult.property_address}`,
+      });
+    } catch (err: any) {
+      console.error("repair-consult preview error:", err);
+      res.status(500).json({ error: "Failed to build preview", detail: err?.message });
     }
   });
 

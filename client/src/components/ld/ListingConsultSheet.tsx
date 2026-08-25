@@ -226,6 +226,24 @@ const NOT_MOVING_OPTIONS: { key: string; label: string }[] = [
   { key: "not_interested", label: "Not interested" },
 ];
 
+// v20.32.23 — Optional Listing Agreement Addenda. Selecting one here flags
+// it in the signed-TC email so the TC knows to pull that addendum into the
+// DocuSign envelope alongside the base listing agreement. Add future
+// addenda by appending to this list — no other wiring needed beyond this
+// array (checkbox UI, close-section save, and TC email all read from it).
+const ADDENDA_OPTIONS: { key: string; label: string; description: string }[] = [
+  {
+    key: "repair_work",
+    label: "Repair Work & Listing Agreement Addendum",
+    description: "Protects Broker if repair work is completed but unpaid — increases termination fee, extends listing term.",
+  },
+  {
+    key: "personal_property",
+    label: "Personal Property Addendum — Chairlift & Generator",
+    description: "Chairlift conveys free & clear or is removed at Buyer's request; generator adds to price or is removed before closing.",
+  },
+];
+
 // v20.21.0 — Condition Capture. Replaces the old plain Yes/No "Needs Repairs?"
 // toggle. The agent is standing in the house right now looking at actual
 // condition — capture real scope data per pillar on the spot (checked + a
@@ -552,6 +570,11 @@ export function ListingConsultSheet({
   const [listingAgentCommission, setListingAgentCommission] = useState("3.0");
   const [buyerAgentCommission, setBuyerAgentCommission] = useState("2.5");
   const [additionalTerms, setAdditionalTerms] = useState("");
+  // v20.32.23 — optional addenda selected to ride along with the listing
+  // agreement; array of ADDENDA_OPTIONS keys. Surfaced in the signed-TC
+  // email so the TC knows to include the right PDF(s) in the DocuSign.
+  const [selectedAddenda, setSelectedAddenda] = useState<string[]>([]);
+  const toggleAddendum = (key: string) => setSelectedAddenda(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   const [whereAreWe, setWhereAreWe] = useState<"" | "ready_now" | "ready_repairs" | "not_moving">("");
   const [notMovingReason, setNotMovingReason] = useState<"" | "pending_repair_quote" | "other_reason" | "listed_other_agent" | "not_interested">("");
   const [notMovingNotes, setNotMovingNotes] = useState("");
@@ -745,7 +768,7 @@ export function ListingConsultSheet({
         }).catch(() => {});
       } else if (step === "close") {
         saveSection("close", {
-          whereAreWe, recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms,
+          whereAreWe, recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms, selectedAddenda,
         }).catch(() => {});
       } else if (step === "lockin") {
         saveSection("lockin", {
@@ -772,7 +795,7 @@ export function ListingConsultSheet({
     step, resumePhase, propertyAddress, clientName, clientEmail, clientPhone,
     prepChecklist, fubPersonId,
     walkthroughNotes, needsRepairs, pillarFlags, mortgageBalance, buyingToo, buyingNotes, timeline,
-    whereAreWe, recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms,
+    whereAreWe, recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms, selectedAddenda,
     needsCleaning, forecastStartDate, forecastOverrides,
     accessType, accessCode, accessCodeInstructions, keyInLockbox, hasGate, gateCode, gateGuarded, gateAccessInstructions,
     ownerNames, ownerNames2, owner2Phone, owner2Email,
@@ -904,6 +927,7 @@ export function ListingConsultSheet({
         setListingAgentCommission(data.close.listingAgentCommission ?? "3.0");
         setBuyerAgentCommission(data.close.buyerAgentCommission ?? "2.5");
         setAdditionalTerms(data.close.additionalTerms || "");
+        setSelectedAddenda(Array.isArray(data.close.selectedAddenda) ? data.close.selectedAddenda : []);
         setWhereAreWe(data.close.whereAreWe || "");
         if (data.close.whereAreWe === "ready_now" || data.close.whereAreWe === "ready_repairs") {
           nextStep = "lockin";
@@ -1019,7 +1043,7 @@ export function ListingConsultSheet({
     if (whereAreWe !== "ready_now" && whereAreWe !== "ready_repairs") { setError("Select where things stand before continuing."); return; }
     setError(""); setSaving(true);
     try {
-      await saveSection("close", { whereAreWe, recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms });
+      await saveSection("close", { whereAreWe, recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms, selectedAddenda });
       setStep("lockin");
     } catch (e: any) { setError(e.message || "Failed to save."); }
     finally { setSaving(false); }
@@ -1032,7 +1056,7 @@ export function ListingConsultSheet({
     setError(""); setSendingNotMoving(true);
     try {
       const id = await ensureConsult();
-      await saveSection("close", { whereAreWe: "not_moving", recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms }, id);
+      await saveSection("close", { whereAreWe: "not_moving", recommendedPrice, finalListingPrice, listingAgentCommission, buyerAgentCommission, additionalTerms, selectedAddenda }, id);
       await fetchJson(`/api/listing-consult/${id}/not-moving`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: notMovingReason, notes: notMovingNotes, followUpTiming: notMovingFollowUpTiming }),
@@ -1453,6 +1477,23 @@ export function ListingConsultSheet({
             <label style={labelStyle}>Additional Terms & Conditions (optional)</label>
             <textarea style={{ ...textareaStyle, marginBottom: 18 }} value={additionalTerms} onChange={e => setAdditionalTerms(e.target.value)} placeholder="Anything else that needs to be written into the listing agreement" />
 
+            {/* v20.32.23 — optional addenda to ride along with the listing
+                agreement. Checking one flags it in the signed-TC email so
+                the TC knows to include that PDF in the DocuSign envelope. */}
+            <label style={labelStyle}>Listing Agreement Addenda (optional)</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 18 }}>
+              {ADDENDA_OPTIONS.map(o => (
+                <label key={o.key} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: 8, background: selectedAddenda.includes(o.key) ? "rgba(200,170,90,0.1)" : "rgba(255,255,255,0.03)", border: selectedAddenda.includes(o.key) ? "1px solid rgba(200,170,90,0.35)" : "1px solid rgba(255,255,255,0.08)" }}>
+                  <input type="checkbox" checked={selectedAddenda.includes(o.key)} onChange={() => toggleAddendum(o.key)}
+                    style={{ width: 17, height: 17, accentColor: "#c8aa5a", flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", fontWeight: 600 }}>{o.label}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>{o.description}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+
             <label style={labelStyle}>Where Are We?</label>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
               {[
@@ -1823,6 +1864,9 @@ export function ListingConsultSheet({
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Commission</td><td style={{ padding: "5px 0" }}>{listingAgentCommission || "3.0"}% listing / {buyerAgentCommission || "2.5"}% buyer's</td></tr>
                 {!!additionalTerms.trim() && (
                   <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Add'l Terms</td><td style={{ padding: "5px 0" }}>{additionalTerms}</td></tr>
+                )}
+                {selectedAddenda.length > 0 && (
+                  <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Addenda</td><td style={{ padding: "5px 0" }}>{selectedAddenda.map(k => ADDENDA_OPTIONS.find(o => o.key === k)?.label || k).join(", ")}</td></tr>
                 )}
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Timeline</td><td style={{ padding: "5px 0" }}>{timeline || "—"}</td></tr>
                 <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "5px 0", verticalAlign: "top" }}>Path</td><td style={{ padding: "5px 0" }}>{whereAreWe === "ready_repairs" ? "Ready — repairs first" : "Ready — start now"}</td></tr>

@@ -211,6 +211,19 @@ const NOT_MOVING_LABELS: Record<string, string> = {
   not_interested: "Not interested",
 };
 
+// v20.32.23 — Optional Listing Agreement Addenda, selected on the Close
+// step. Keys must match ADDENDA_OPTIONS in ListingConsultSheet.tsx.
+const ADDENDA_LABELS: Record<string, string> = {
+  repair_work: "Repair Work & Listing Agreement Addendum",
+  personal_property: "Personal Property Addendum — Chairlift & Generator",
+};
+
+function addendaSummary(close: any): string {
+  const keys: string[] = Array.isArray(close?.selectedAddenda) ? close.selectedAddenda : [];
+  if (!keys.length) return "";
+  return keys.map(k => ADDENDA_LABELS[k] || k).join(", ");
+}
+
 // ─── EMAIL: "Not moving forward" outcome sent to office admin ──────────────
 async function sendNotMovingForwardEmail(consultId: number) {
   if (!resend) return;
@@ -272,6 +285,7 @@ async function sendSignedTcEmail(consultId: number) {
         ${row("Commission", commissionLine)}
         ${close.additionalTerms ? row("Additional Terms", close.additionalTerms) : ""}
         ${row("Timeline", d.walkthrough?.timeline || "—")}
+        ${addendaSummary(close) ? `<tr><td style="padding:6px 0;color:${BRAND.gray};width:170px;font-size:12.5px;font-weight:700;vertical-align:top">Addenda for DocuSign</td><td style="padding:6px 0;font-size:13px;font-weight:700;color:#8a6d1d">${addendaSummary(close)}</td></tr>` : ""}
         ${row("Access", accessSummary(lockin))}
         ${row("Gate", gateSummary(lockin))}
         ${row("Showing Approval Contact", lockin.showingContactName || "—")}

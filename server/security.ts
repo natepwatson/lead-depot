@@ -16,9 +16,18 @@
 //                                   MIME types (e.g. treating a text file as
 //                                   JS if it looks like JS).
 //
-//   X-Frame-Options ............... "DENY" — nobody can iframe our app.
-//                                   Blocks clickjacking. We never embed the
-//                                   admin UI in another page.
+//   X-Frame-Options ............... "SAMEORIGIN" — no third-party site can
+//                                   iframe our app (clickjacking protection
+//                                   preserved), but our own same-origin
+//                                   in-app PDF viewer (PdfViewerModal,
+//                                   v20.31.0+) is allowed to embed our own
+//                                   PDFs. v20.32.22 fix — was "DENY", which
+//                                   silently broke every PDF preview opened
+//                                   through that modal (repair quotes,
+//                                   agreements, inspection docs) since the
+//                                   modal shipped; the browser just showed a
+//                                   crashed/blank subframe with no console
+//                                   error surfaced to certify's JS-error checks.
 //
 //   Referrer-Policy ............... "strict-origin-when-cross-origin" — when
 //                                   an agent clicks a link out, the target
@@ -56,7 +65,7 @@ const CSP_DIRECTIVES = [
   "font-src 'self' data:",                    // /fonts + occasional data:
   "img-src 'self' data: blob: https:",        // headshots, QR codes, tiles
   "connect-src 'self' wss: https:",           // WebSocket + own API
-  "frame-ancestors 'none'",                   // duplicate of X-Frame-Options
+  "frame-ancestors 'self'",                   // v20.32.22 — allow same-origin PdfViewerModal iframes; still blocks any third-party site
   "base-uri 'self'",
   "form-action 'self'",
   "object-src 'none'",
@@ -66,7 +75,7 @@ export function securityHeaders(_req: Request, res: Response, next: NextFunction
   // 1-year HSTS, include subdomains, allow preload list inclusion
   res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN"); // v20.32.22 — was DENY, blocked our own in-app PdfViewerModal
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
   res.setHeader(

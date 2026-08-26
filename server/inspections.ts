@@ -22,8 +22,45 @@ import type { Express, Request, Response } from "express";
 import { rawDb } from "./db";
 import { Resend } from "resend";
 import { randomBytes } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { fireMilestoneTasks } from "./fub";
 import { ACCEPTED_PAYMENT_METHODS_LABEL } from "./payments";
+
+const IS_PROD = process.env.NODE_ENV === "production";
+
+// ─── v20.32.28 — Ordering model change ────────────────────────────────────
+// Brothers Group now places and PAYS for every inspection order directly —
+// we are the ordering/paying party, not the client and not the vendor. The
+// client pays Brothers Group (wire preferred) BEFORE we place the order
+// with the vendor. Nate is the Transaction Coordinator (TC) who actually
+// places the vendor order once payment is confirmed in the app. This
+// replaces the old "book it in the client's own name, vendor bills client
+// directly" model. Applies to BOTH buyer-side and seller-side orders.
+function inspectionWiringDir(): string {
+  const dir = IS_PROD ? "/app/data/inspection-wiring" : path.resolve(__dirname, "public", "inspection-wiring");
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+function brandLogoPath(): string {
+  const prodPath = "/app/dist/public/brand-logo.jpg";
+  const devPath = path.resolve(__dirname, "public", "brand-logo.jpg");
+  return IS_PROD && fs.existsSync(prodPath) ? prodPath : devPath;
+}
+
+// Relay banking details (Nathaniel Peter Watson LLC business checking) —
+// from Relay Bank Verification Letter, issued 3/20/26. Single source of
+// truth for both the wiring-instructions PDF and the client-facing email.
+const RELAY_WIRE = {
+  beneficiary: "Nathaniel Peter Watson LLC",
+  bankName: "Relay (banking services provided by Thread Bank; Member FDIC)",
+  accountNumber: "200002452369",
+  routingNumber: "064209588",
+  accountType: "Business Checking",
+  businessAddress: "Ste 2500, 50 N Laura St, Jacksonville, FL 32205, US",
+};
+const NATE_EMAIL = "nate@watsonbrothersgroup.com";
 
 // ─── Part 8 (v20.32.13) — liability / disclosure terms shown on the client
 // e-sign page. Kept as one short array (not a multi-page contract) per
@@ -33,11 +70,12 @@ import { ACCEPTED_PAYMENT_METHODS_LABEL } from "./payments";
 // trade carve-out, vendor-pricing disclosure, client responsibility, and
 // limitation of liability.
 export const INSPECTION_TERMS = [
-  "Brothers Group is not the home inspector, WDO inspector, wind mitigation/4-point inspector, or any other inspecting party. All inspections in this order are performed by an independent, licensed, and insured third-party vendor engaged directly for this order — not by Brothers Group.",
-  "Vendor pricing may vary based on square footage, site conditions, and other criteria specific to each inspection type. The price shown above is confirmed at scheduling with the vendor.",
+  "Brothers Group coordinates and places this inspection order on your behalf with our preferred inspection partner, Pro-Spect Inspection Services — an independent, licensed, and insured third-party vendor. As a service to you, Brothers Group collects payment directly and pays the vendor ourselves; the vendor does not bill you directly.",
+  "Vendor pricing may vary based on square footage, site conditions, and other criteria specific to each inspection type. The price shown above is confirmed at the time we place your order.",
+  `Full payment is due to Brothers Group BEFORE we place your order with the vendor. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL}. Once you approve below, we'll send wiring instructions by separate email — review them carefully, and always verify by phone at a known number before sending funds. Our wiring instructions will never change over email.`,
+  "Time is of the essence. Inspection contingency and other contract deadlines do not pause while payment is processed — the sooner your payment is received, the sooner we can place your order and get you scheduled.",
   "You are responsible for providing the vendor access to the property at the scheduled time. Any rescheduling or cancellation fee charged by the vendor is passed through to you.",
-  "Brothers Group facilitates the introduction and coordination of this inspection order only. We assume no liability for the accuracy, completeness, or findings of any inspection report, or for the licensing, insurance, scheduling, or performance of the inspecting vendor.",
-  `Payment for inspection services is due as arranged at scheduling. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL} — the same forms of payment we accept for your earnest money deposit, so if you're ordering inspections around the same time as putting down your deposit on the home, you're welcome to submit both together for a seamless experience. Unpaid balances may be pursued through ordinary collection remedies available under Florida law.`,
+  "Brothers Group assumes no liability for the accuracy, completeness, or findings of any inspection report, or for the licensing, insurance, scheduling, or performance of the inspecting vendor. Unpaid balances may be pursued through ordinary collection remedies available under Florida law.",
 ] as const;
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -291,6 +329,11 @@ function fixInspectionVendorDataIntegrity() {
   // Fix 1: Pro-Spect's trade typo, so she actually shows up in the picker.
   rawDb.prepare(`UPDATE repair_vendors SET trade = 'inspection' WHERE name = 'Pro-Spect Inspection Services' AND trade = 'inspections'`).run();
 
+  // v20.32.28 — Alex: Pro-Spect is now our ONLY preferred inspection vendor.
+  // Deactivate Jason Brown's pricing row so he no longer shows in the
+  // vendor picker on new orders. Idempotent (guarded by active = 1).
+  rawDb.prepare(`UPDATE repair_vendors SET active = 0, notes = COALESCE(notes, '') || ' [Deactivated 8/26/26 — Alex: Pro-Spect is now our sole preferred inspection vendor.]' WHERE trade = 'inspection' AND name = 'Jason Brown' AND active = 1`).run();
+
   // Fix 2: merge Jason Brown's two vendor rows — copy the real contact info
   // onto the pricing row, then deactivate the duplicate.
   const dup = rawDb.prepare(`SELECT * FROM repair_vendors WHERE name = '1st Class Home Inspections Plus' AND active = 1`).get() as any;
@@ -454,10 +497,8 @@ function firstName(fullName: string | null | undefined): string {
 // longer hardcode "as we prepare to list your home" for every order.
 function inspectionsIntroParagraph(order: any): string {
   const name = firstName(order.client_name);
-  if (order.deal_side === "seller") {
-    return `Hi ${name} — as we prepare to list your home, we'd like to get these inspections scheduled right away. We're referring you to our trusted inspection partner and will coordinate everything on our end so this moves quickly. This inspection will be scheduled in your name, ${name}, and we'll make sure the inspection company knows it's for you directly. Please review and approve below, and once it's scheduled we'll ask the inspector to send the quote/invoice our way to keep this on track.`;
-  }
-  return `Hi ${name} — as part of your due-diligence period, we'd like to get these inspections scheduled right away. We're referring you to our trusted inspection partner and will coordinate everything on our end so this moves quickly. This inspection will be scheduled in your name, ${name}, and we'll make sure the inspection company knows it's for you directly. Please review and approve below, and once it's scheduled we'll ask the inspector to send the quote/invoice our way to keep this on track.`;
+  const context = order.deal_side === "seller" ? "as we prepare to list your home" : "as part of your due-diligence period";
+  return `Hi ${name} — ${context}, we'd like to get these inspections scheduled right away. Brothers Group will place this order on your behalf with our inspection partner and handle payment directly, so everything moves quickly and cleanly on your timeline. Please review and approve below — once approved, we'll send wiring instructions so you can submit payment to us, and as soon as it's received we'll place your order with the vendor. Time is of the essence, so the sooner this is approved and paid, the sooner we can get you scheduled.`;
 }
 
 // v20.32.25 — html-building extracted into buildInspectionOrderEmailHtml() so
@@ -486,6 +527,9 @@ function buildInspectionOrderEmailHtml(order: any, items: any[], opts: { preview
         <a href="${acceptUrl}" style="background:${BRAND.black};color:#fff;text-decoration:none;padding:14px 36px;border-radius:6px;font-size:14px;font-weight:700;display:inline-block">Review &amp; Approve</a>
       </div>
       <p style="font-size:10.5px;color:${BRAND.gray};text-align:center">Or open on your phone: <a href="${acceptUrl}" style="color:${BRAND.gray}">${acceptUrl}</a></p>
+      <div style="margin-top:14px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>After you approve, we'll email you wiring instructions.</strong> Payment is due to Brothers Group before we place your order with the vendor. Time is of the essence — please review and submit payment promptly. Our wiring instructions will never change over email; always verify by phone at a known number before sending funds.</p>
+      </div>
       <p style="font-size:11px;color:#333;text-align:center;margin-top:10px">We're working together as a team on your timeline — please let us know if you have any questions.</p>
     </div>
     ${brandedFooter()}
@@ -508,36 +552,194 @@ export async function sendInspectionOrderToClient(orderId: number) {
   rawDb.prepare(`UPDATE inspection_orders SET status = 'sent', updated_at = datetime('now') WHERE id = ?`).run(orderId);
 }
 
+// v20.32.28 — Nate (TC) is the one who actually places the vendor order, and
+// only AFTER payment is confirmed received. This internal email tells him
+// the client approved and exactly what to order once cleared — but explicitly
+// tells him to HOLD until the payment-received email (see
+// notifyTCPaymentReceivedForInspectionOrder below) arrives.
 async function sendInspectionOrderAcceptedInternal(orderId: number) {
   if (!resend) return;
   const order = getOrderRow(orderId);
   if (!order) return;
   const items = getOrderItems(orderId).filter(i => !i.is_addon);
+  const vendor = order.vendor_id ? rawDb.prepare(`SELECT name, phone, email FROM repair_vendors WHERE id = ?`).get(order.vendor_id) as any : null;
   const html = `
   <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
   <div style="max-width:600px;margin:0 auto;background:#fff">
-    ${brandedHeader("Inspections+ Approved by Client", order.property_address)}
+    ${brandedHeader("Inspections+ Approved by Client — Action Needed", order.property_address)}
     <div style="padding:20px 32px">
       <table style="width:100%;font-size:12.5px;color:#333;margin-bottom:10px">
         <tr><td style="padding:4px 0;color:${BRAND.gray};width:130px">Client</td><td style="font-weight:600">${order.client_name}</td></tr>
         <tr><td style="padding:4px 0;color:${BRAND.gray}">Signed</td><td>${order.accepted_signature_name}</td></tr>
         <tr><td style="padding:4px 0;color:${BRAND.gray}">Needed By</td><td>${neededByLabel(order)}</td></tr>
         ${order.contingency_expiration_date ? `<tr><td style="padding:4px 0;color:${BRAND.gray}">Contingency Expires</td><td>${order.contingency_expiration_date}</td></tr>` : ""}
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Vendor</td><td>${vendor ? `${vendor.name} — ${vendor.phone || ""} ${vendor.email || ""}` : "Pro-Spect Inspection Services"}</td></tr>
       </table>
       ${itemsTableHtml(items)}
       <table style="width:100%;margin-top:10px">
         <tr><td style="padding:4px 10px;text-align:right;font-size:14px;font-weight:700">Total</td><td style="padding:4px 10px;text-align:right;font-size:14px;font-weight:700;width:110px">$${order.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
       </table>
-      <div style="margin-top:14px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
-        <p style="margin:0;font-size:12.5px;color:${BRAND.black};font-weight:700">Book this inspection in ${order.client_name}'s name — not Watson Brothers Group's.</p>
-        <p style="margin:6px 0 0;font-size:12px;color:#333">When you call or email the inspector, tell them this is for client <strong>${order.client_name}</strong> at <strong>${order.property_address}</strong>, so they schedule and invoice it under the client, not us.</p>
+      <div style="margin-top:14px;padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
+        <p style="margin:0;font-size:12.5px;color:${BRAND.black};font-weight:700">HOLD — do not place this order with the vendor yet.</p>
+        <p style="margin:6px 0 0;font-size:12px;color:#333">The client has been sent wiring instructions to pay Brothers Group directly (Relay account). You'll get a separate "Payment Received" email the moment it's recorded in Lead Depot — that's your signal to go ahead and place the order above with ${vendor ? vendor.name : "Pro-Spect Inspection Services"}. Time is of the essence, so keep an eye out for that clearance email and place the order right away once it lands.</p>
       </div>
-      <p style="font-size:12px;color:#333;margin-top:14px">Go ahead and schedule with our vendor partner and get their quote/invoice back to us.</p>
     </div>
     ${brandedFooter()}
   </div>
   </body></html>`;
-  await resend.emails.send({ from: FROM, to: ADMIN_EMAILS, subject: `Inspections+ Approved — ${order.property_address}`, html });
+  const ccList = ADMIN_EMAILS.filter(e => e.toLowerCase() !== NATE_EMAIL);
+  await resend.emails.send({ from: FROM, to: [NATE_EMAIL], cc: ccList, subject: `Inspections+ Approved — Hold for Payment — ${order.property_address}`, html });
+}
+
+// ─── PDF: Wire payment instructions (client-facing) ────────────────────────
+async function generateInspectionWiringPdf(order: any): Promise<{ path: string; filename: string; bytes: Buffer }> {
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([612, 792]);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const black = rgb(0, 0, 0);
+  const gray = rgb(0.4, 0.4, 0.4);
+  const red = rgb(0.7, 0.1, 0.1);
+  let y = 792 - 50;
+
+  try {
+    const logoBytes = fs.readFileSync(brandLogoPath());
+    const logoImg = await pdfDoc.embedJpg(logoBytes);
+    const logoW = 200;
+    const logoH = (logoImg.height / logoImg.width) * logoW;
+    page.drawImage(logoImg, { x: (612 - logoW) / 2, y: y - logoH, width: logoW, height: logoH });
+    y -= logoH + 20;
+  } catch { /* logo optional */ }
+
+  page.drawText("Wire Payment Instructions", { x: 306 - bold.widthOfTextAtSize("Wire Payment Instructions", 20) / 2, y, size: 20, font: bold, color: black });
+  y -= 30;
+
+  // Property bar
+  page.drawRectangle({ x: 38, y: y - 22, width: 612 - 76, height: 24, color: black });
+  page.drawText(order.property_address || "", { x: 46, y: y - 16, size: 10.5, font: bold, color: rgb(1, 1, 1) });
+  y -= 46;
+
+  const row = (label: string, value: string, size = 11) => {
+    page.drawText(label, { x: 38, y, size: 9, font: bold, color: gray });
+    page.drawText(value, { x: 38, y: y - 14, size, font, color: black });
+    y -= 34;
+  };
+
+  row("REFERENCE", `INS-${order.id} — ${order.client_name || ""}`);
+  row("AMOUNT DUE", `$${(order.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 14);
+
+  y -= 6;
+  page.drawLine({ start: { x: 38, y }, end: { x: 612 - 38, y }, thickness: 1, color: rgb(0.85, 0.85, 0.85) });
+  y -= 26;
+
+  page.drawText("WIRE TO", { x: 38, y, size: 10.5, font: bold, color: black });
+  y -= 20;
+  row("BENEFICIARY", RELAY_WIRE.beneficiary);
+  row("BANK", RELAY_WIRE.bankName);
+  row("ACCOUNT NUMBER", RELAY_WIRE.accountNumber, 13);
+  row("ROUTING NUMBER", RELAY_WIRE.routingNumber, 13);
+  row("ACCOUNT TYPE", RELAY_WIRE.accountType);
+  row("BUSINESS ADDRESS", RELAY_WIRE.businessAddress);
+
+  y -= 6;
+  const warnH = 96;
+  page.drawRectangle({ x: 38, y: y - warnH, width: 612 - 76, height: warnH, color: rgb(0.99, 0.95, 0.85), borderColor: rgb(0.85, 0.68, 0.25), borderWidth: 1 });
+  page.drawText("TIME IS OF THE ESSENCE", { x: 50, y: y - 18, size: 10.5, font: bold, color: black });
+  const line1 = "Contract and inspection contingency deadlines do not pause while payment is processed.";
+  const line2 = "Please wire promptly upon receiving this document to keep your order on schedule.";
+  page.drawText(line1, { x: 50, y: y - 34, size: 9, font, color: black });
+  page.drawText(line2, { x: 50, y: y - 47, size: 9, font, color: black });
+  page.drawText("WIRE FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
+  const line3 = "These instructions will never change over email. Verify by phone at (904) 504-3794 before sending funds.";
+  page.drawText(line3, { x: 50, y: y - 82, size: 9, font, color: black });
+  y -= warnH + 20;
+
+  page.drawText("Alex & Nate Watson — Brothers Group at Momentum Realty — (904) 504-3794 — www.brothersgroup.realestate", { x: 38, y: 40, size: 8, font, color: gray });
+
+  const bytes = await pdfDoc.save();
+  const filename = `wiring-INS-${order.id}-${Date.now()}.pdf`;
+  const dir = inspectionWiringDir();
+  const filePath = path.join(dir, filename);
+  fs.writeFileSync(filePath, bytes);
+  return { path: filePath, filename, bytes: Buffer.from(bytes) };
+}
+
+// ─── EMAIL: Wire instructions to client (sent right after they approve) ────
+async function sendWiringInstructionsToClient(orderId: number) {
+  if (!resend) return;
+  const order = getOrderRow(orderId);
+  if (!order || !order.client_email) return;
+  const pdf = await generateInspectionWiringPdf(order);
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Wire Payment Instructions", order.property_address)}
+    <div style="padding:20px 32px">
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${firstName(order.client_name)} — thank you for approving your inspection order. To get your inspections scheduled, please wire the amount below to Brothers Group. As soon as payment is received we'll place your order with the vendor.</p>
+      <table style="width:100%;margin:12px 0;font-size:13px;color:#333">
+        <tr><td style="padding:4px 0;color:${BRAND.gray};width:140px">Amount Due</td><td style="font-weight:700;font-size:16px">$${(order.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Reference</td><td>INS-${order.id}</td></tr>
+      </table>
+      <div style="border:1px solid #e2e2e2;border-radius:8px;padding:14px 16px;margin:14px 0;font-size:12.5px;color:#333">
+        <p style="margin:0 0 4px"><strong>Beneficiary:</strong> ${RELAY_WIRE.beneficiary}</p>
+        <p style="margin:0 0 4px"><strong>Bank:</strong> ${RELAY_WIRE.bankName}</p>
+        <p style="margin:0 0 4px"><strong>Account Number:</strong> ${RELAY_WIRE.accountNumber}</p>
+        <p style="margin:0 0 4px"><strong>Routing Number:</strong> ${RELAY_WIRE.routingNumber}</p>
+        <p style="margin:0 0 4px"><strong>Account Type:</strong> ${RELAY_WIRE.accountType}</p>
+        <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
+      </div>
+      <div style="margin-top:10px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — contract and inspection contingency deadlines do not pause while payment is processed. Please wire promptly to keep your order on schedule.</p>
+      </div>
+      <div style="margin-top:10px;padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Wire fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated wiring instructions, do not act on it — call us directly at (904) 504-3794 to verify before sending any funds.</p>
+      </div>
+      <p style="font-size:11px;color:#333;margin-top:14px">Full wiring instructions are also attached as a PDF for your records. Let us know if you have any questions.</p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  await resend.emails.send({
+    from: FROM, to: [order.client_email], cc: ADMIN_EMAILS,
+    subject: `Wire Payment Instructions — ${order.property_address}`,
+    html,
+    attachments: [{ filename: "Wire-Payment-Instructions.pdf", content: pdf.bytes.toString("base64") }],
+  });
+}
+
+// ─── EMAIL: Payment confirmed -> tells Nate (TC) it's clear to place the
+// vendor order. Called from payments.ts's reconciliation hook once the sum
+// of recorded payments meets/exceeds the order total. Exported so payments.ts
+// can call it without duplicating inspection-order email-building logic.
+export async function notifyTCPaymentReceivedForInspectionOrder(orderId: number) {
+  if (!resend) return;
+  const order = getOrderRow(orderId);
+  if (!order) return;
+  const items = getOrderItems(orderId).filter(i => !i.is_addon || i.addon_status === "signed");
+  const vendor = order.vendor_id ? rawDb.prepare(`SELECT name, phone, email FROM repair_vendors WHERE id = ?`).get(order.vendor_id) as any : null;
+  const vendorLabel = vendor ? `${vendor.name}${vendor.phone ? ` — ${vendor.phone}` : ""}${vendor.email ? ` — ${vendor.email}` : ""}` : "Pro-Spect Inspection Services";
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Payment Received — Clear to Order", order.property_address)}
+    <div style="padding:20px 32px">
+      <div style="margin-top:0;padding:12px 16px;background:#e2f5e9;border:1px solid #7dbf9a;border-radius:8px">
+        <p style="margin:0;font-size:12.5px;color:${BRAND.black};font-weight:700">Payment received in full — go ahead and place this order with ${vendorLabel} now.</p>
+      </div>
+      <table style="width:100%;font-size:12.5px;color:#333;margin:14px 0 10px">
+        <tr><td style="padding:4px 0;color:${BRAND.gray};width:130px">Client</td><td style="font-weight:600">${order.client_name}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Phone</td><td>${order.client_phone || "—"}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Needed By</td><td>${neededByLabel(order)}</td></tr>
+        ${order.contingency_expiration_date ? `<tr><td style="padding:4px 0;color:${BRAND.gray}">Contingency Expires</td><td>${order.contingency_expiration_date}</td></tr>` : ""}
+      </table>
+      ${itemsTableHtml(items)}
+      <p style="font-size:12px;color:#333;margin-top:14px">Time is of the essence — please place this order right away to keep the inspection contingency on track.</p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  const ccList = ADMIN_EMAILS.filter(e => e.toLowerCase() !== NATE_EMAIL);
+  await resend.emails.send({ from: FROM, to: [NATE_EMAIL], cc: ccList, subject: `Payment Received — Place Order with ${vendor ? vendor.name : "Pro-Spect"} — ${order.property_address}`, html });
 }
 
 // ─── EMAIL: Add-on requested (internal notify to admins for office-approve) ─
@@ -602,9 +804,9 @@ async function sendAddonSignedInternal(itemId: number) {
     <div style="padding:20px 32px">
       <p style="font-size:13px;color:#333"><strong>${addon.name}</strong> — $${(addon.client_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
       <p style="font-size:12.5px;color:${BRAND.gray}">Signed by ${addon.addon_signature_name}. New order total: $${(order?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
-      <div style="margin-top:14px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
-        <p style="margin:0;font-size:12.5px;color:${BRAND.black};font-weight:700">Book this add-on in ${order?.client_name || "the client's"}'s name — not Watson Brothers Group's.</p>
-        <p style="margin:6px 0 0;font-size:12px;color:#333">Tell the inspector this is for client <strong>${order?.client_name || ""}</strong> at <strong>${order?.property_address || ""}</strong> so it's scheduled and invoiced under the client, not us.</p>
+      <div style="margin-top:14px;padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
+        <p style="margin:0;font-size:12.5px;color:${BRAND.black};font-weight:700">HOLD — this add-on is not yet paid for.</p>
+        <p style="margin:6px 0 0;font-size:12px;color:#333">This add-on is billed and paid for the same way as the main order — Brothers Group collects payment from <strong>${order?.client_name || "the client"}</strong> and places the order with the vendor once payment is confirmed. Do not book this directly with the vendor.</p>
       </div>
     </div>
     ${brandedFooter()}
@@ -945,6 +1147,7 @@ export function registerInspectionsRoutes(app: Express) {
         accepted_signature_name = ?, accepted_ip = ?, updated_at = datetime('now') WHERE id = ?
     `).run(String(signatureName).trim(), ip, order.id);
     try { await sendInspectionOrderAcceptedInternal(order.id); } catch (e) { console.error("inspection accepted email failed:", e); }
+    try { await sendWiringInstructionsToClient(order.id); } catch (e) { console.error("inspection wiring instructions email failed:", e); }
     // v20.32.13 Part 4 — milestone task: confirm inspection scheduling
     fireMilestoneTasks("inspection_scheduled", {
       personId: order.fub_contact_id ? Number(order.fub_contact_id) : null,

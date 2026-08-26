@@ -101,7 +101,7 @@ export function InspectionOrderBody({
 
           {signed ? (
             <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(30,150,90,0.08)", color: "#1e7a45", padding: "14px 16px", borderRadius: 8, fontSize: 14 }}>
-              <CheckCircle2 size={20} /> Approved — thank you! We're scheduling this now and will be in touch.
+              <CheckCircle2 size={20} /> Approved — thank you! Check your email for wiring instructions to complete your order.
             </div>
           ) : declined ? (
             <div style={{ background: "#f4f4f2", color: "#666", padding: "14px 16px", borderRadius: 8, fontSize: 13.5 }}>
@@ -126,7 +126,7 @@ export function InspectionOrderBody({
                 style={{ width: "100%", padding: "10px 18px", borderRadius: 8, background: "transparent", color: "#888", border: "1px solid #ccc", fontSize: 13, cursor: previewMode ? "default" : "pointer" }}
               >{declining ? "Submitting…" : "Decline"}</button>
               <p style={{ fontSize: 10.5, color: "#999", marginTop: 10, lineHeight: 1.5 }}>
-                By signing, you authorize Brothers Group to coordinate this inspection order with our inspection partner on your behalf.
+                By signing, you authorize Brothers Group to place and pay for this inspection order on your behalf. Payment is due to Brothers Group before your order is placed with the vendor — wiring instructions will follow by separate email.
               </p>
               {!!data?.terms?.length && (
                 <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #eee" }}>

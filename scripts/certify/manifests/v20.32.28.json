@@ -1,0 +1,42 @@
+{
+  "version": "v20.32.28",
+  "changes": [
+    "Inspection ordering is now TC-mediated: buyer/seller inspection orders route to Nate (the TC) to place with the vendor, never sent directly to the vendor.",
+    "Brothers Group is now the ordering/paying party on inspection orders — client pays Brothers Group's Relay account by wire first, Nate places the vendor order only after payment is confirmed.",
+    "On order acceptance, client now receives a branded wiring-instructions email (with PDF attachment) instead of a generic 'we're scheduling this' message.",
+    "On order acceptance, Nate now receives a HOLD email (do not place vendor order until payment is confirmed) instead of the old accepted-notification.",
+    "New: notifyTCPaymentReceivedForInspectionOrder — fires when a wire payment reconciles an inspection_order, telling Nate to place the order with the vendor.",
+    "Jason Brown deactivated as an inspection vendor — Pro-Spect Inspection Services is now the sole preferred vendor.",
+    "Client-facing copy updated (InspectionOrderPage approved state + disclosure, InspectionsPricingPanel OrdersPanel description) to reflect Brothers Group as ordering/paying party.",
+    "New static mount /inspection-wiring for generated wiring-instruction PDFs (mirrors /repair-quotes pattern)."
+  ],
+  "endpoints": [
+    { "path": "/api/inspection-vendors", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["vendors"] },
+    { "path": "/api/inspection-items",   "method": "GET", "auth": "none", "expectStatus": 200 }
+  ],
+  "bundleMustContain": [
+    "Check your email for wiring instructions to complete your order",
+    "place and pay for this inspection order on your behalf",
+    "wiring instructions will follow by separate email"
+  ],
+  "bundleMustNotContain": [
+    "coordinate this inspection order with our inspection partner on your behalf",
+    "booked and communicated to the vendor under the client's own name"
+  ],
+  "__bundleNotes": "Jason Brown removal is data-driven (repair_vendors.active=0), not a bundle string — verified via mathChecks against the live /api/inspection-vendors payload instead of Layer 2.",
+
+  "mathChecks": [
+    {
+      "name": "Jason Brown is not in the active inspection vendor list",
+      "path": "/api/inspection-vendors",
+      "auth": "none",
+      "expr": "!body.vendors.some(v => v.name === 'Jason Brown')"
+    },
+    {
+      "name": "Pro-Spect Inspection Services is present and active",
+      "path": "/api/inspection-vendors",
+      "auth": "none",
+      "expr": "body.vendors.some(v => v.name === 'Pro-Spect Inspection Services')"
+    }
+  ]
+}

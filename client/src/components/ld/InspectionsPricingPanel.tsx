@@ -216,7 +216,8 @@ function OrdersPanel() {
         <button onClick={load} style={refreshBtnStyle}><RefreshCw size={11} /> Refresh</button>
       </div>
       <p className="text-xs text-muted-foreground mb-3">
-        Every order is booked and communicated to the vendor under the client's own name. Mark completed once the
+        Brothers Group places and pays for every order directly — the client pays us first (wiring instructions sent on
+        approval), then Nate places the order with the vendor once payment is confirmed. Mark completed once the
         vendor has performed all signed items — this locks the final invoice total.
       </p>
       {loading ? (

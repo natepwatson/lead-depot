@@ -30,6 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { rawDb } from "./db";
 import { fubRequest, resolveFubPersonId } from "./fub";
+import { notifyTCPaymentReceivedForInspectionOrder } from "./inspections";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 function paymentPhotosDir(): string {
@@ -224,6 +225,11 @@ export function registerPaymentRoutes(app: Express) {
           if (meeting?.fub_task_id) {
             await fubRequest("PUT", `/tasks/${meeting.fub_task_id}`, { isCompleted: true });
           }
+        }
+        // v20.32.28 — payment reconciled on an inspection order is the TC's
+        // (Nate's) signal to actually place the order with the vendor.
+        if (reconciled && sourceType === "inspection_order") {
+          await notifyTCPaymentReceivedForInspectionOrder(sourceId);
         }
       } catch (err: any) {
         console.warn("[Payments] FUB tie-in failed:", err?.message || err);

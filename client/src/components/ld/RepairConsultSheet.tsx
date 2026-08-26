@@ -500,6 +500,14 @@ export function RepairConsultSheet({
   // once, then locked until you close the whole sheet" behavior.
   const [editingScope, setEditingScope] = useState(false);
   const [addItemQuery, setAddItemQuery] = useState("");
+  // v20.32.38 — bumped every time Save Changes / Regenerate Quote runs.
+  // reviewConfirmed alone can't drive the auto-regen effect on a SECOND
+  // (or later) edit pass, because it's already true — setting it to true
+  // again is a no-op for React's dependency comparison, so the effect
+  // never re-fires: items silently save to the DB but the quote PDF and
+  // vendor dispatch never refresh ("took a long time, nothing updated,
+  // same old quote"). This counter always changes value.
+  const [reviewVersion, setReviewVersion] = useState(0);
   // v20.26.0 — which checked item's inline editor is open on Review & Send
   // (quantity / two-story / measurement notes) — null means none expanded.
   const [editingReviewItem, setEditingReviewItem] = useState<string | null>(null);
@@ -1111,7 +1119,9 @@ export function RepairConsultSheet({
       .map(([itemKey, v]) => ({
         itemKey, quantity: Number(v.quantity) || 1, twoStory: v.twoStory,
         photos: v.photos, measurementNotes: v.measurementNotes || undefined,
-        vendorQuoteAmount: v.hasVendorQuote && Number(v.vendorQuoteAmount) > 0 ? Number(v.vendorQuoteAmount) : undefined,
+        // v20.32.38 — was `> 0`, which silently dropped a legitimate $0
+        // (vendor-approved-at-no-charge) price back to "Quote pending".
+        vendorQuoteAmount: v.hasVendorQuote && v.vendorQuoteAmount !== "" && !isNaN(Number(v.vendorQuoteAmount)) ? Number(v.vendorQuoteAmount) : undefined,
       }));
     if (items.length === 0) throw new Error("Check off at least one repair item before continuing.");
     const d = await fetchJson(`/api/repair-consult/${id}/items`, {
@@ -1159,6 +1169,7 @@ export function RepairConsultSheet({
       if (vendorDispatchResult) setVendorDispatchResult(null);
       setEditingScope(false);
       setReviewConfirmed(true);
+      setReviewVersion(v => v + 1); // v20.32.38 — guarantees the effect below re-fires even when reviewConfirmed was already true
     } catch (e: any) { setError(e.message || "Failed to save the reviewed items."); }
     finally { setSavingReview(false); }
   };
@@ -1210,7 +1221,7 @@ export function RepairConsultSheet({
     if (hasInHouseSelections && !quoteResult && !generatingQuote) handleGenerateQuote();
     if (hasVendorSelections && !vendorDispatchResult && !dispatchingVendors) handleDispatchVendors();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, consultId, reviewConfirmed]);
+  }, [step, consultId, reviewConfirmed, reviewVersion]);
 
   const stepIndex = { info: 0, checklist: 1, gallery: 2, review: 3 }[step];
 

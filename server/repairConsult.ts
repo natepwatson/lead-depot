@@ -1488,11 +1488,12 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
     y -= 14;
     for (const v of vendorItems) {
       if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
-      const priceLabel = v.line_total != null && Number(v.line_total) > 0
+      const vendorPriced = v.vendor_quote_amount != null && v.line_total != null;
+      const priceLabel = vendorPriced
         ? `$${Number(v.line_total).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
         : "Quote pending";
       page.drawText(`\u2022  ${v.name}`.slice(0, 68), { x: 38, y, size: 8.5, font, color: rgb(0.2, 0.2, 0.2) });
-      page.drawText(priceLabel, { x: 470, y, size: 8.5, font: fontBold, color: (v.line_total != null && Number(v.line_total) > 0) ? black : gray });
+      page.drawText(priceLabel, { x: 470, y, size: 8.5, font: fontBold, color: vendorPriced ? black : gray });
       y -= 12;
       if (v.instruction) {
         for (const line of wrapText(v.instruction, fontItalic, 7, 480).slice(0, 2)) {
@@ -1503,6 +1504,23 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
       }
     }
     y -= 4;
+
+    const pricedVendorTotal = vendorItems.reduce((sum: number, v: any) => {
+      if (v.vendor_quote_amount != null && v.line_total != null) return sum + Number(v.line_total);
+      return sum;
+    }, 0);
+    const allVendorPriced = vendorItems.every((v: any) => v.vendor_quote_amount != null);
+    if (allVendorPriced) {
+      const grandTotal = Number(consult.total) + pricedVendorTotal;
+      if (y < MIN_Y + 14) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
+      page.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 0.5, color: gray });
+      y -= 14;
+      page.drawText("GRAND TOTAL (In-House + Approved Vendor Trades)", { x: 38, y, size: 9.5, font: fontBold, color: black });
+      page.drawText(`$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: 400, y, size: 11, font: fontBold, color: black });
+      y -= 11;
+      page.drawText("Vendor-coordinated trades are billed separately by the vendor and are not part of the 50/50 schedule above.", { x: 38, y, size: 6.8, font: fontItalic, color: gray });
+      y -= 14;
+    }
   }
 
   if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
@@ -2665,7 +2683,12 @@ export function registerRepairConsultRoutes(app: Express) {
           unitRate = vendorQuoteAmount;
           vendorQuotedSubtotal += lineTotal;
         }
-        const instruction = fillInstruction(cat.instruction || cat.name, qty, cat.unit, twoStory);
+        // v20.32.38 — optional per-item scope override (e.g. a vendor item
+        // narrowed to "patch repair" instead of the catalog's generic default
+        // instruction text). Only used when the caller explicitly supplies it.
+        const instruction = (typeof raw.scopeNote === "string" && raw.scopeNote.trim())
+          ? raw.scopeNote.trim()
+          : fillInstruction(cat.instruction || cat.name, qty, cat.unit, twoStory);
         insert.run(
           consultId, cat.key, cat.category, cat.trade, cat.name, cat.unit, qty,
           unitRate, twoStory ? 1 : 0, lineTotal,

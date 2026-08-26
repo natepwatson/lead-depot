@@ -2165,6 +2165,7 @@ export async function fubListDeals(limitPerPage = 100): Promise<FubDeal[]> {
 export const FUB_MILESTONE_TRIGGER_EVENTS = [
   "inspection_scheduled",
   "inspection_completed",
+  "inspection_payment_pending",
   "repair_contract_signed",
   "repair_start_date",
   "repair_punch_out",
@@ -2184,6 +2185,10 @@ const DEFAULT_MILESTONE_TASKS: Array<{ trigger: FubMilestoneTriggerEvent; name: 
   { trigger: "repair_final_payment_due", name: "Final/Payment Meeting", daysOffset: 0 },
   { trigger: "offer_submitted", name: "Track offer deadline", daysOffset: 0 },
   { trigger: "invoice_sent", name: "Payment due reminder", daysOffset: 3 },
+  // v20.32.29 — fires the moment a client approves an inspection order, i.e.
+  // exactly when Nate needs to be watching for the wire. Owned by Nate
+  // (the TC), not Denise, since he's the one who places the vendor order.
+  { trigger: "inspection_payment_pending", name: "Collect wire payment before ordering inspection", daysOffset: 0 },
 ];
 
 // Idempotent — safe to call at every server startup.
@@ -2211,6 +2216,20 @@ export function ensureFubMilestoneSchema() {
       ins.run(t.trigger, t.name, t.daysOffset, DENISE_FUB_USER_ID);
     }
     console.log(`[FUB Milestone] Seeded ${DEFAULT_MILESTONE_TASKS.length} default milestone task rows.`);
+  }
+
+  // v20.32.29 — self-healing backfill: the table was already seeded (count!==0
+  // above) before "inspection_payment_pending" existed as a trigger, so the
+  // one-time seed loop never inserted it. Check for it explicitly and add it
+  // if missing, assigned to Nate (the TC) rather than Denise.
+  const hasPaymentPending = rawDb.prepare(
+    `SELECT 1 FROM fub_milestone_tasks WHERE trigger_event = ?`
+  ).get("inspection_payment_pending");
+  if (!hasPaymentPending) {
+    rawDb.prepare(
+      `INSERT INTO fub_milestone_tasks (trigger_event, task_name, days_offset, assigned_fub_user_id) VALUES (?, ?, ?, ?)`
+    ).run("inspection_payment_pending", "Collect wire payment before ordering inspection", 0, NATE_FUB_USER_ID);
+    console.log(`[FUB Milestone] Backfilled inspection_payment_pending trigger row.`);
   }
 }
 

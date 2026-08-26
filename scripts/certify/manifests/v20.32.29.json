@@ -1,0 +1,30 @@
+{
+  "version": "v20.32.29",
+  "changes": [
+    "Inspection order acceptance now fires a second, distinct FUB milestone task (inspection_payment_pending, assigned to Nate) specifically for chasing the wire, separate from the scheduling milestone.",
+    "Inspection order decline now sends an internal admin notification email (previously silent \u2014 nobody was told when a client declined).",
+    "Signed inspection add-ons now trigger a client-facing wiring-instructions email + PDF for the add-on's own amount (previously only an internal admin HOLD note existed; the client was never told how to pay for the add-on).",
+    "Admin Inspection Orders table now shows a paid_amount-derived Payment badge (Unpaid / Partial / Paid) alongside status.",
+    "Removed the stale invoice_sent milestone fired at order completion \u2014 under the prepaid model, payment is always collected before the vendor order is placed, so a 'final invoice / payment due' task at completion was misleading.",
+    "New hourly scheduler (checkAndSendInspectionPaymentReminders) sends a one-time reminder to clients (and admins, if no client email on file) for orders accepted 48+ hours ago that are still unpaid or only partially paid.",
+    "Wiring deadline language ('within 48 hours') added to inspection terms, wiring PDF, and wiring email HTML for concreteness."
+  ],
+  "endpoints": [
+    { "path": "/api/admin/inspection-orders", "method": "GET", "auth": "admin", "expectStatus": 200, "expectKeys": ["orders"] }
+  ],
+  "bundleMustContain": [
+    "Unpaid",
+    "Partial ("
+  ],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "paid_amount is server-computed at request time (not a bundle string) - verified via mathChecks against the live /api/admin/inspection-orders payload instead of Layer 2. 'Final invoice ready' (old invoice_sent milestone text) and 'Please wire within 48 hours' (wiring email/PDF copy) are server-only strings never shipped to the client bundle, so they cannot be checked at Layer 2 - confirmed removed/present via direct source grep during development instead.",
+
+  "mathChecks": [
+    {
+      "name": "Admin inspection orders response includes a numeric paid_amount on every row",
+      "path": "/api/admin/inspection-orders",
+      "auth": "admin",
+      "expr": "Array.isArray(body.orders) && body.orders.every(o => typeof o.paid_amount === 'number')"
+    }
+  ]
+}

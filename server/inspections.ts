@@ -73,7 +73,7 @@ export const INSPECTION_TERMS = [
   "Brothers Group coordinates and places this inspection order on your behalf with our preferred inspection partner, Pro-Spect Inspection Services — an independent, licensed, and insured third-party vendor. As a service to you, Brothers Group collects payment directly and pays the vendor ourselves; the vendor does not bill you directly.",
   "Vendor pricing may vary based on square footage, site conditions, and other criteria specific to each inspection type. The price shown above is confirmed at the time we place your order.",
   `Full payment is due to Brothers Group BEFORE we place your order with the vendor. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL}. Once you approve below, we'll send wiring instructions by separate email — review them carefully, and always verify by phone at a known number before sending funds. Our wiring instructions will never change over email.`,
-  "Time is of the essence. Inspection contingency and other contract deadlines do not pause while payment is processed — the sooner your payment is received, the sooner we can place your order and get you scheduled.",
+  "Time is of the essence. Inspection contingency and other contract deadlines do not pause while payment is processed. Please wire payment within 48 hours of approving this order — the sooner your payment is received, the sooner we can place your order and get you scheduled.",
   "You are responsible for providing the vendor access to the property at the scheduled time. Any rescheduling or cancellation fee charged by the vendor is passed through to you.",
   "Brothers Group assumes no liability for the accuracy, completeness, or findings of any inspection report, or for the licensing, insurance, scheduling, or performance of the inspecting vendor. Unpaid balances may be pursued through ordinary collection remedies available under Florida law.",
 ] as const;
@@ -194,6 +194,11 @@ export function ensureInspectionsSchema() {
   // so client-facing copy (email + accept page) never says "as we prepare to
   // list your home" to a buyer, or vice versa.
   if (!ioCols.includes("deal_side"))    rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN deal_side TEXT NOT NULL DEFAULT 'buyer'").run();
+
+  // v20.32.29 — tracks whether the one-time "you still haven't wired us"
+  // nudge has fired for this order, so the reminder scheduler below never
+  // double-sends. NULL = not yet sent.
+  if (!ioCols.includes("payment_reminder_sent_at")) rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN payment_reminder_sent_at TEXT").run();
 
   // v20.32.13 — vendor-level default markup (repair_vendors is shared by
   // Repair AND Inspections vendors). NULL = fall back to the 25% global
@@ -646,7 +651,7 @@ async function generateInspectionWiringPdf(order: any): Promise<{ path: string; 
   page.drawRectangle({ x: 38, y: y - warnH, width: 612 - 76, height: warnH, color: rgb(0.99, 0.95, 0.85), borderColor: rgb(0.85, 0.68, 0.25), borderWidth: 1 });
   page.drawText("TIME IS OF THE ESSENCE", { x: 50, y: y - 18, size: 10.5, font: bold, color: black });
   const line1 = "Contract and inspection contingency deadlines do not pause while payment is processed.";
-  const line2 = "Please wire promptly upon receiving this document to keep your order on schedule.";
+  const line2 = "Please wire within 48 hours of receiving this document to keep your order on schedule.";
   page.drawText(line1, { x: 50, y: y - 34, size: 9, font, color: black });
   page.drawText(line2, { x: 50, y: y - 47, size: 9, font, color: black });
   page.drawText("WIRE FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
@@ -689,7 +694,7 @@ async function sendWiringInstructionsToClient(orderId: number) {
         <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — contract and inspection contingency deadlines do not pause while payment is processed. Please wire promptly to keep your order on schedule.</p>
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — contract and inspection contingency deadlines do not pause while payment is processed. Please wire within 48 hours to keep your order on schedule.</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
         <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Wire fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated wiring instructions, do not act on it — call us directly at (904) 504-3794 to verify before sending any funds.</p>
@@ -704,6 +709,133 @@ async function sendWiringInstructionsToClient(orderId: number) {
     subject: `Wire Payment Instructions — ${order.property_address}`,
     html,
     attachments: [{ filename: "Wire-Payment-Instructions.pdf", content: pdf.bytes.toString("base64") }],
+  });
+}
+
+// v20.32.29 — GAP FIX: signing an add-on previously only fired an internal
+// admin "HOLD, don't book" note (sendAddonSignedInternal below) — the client
+// was never actually told how much to wire for the add-on or where to send
+// it. This mirrors generateInspectionWiringPdf/sendWiringInstructionsToClient
+// above but scoped to the add-on's own incremental amount (NOT the order's
+// new total — the original items were already billed/paid separately).
+async function generateAddonWiringPdf(order: any, addon: any): Promise<{ path: string; filename: string; bytes: Buffer }> {
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([612, 792]);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const black = rgb(0, 0, 0);
+  const gray = rgb(0.4, 0.4, 0.4);
+  const red = rgb(0.7, 0.1, 0.1);
+  let y = 792 - 50;
+
+  try {
+    const logoBytes = fs.readFileSync(brandLogoPath());
+    const logoImg = await pdfDoc.embedJpg(logoBytes);
+    const logoW = 200;
+    const logoH = (logoImg.height / logoImg.width) * logoW;
+    page.drawImage(logoImg, { x: (612 - logoW) / 2, y: y - logoH, width: logoW, height: logoH });
+    y -= logoH + 20;
+  } catch { /* logo optional */ }
+
+  page.drawText("Wire Payment Instructions — Add-On", { x: 306 - bold.widthOfTextAtSize("Wire Payment Instructions — Add-On", 18) / 2, y, size: 18, font: bold, color: black });
+  y -= 30;
+
+  page.drawRectangle({ x: 38, y: y - 22, width: 612 - 76, height: 24, color: black });
+  page.drawText(order.property_address || "", { x: 46, y: y - 16, size: 10.5, font: bold, color: rgb(1, 1, 1) });
+  y -= 46;
+
+  const row = (label: string, value: string, size = 11) => {
+    page.drawText(label, { x: 38, y, size: 9, font: bold, color: gray });
+    page.drawText(value, { x: 38, y: y - 14, size, font, color: black });
+    y -= 34;
+  };
+
+  row("ADD-ON", addon.name || "");
+  row("REFERENCE", `INS-${order.id}-ADD-${addon.id} — ${order.client_name || ""}`);
+  row("AMOUNT DUE (ADD-ON ONLY)", `$${(addon.client_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 14);
+
+  y -= 6;
+  page.drawLine({ start: { x: 38, y }, end: { x: 612 - 38, y }, thickness: 1, color: rgb(0.85, 0.85, 0.85) });
+  y -= 26;
+
+  page.drawText("WIRE TO", { x: 38, y, size: 10.5, font: bold, color: black });
+  y -= 20;
+  row("BENEFICIARY", RELAY_WIRE.beneficiary);
+  row("BANK", RELAY_WIRE.bankName);
+  row("ACCOUNT NUMBER", RELAY_WIRE.accountNumber, 13);
+  row("ROUTING NUMBER", RELAY_WIRE.routingNumber, 13);
+  row("ACCOUNT TYPE", RELAY_WIRE.accountType);
+  row("BUSINESS ADDRESS", RELAY_WIRE.businessAddress);
+
+  y -= 6;
+  const warnH = 96;
+  page.drawRectangle({ x: 38, y: y - warnH, width: 612 - 76, height: warnH, color: rgb(0.99, 0.95, 0.85), borderColor: rgb(0.85, 0.68, 0.25), borderWidth: 1 });
+  page.drawText("TIME IS OF THE ESSENCE", { x: 50, y: y - 18, size: 10.5, font: bold, color: black });
+  const line1 = "This is a separate, additional amount for the add-on above — it does not replace any prior payment.";
+  const line2 = "Please wire within 48 hours of signing this add-on to keep your order on schedule.";
+  page.drawText(line1, { x: 50, y: y - 34, size: 9, font, color: black });
+  page.drawText(line2, { x: 50, y: y - 47, size: 9, font, color: black });
+  page.drawText("WIRE FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
+  const line3 = "These instructions will never change over email. Verify by phone at (904) 504-3794 before sending funds.";
+  page.drawText(line3, { x: 50, y: y - 82, size: 9, font, color: black });
+  y -= warnH + 20;
+
+  page.drawText("Alex & Nate Watson — Brothers Group at Momentum Realty — (904) 504-3794 — www.brothersgroup.realestate", { x: 38, y: 40, size: 8, font, color: gray });
+
+  const bytes = await pdfDoc.save();
+  const filename = `wiring-INS-${order.id}-ADD-${addon.id}-${Date.now()}.pdf`;
+  const dir = inspectionWiringDir();
+  const filePath = path.join(dir, filename);
+  fs.writeFileSync(filePath, bytes);
+  return { path: filePath, filename, bytes: Buffer.from(bytes) };
+}
+
+// ─── EMAIL: Wire instructions for a signed ADD-ON (sent right after the
+// client e-signs it) — the add-on's own amount, separate from whatever was
+// already collected for the main order. Without this, signed add-ons had NO
+// client-facing payment-collection mechanism at all.
+async function sendAddonWiringInstructionsToClient(itemId: number) {
+  if (!resend) return;
+  const addon = getAddonRow(itemId);
+  if (!addon) return;
+  const order = getOrderRow(addon.order_id);
+  if (!order || !order.client_email) return;
+  const pdf = await generateAddonWiringPdf(order, addon);
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Wire Payment Instructions — Add-On", order.property_address)}
+    <div style="padding:20px 32px">
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${firstName(order.client_name)} — thank you for signing the add-on below. This is a separate, additional amount — it does not replace any payment you've already sent for your original order. Please wire this amount to Brothers Group and we'll add it to your order with the vendor once payment is confirmed.</p>
+      <table style="width:100%;margin:12px 0;font-size:13px;color:#333">
+        <tr><td style="padding:4px 0;color:${BRAND.gray};width:140px">Add-On</td><td style="font-weight:700">${addon.name}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Amount Due</td><td style="font-weight:700;font-size:16px">$${(addon.client_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+        <tr><td style="padding:4px 0;color:${BRAND.gray}">Reference</td><td>INS-${order.id}-ADD-${addon.id}</td></tr>
+      </table>
+      <div style="border:1px solid #e2e2e2;border-radius:8px;padding:14px 16px;margin:14px 0;font-size:12.5px;color:#333">
+        <p style="margin:0 0 4px"><strong>Beneficiary:</strong> ${RELAY_WIRE.beneficiary}</p>
+        <p style="margin:0 0 4px"><strong>Bank:</strong> ${RELAY_WIRE.bankName}</p>
+        <p style="margin:0 0 4px"><strong>Account Number:</strong> ${RELAY_WIRE.accountNumber}</p>
+        <p style="margin:0 0 4px"><strong>Routing Number:</strong> ${RELAY_WIRE.routingNumber}</p>
+        <p style="margin:0 0 4px"><strong>Account Type:</strong> ${RELAY_WIRE.accountType}</p>
+        <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
+      </div>
+      <div style="margin-top:10px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — please wire within 48 hours to keep your order on schedule.</p>
+      </div>
+      <div style="margin-top:10px;padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Wire fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated wiring instructions, do not act on it — call us directly at (904) 504-3794 to verify before sending any funds.</p>
+      </div>
+      <p style="font-size:11px;color:#333;margin-top:14px">Full wiring instructions are also attached as a PDF for your records. Let us know if you have any questions.</p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  await resend.emails.send({
+    from: FROM, to: [order.client_email], cc: ADMIN_EMAILS,
+    subject: `Wire Payment Instructions — Add-On — ${order.property_address}`,
+    html,
+    attachments: [{ filename: "Wire-Payment-Instructions-Addon.pdf", content: pdf.bytes.toString("base64") }],
   });
 }
 
@@ -806,13 +938,38 @@ async function sendAddonSignedInternal(itemId: number) {
       <p style="font-size:12.5px;color:${BRAND.gray}">Signed by ${addon.addon_signature_name}. New order total: $${(order?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
       <div style="margin-top:14px;padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
         <p style="margin:0;font-size:12.5px;color:${BRAND.black};font-weight:700">HOLD — this add-on is not yet paid for.</p>
-        <p style="margin:6px 0 0;font-size:12px;color:#333">This add-on is billed and paid for the same way as the main order — Brothers Group collects payment from <strong>${order?.client_name || "the client"}</strong> and places the order with the vendor once payment is confirmed. Do not book this directly with the vendor.</p>
+        <p style="margin:6px 0 0;font-size:12px;color:#333">This add-on is billed and paid for the same way as the main order — Brothers Group collects payment from <strong>${order?.client_name || "the client"}</strong> and places the order with the vendor once payment is confirmed. Do not book this directly with the vendor. Wiring instructions for this add-on's amount have been emailed to the client separately — watch for the wire before releasing it to the vendor.</p>
       </div>
     </div>
     ${brandedFooter()}
   </div>
   </body></html>`;
   await resend.emails.send({ from: FROM, to: ADMIN_EMAILS, subject: `Inspections+ Add-On Signed — ${order?.property_address || ""}`, html });
+}
+
+// v20.32.29 — GAP FIX: previously, a client declining an order updated the DB
+// and told NO ONE. An agent could sit for weeks assuming an order was still
+// pending. This notifies admins the moment a decline happens so someone can
+// follow up with the client / note it in FUB.
+async function sendInspectionOrderDeclinedInternal(orderId: number, reason?: string | null) {
+  if (!resend) return;
+  const order = getOrderRow(orderId);
+  if (!order) return;
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Inspection Order Declined", order.property_address)}
+    <div style="padding:20px 32px">
+      <div style="padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
+        <p style="margin:0;font-size:12.5px;color:${BRAND.black};font-weight:700">${order.client_name || "The client"} declined this inspection order.</p>
+        <p style="margin:6px 0 0;font-size:12px;color:#333">Reason given: ${reason ? String(reason) : "(none provided)"}</p>
+      </div>
+      <p style="font-size:12.5px;color:#333;margin-top:14px">No wiring instructions will go out and no vendor order will be placed. Follow up with the client directly if this needs to be revisited.</p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+  await resend.emails.send({ from: FROM, to: ADMIN_EMAILS, subject: `Inspection Order DECLINED — ${order.property_address}`, html });
 }
 
 // ─── ROUTES ──────────────────────────────────────────────────────────────────
@@ -1154,11 +1311,19 @@ export function registerInspectionsRoutes(app: Express) {
       clientName: order.client_name, clientPhone: order.client_phone, clientEmail: order.client_email,
       contextNote: `Inspection order approved — ${order.property_address}`,
     }).catch((e) => console.warn("milestone fire failed (inspection_scheduled):", e));
+    // v20.32.29 — separate milestone specifically for chasing the WIRE (not
+    // scheduling). Assigned to Nate by default (see fub.ts) since he's the TC
+    // who has to see the money land before placing the vendor order.
+    fireMilestoneTasks("inspection_payment_pending", {
+      personId: order.fub_contact_id ? Number(order.fub_contact_id) : null,
+      clientName: order.client_name, clientPhone: order.client_phone, clientEmail: order.client_email,
+      contextNote: `Awaiting wire ($${(order.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}) before placing vendor order — ${order.property_address}`,
+    }).catch((e) => console.warn("milestone fire failed (inspection_payment_pending):", e));
     res.json({ ok: true });
   });
 
   // ── Public: decline ──
-  app.post("/api/inspection-order/:token/decline", (req: any, res: Response) => {
+  app.post("/api/inspection-order/:token/decline", async (req: any, res: Response) => {
     const order = getOrderByToken(req.params.token);
     if (!order) return res.status(404).json({ error: "Order not found" });
     const { reason } = req.body || {};
@@ -1166,6 +1331,8 @@ export function registerInspectionsRoutes(app: Express) {
       UPDATE inspection_orders SET status = 'declined', declined_at = datetime('now'),
         decline_reason = ?, updated_at = datetime('now') WHERE id = ?
     `).run(reason || null, order.id);
+    // v20.32.29 — GAP FIX: nobody used to hear about this. Notify admins now.
+    try { await sendInspectionOrderDeclinedInternal(order.id, reason); } catch (e) { console.error("inspection order declined email failed:", e); }
     res.json({ ok: true });
   });
 
@@ -1287,6 +1454,10 @@ export function registerInspectionsRoutes(app: Express) {
       `).run(String(signatureName).trim(), ip, addon.id);
       recalcOrderTotals(addon.order_id);
       try { await sendAddonSignedInternal(addon.id); } catch (e) { console.error("addon signed email failed:", e); }
+      // v20.32.29 — GAP FIX: this used to be the ONLY email fired on add-on
+      // sign, and it only went to admins internally. The client themselves
+      // never got told how much to wire for the add-on or where. Fixed here.
+      try { await sendAddonWiringInstructionsToClient(addon.id); } catch (e) { console.error("addon wiring instructions email failed:", e); }
       const updated = getOrderRow(addon.order_id);
       res.json({ ok: true, newTotal: updated.total });
     } catch (err: any) {
@@ -1298,8 +1469,14 @@ export function registerInspectionsRoutes(app: Express) {
   // ── Admin: orders queue + mark completed (final invoice = signed items sum) ──
   app.get("/api/admin/inspection-orders", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    // v20.32.29 — GAP FIX: admin table previously showed only the order total,
+    // with no visibility into how much has actually been wired. Adds a
+    // paid_amount column via subquery so the client can render a 3-state
+    // Unpaid / Partial / Paid badge instead of a binary status guess.
     const rows = rawDb.prepare(`
-      SELECT io.*, a.name AS agent_name FROM inspection_orders io
+      SELECT io.*, a.name AS agent_name,
+        COALESCE((SELECT SUM(amount) FROM payment_records WHERE source_type = 'inspection_order' AND source_id = io.id), 0) AS paid_amount
+      FROM inspection_orders io
       LEFT JOIN agents a ON a.id = io.agent_id ORDER BY io.created_at DESC LIMIT 200
     `).all();
     res.json({ orders: rows });
@@ -1320,14 +1497,77 @@ export function registerInspectionsRoutes(app: Express) {
       clientName: updated.client_name, clientPhone: updated.client_phone, clientEmail: updated.client_email,
       contextNote: `Inspection completed — ${updated.property_address}`,
     }).catch((e) => console.warn("milestone fire failed (inspection_completed):", e));
-    // v20.32.13 Part 4/7 — completion = the final invoice (total is now the
-    // signed items sum); fires a separate payment-due reminder alongside the
-    // results follow-up above.
-    fireMilestoneTasks("invoice_sent", {
-      personId: updated.fub_contact_id ? Number(updated.fub_contact_id) : null,
-      clientName: updated.client_name, clientPhone: updated.client_phone, clientEmail: updated.client_email,
-      contextNote: `Final invoice ready ($${(updated.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}) — ${updated.property_address}`,
-    }).catch((e) => console.warn("milestone fire failed (invoice_sent):", e));
+    // v20.32.29 — REMOVED the "invoice_sent" milestone that used to fire here.
+    // Under the current prepaid model, payment is always collected BEFORE the
+    // vendor order is placed (both main order and every add-on) — by the time
+    // an order reaches "completed" there is no outstanding invoice. The old
+    // "Final invoice ready... payment due" task language was actively
+    // misleading (told Nate to chase money that was already in hand).
     res.json({ ok: true, finalInvoiceTotal: updated.total, vendorCostTotal: updated.vendor_cost_total, profit });
   });
+
+  // v20.32.29 — GAP FIX: automatic one-time reminder for orders the client
+  // approved but never wired within the 48-hour window stated in the terms
+  // and wiring email. Runs hourly; each order is only ever reminded once
+  // (payment_reminder_sent_at gate), so this is safe to leave running.
+  checkAndSendInspectionPaymentReminders();
+  setInterval(() => {
+    checkAndSendInspectionPaymentReminders().catch((e) => console.error("[inspection-payment-reminder] check failed:", e));
+  }, 60 * 60 * 1000);
+}
+
+async function checkAndSendInspectionPaymentReminders() {
+  if (!resend) return;
+  const overdue = rawDb.prepare(`
+    SELECT io.*,
+      COALESCE((SELECT SUM(amount) FROM payment_records WHERE source_type = 'inspection_order' AND source_id = io.id), 0) AS paid_amount
+    FROM inspection_orders io
+    WHERE io.status = 'accepted'
+      AND io.accepted_at IS NOT NULL
+      AND io.accepted_at <= datetime('now', '-48 hours')
+      AND io.payment_reminder_sent_at IS NULL
+  `).all() as any[];
+
+  for (const order of overdue) {
+    if ((order.paid_amount || 0) >= (order.total || 0) && (order.total || 0) > 0) {
+      // Already fully paid — just close out the gate without emailing anyone.
+      rawDb.prepare(`UPDATE inspection_orders SET payment_reminder_sent_at = datetime('now') WHERE id = ?`).run(order.id);
+      continue;
+    }
+    const balance = Math.max(0, (order.total || 0) - (order.paid_amount || 0));
+    try {
+      if (order.client_email) {
+        const html = `
+        <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+        <div style="max-width:600px;margin:0 auto;background:#fff">
+          ${brandedHeader("Reminder: Wire Payment Still Needed", order.property_address)}
+          <div style="padding:20px 32px">
+            <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${firstName(order.client_name)} — we haven't yet received your wire for the inspection order you approved. Your contract and inspection contingency deadlines do not pause while payment is outstanding, so we wanted to flag this right away.</p>
+            <table style="width:100%;margin:12px 0;font-size:13px;color:#333">
+              <tr><td style="padding:4px 0;color:${BRAND.gray};width:140px">Balance Due</td><td style="font-weight:700;font-size:16px">$${balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+              <tr><td style="padding:4px 0;color:${BRAND.gray}">Reference</td><td>INS-${order.id}</td></tr>
+            </table>
+            <p style="font-size:12.5px;color:#333">Please refer to the wiring instructions we emailed when you approved this order, or reply to this email / call us at (904) 504-3794 and we'll resend them. As always, verify our wiring details by phone before sending any funds — they will never change over email.</p>
+          </div>
+          ${brandedFooter()}
+        </div>
+        </body></html>`;
+        await resend.emails.send({
+          from: FROM, to: [order.client_email], cc: ADMIN_EMAILS,
+          subject: `Reminder: Wire Payment Still Needed — ${order.property_address}`,
+          html,
+        });
+      } else {
+        // No client email on file — still alert the team so a human follows up by phone.
+        await resend.emails.send({
+          from: FROM, to: ADMIN_EMAILS,
+          subject: `Inspection order unpaid 48h+ (no client email on file) — ${order.property_address}`,
+          html: `<p>Order INS-${order.id} for ${order.property_address} was approved over 48 hours ago with a balance of $${balance.toLocaleString(undefined, { minimumFractionDigits: 2 })} still due, and there's no client email on file to remind them. Please follow up by phone.</p>`,
+        });
+      }
+    } catch (e) {
+      console.error(`[inspection-payment-reminder] email failed for order ${order.id}:`, e);
+    }
+    rawDb.prepare(`UPDATE inspection_orders SET payment_reminder_sent_at = datetime('now') WHERE id = ?`).run(order.id);
+  }
 }

@@ -21,6 +21,7 @@ type InspectionOrder = {
   id: number; property_address: string; client_name: string; client_email: string | null;
   status: string; total: number; vendor_cost_total: number; needed_by: string; needed_by_date: string | null;
   contingency_expiration_date: string | null; agent_name: string | null; created_at: string;
+  paid_amount?: number;
 };
 
 type Addon = {
@@ -209,6 +210,19 @@ function OrdersPanel() {
 
   const statusColor = (s: string) => s === "accepted" ? "#5eead4" : s === "completed" ? "#94a3b8" : s === "declined" ? "#f87171" : s === "sent" ? GOLD : "#64748b";
 
+  // v20.32.29 — GAP FIX: previously there was no way to tell, at a glance,
+  // whether an approved order had actually been paid. 3-state instead of a
+  // binary paid/unpaid so partial wires (multiple payment_records rows) show
+  // distinctly from a client who hasn't sent anything at all.
+  const paymentBadge = (o: InspectionOrder) => {
+    const paid = o.paid_amount || 0;
+    const total = o.total || 0;
+    if (total <= 0) return null;
+    if (paid >= total) return { label: "Paid", color: "#4ade80", bg: "rgba(74,222,128,0.10)", border: "rgba(74,222,128,0.4)" };
+    if (paid > 0) return { label: `Partial ($${paid.toFixed(0)})`, color: GOLD, border: "rgba(200,170,90,0.45)", bg: "rgba(200,170,90,0.10)" };
+    return { label: "Unpaid", color: "#f87171", border: "rgba(248,113,113,0.4)", bg: "rgba(248,113,113,0.08)" };
+  };
+
   return (
     <div style={panelStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
@@ -233,17 +247,27 @@ function OrdersPanel() {
                 <th style={thStyle("left")}>Client</th>
                 <th style={thStyle("left")}>Agent</th>
                 <th style={thStyle("center")}>Status</th>
+                <th style={thStyle("center")}>Payment</th>
                 <th style={thStyle("right")}>Total</th>
                 <th style={thStyle("center")}></th>
               </tr>
             </thead>
             <tbody>
-              {orders.map(o => (
+              {orders.map(o => {
+                const badge = paymentBadge(o);
+                return (
                 <tr key={o.id} style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
                   <td style={{ padding: "6px 10px", color: "#e5e7eb" }}>{o.property_address}</td>
                   <td style={{ padding: "6px 10px", color: "#94a3b8" }}>{o.client_name}</td>
                   <td style={{ padding: "6px 10px", color: "#94a3b8" }}>{o.agent_name || "—"}</td>
                   <td style={{ padding: "6px 10px", textAlign: "center", color: statusColor(o.status), textTransform: "capitalize" }}>{o.status}</td>
+                  <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                    {badge ? (
+                      <span style={{ display: "inline-block", fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 10, color: badge.color, background: badge.bg, border: `1px solid ${badge.border}` }}>
+                        {badge.label}
+                      </span>
+                    ) : <span style={{ fontSize: 10, color: "#64748b" }}>—</span>}
+                  </td>
                   <td style={{ padding: "6px 10px", textAlign: "right", color: "#e5e7eb" }}>${(o.total || 0).toFixed(2)}</td>
                   <td style={{ padding: "6px 10px", textAlign: "center" }}>
                     <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap" }}>
@@ -265,7 +289,7 @@ function OrdersPanel() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
         </div>

@@ -9,12 +9,11 @@
 // proposal + accept link; "Request Vendor Quotes" fires trade-specific
 // quote-request emails with photos to our preferred vendors.
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X, Plus, Pencil, Eye } from "lucide-react";
+import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X, Plus, Pencil } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 import { PdfViewerModal } from "./PdfViewerModal";
 import { SmartDataPanel } from "./SmartDataPanel";
 import { FubAddressChooser, type FubAddress } from "./FubAddressChooser";
-import { ClientPreviewModal } from "./ClientPreviewModal";
 
 type RepairItem = {
   id: number; key: string; category: "in_house" | "vendor"; trade: string; name: string;
@@ -488,7 +487,6 @@ export function RepairConsultSheet({
   const [sendingToClient, setSendingToClient] = useState(false);
   const [clientSent, setClientSent] = useState(false);
   const [dispatchingVendors, setDispatchingVendors] = useState(false);
-  const [showClientPreview, setShowClientPreview] = useState(false);
   const [vendorDispatchResult, setVendorDispatchResult] = useState<{ sent: number; tradesWithoutVendor?: string[] } | null>(null);
   const [error, setError] = useState("");
   // v20.25.0 — THE CLOSE: on-the-phone-with-client review gate. Nothing
@@ -1919,16 +1917,7 @@ export function RepairConsultSheet({
                         onClick={() => setPdfModal({ url: quoteResult.agreementPdfUrl || quoteResult.pdfUrl, title: `${effectiveAddress} — Quote` })}
                         style={{ display: "block", width: "100%", textAlign: "center", padding: "10px 14px", borderRadius: 8, border: `1px solid ${GOLD}`, background: "transparent", color: GOLD, fontSize: 12.5, fontWeight: 700, marginBottom: 10, cursor: "pointer" }}
                       >
-                        View Quote
-                      </button>
-                    )}
-                    {!clientSent && (
-                      <button type="button" onClick={() => setShowClientPreview(true)} style={{
-                        width: "100%", padding: "11px 14px", borderRadius: 10, marginBottom: 8,
-                        background: "transparent", border: `1px solid ${GOLD}`, color: GOLD, fontSize: 12.5, fontWeight: 700,
-                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                      }}>
-                        <Eye size={14} /> Preview Before Sending
+                        View
                       </button>
                     )}
                     {clientEmail ? (
@@ -1979,14 +1968,6 @@ export function RepairConsultSheet({
       </div>
       {pdfModal && (
         <PdfViewerModal url={pdfModal.url} title={pdfModal.title} onClose={() => setPdfModal(null)} />
-      )}
-      {showClientPreview && consultId && (
-        <ClientPreviewModal
-          kind="repair"
-          id={consultId}
-          title={`Preview — ${effectiveAddress || "Repair Quote"}`}
-          onClose={() => setShowClientPreview(false)}
-        />
       )}
     </div>
   );

@@ -1371,7 +1371,7 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   if (!consult) throw new Error("Consult not found");
 
   const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([612, 792]);
+  let page = pdfDoc.addPage([612, 792]);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
@@ -1467,33 +1467,50 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   page.drawText("50% ON COMPLETION", { x: 320, y: y - 12, size: 10, font: fontBold, color: green });
   page.drawText(`$${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 320, y: y - 25, size: 13, font: fontBold, color: black });
   y -= 42;
+
+  // v20.32.38 — page-break guard: never draw content lower than MIN_Y so it
+  // can't collide with the gray footer band (top edge at footerY=70).
+  const MIN_Y = 95;
+  if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
   page.drawText(START_MOMENTUM_PDF_LINE, { x: 38, y, size: 9.5, font: fontBold, color: rgb(0, 0.35, 0) });
+  y -= 16;
+
+  // v20.32.38 — FIX: this section used to be gated on "if (y > 95)", which
+  // silently DROPPED the entire vendor price/scope block whenever the
+  // in-house item table (plus hero photo) had already used up the page —
+  // this was the bug Alex reported ("view doesn't include vendor price and
+  // work, scope, etc."). Now it always renders — each vendor item's price
+  // (or "Quote pending" if not yet entered) and its scope/instruction text —
+  // and pages forward instead of vanishing when space runs out.
+  if (vendorItems.length > 0) {
+    if (y < MIN_Y + 13) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
+    page.drawText("ALSO COORDINATING (licensed trade — quoted separately by our vendor partners):", { x: 38, y, size: 8.5, font: fontBold, color: gray });
+    y -= 14;
+    for (const v of vendorItems) {
+      if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
+      const priceLabel = v.line_total != null && Number(v.line_total) > 0
+        ? `$${Number(v.line_total).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+        : "Quote pending";
+      page.drawText(`\u2022  ${v.name}`.slice(0, 68), { x: 38, y, size: 8.5, font, color: rgb(0.2, 0.2, 0.2) });
+      page.drawText(priceLabel, { x: 470, y, size: 8.5, font: fontBold, color: (v.line_total != null && Number(v.line_total) > 0) ? black : gray });
+      y -= 12;
+      if (v.instruction) {
+        for (const line of wrapText(v.instruction, fontItalic, 7, 480).slice(0, 2)) {
+          if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
+          page.drawText(line, { x: 46, y, size: 7, font: fontItalic, color: gray });
+          y -= 9;
+        }
+      }
+    }
+    y -= 4;
+  }
+
+  if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
+  page.drawText("Full signature-ready Repair & Renovation Agreement (2 pages, with Terms & signature lines) provided separately.", { x: 38, y, size: 6.8, font: fontItalic, color: gray });
   y -= 14;
 
-  // v20.20.0 — Additional (vendor-coordinated) services, shown with NO price so
-  // the client sees the full one-stop-shop scope without vendor $ ever being
-  // summed into Brothers Group's total/deposit math (standing rule).
-  if (vendorItems.length > 0 && y > 95) {
-    page.drawText("ALSO COORDINATING (licensed trade — quoted separately by our vendor partners):", { x: 38, y, size: 7.5, font: fontBold, color: gray });
-    y -= 10;
-    // v20.32.17 — show a computed client price inline for any vendor item
-    // that already has an uploaded vendor quote (line_total set); untouched
-    // items still render name-only exactly as before.
-    const vendorNames = vendorItems.map((v: any) =>
-      v.line_total != null && Number(v.line_total) > 0
-        ? `${v.name} ($${Number(v.line_total).toLocaleString(undefined,{minimumFractionDigits:0})})`
-        : v.name
-    ).join("  ·  ");
-    for (const line of wrapText(vendorNames, font, 7.5, 536).slice(0, 2)) {
-      page.drawText(line, { x: 38, y, size: 7.5, font, color: rgb(0.3, 0.3, 0.3) });
-      y -= 9;
-    }
-  }
-  if (y > 78) {
-    page.drawText("Full signature-ready Repair & Renovation Agreement (2 pages, with Terms & signature lines) provided separately.", { x: 38, y, size: 6.8, font: fontItalic, color: gray });
-  }
-
-  // Footer terms (small print)
+  // Footer terms (small print) — always drawn on whichever page ended up
+  // being last, so pagination above never leaves the footer stranded.
   const footerY = 70;
   page.drawRectangle({ x: 0, y: 0, width: 612, height: footerY, color: rgb(0.5, 0.5, 0.5) });
   const termsText = IN_HOUSE_TERMS.join(" ");

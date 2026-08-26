@@ -43,7 +43,7 @@ function listingPhotosDir(): string {
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"];
-const FROM = "Lead Depot <noreply@watsonbrothersgroup.com>";
+const FROM = "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>";
 const BRAND = {
   contactLine: "Alex & Nate Watson — (904) 504-3794 — www.brothersgroup.realestate",
   gray: "#808080",

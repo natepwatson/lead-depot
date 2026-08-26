@@ -81,7 +81,7 @@ export const INSPECTION_TERMS = [
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"];
-const FROM = "Lead Depot <noreply@watsonbrothersgroup.com>";
+const FROM = "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>";
 const APP_URL = "https://depot.watsonbrothersgroup.com";
 const BRAND = {
   black: "#0a0a0a",
@@ -195,7 +195,7 @@ export function ensureInspectionsSchema() {
   // list your home" to a buyer, or vice versa.
   if (!ioCols.includes("deal_side"))    rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN deal_side TEXT NOT NULL DEFAULT 'buyer'").run();
 
-  // v20.32.30 — tracks whether the one-time "you still haven't wired us"
+  // v20.32.31 — tracks whether the one-time "you still haven't wired us"
   // nudge has fired for this order, so the reminder scheduler below never
   // double-sends. NULL = not yet sent.
   if (!ioCols.includes("payment_reminder_sent_at")) rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN payment_reminder_sent_at TEXT").run();
@@ -719,7 +719,7 @@ async function sendWiringInstructionsToClient(orderId: number) {
   });
 }
 
-// v20.32.30 — GAP FIX: signing an add-on previously only fired an internal
+// v20.32.31 — GAP FIX: signing an add-on previously only fired an internal
 // admin "HOLD, don't book" note (sendAddonSignedInternal below) — the client
 // was never actually told how much to wire for the add-on or where to send
 // it. This mirrors generateInspectionWiringPdf/sendWiringInstructionsToClient
@@ -961,7 +961,7 @@ async function sendAddonSignedInternal(itemId: number) {
   await resend.emails.send({ from: FROM, to: ADMIN_EMAILS, subject: `Inspections+ Add-On Signed — ${order?.property_address || ""}`, html });
 }
 
-// v20.32.30 — GAP FIX: previously, a client declining an order updated the DB
+// v20.32.31 — GAP FIX: previously, a client declining an order updated the DB
 // and told NO ONE. An agent could sit for weeks assuming an order was still
 // pending. This notifies admins the moment a decline happens so someone can
 // follow up with the client / note it in FUB.
@@ -1325,7 +1325,7 @@ export function registerInspectionsRoutes(app: Express) {
       clientName: order.client_name, clientPhone: order.client_phone, clientEmail: order.client_email,
       contextNote: `Inspection order approved — ${order.property_address}`,
     }).catch((e) => console.warn("milestone fire failed (inspection_scheduled):", e));
-    // v20.32.30 — separate milestone specifically for chasing the WIRE (not
+    // v20.32.31 — separate milestone specifically for chasing the WIRE (not
     // scheduling). Assigned to Nate by default (see fub.ts) since he's the TC
     // who has to see the money land before placing the vendor order.
     fireMilestoneTasks("inspection_payment_pending", {
@@ -1345,7 +1345,7 @@ export function registerInspectionsRoutes(app: Express) {
       UPDATE inspection_orders SET status = 'declined', declined_at = datetime('now'),
         decline_reason = ?, updated_at = datetime('now') WHERE id = ?
     `).run(reason || null, order.id);
-    // v20.32.30 — GAP FIX: nobody used to hear about this. Notify admins now.
+    // v20.32.31 — GAP FIX: nobody used to hear about this. Notify admins now.
     try { await sendInspectionOrderDeclinedInternal(order.id, reason); } catch (e) { console.error("inspection order declined email failed:", e); }
     res.json({ ok: true });
   });
@@ -1468,7 +1468,7 @@ export function registerInspectionsRoutes(app: Express) {
       `).run(String(signatureName).trim(), ip, addon.id);
       recalcOrderTotals(addon.order_id);
       try { await sendAddonSignedInternal(addon.id); } catch (e) { console.error("addon signed email failed:", e); }
-      // v20.32.30 — GAP FIX: this used to be the ONLY email fired on add-on
+      // v20.32.31 — GAP FIX: this used to be the ONLY email fired on add-on
       // sign, and it only went to admins internally. The client themselves
       // never got told how much to wire for the add-on or where. Fixed here.
       try { await sendAddonWiringInstructionsToClient(addon.id); } catch (e) { console.error("addon wiring instructions email failed:", e); }
@@ -1483,7 +1483,7 @@ export function registerInspectionsRoutes(app: Express) {
   // ── Admin: orders queue + mark completed (final invoice = signed items sum) ──
   app.get("/api/admin/inspection-orders", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
-    // v20.32.30 — GAP FIX: admin table previously showed only the order total,
+    // v20.32.31 — GAP FIX: admin table previously showed only the order total,
     // with no visibility into how much has actually been wired. Adds a
     // paid_amount column via subquery so the client can render a 3-state
     // Unpaid / Partial / Paid badge instead of a binary status guess.
@@ -1511,7 +1511,7 @@ export function registerInspectionsRoutes(app: Express) {
       clientName: updated.client_name, clientPhone: updated.client_phone, clientEmail: updated.client_email,
       contextNote: `Inspection completed — ${updated.property_address}`,
     }).catch((e) => console.warn("milestone fire failed (inspection_completed):", e));
-    // v20.32.30 — REMOVED the "invoice_sent" milestone that used to fire here.
+    // v20.32.31 — REMOVED the "invoice_sent" milestone that used to fire here.
     // Under the current prepaid model, payment is always collected BEFORE the
     // vendor order is placed (both main order and every add-on) — by the time
     // an order reaches "completed" there is no outstanding invoice. The old
@@ -1520,7 +1520,7 @@ export function registerInspectionsRoutes(app: Express) {
     res.json({ ok: true, finalInvoiceTotal: updated.total, vendorCostTotal: updated.vendor_cost_total, profit });
   });
 
-  // v20.32.30 — GAP FIX: automatic one-time reminder for orders the client
+  // v20.32.31 — GAP FIX: automatic one-time reminder for orders the client
   // approved but never wired within the 48-hour window stated in the terms
   // and wiring email. Runs hourly; each order is only ever reminded once
   // (payment_reminder_sent_at gate), so this is safe to leave running.

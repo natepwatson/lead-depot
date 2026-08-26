@@ -16,7 +16,7 @@ import { Resend } from "resend";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-const FROM = "Lead Depot <noreply@watsonbrothersgroup.com>";
+const FROM = "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>";
 const APP_URL = "https://depot.watsonbrothersgroup.com";
 const BRAND = {
   black: "#0a0a0a",

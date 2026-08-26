@@ -39,7 +39,7 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 // v20.13.0 — Denise added per Alex's standing instruction: always CC nate, alex,
 // and Denise on all repair-consult emails moving forward by default.
 const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"];
-const FROM = "Lead Depot <noreply@watsonbrothersgroup.com>";
+const FROM = "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>";
 const APP_URL = "https://depot.watsonbrothersgroup.com";
 const BRAND = {
   companyName: "Brothers Group",

@@ -263,9 +263,9 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.30 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.31 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
-    await resend.emails.send({ from: "Lead Depot <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
+    await resend.emails.send({ from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
     console.error(`[notifyLeadGenActivity ${opts.kind}] failed:`, err);
   }
@@ -492,14 +492,14 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.32.30 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.32.31 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
 </html>`;
 
   await resend.emails.send({
-    from:    "Lead Depot <noreply@watsonbrothersgroup.com>",
+    from:    "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
     to:      ["denise@watsonbrothersgroup.com"],
     cc:      ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
     subject,
@@ -551,11 +551,11 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.30 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.31 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
-    from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+    from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
     to:   ["alex@watsonbrothersgroup.com"],
     cc:   ["nate@watsonbrothersgroup.com"],
     subject,
@@ -582,7 +582,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     rawDb.prepare(`INSERT INTO app_settings (key, value) VALUES ('queue_depth_alert_sent_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(new Date().toISOString());
 
     await resend.emails.send({
-      from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+      from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
       to:   ["alex@watsonbrothersgroup.com"],
       subject: `⚠️ Lead Depot — Seller Queue Running Low (${activeLeads} leads, ~${perAgent}/agent)`,
       html: `
@@ -599,7 +599,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.30 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.31 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1149,7 +1149,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     if (resend) {
       await resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
         to: agent.email,
         subject: "Reset your Lead Depot password",
         html: `
@@ -1469,7 +1469,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // Send invitation email
     if (resend) {
       await resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
         to: cleanEmail,
         subject: "You're invited to Lead Depot — Complete your account setup",
         html: `
@@ -1834,7 +1834,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (resend) {
       try {
         await resend.emails.send({
-          from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+          from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
           to: normalized,
           subject: "Confirm your new Lead Depot email address",
           html: `
@@ -1847,7 +1847,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.32.30</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.32.31</p>
             </div>
           `,
         });
@@ -1994,7 +1994,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (resend) {
       try {
         await resend.emails.send({
-          from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+          from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
           to: agent.email,
           subject: "Reset your Lead Depot password",
           html: `
@@ -2007,7 +2007,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.32.30 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.32.31 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3078,7 +3078,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     `;
     try {
       await resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
         to: agent.email,
         subject: `Open House — ${fmtDate(oh.date)} — ${oh.address}`,
         html,
@@ -5628,7 +5628,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
       if (!resend) return res.status(500).json({ error: "Resend not configured" });
       await resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
         to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", deniseEmail],
         subject: `\uD83D\uDD12 Source of Truth Backup \u2014 ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}`,
         html: sourceOfTruthEmailHtml(counts),
@@ -5698,7 +5698,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       if (!resend) return res.status(500).json({ error: "Resend not configured" });
       const { prepEmailHtml } = await import("./newsletter");
       await resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
         to: ["alex@watsonbrothersgroup.com"],
         subject: `\uD83D\uDCDD Newsletter prep \u2014 Monday morning`,
         html: prepEmailHtml(),
@@ -5779,7 +5779,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 </div>
 </body></html>`;
       await resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
         to: ["nate@watsonbrothersgroup.com"],
         cc: ["alex@watsonbrothersgroup.com"],
         subject: `\uD83D\uDCF0 BGRE Weekly Newsletter draft \u2014 ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric"})}`,
@@ -8560,7 +8560,7 @@ This template is for informational/outreach purposes only.`;
       const tdL = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px;vertical-align:top";
       const tdR = "padding:8px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
       resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
         to:   ["denise@watsonbrothersgroup.com"],
         cc:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
         subject: `\uD83E\uDD1D ${source === "network" ? "Network Lead" : source === "open_house" ? "Open House Lead" : source === "door_knock" ? "Door Knock Lead" : source === "direct_mail" ? "Direct Mail Lead" : "Warm Lead"} Submitted \u2014 ${ownerName} | ${address || "No address"}`,
@@ -8584,7 +8584,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.32.30 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.32.31 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -9704,7 +9704,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.32.30",
+      version: "v20.32.31",
       services: results,
     });
   });
@@ -9875,7 +9875,7 @@ This template is for informational/outreach purposes only.`;
       // Notify admins so they see the invite lifecycle
       if (resend) {
         resend.emails.send({
-          from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+          from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
           to:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
           subject: `🎯 Candidate invited by ${inviterName} — ${name}`,
           html: `<p>${inviterName} just invited <strong>${name}</strong> (${phone}${email ? " · " + email : ""}) to apply${emailSent ? " — branded invite auto-sent to their inbox" : " (no email captured, agent will share the link manually)"}.</p><p>Their apply link: <a href="${inviteUrl}">${inviteUrl}</a></p><p>They'll appear in Admin → Candidates tab once they submit the questionnaire.</p>`,
@@ -9927,7 +9927,7 @@ This template is for informational/outreach purposes only.`;
     if (resend) {
       const answersHtml = Object.entries(answers).map(([k,v]) => `<tr><td style="padding:6px 12px 6px 0;color:#666;text-transform:capitalize">${k.replace(/_/g,' ')}</td><td style="padding:6px 0">${String(v ?? '—').replace(/</g,'&lt;')}</td></tr>`).join("");
       resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
         to:   ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
         subject: `📝 Candidate application — ${row.name} — ${rec} (${score})`,
         html: `<p><strong>${row.name}</strong> just submitted their questionnaire.</p><p><strong>Recommendation:</strong> ${rec} · score ${score}/100</p><table style="border-collapse:collapse;font-family:sans-serif;font-size:14px">${answersHtml}</table><p style="margin-top:16px">Review in Admin → Candidates tab.</p>`,
@@ -10179,7 +10179,7 @@ This template is for informational/outreach purposes only.`;
           : process.env.APP_URL ?? "https://depot.watsonbrothersgroup.com";
         const setupLink = `${appBase}/#/setup/${setupToken}`;
         resend.emails.send({
-          from:    "Lead Depot <noreply@watsonbrothersgroup.com>",
+          from:    "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
           to:      to([cand.email]),
           replyTo: "alex@watsonbrothersgroup.com",
           subject: subj(`Set up your Lead Depot access, ${firstName}`),
@@ -10199,7 +10199,7 @@ This template is for informational/outreach purposes only.`;
       // Nate onboarding brief — CC Alex + Denise (v19.9: Denise added so team-ops has the same picture at the moment of approval).
       const briefRows = Object.entries(answers).map(([k,v]) => `• ${k.replace(/_/g,' ')}: ${String(v ?? '—')}`).join("\n");
       resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
         to:   to(["nate@watsonbrothersgroup.com"]),
         cc:   cc(["alex@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"]),
         subject: subj(`📋 Onboarding brief — ${cand.name}`),
@@ -10210,7 +10210,7 @@ This template is for informational/outreach purposes only.`;
       // Fires the moment Alex approves the candidate so their brokerage-side onboarding
       // (paperwork, MLS/board, systems access) starts in parallel with Nate's Depot onboarding.
       resend.emails.send({
-        from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+        from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
         to:      to(["momentumbkr@gmail.com", "michelle@movewithmomentum.com"]),
         cc:      cc(["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"]),
         replyTo: "alex@watsonbrothersgroup.com",
@@ -11118,14 +11118,14 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.32.30</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.32.31</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
 </html>`;
 
   await resend.emails.send({
-    from: "Lead Depot <noreply@watsonbrothersgroup.com>",
+    from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
     to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
     subject: `📊 EOD Report — ${dateLabel} — ${totalAppts} Appt${totalAppts !== 1 ? "s" : ""} · ${totalKIT} KIT · ${totalDials} Dials`,
     html,

@@ -792,7 +792,11 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
     body: "If a disagreement comes up, we agree to first try to work it out directly, in good faith. If we can't, either party may pursue any remedy available under Florida law. This Agreement is governed by the laws of the State of Florida, and any legal proceeding will be brought in Nassau or Duval County, Florida. The prevailing party in any dispute is entitled to recover its reasonable attorneys' fees and costs.",
   },
   {
-    heading: "13. Entire Agreement",
+    heading: "13. Debris & Junk Removal",
+    body: "Where debris, trash, or junk removal is part of your Scope of Work, we first use any existing waste management service already in place at the property (trash cans, dumpster, HOA pickup, and similar) at no extra charge. Anything that doesn't fit within that existing service is hauled to the dump directly by our crew and billed at our prevailing rates, which include both the dump/disposal fee and our own service rate for the haul.",
+  },
+  {
+    heading: "14. Entire Agreement",
     body: "This Agreement, together with your itemized quote, is the entire agreement between you and Brothers Group regarding this Scope of Work, and replaces any prior discussion or understanding on the subject. If any part of this Agreement is found unenforceable, the rest remains in full effect.",
   },
 ];
@@ -803,7 +807,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
 // Section 1's disclosure language is the only section that's inherently
 // listing-specific ("your listing agents", "market-ready", "your sale") —
 // every other section already reads fine for either side. Returns the full
-// 13-section array with Section 1 swapped for the correct variant.
+// 14-section array with Section 1 swapped for the correct variant.
 function firstNameRC(fullName: string | null | undefined): string {
   const n = (fullName || "").trim();
   return n ? n.split(/\s+/)[0] : "there";
@@ -1535,7 +1539,7 @@ function wrapText(text: string, font: any, size: number, maxWidth: number): stri
 
 // ─── TWO-PAGE REPAIR & RENOVATION AGREEMENT PDF (pdf-lib) ─────────────────
 // Page 1 (front) = branded estimate/scope + client info pre-fill + signature
-// block. Page 2 (back) = full 13-section Terms & Conditions, two-column.
+// block. Page 2 (back) = full 14-section Terms & Conditions, two-column.
 // `opts.blank=true` renders empty signature lines (Print & Sign hand-out).
 // Otherwise, if the consult has already been accepted, the client signature
 // line shows the captured e-signature name/timestamp/IP instead of a blank line.

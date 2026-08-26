@@ -195,7 +195,7 @@ export function ensureInspectionsSchema() {
   // list your home" to a buyer, or vice versa.
   if (!ioCols.includes("deal_side"))    rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN deal_side TEXT NOT NULL DEFAULT 'buyer'").run();
 
-  // v20.32.29 — tracks whether the one-time "you still haven't wired us"
+  // v20.32.30 — tracks whether the one-time "you still haven't wired us"
   // nudge has fired for this order, so the reminder scheduler below never
   // double-sends. NULL = not yet sent.
   if (!ioCols.includes("payment_reminder_sent_at")) rawDb.prepare("ALTER TABLE inspection_orders ADD COLUMN payment_reminder_sent_at TEXT").run();
@@ -646,15 +646,19 @@ async function generateInspectionWiringPdf(order: any): Promise<{ path: string; 
   row("ACCOUNT TYPE", RELAY_WIRE.accountType);
   row("BUSINESS ADDRESS", RELAY_WIRE.businessAddress);
 
+  page.drawText("PREFER ZELLE OR VENMO?", { x: 38, y, size: 9, font: bold, color: gray });
+  page.drawText("We also accept Zelle and Venmo. Reply to this email or call (904) 504-3794 and we'll send the account to use.", { x: 38, y: y - 14, size: 9.5, font, color: black });
+  y -= 30;
+
   y -= 6;
   const warnH = 96;
   page.drawRectangle({ x: 38, y: y - warnH, width: 612 - 76, height: warnH, color: rgb(0.99, 0.95, 0.85), borderColor: rgb(0.85, 0.68, 0.25), borderWidth: 1 });
   page.drawText("TIME IS OF THE ESSENCE", { x: 50, y: y - 18, size: 10.5, font: bold, color: black });
   const line1 = "Contract and inspection contingency deadlines do not pause while payment is processed.";
-  const line2 = "Please wire within 48 hours of receiving this document to keep your order on schedule.";
+  const line2 = "Please pay within 48 hours of receiving this document to keep your order on schedule.";
   page.drawText(line1, { x: 50, y: y - 34, size: 9, font, color: black });
   page.drawText(line2, { x: 50, y: y - 47, size: 9, font, color: black });
-  page.drawText("WIRE FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
+  page.drawText("PAYMENT FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
   const line3 = "These instructions will never change over email. Verify by phone at (904) 504-3794 before sending funds.";
   page.drawText(line3, { x: 50, y: y - 82, size: 9, font, color: black });
   y -= warnH + 20;
@@ -693,13 +697,16 @@ async function sendWiringInstructionsToClient(orderId: number) {
         <p style="margin:0 0 4px"><strong>Account Type:</strong> ${RELAY_WIRE.accountType}</p>
         <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
       </div>
+      <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px">
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> We also accept Zelle and Venmo. Just reply to this email or call us at (904) 504-3794 and we'll send you the account to use.</p>
+      </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — contract and inspection contingency deadlines do not pause while payment is processed. Please wire within 48 hours to keep your order on schedule.</p>
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — contract and inspection contingency deadlines do not pause while payment is processed. Please pay within 48 hours to keep your order on schedule.</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Wire fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated wiring instructions, do not act on it — call us directly at (904) 504-3794 to verify before sending any funds.</p>
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Payment fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated payment instructions, do not act on it — call us directly at (904) 504-3794 to verify before sending any funds.</p>
       </div>
-      <p style="font-size:11px;color:#333;margin-top:14px">Full wiring instructions are also attached as a PDF for your records. Let us know if you have any questions.</p>
+      <p style="font-size:11px;color:#333;margin-top:14px">Full wire instructions are also attached as a PDF for your records. Let us know if you have any questions.</p>
     </div>
     ${brandedFooter()}
   </div>
@@ -712,7 +719,7 @@ async function sendWiringInstructionsToClient(orderId: number) {
   });
 }
 
-// v20.32.29 — GAP FIX: signing an add-on previously only fired an internal
+// v20.32.30 — GAP FIX: signing an add-on previously only fired an internal
 // admin "HOLD, don't book" note (sendAddonSignedInternal below) — the client
 // was never actually told how much to wire for the add-on or where to send
 // it. This mirrors generateInspectionWiringPdf/sendWiringInstructionsToClient
@@ -767,15 +774,19 @@ async function generateAddonWiringPdf(order: any, addon: any): Promise<{ path: s
   row("ACCOUNT TYPE", RELAY_WIRE.accountType);
   row("BUSINESS ADDRESS", RELAY_WIRE.businessAddress);
 
+  page.drawText("PREFER ZELLE OR VENMO?", { x: 38, y, size: 9, font: bold, color: gray });
+  page.drawText("We also accept Zelle and Venmo. Reply to this email or call (904) 504-3794 and we'll send the account to use.", { x: 38, y: y - 14, size: 9.5, font, color: black });
+  y -= 30;
+
   y -= 6;
   const warnH = 96;
   page.drawRectangle({ x: 38, y: y - warnH, width: 612 - 76, height: warnH, color: rgb(0.99, 0.95, 0.85), borderColor: rgb(0.85, 0.68, 0.25), borderWidth: 1 });
   page.drawText("TIME IS OF THE ESSENCE", { x: 50, y: y - 18, size: 10.5, font: bold, color: black });
   const line1 = "This is a separate, additional amount for the add-on above — it does not replace any prior payment.";
-  const line2 = "Please wire within 48 hours of signing this add-on to keep your order on schedule.";
+  const line2 = "Please pay within 48 hours of signing this add-on to keep your order on schedule.";
   page.drawText(line1, { x: 50, y: y - 34, size: 9, font, color: black });
   page.drawText(line2, { x: 50, y: y - 47, size: 9, font, color: black });
-  page.drawText("WIRE FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
+  page.drawText("PAYMENT FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
   const line3 = "These instructions will never change over email. Verify by phone at (904) 504-3794 before sending funds.";
   page.drawText(line3, { x: 50, y: y - 82, size: 9, font, color: black });
   y -= warnH + 20;
@@ -820,13 +831,16 @@ async function sendAddonWiringInstructionsToClient(itemId: number) {
         <p style="margin:0 0 4px"><strong>Account Type:</strong> ${RELAY_WIRE.accountType}</p>
         <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
       </div>
+      <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px">
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> We also accept Zelle and Venmo. Just reply to this email or call us at (904) 504-3794 and we'll send you the account to use.</p>
+      </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — please wire within 48 hours to keep your order on schedule.</p>
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — please pay within 48 hours to keep your order on schedule.</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Wire fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated wiring instructions, do not act on it — call us directly at (904) 504-3794 to verify before sending any funds.</p>
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Payment fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated payment instructions, do not act on it — call us directly at (904) 504-3794 to verify before sending any funds.</p>
       </div>
-      <p style="font-size:11px;color:#333;margin-top:14px">Full wiring instructions are also attached as a PDF for your records. Let us know if you have any questions.</p>
+      <p style="font-size:11px;color:#333;margin-top:14px">Full wire instructions are also attached as a PDF for your records. Let us know if you have any questions.</p>
     </div>
     ${brandedFooter()}
   </div>
@@ -947,7 +961,7 @@ async function sendAddonSignedInternal(itemId: number) {
   await resend.emails.send({ from: FROM, to: ADMIN_EMAILS, subject: `Inspections+ Add-On Signed — ${order?.property_address || ""}`, html });
 }
 
-// v20.32.29 — GAP FIX: previously, a client declining an order updated the DB
+// v20.32.30 — GAP FIX: previously, a client declining an order updated the DB
 // and told NO ONE. An agent could sit for weeks assuming an order was still
 // pending. This notifies admins the moment a decline happens so someone can
 // follow up with the client / note it in FUB.
@@ -1311,7 +1325,7 @@ export function registerInspectionsRoutes(app: Express) {
       clientName: order.client_name, clientPhone: order.client_phone, clientEmail: order.client_email,
       contextNote: `Inspection order approved — ${order.property_address}`,
     }).catch((e) => console.warn("milestone fire failed (inspection_scheduled):", e));
-    // v20.32.29 — separate milestone specifically for chasing the WIRE (not
+    // v20.32.30 — separate milestone specifically for chasing the WIRE (not
     // scheduling). Assigned to Nate by default (see fub.ts) since he's the TC
     // who has to see the money land before placing the vendor order.
     fireMilestoneTasks("inspection_payment_pending", {
@@ -1331,7 +1345,7 @@ export function registerInspectionsRoutes(app: Express) {
       UPDATE inspection_orders SET status = 'declined', declined_at = datetime('now'),
         decline_reason = ?, updated_at = datetime('now') WHERE id = ?
     `).run(reason || null, order.id);
-    // v20.32.29 — GAP FIX: nobody used to hear about this. Notify admins now.
+    // v20.32.30 — GAP FIX: nobody used to hear about this. Notify admins now.
     try { await sendInspectionOrderDeclinedInternal(order.id, reason); } catch (e) { console.error("inspection order declined email failed:", e); }
     res.json({ ok: true });
   });
@@ -1454,7 +1468,7 @@ export function registerInspectionsRoutes(app: Express) {
       `).run(String(signatureName).trim(), ip, addon.id);
       recalcOrderTotals(addon.order_id);
       try { await sendAddonSignedInternal(addon.id); } catch (e) { console.error("addon signed email failed:", e); }
-      // v20.32.29 — GAP FIX: this used to be the ONLY email fired on add-on
+      // v20.32.30 — GAP FIX: this used to be the ONLY email fired on add-on
       // sign, and it only went to admins internally. The client themselves
       // never got told how much to wire for the add-on or where. Fixed here.
       try { await sendAddonWiringInstructionsToClient(addon.id); } catch (e) { console.error("addon wiring instructions email failed:", e); }
@@ -1469,7 +1483,7 @@ export function registerInspectionsRoutes(app: Express) {
   // ── Admin: orders queue + mark completed (final invoice = signed items sum) ──
   app.get("/api/admin/inspection-orders", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
-    // v20.32.29 — GAP FIX: admin table previously showed only the order total,
+    // v20.32.30 — GAP FIX: admin table previously showed only the order total,
     // with no visibility into how much has actually been wired. Adds a
     // paid_amount column via subquery so the client can render a 3-state
     // Unpaid / Partial / Paid badge instead of a binary status guess.
@@ -1497,7 +1511,7 @@ export function registerInspectionsRoutes(app: Express) {
       clientName: updated.client_name, clientPhone: updated.client_phone, clientEmail: updated.client_email,
       contextNote: `Inspection completed — ${updated.property_address}`,
     }).catch((e) => console.warn("milestone fire failed (inspection_completed):", e));
-    // v20.32.29 — REMOVED the "invoice_sent" milestone that used to fire here.
+    // v20.32.30 — REMOVED the "invoice_sent" milestone that used to fire here.
     // Under the current prepaid model, payment is always collected BEFORE the
     // vendor order is placed (both main order and every add-on) — by the time
     // an order reaches "completed" there is no outstanding invoice. The old
@@ -1506,7 +1520,7 @@ export function registerInspectionsRoutes(app: Express) {
     res.json({ ok: true, finalInvoiceTotal: updated.total, vendorCostTotal: updated.vendor_cost_total, profit });
   });
 
-  // v20.32.29 — GAP FIX: automatic one-time reminder for orders the client
+  // v20.32.30 — GAP FIX: automatic one-time reminder for orders the client
   // approved but never wired within the 48-hour window stated in the terms
   // and wiring email. Runs hourly; each order is only ever reminded once
   // (payment_reminder_sent_at gate), so this is safe to leave running.

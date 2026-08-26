@@ -1,0 +1,59 @@
+{
+  "startedAt": "2026-08-26T19:04:31.009Z",
+  "finishedAt": "2026-08-26T19:04:41.014Z",
+  "durationMs": 10004,
+  "tier": "preflight",
+  "plan": [
+    "T0"
+  ],
+  "version": "v20.32.34",
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "critFail": 0,
+    "skipped": 0,
+    "total": 5
+  },
+  "results": [
+    {
+      "tier": "Tier 0 · Pre-flight",
+      "name": "version-alignment",
+      "status": "pass",
+      "critical": true,
+      "detail": "target=v20.32.34 spots=6 unique=v20.32.34 missing=0 wrong=0",
+      "durationMs": 10
+    },
+    {
+      "tier": "Tier 0 · Pre-flight",
+      "name": "dist-freshness",
+      "status": "pass",
+      "critical": true,
+      "detail": "bundle=index-DCM9R8VW.js staleSources=0",
+      "durationMs": 0
+    },
+    {
+      "tier": "Tier 0 · Pre-flight",
+      "name": "typescript",
+      "status": "pass",
+      "critical": false,
+      "detail": "tsc --noEmit clean",
+      "durationMs": 9949
+    },
+    {
+      "tier": "Tier 0 · Pre-flight",
+      "name": "route-inventory",
+      "status": "pass",
+      "critical": false,
+      "detail": "203 routes match snapshot",
+      "durationMs": 5
+    },
+    {
+      "tier": "Tier 0 · Pre-flight",
+      "name": "grep-guards",
+      "status": "pass",
+      "critical": true,
+      "detail": "7 rules checked, 0 violations",
+      "durationMs": 37
+    }
+  ]
+}

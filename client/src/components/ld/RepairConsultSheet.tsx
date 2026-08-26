@@ -1693,23 +1693,38 @@ export function RepairConsultSheet({
                           {checkedItems.map(item => {
                             const st = checked[item.key];
                             const isEditing = editingReviewItem === item.key;
+                            // v20.32.35 — Agent-facing itemized pricing (Alex: internal-only, not
+                            // client-facing — the client quote/email still shows scope with no
+                            // per-line $, per the v20.24.0 decision). In-house items mirror the
+                            // exact liveTotals math (rate × qty, +25% two-story, floored at
+                            // min_charge). Vendor items show the marked-up client price only once
+                            // a vendor quote amount has been entered; otherwise "Quote pending".
+                            const vendorAmt = Number(st?.vendorQuoteAmount) || 0;
+                            const itemPrice = item.category === "vendor"
+                              ? (st?.hasVendorQuote && vendorAmt > 0 ? vendorAmt * (1 + (vendorQuoteSettings.markupPct || 0)) : null)
+                              : computeLineTotalClient(item.default_rate || 0, Number(st?.quantity) || 0, item.min_charge || 0, !!st?.twoStory && !!item.two_story_eligible, !!item.two_story_eligible);
                             return (
                               <div key={item.key} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0" }}>
                                   <div
-                                    style={{ minWidth: 0, flex: 1, cursor: "pointer" }}
+                                    style={{ minWidth: 0, flex: 1, cursor: "pointer", display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}
                                     onClick={() => setEditingReviewItem(isEditing ? null : item.key)}
                                   >
-                                    <span style={{ fontSize: 13, color: "#fff", fontWeight: 600 }}>{item.name}</span>
-                                    {item.category === "vendor" && (
-                                      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>({TRADE_LABELS[item.trade] || item.trade} — vendor)</span>
-                                    )}
-                                    {item.unit !== "flat" && Number(st?.quantity) > 1 && (
-                                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>× {st?.quantity}</span>
-                                    )}
-                                    {st?.twoStory && !!item.two_story_eligible && (
-                                      <span style={{ fontSize: 10, color: GOLD, marginLeft: 6 }}>2-story</span>
-                                    )}
+                                    <div style={{ minWidth: 0 }}>
+                                      <span style={{ fontSize: 13, color: "#fff", fontWeight: 600 }}>{item.name}</span>
+                                      {item.category === "vendor" && (
+                                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>({TRADE_LABELS[item.trade] || item.trade} — vendor)</span>
+                                      )}
+                                      {item.unit !== "flat" && Number(st?.quantity) > 1 && (
+                                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginLeft: 6 }}>× {st?.quantity}</span>
+                                      )}
+                                      {st?.twoStory && !!item.two_story_eligible && (
+                                        <span style={{ fontSize: 10, color: GOLD, marginLeft: 6 }}>2-story</span>
+                                      )}
+                                    </div>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: itemPrice === null ? "rgba(255,255,255,0.35)" : (item.category === "vendor" ? "#7ed49a" : GOLD), flexShrink: 0, whiteSpace: "nowrap", fontStyle: itemPrice === null ? "italic" : "normal" }}>
+                                      {itemPrice === null ? "Quote pending" : `$${itemPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                                    </span>
                                   </div>
                                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                                     <button

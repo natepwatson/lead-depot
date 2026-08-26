@@ -789,14 +789,18 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "12. Resolving Disagreements",
-    body: "If a disagreement comes up, we agree to first try to work it out directly, in good faith. If we can't, either party may pursue any remedy available under Florida law. This Agreement is governed by the laws of the State of Florida, and any legal proceeding will be brought in Nassau or Duval County, Florida. The prevailing party in any dispute is entitled to recover its reasonable attorneys' fees and costs.",
+    body: "If a disagreement comes up, we agree to first try to work it out directly, in good faith. If we can't resolve it that way, both parties agree that mediation, and if needed, binding arbitration, will be the sole and exclusive remedy \u2014 neither party will file a lawsuit or take the dispute to court. This Agreement is governed by the laws of the State of Florida, and any mediation or arbitration will be held in Nassau or Duval County, Florida. The prevailing party in any mediation or arbitration is entitled to recover its reasonable attorneys' fees and costs.",
   },
   {
-    heading: "13. Debris & Junk Removal",
+    heading: "13. Property Access & Personal Belongings",
+    body: "Our cleaners, repair crew, and landscapers only work on what's reasonably accessible on the day of service. We are not permitted to move furniture or any personal belongings owned by you or the property owner unless doing so is specifically written into your Scope of Work. If a work area is blocked by furniture, vehicles, stored items, or similar, we'll either work around it or reschedule, and a rescheduling fee may apply as described in Section 7. Where moving or working around personal property is part of the job, additional insurance rates may apply and will be reflected in your quote. We are not responsible for damage to furniture, belongings, or other personal property in or near the work area. By allowing us onto the property to perform this work, you accept us there for that purpose and agree to hold us harmless for any resulting loss, damage, or claim.",
+  },
+  {
+    heading: "14. Debris & Junk Removal",
     body: "Where debris, trash, or junk removal is part of your Scope of Work, we first use any existing waste management service already in place at the property (trash cans, dumpster, HOA pickup, and similar) at no extra charge. Anything that doesn't fit within that existing service is hauled to the dump directly by our crew and billed at our prevailing rates, which include both the dump/disposal fee and our own service rate for the haul.",
   },
   {
-    heading: "14. Entire Agreement",
+    heading: "15. Entire Agreement",
     body: "This Agreement, together with your itemized quote, is the entire agreement between you and Brothers Group regarding this Scope of Work, and replaces any prior discussion or understanding on the subject. If any part of this Agreement is found unenforceable, the rest remains in full effect.",
   },
 ];
@@ -807,7 +811,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
 // Section 1's disclosure language is the only section that's inherently
 // listing-specific ("your listing agents", "market-ready", "your sale") —
 // every other section already reads fine for either side. Returns the full
-// 14-section array with Section 1 swapped for the correct variant.
+// 15-section array with Section 1 swapped for the correct variant.
 function firstNameRC(fullName: string | null | undefined): string {
   const n = (fullName || "").trim();
   return n ? n.split(/\s+/)[0] : "there";
@@ -1539,7 +1543,7 @@ function wrapText(text: string, font: any, size: number, maxWidth: number): stri
 
 // ─── TWO-PAGE REPAIR & RENOVATION AGREEMENT PDF (pdf-lib) ─────────────────
 // Page 1 (front) = branded estimate/scope + client info pre-fill + signature
-// block. Page 2 (back) = full 14-section Terms & Conditions, two-column.
+// block. Page 2 (back) = full 15-section Terms & Conditions, two-column.
 // `opts.blank=true` renders empty signature lines (Print & Sign hand-out).
 // Otherwise, if the consult has already been accepted, the client signature
 // line shows the captured e-signature name/timestamp/IP instead of a blank line.

@@ -13,7 +13,7 @@
 // Effective sqft is optional but valuable — it's the basis for estimating
 // scope on ancillary areas (garage, patios, etc.) for painting/flooring.
 import { useEffect, useState } from "react";
-import { Loader2, MapPin, Pencil, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Loader2, MapPin, Pencil, CheckCircle2, AlertTriangle, ExternalLink } from "lucide-react";
 
 const GOLD = "#c8aa5a";
 
@@ -135,6 +135,21 @@ export function SmartDataPanel({ propertyAddress, onChange }: { propertyAddress:
               <div><span style={{ color: "#94a3b8" }}>Beds/Baths: </span><span style={{ color: "#fff", fontWeight: 600 }}>{data?.bedrooms ?? "—"}/{data?.bathrooms ?? "—"}</span></div>
             )}
           </div>
+          {/* v20.32.36 — Property Appraiser link, right under the Smart Data
+              grid. sourceUrl is only populated on a push from the
+              property-appraiser-lookup skill (source: "county_record") or a
+              sales-package cross-check (source: "sales_package") — manual
+              entries have no URL, so this naturally hides itself then. */}
+          {data?.sourceUrl && (
+            <div style={{ marginTop: 8 }}>
+              <a href={data.sourceUrl} target="_blank" rel="noopener noreferrer" style={{
+                display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5,
+                color: GOLD, textDecoration: "none", fontWeight: 600,
+              }}>
+                <ExternalLink size={11} /> {data.source === "county_record" ? "View County Property Appraiser Record" : "View Source Record"}
+              </a>
+            </div>
+          )}
           {data?.isVacantLand && (
             <div style={{ marginTop: 6, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Vacant land — no structure on file.</div>
           )}

@@ -2185,7 +2185,7 @@ const DEFAULT_MILESTONE_TASKS: Array<{ trigger: FubMilestoneTriggerEvent; name: 
   { trigger: "repair_final_payment_due", name: "Final/Payment Meeting", daysOffset: 0 },
   { trigger: "offer_submitted", name: "Track offer deadline", daysOffset: 0 },
   { trigger: "invoice_sent", name: "Payment due reminder", daysOffset: 3 },
-  // v20.32.32 — fires the moment a client approves an inspection order, i.e.
+  // v20.32.33 — fires the moment a client approves an inspection order, i.e.
   // exactly when Nate needs to be watching for the wire. Owned by Nate
   // (the TC), not Denise, since he's the one who places the vendor order.
   { trigger: "inspection_payment_pending", name: "Collect wire payment before ordering inspection", daysOffset: 0 },
@@ -2218,7 +2218,7 @@ export function ensureFubMilestoneSchema() {
     console.log(`[FUB Milestone] Seeded ${DEFAULT_MILESTONE_TASKS.length} default milestone task rows.`);
   }
 
-  // v20.32.32 — self-healing backfill: the table was already seeded (count!==0
+  // v20.32.33 — self-healing backfill: the table was already seeded (count!==0
   // above) before "inspection_payment_pending" existed as a trigger, so the
   // one-time seed loop never inserted it. Check for it explicitly and add it
   // if missing, assigned to Nate (the TC) rather than Denise.

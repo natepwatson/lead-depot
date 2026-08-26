@@ -210,7 +210,7 @@ function OrdersPanel() {
 
   const statusColor = (s: string) => s === "accepted" ? "#5eead4" : s === "completed" ? "#94a3b8" : s === "declined" ? "#f87171" : s === "sent" ? GOLD : "#64748b";
 
-  // v20.32.32 — GAP FIX: previously there was no way to tell, at a glance,
+  // v20.32.33 — GAP FIX: previously there was no way to tell, at a glance,
   // whether an approved order had actually been paid. 3-state instead of a
   // binary paid/unpaid so partial wires (multiple payment_records rows) show
   // distinctly from a client who hasn't sent anything at all.

@@ -1745,6 +1745,53 @@ export function RepairConsultSheet({
                                     )}
                                     <input placeholder="Measurement notes (optional)" value={st?.measurementNotes ?? ""} onChange={e => setItemState(item.key, { measurementNotes: e.target.value })}
                                       style={{ ...inputStyle, fontSize: 12.5 }} />
+                                    {item.category === "vendor" && (() => {
+                                      const quoteAmt = Number(st?.vendorQuoteAmount) || 0;
+                                      const clientPrice = quoteAmt > 0 ? quoteAmt * (1 + (vendorQuoteSettings.markupPct || 0)) : 0;
+                                      return (
+                                        <div style={{ marginTop: 10 }}>
+                                          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "rgba(255,255,255,0.6)", cursor: "pointer" }}>
+                                            <input type="checkbox" checked={!!st?.hasVendorQuote} onChange={e => setItemState(item.key, { hasVendorQuote: e.target.checked })} style={{ accentColor: GOLD }} />
+                                            Already have a vendor quote?
+                                          </label>
+                                          {st?.hasVendorQuote && (
+                                            <div style={{ marginTop: 8, padding: 10, borderRadius: 8, background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.2)" }}>
+                                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>$</span>
+                                                <input type="number" min={0} step="any" placeholder="Vendor's quoted amount" value={st?.vendorQuoteAmount ?? ""}
+                                                  onChange={e => setItemState(item.key, { vendorQuoteAmount: e.target.value })}
+                                                  style={{ ...inputStyle, fontSize: 12.5, width: 150 }} />
+                                              </div>
+                                              {clientPrice > 0 && (
+                                                <p style={{ fontSize: 12, color: "#7ed49a", fontWeight: 700, margin: "8px 0 0" }}>
+                                                  Client price: ${clientPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                  <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{Math.round((vendorQuoteSettings.markupPct || 0) * 100)}% our fee)</span>
+                                                </p>
+                                              )}
+                                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, padding: "6px 10px", borderRadius: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 11.5, cursor: "pointer" }}>
+                                                {uploadingVendorQuoteKey === item.key ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
+                                                {uploadingVendorQuoteKey === item.key ? "Uploading\u2026" : "Attach vendor quote photo"}
+                                                <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploadingVendorQuoteKey === item.key}
+                                                  onChange={e => { const f = e.target.files?.[0]; if (f) handleVendorQuotePhotoUpload(item.key, f); e.target.value = ""; }} />
+                                              </label>
+                                              {(st?.photos || []).length > 0 && (
+                                                <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                                                  {st!.photos.map((url, i) => (
+                                                    <div key={i} style={{ position: "relative" }}>
+                                                      <img src={url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: "cover", display: "block" }} />
+                                                      <button onClick={() => setItemState(item.key, { photos: st!.photos.filter((_, idx) => idx !== i) })}
+                                                        style={{ position: "absolute", top: -5, right: -5, width: 16, height: 16, borderRadius: 8, background: "#ff5a5a", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                                                        <X size={9} />
+                                                      </button>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 )}
                               </div>

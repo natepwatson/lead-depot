@@ -1,9 +1,13 @@
-// v20.36.0 — Lexi, the BGRE AI Assistant voice portal.
+// v20.37.0 — Lexi, the BGRE AI Assistant voice portal.
 // Admin-gated full-screen takeover. Auto-listens on mount (no press-to-talk),
 // sends finalized speech to /api/assistant/chat, speaks the reply back, and
 // shows a Confirm/Cancel card for any proposed write action (e.g. creating a
 // FUB task) — nothing is written until the admin explicitly confirms, by
 // voice ("yes" / "confirm" / "go ahead") or by tapping the button.
+// v20.37.0 — conversation history is now hydrated from the server on mount
+// (GET /api/assistant/history) and each turn sends only the newest message
+// ({ message: text }) since the server is now the authoritative memory
+// store — the transcript survives reloads, closed tabs, and poor connectivity.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import { Sparkles, Mic, MicOff, X, Check, XCircle } from "lucide-react";
@@ -39,12 +43,30 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
   const [proposedAction, setProposedAction] = useState<ProposedAction>(null);
   const [manualInput, setManualInput] = useState("");
 
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const recognitionRef = useRef<any>(null);
   const shouldListenRef = useRef(true);
   const messagesRef = useRef<ChatMsg[]>([]);
   const proposedActionRef = useRef<ProposedAction>(null);
   messagesRef.current = messages;
   proposedActionRef.current = proposedAction;
+
+  // Hydrate the transcript from persistent server-side memory on mount.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiRequest("GET", "/api/assistant/history");
+        const data = await res.json();
+        if (Array.isArray(data.messages) && data.messages.length) {
+          setMessages(data.messages.map((m: any) => ({ role: m.role, content: m.content })));
+        }
+      } catch {
+        // Non-fatal — Lexi just starts with an empty transcript this session.
+      } finally {
+        setHistoryLoaded(true);
+      }
+    })();
+  }, []);
 
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
@@ -82,11 +104,10 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
     if (!text.trim()) return;
     stopListening();
     setInterim("");
-    const nextHistory: ChatMsg[] = [...messagesRef.current, { role: "user", content: text }];
-    setMessages(nextHistory);
+    setMessages((m) => [...m, { role: "user", content: text }]);
     setStatus("thinking");
     try {
-      const res = await apiRequest("POST", "/api/assistant/chat", { messages: nextHistory });
+      const res = await apiRequest("POST", "/api/assistant/chat", { message: text });
       const data = await res.json();
       const reply: string = data.reply || "Sorry, I didn't catch that.";
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
@@ -97,7 +118,7 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
       const failText = err?.message?.includes("PERPLEXITY_API_KEY")
         ? "My brain isn't wired up yet — the Perplexity API key isn't set on the server."
         : "I hit an error reaching my brain — try again in a second.";
-      // v20.36.1 — do NOT also setError() here; the failText already renders as a
+      // v20.37.0 — do NOT also setError() here; the failText already renders as a
       // chat bubble two lines below. Setting both produced a duplicate on-screen
       // error (bubble + red-text line) reported in Tier V visual QA.
       setMessages((m) => [...m, { role: "assistant", content: failText }]);
@@ -242,7 +263,7 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
 
       {/* Transcript */}
       <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 20px", display: "flex", flexDirection: "column", gap: 12, maxWidth: 640, margin: "0 auto", width: "100%" }}>
-        {messages.length === 0 && status !== "unsupported" && (
+        {historyLoaded && messages.length === 0 && status !== "unsupported" && (
           <p style={{ textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13, marginTop: 20 }}>
             Just start talking — Lexi's listening.
           </p>

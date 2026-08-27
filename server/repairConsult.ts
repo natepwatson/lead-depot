@@ -193,6 +193,7 @@ export function ensureRepairConsultSchema() {
       instruction TEXT,
       photos TEXT,                      -- JSON array of URLs
       measurement_notes TEXT,
+      vendor_scope_note TEXT,            -- v20.33.0: required "what we need quoted" text for vendor dispatch gate
       sequence_order INTEGER NOT NULL DEFAULT 100,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -381,6 +382,14 @@ export function ensureRepairConsultSchema() {
   // accurate even if the admin retunes markup_pct later).
   if (!rciCols.includes("vendor_quote_amount")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN vendor_quote_amount REAL").run();
   if (!rciCols.includes("markup_pct_applied"))  rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN markup_pct_applied REAL").run();
+
+  // v20.33.0 — Vendor Quote Request Gate: agents must supply a photo,
+  // measurements, AND a description of what's being quoted before a vendor
+  // dispatch email can go out (Alex: no more auto-sent, under-specified
+  // requests). Stored separately from `instruction` so the gate can check
+  // unambiguously for a real agent-written description vs. the catalog's
+  // generic default text.
+  if (!rciCols.includes("vendor_scope_note")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN vendor_scope_note TEXT").run();
 
   // v20.32.0 — E-Sign redesign: two-stage signature chain. Homeowner signs
   // first (status -> 'pending_countersignature', reusing accepted_at /
@@ -572,6 +581,33 @@ const IN_HOUSE_ITEMS: SeedItem[] = [
   { key: "rough_clean", category: "in_house", trade: "cleaning", name: "Rough Clean (Post-Construction/Turnover)", unit: "sqft", rate: 0.15, min: 200, seq: 65, instruction: "Rough/turnover clean — {qty} sqft." },
   { key: "deep_clean", category: "in_house", trade: "cleaning", name: "Deep Clean", unit: "sqft", rate: 0.20, min: 250, seq: 66, instruction: "Deep clean — {qty} sqft." },
   { key: "carpet_clean", category: "in_house", trade: "cleaning", name: "Carpet Cleaning", unit: "sqft", rate: 0.35, min: 125, seq: 67, instruction: "Clean carpet — {qty} sqft." },
+  // v20.33.0 — Bathroom / Kitchen / Laundry "easy stuff" sections + appliance
+  // coordination, added at Alex's request. Every task carries an explicit
+  // quantified cap per the standing "defined line drawn" rule; anything past
+  // the cap, or anything tile/frameless-glass/heavy-duty, routes to the
+  // matching existing vendor trade (v_tile_install, v_shower_doors,
+  // v_plumbing, v_structural, v_electrical) instead of a new vendor trade.
+  { key: "bath_vanity_replace", category: "in_house", trade: "bathroom_repair", name: "Bathroom Vanity Replacement", unit: "each", rate: 275, min: 275, seq: 70.1, instruction: "Replace {qty} bathroom vanity (cabinet + top + sink) with a comparable style/size unit. Existing water supply lines and drain location only — no plumbing relocation. Cap 2 vanities per job — larger runs, plumbing relocation, or custom stone tops route to vendor plumbing/countertop work." },
+  { key: "bath_towel_hardware", category: "in_house", trade: "bathroom_repair", name: "Towel Bar / Ring / Robe Hook Replacement", unit: "each", rate: 30, min: 0, seq: 70.2, instruction: "Replace {qty} towel bar, towel ring, or robe hook. Standard wall-mount hardware, existing mounting holes/drywall anchors only." },
+  { key: "bath_mirror_replace", category: "in_house", trade: "bathroom_repair", name: "Bathroom Mirror Replacement / Install", unit: "each", rate: 85, min: 85, seq: 70.3, instruction: "Replace/install {qty} bathroom mirror(s). Standard framed or clip-mounted mirror up to 36\"x48\", existing wall only. Custom-cut frameless mirrors or mirrors over 36\"x48\" route to vendor frameless-glass work." },
+  { key: "bath_toilet_replace", category: "in_house", trade: "bathroom_repair", name: "Toilet Replacement", unit: "each", rate: 225, min: 225, seq: 70.4, instruction: "Replace {qty} toilet (like-for-like) — existing water supply line and drain flange only, standard elongated/round bowl, wax ring included. Cap 3 toilets per job — flange repair, subfloor damage, or non-standard comfort units route to vendor plumbing." },
+  { key: "bath_exhaust_fan", category: "in_house", trade: "electrical", name: "Bathroom Exhaust Fan Replacement / Install", unit: "each", rate: 175, min: 175, seq: 70.5, instruction: "Replace/install {qty} bathroom exhaust fan — existing wiring and vent duct run only, no new duct routing or roof/soffit penetration. Cap 2 fans per job — new duct runs or roof penetrations route to vendor electrical work." },
+  { key: "kitchen_faucet_replace", category: "in_house", trade: "kitchen_repair", name: "Kitchen Faucet Replacement", unit: "each", rate: 165, min: 165, seq: 75.1, instruction: "Replace {qty} kitchen faucet — existing supply lines and sink cutout only, standard single or two-handle faucet. Cap 2 per job — supply-line work beyond standard flex connectors, or sink replacement, routes to vendor plumbing." },
+  { key: "garbage_disposal_replace", category: "in_house", trade: "kitchen_repair", name: "Garbage Disposal Replacement (Like-for-Like)", unit: "each", rate: 195, min: 195, seq: 75.2, instruction: "Replace {qty} garbage disposal, like-for-like horsepower and mount type, existing outlet and drain connection only. Cap 2 per job — new outlet wiring or drain-line modification routes to vendor plumbing/electrical." },
+  { key: "laundry_supply_line", category: "in_house", trade: "laundry_repair", name: "Washer/Dryer Supply Line & Vent Connector Replacement", unit: "each", rate: 65, min: 65, seq: 80.1, instruction: "Replace {qty} washer supply hose(s) or dryer vent connector(s), existing connection points only. Cap 4 per job." },
+  { key: "dryer_vent_clean", category: "in_house", trade: "laundry_repair", name: "Dryer Vent Cleaning / Clearing", unit: "flat", rate: 95, min: 95, seq: 80.2, instruction: "Clean and clear the dryer vent duct run, up to 15 linear ft from dryer to exterior termination. Longer or inaccessible runs behind finished walls route to vendor carpentry/HVAC work." },
+  { key: "laundry_faucet_replace", category: "in_house", trade: "laundry_repair", name: "Laundry / Utility Sink Faucet Replacement", unit: "each", rate: 145, min: 145, seq: 80.3, instruction: "Replace {qty} laundry/utility sink faucet, existing supply lines and sink cutout only. Cap 2 per job." },
+  // v20.33.0 — Appliance purchase/delivery/removal coordination. PLACEHOLDER
+  // rate — flags for Alex to confirm/adjust. This is a coordination/service
+  // fee only (delivery scheduling, install/hookup, old-unit haul-away) —
+  // the appliance unit itself is billed separately at cost once a specific
+  // model is confirmed with the client, since unit cost varies too widely
+  // to bake into one catalog rate. Liability language limits Brothers Group
+  // to installation-caused damage only, not pre-existing hookup conditions —
+  // consider mirroring this into the Repair & Renovation Agreement master
+  // template so the same protection is backed by the signed contract, not
+  // just the estimate line item.
+  { key: "appliance_coordinate", category: "in_house", trade: "appliance_coordination", name: "Appliance Purchase, Delivery & Old-Unit Removal (Coordination)", unit: "each", rate: 250, min: 250, seq: 85, instruction: "Coordinate purchase, delivery, and installation of {qty} replacement appliance(s), plus removal/haul-away of the existing unit(s). Replacement is a reasonably comparable make/model at Brothers Group's discretion, unless the client specifies an exact unit and it is reasonably available — an exact match is not guaranteed. This line covers delivery coordination, installation/hookup, and old-unit removal only; the appliance unit itself is billed separately at cost once the specific model is confirmed with the client. Water and gas-line hookups are limited to existing, code-compliant connections — pre-existing plumbing/valve/gas-line conditions are inspected but not warranted, and Brothers Group is not liable for property damage, including water damage, arising from pre-existing conditions not caused by our installation. Cap 1 appliance per line item — add additional line items for multiple appliances.", notes: "PLACEHOLDER RATE ($250 service fee) — Alex to confirm/adjust. Appliance unit cost is a separate pass-through, not included in this line." },
 ];
 
 const VENDOR_TRADES: SeedItem[] = [
@@ -1141,6 +1177,25 @@ export async function dispatchVendorEmails(consultId: number) {
   const items = getConsultItems(consultId).filter((i: any) => i.category === "vendor");
   if (!consult || items.length === 0) return { sent: 0 };
 
+  // v20.33.0 — Vendor Quote Request Gate: server-side enforcement so the
+  // requirement (photo + measurements + a written description of what
+  // needs quoting) can never be bypassed by a raw API call even if the
+  // client-side button is disabled. Mirrors the client-side check in
+  // RepairConsultSheet.tsx — keep both in sync if this logic changes.
+  const incomplete = items.filter((it: any) => {
+    let photoCount = 0;
+    try { photoCount = JSON.parse(it.photos || "[]").length; } catch { photoCount = 0; }
+    const hasMeasurements = !!(it.measurement_notes && String(it.measurement_notes).trim());
+    const hasScopeNote = !!(it.vendor_scope_note && String(it.vendor_scope_note).trim());
+    return photoCount === 0 || !hasMeasurements || !hasScopeNote;
+  });
+  if (incomplete.length > 0) {
+    const names = incomplete.map((it: any) => it.name).join(", ");
+    const err: any = new Error(`Missing photo, measurements, or description for: ${names}. Add these before sending a vendor quote request.`);
+    err.isValidation = true;
+    throw err;
+  }
+
   const byTrade = new Map<string, any[]>();
   for (const it of items) {
     if (!byTrade.has(it.trade)) byTrade.set(it.trade, []);
@@ -1161,8 +1216,9 @@ export async function dispatchVendorEmails(consultId: number) {
       : "";
 
     const itemsHtml = tradeItems.map((it: any) => `
-      <li style="margin-bottom:8px;font-size:13px;color:#333">
+      <li style="margin-bottom:12px;font-size:13px;color:#333">
         <strong>${it.name}</strong>${it.measurement_notes ? ` — ${it.measurement_notes}` : ""}
+        ${it.vendor_scope_note ? `<div style="margin-top:3px;color:#555;font-size:12.5px"><strong>What we need quoted:</strong> ${it.vendor_scope_note}</div>` : ""}
       </li>`).join("");
 
     // v20.32.8 — this is a referral to OUR CLIENT's property, not our own job.
@@ -2648,8 +2704,8 @@ export function registerRepairConsultRoutes(app: Express) {
     const del = rawDb.prepare(`DELETE FROM repair_consult_items WHERE consult_id = ?`);
     const insert = rawDb.prepare(`
       INSERT INTO repair_consult_items
-        (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order, vendor_quote_amount, markup_pct_applied)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order, vendor_quote_amount, markup_pct_applied, vendor_scope_note)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const catalogStmt = rawDb.prepare(`SELECT * FROM repair_items WHERE key = ? AND active = 1`);
     // v20.32.17 — Vendor Quote Upload: markup applied to any vendor item that
@@ -2692,14 +2748,20 @@ export function registerRepairConsultRoutes(app: Express) {
         // v20.32.38 — optional per-item scope override (e.g. a vendor item
         // narrowed to "patch repair" instead of the catalog's generic default
         // instruction text). Only used when the caller explicitly supplies it.
-        const instruction = (typeof raw.scopeNote === "string" && raw.scopeNote.trim())
-          ? raw.scopeNote.trim()
+        const rawScopeNote = (typeof raw.scopeNote === "string") ? raw.scopeNote.trim() : "";
+        const instruction = rawScopeNote
+          ? rawScopeNote
           : fillInstruction(cat.instruction || cat.name, qty, cat.unit, twoStory);
+        // v20.33.0 — Vendor Quote Request Gate: stored separately from
+        // `instruction` (above) so the dispatch gate can check unambiguously
+        // for a real agent-written "what we need quoted" description, never
+        // confusing it with the catalog's generic default instruction text.
+        const vendorScopeNote = (cat.category === "vendor" && rawScopeNote) ? rawScopeNote : null;
         insert.run(
           consultId, cat.key, cat.category, cat.trade, cat.name, cat.unit, qty,
           unitRate, twoStory ? 1 : 0, lineTotal,
           instruction, JSON.stringify(raw.photos || []), raw.measurementNotes || null, cat.sequence_order,
-          vendorQuoteAmount, markupPctApplied
+          vendorQuoteAmount, markupPctApplied, vendorScopeNote
         );
       }
     });
@@ -3119,6 +3181,9 @@ export function registerRepairConsultRoutes(app: Express) {
       const result = await dispatchVendorEmails(consultId);
       res.json({ ok: true, ...result });
     } catch (err: any) {
+      if (err?.isValidation) {
+        return res.status(400).json({ error: err.message });
+      }
       console.error("dispatch-vendors error:", err);
       res.status(500).json({ error: "Failed to dispatch vendor emails" });
     }

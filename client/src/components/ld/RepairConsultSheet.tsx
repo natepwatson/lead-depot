@@ -30,6 +30,10 @@ type CheckedState = {
   // price without waiting on a formal dispatch. Only meaningful on vendor
   // (category === "vendor") items — ignored for in-house items.
   hasVendorQuote: boolean; vendorQuoteAmount: string;
+  // v20.33.0 — Vendor Quote Request Gate: required free-text description of
+  // what needs quoting, on top of photo(s) + measurement notes, before a
+  // vendor dispatch email can be sent. Only meaningful on vendor items.
+  vendorScopeNote: string;
 };
 
 // v20.19.0 — bundled discount packages. itemKeys are auto-checked in-house
@@ -252,6 +256,8 @@ const TRADE_LABELS: Record<string, string> = {
   water_heater: "Water Heater", tree_removal_large: "Large Tree Removal", structural: "Structural / Foundation",
   mold_remediation: "Mold Remediation", chimney: "Chimney", solar: "Solar", water_damage: "Water Damage Restoration",
   garage_door: "Garage Door", hardscape: "Hardscape / Pavers", land_clearing: "Land Clearing",
+  bathroom_repair: "Bathroom Repairs", kitchen_repair: "Kitchen Repairs", laundry_repair: "Laundry Room",
+  appliance_coordination: "Appliance Purchase & Delivery",
 };
 
 const GOLD = "#c8aa5a";
@@ -726,7 +732,7 @@ export function RepairConsultSheet({
     return [...map.entries()];
   };
 
-  const DEFAULT_ITEM_STATE: CheckedState = { checked: false, quantity: "1", twoStory: false, photos: [], measurementNotes: "", hasVendorQuote: false, vendorQuoteAmount: "" };
+  const DEFAULT_ITEM_STATE: CheckedState = { checked: false, quantity: "1", twoStory: false, photos: [], measurementNotes: "", hasVendorQuote: false, vendorQuoteAmount: "", vendorScopeNote: "" };
   const setItemState = (key: string, patch: Partial<CheckedState>) => {
     setChecked(prev => {
       const base = prev[key] || DEFAULT_ITEM_STATE;
@@ -855,8 +861,37 @@ export function RepairConsultSheet({
         </label>
         {st?.checked && (
           <div style={{ marginTop: 10, paddingLeft: 28 }}>
-            <input placeholder="Notes for the vendor (scope, measurements, etc.)" value={st.measurementNotes} onChange={e => setItemState(it.key, { measurementNotes: e.target.value })}
-              style={{ ...inputStyle, fontSize: 12.5 }} />
+            <input placeholder="Measurements (required to send a vendor quote request)" value={st.measurementNotes} onChange={e => setItemState(it.key, { measurementNotes: e.target.value })}
+              style={{ ...inputStyle, fontSize: 12.5, border: !st.measurementNotes?.trim() ? "1px solid rgba(255,159,10,0.5)" : inputStyle.border }} />
+
+            <textarea
+              placeholder="Describe exactly what you need quoted (required) — e.g. 'Replace warped section of privacy fence along back property line, match existing 6ft shadowbox style'"
+              value={st.vendorScopeNote ?? ""}
+              onChange={e => setItemState(it.key, { vendorScopeNote: e.target.value })}
+              rows={2}
+              style={{ ...inputStyle, fontSize: 12.5, resize: "vertical", width: "100%", marginTop: 8, border: !(st.vendorScopeNote ?? "").trim() ? "1px solid rgba(255,159,10,0.5)" : inputStyle.border }}
+            />
+
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, padding: "6px 10px", borderRadius: 8, background: "rgba(255,255,255,0.06)", border: (st.photos || []).length === 0 ? "1px solid rgba(255,159,10,0.5)" : "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 11.5, cursor: "pointer" }}>
+              {uploadingVendorQuoteKey === it.key ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
+              {uploadingVendorQuoteKey === it.key ? "Uploading\u2026" : "Attach photo (required to send a vendor quote request)"}
+              <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploadingVendorQuoteKey === it.key}
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleVendorQuotePhotoUpload(it.key, f); e.target.value = ""; }} />
+            </label>
+
+            {(st.photos || []).length > 0 && (
+              <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                {st.photos.map((url, i) => (
+                  <div key={i} style={{ position: "relative" }}>
+                    <img src={url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: "cover", display: "block" }} />
+                    <button onClick={() => setItemState(it.key, { photos: st.photos.filter((_, idx) => idx !== i) })}
+                      style={{ position: "absolute", top: -5, right: -5, width: 16, height: 16, borderRadius: 8, background: "#ff5a5a", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                      <X size={9} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12, color: "rgba(255,255,255,0.6)", cursor: "pointer" }}>
               <input type="checkbox" checked={!!st.hasVendorQuote} onChange={e => setItemState(it.key, { hasVendorQuote: e.target.checked })} style={{ accentColor: GOLD }} />
@@ -877,27 +912,7 @@ export function RepairConsultSheet({
                     <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{Math.round((vendorQuoteSettings.markupPct || 0) * 100)}% our fee)</span>
                   </p>
                 )}
-
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, padding: "6px 10px", borderRadius: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 11.5, cursor: "pointer" }}>
-                  {uploadingVendorQuoteKey === it.key ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
-                  {uploadingVendorQuoteKey === it.key ? "Uploading\u2026" : "Attach vendor quote photo"}
-                  <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploadingVendorQuoteKey === it.key}
-                    onChange={e => { const f = e.target.files?.[0]; if (f) handleVendorQuotePhotoUpload(it.key, f); e.target.value = ""; }} />
-                </label>
-
-                {(st.photos || []).length > 0 && (
-                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                    {st.photos.map((url, i) => (
-                      <div key={i} style={{ position: "relative" }}>
-                        <img src={url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: "cover", display: "block" }} />
-                        <button onClick={() => setItemState(it.key, { photos: st.photos.filter((_, idx) => idx !== i) })}
-                          style={{ position: "absolute", top: -5, right: -5, width: 16, height: 16, borderRadius: 8, background: "#ff5a5a", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-                          <X size={9} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {/* v20.33.0 — photo upload/list moved above (required, unconditional) so it's no longer duplicated here behind the optional "Already have a vendor quote?" toggle. */}
               </div>
             )}
           </div>
@@ -977,6 +992,7 @@ export function RepairConsultSheet({
             measurementNotes: it.measurement_notes || "",
             hasVendorQuote: it.vendor_quote_amount != null,
             vendorQuoteAmount: it.vendor_quote_amount != null ? String(it.vendor_quote_amount) : "",
+            vendorScopeNote: it.vendor_scope_note || "",
           };
         }
         setChecked(nextChecked);
@@ -1122,6 +1138,10 @@ export function RepairConsultSheet({
         // v20.32.38 — was `> 0`, which silently dropped a legitimate $0
         // (vendor-approved-at-no-charge) price back to "Quote pending".
         vendorQuoteAmount: v.hasVendorQuote && v.vendorQuoteAmount !== "" && !isNaN(Number(v.vendorQuoteAmount)) ? Number(v.vendorQuoteAmount) : undefined,
+        // v20.33.0 — Vendor Quote Request Gate: only meaningful (and only
+        // sent) for vendor items — never lets a stray note override an
+        // in-house item's catalog instruction text.
+        scopeNote: vendorItems.some(vi => vi.key === itemKey) && v.vendorScopeNote?.trim() ? v.vendorScopeNote.trim() : undefined,
       }));
     if (items.length === 0) throw new Error("Check off at least one repair item before continuing.");
     const d = await fetchJson(`/api/repair-consult/${id}/items`, {
@@ -1201,6 +1221,11 @@ export function RepairConsultSheet({
     if (!consultId) return;
     setDispatchingVendors(true); setError("");
     try {
+      // v20.33.0 — persist the latest photos/measurements/description before
+      // dispatching. Live edits in the Review step only update local
+      // `checked` state until POSTed, and the server-side gate validates
+      // against what's actually stored on repair_consult_items.
+      await submitCurrentItems();
       const d = await fetchJson(`/api/repair-consult/${consultId}/dispatch-vendors`, { method: "POST" });
       setVendorDispatchResult({ sent: d.sent, tradesWithoutVendor: d.tradesWithoutVendor });
     } catch (e: any) { setError(e.message || "Failed to send vendor requests."); }
@@ -1210,16 +1235,39 @@ export function RepairConsultSheet({
   const hasVendorSelections = Object.entries(checked).some(([k, v]) => v.checked && vendorItems.some(vi => vi.key === k));
   const hasInHouseSelections = Object.entries(checked).some(([k, v]) => v.checked && inHouseItems.some(ii => ii.key === k));
 
-  // v20.19.0 — auto-fire both the in-house quote generation AND the vendor
-  // dispatch the instant Review is reached, instead of making the agent tap
-  // two separate buttons. This does NOT touch the Office Approval Gate —
-  // generating the quote PDF and requesting vendor bids never emails the
+  // v20.33.0 — Vendor Quote Request Gate: every checked vendor item must
+  // have at least one photo, measurement notes, AND a written description
+  // of what needs quoting before the agent can send the request. Alex:
+  // no more auto-sent, under-specified quote requests going to vendors.
+  const vendorItemsMissingRequirements = useMemo(() => {
+    return Object.entries(checked)
+      .filter(([k, v]) => v.checked && vendorItems.some(vi => vi.key === k))
+      .map(([k, v]) => {
+        const item = vendorItems.find(vi => vi.key === k);
+        const missing: string[] = [];
+        if (!v.photos || v.photos.length === 0) missing.push("photo");
+        if (!v.measurementNotes || !v.measurementNotes.trim()) missing.push("measurements");
+        if (!v.vendorScopeNote || !v.vendorScopeNote.trim()) missing.push("description");
+        return missing.length > 0 ? { name: item?.name || k, missing } : null;
+      })
+      .filter((x): x is { name: string; missing: string[] } => x !== null);
+  }, [checked, vendorItems]);
+  const canSendVendorRequests = hasVendorSelections && vendorItemsMissingRequirements.length === 0;
+
+  // v20.19.0 — auto-fire the in-house quote generation the instant Review is
+  // reached, instead of making the agent tap a button. This does NOT touch
+  // the Office Approval Gate — generating the quote PDF never emails the
   // client; only the separate "Send Branded Quote to Client" button (still
   // manual, still gated on admin approval) does that.
+  //
+  // v20.33.0 — REMOVED the vendor-dispatch auto-fire that used to live here.
+  // Alex: vendor quote requests must never go out automatically — an agent
+  // now has to explicitly tap "Send Vendor Quote Request(s)" below, and only
+  // once every checked vendor item has a photo, measurements, and a written
+  // description of what needs quoting (see vendorItemsMissingRequirements).
   useEffect(() => {
     if (step !== "review" || !consultId || !reviewConfirmed) return;
     if (hasInHouseSelections && !quoteResult && !generatingQuote) handleGenerateQuote();
-    if (hasVendorSelections && !vendorDispatchResult && !dispatchingVendors) handleDispatchVendors();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, consultId, reviewConfirmed, reviewVersion]);
 
@@ -1767,8 +1815,38 @@ export function RepairConsultSheet({
                                         Two-story (+25% surcharge)
                                       </label>
                                     )}
-                                    <input placeholder="Measurement notes (optional)" value={st?.measurementNotes ?? ""} onChange={e => setItemState(item.key, { measurementNotes: e.target.value })}
-                                      style={{ ...inputStyle, fontSize: 12.5 }} />
+                                    <input placeholder={item.category === "vendor" ? "Measurements (required to send a vendor quote request)" : "Measurement notes (optional)"} value={st?.measurementNotes ?? ""} onChange={e => setItemState(item.key, { measurementNotes: e.target.value })}
+                                      style={{ ...inputStyle, fontSize: 12.5, ...(item.category === "vendor" && !(st?.measurementNotes ?? "").trim() ? { border: "1px solid rgba(255,159,10,0.5)" } : {}) }} />
+                                    {item.category === "vendor" && (
+                                      <div style={{ marginTop: 10 }}>
+                                        <textarea
+                                          placeholder="Describe exactly what you need quoted (required) — e.g. 'Replace warped section of privacy fence along back property line, match existing 6ft shadowbox style'"
+                                          value={st?.vendorScopeNote ?? ""}
+                                          onChange={e => setItemState(item.key, { vendorScopeNote: e.target.value })}
+                                          rows={2}
+                                          style={{ ...inputStyle, fontSize: 12.5, resize: "vertical", width: "100%", border: !(st?.vendorScopeNote ?? "").trim() ? "1px solid rgba(255,159,10,0.5)" : inputStyle.border }}
+                                        />
+                                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, padding: "6px 10px", borderRadius: 8, background: "rgba(255,255,255,0.06)", border: (st?.photos || []).length === 0 ? "1px solid rgba(255,159,10,0.5)" : "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 11.5, cursor: "pointer" }}>
+                                          {uploadingVendorQuoteKey === item.key ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
+                                          {uploadingVendorQuoteKey === item.key ? "Uploading\u2026" : "Attach photo (required)"}
+                                          <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploadingVendorQuoteKey === item.key}
+                                            onChange={e => { const f = e.target.files?.[0]; if (f) handleVendorQuotePhotoUpload(item.key, f); e.target.value = ""; }} />
+                                        </label>
+                                        {(st?.photos || []).length > 0 && (
+                                          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                                            {st!.photos.map((url, i) => (
+                                              <div key={i} style={{ position: "relative" }}>
+                                                <img src={url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: "cover", display: "block" }} />
+                                                <button onClick={() => setItemState(item.key, { photos: st!.photos.filter((_, idx) => idx !== i) })}
+                                                  style={{ position: "absolute", top: -5, right: -5, width: 16, height: 16, borderRadius: 8, background: "#ff5a5a", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                                                  <X size={9} />
+                                                </button>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                     {item.category === "vendor" && (() => {
                                       const quoteAmt = Number(st?.vendorQuoteAmount) || 0;
                                       const clientPrice = quoteAmt > 0 ? quoteAmt * (1 + (vendorQuoteSettings.markupPct || 0)) : 0;
@@ -1792,25 +1870,7 @@ export function RepairConsultSheet({
                                                   <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{Math.round((vendorQuoteSettings.markupPct || 0) * 100)}% our fee)</span>
                                                 </p>
                                               )}
-                                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, padding: "6px 10px", borderRadius: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.7)", fontSize: 11.5, cursor: "pointer" }}>
-                                                {uploadingVendorQuoteKey === item.key ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
-                                                {uploadingVendorQuoteKey === item.key ? "Uploading\u2026" : "Attach vendor quote photo"}
-                                                <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploadingVendorQuoteKey === item.key}
-                                                  onChange={e => { const f = e.target.files?.[0]; if (f) handleVendorQuotePhotoUpload(item.key, f); e.target.value = ""; }} />
-                                              </label>
-                                              {(st?.photos || []).length > 0 && (
-                                                <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                                                  {st!.photos.map((url, i) => (
-                                                    <div key={i} style={{ position: "relative" }}>
-                                                      <img src={url} style={{ width: 44, height: 44, borderRadius: 6, objectFit: "cover", display: "block" }} />
-                                                      <button onClick={() => setItemState(item.key, { photos: st!.photos.filter((_, idx) => idx !== i) })}
-                                                        style={{ position: "absolute", top: -5, right: -5, width: 16, height: 16, borderRadius: 8, background: "#ff5a5a", border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-                                                        <X size={9} />
-                                                      </button>
-                                                    </div>
-                                                  ))}
-                                                </div>
-                                              )}
+                                              {/* v20.33.0 — photo upload/list moved above (required, unconditional) so it's no longer duplicated here behind the optional "Already have a vendor quote?" toggle. */}
                                             </div>
                                           )}
                                         </div>
@@ -1952,9 +2012,25 @@ export function RepairConsultSheet({
               <div style={{ marginBottom: 14 }}>
                 <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Vendor Quote Requests</p>
                 {!vendorDispatchResult ? (
-                  <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
-                    <Loader2 size={15} className="animate-spin" style={{ color: GOLD }} /> Sending vendor quote requests…
-                  </div>
+                  <>
+                    {vendorItemsMissingRequirements.length > 0 && (
+                      <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,159,10,0.1)", border: "1px solid rgba(255,159,10,0.3)", color: "#ffb454", fontSize: 12, marginBottom: 10 }}>
+                        <p style={{ margin: "0 0 6px", fontWeight: 700 }}>Add these before sending a vendor quote request:</p>
+                        {vendorItemsMissingRequirements.map(({ name, missing }) => (
+                          <p key={name} style={{ margin: "2px 0" }}>• {name} — needs {missing.join(", ")}</p>
+                        ))}
+                        <p style={{ margin: "6px 0 0", color: "rgba(255,255,255,0.5)" }}>Tap Edit on each item above to fill these in.</p>
+                      </div>
+                    )}
+                    <button onClick={handleDispatchVendors} disabled={dispatchingVendors || !canSendVendorRequests} style={{
+                      width: "100%", padding: "12px 18px", borderRadius: 10, background: canSendVendorRequests ? GOLD : "rgba(255,255,255,0.08)",
+                      border: "none", color: canSendVendorRequests ? "#0c0b0a" : "rgba(255,255,255,0.35)", fontSize: 13.5, fontWeight: 700,
+                      cursor: canSendVendorRequests && !dispatchingVendors ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    }}>
+                      {dispatchingVendors ? <Loader2 size={15} className="animate-spin" /> : null}
+                      {dispatchingVendors ? "Sending\u2026" : "Send Vendor Quote Request(s)"}
+                    </button>
+                  </>
                 ) : (
                   <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5 }}>
                     Sent {vendorDispatchResult.sent} vendor request{vendorDispatchResult.sent === 1 ? "" : "s"}.

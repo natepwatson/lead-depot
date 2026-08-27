@@ -36,6 +36,35 @@ export const NATE_FUB_USER_ID = 1;
 export const ALEX_FUB_USER_ID = 2;
 export const COLLAB_USER_IDS = [DENISE_FUB_USER_ID, NATE_FUB_USER_ID, ALEX_FUB_USER_ID];
 
+// v20.37.6 — Lexi H/D/P engine: resolve a spoken team-member name to their FUB
+// user id for task reassignment (the "Delegate" disposition). Known admins/ISA
+// are hardcoded above; agents/lenders are looked up once from /users and cached
+// in-process since they rarely change.
+let fubUserCache: Array<{ id: number; name: string }> | null = null;
+async function loadFubUsers(): Promise<Array<{ id: number; name: string }>> {
+  if (fubUserCache) return fubUserCache;
+  try {
+    const res = await fubRequest("GET", "/users?limit=100");
+    const users: any[] = res.data?.users || res.data?.data || [];
+    fubUserCache = users.map((u: any) => ({ id: u.id, name: `${u.firstName || ""} ${u.lastName || ""}`.trim() }));
+    return fubUserCache;
+  } catch {
+    return [];
+  }
+}
+export async function resolveFubUserIdByName(name: string): Promise<number | null> {
+  const clean = (name || "").trim().toLowerCase();
+  if (!clean) return null;
+  if (clean.includes("denise")) return DENISE_FUB_USER_ID;
+  if (clean.includes("nate")) return NATE_FUB_USER_ID;
+  if (clean.includes("alex")) return ALEX_FUB_USER_ID;
+  const users = await loadFubUsers();
+  const exact = users.find((u) => u.name.toLowerCase() === clean);
+  if (exact) return exact.id;
+  const partial = users.find((u) => u.name.toLowerCase().includes(clean) || clean.includes(u.name.toLowerCase()));
+  return partial ? partial.id : null;
+}
+
 // v14.27 — Push a note to a FUB contact recording that an email was sent from Lead Depot.
 // Used by Flow 2 (auto credibility), Flow 3 (2nd attempt), and Flow 4 (appointment warm).
 export async function pushEmailNoteToFub(opts: {

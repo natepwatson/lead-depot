@@ -10,10 +10,16 @@
 // store — the transcript survives reloads, closed tabs, and poor connectivity.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
-import { Sparkles, Mic, MicOff, X, Check, XCircle } from "lucide-react";
+import { Sparkles, Mic, MicOff, X, Check, XCircle, BookOpen } from "lucide-react";
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
 type ProposedAction = { type: string; title?: string; personName?: string; dueDate?: string; notes?: string } | null;
+type AccomplishmentEntry = { id: number; log_date: string; category: string; description: string; created_by: string | null; created_at: string };
+type JournalTab = "daily" | "weekly" | "monthly";
+
+const CATEGORY_LABEL: Record<string, string> = {
+  handled: "Handled", delegated: "Delegated", pushed: "Pushed", task_created: "Task created", stated_win: "Win",
+};
 
 const CONFIRM_WORDS = ["yes", "yeah", "yep", "confirm", "go ahead", "do it", "please do", "sounds good", "sure"];
 const CANCEL_WORDS = ["no", "nope", "cancel", "never mind", "nevermind", "don't", "stop", "skip it"];
@@ -80,12 +86,29 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
   const [manualInput, setManualInput] = useState("");
 
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [journalOpen, setJournalOpen] = useState(false);
+  const [journalTab, setJournalTab] = useState<JournalTab>("daily");
+  const [journalLoading, setJournalLoading] = useState(false);
+  const [journalEntries, setJournalEntries] = useState<AccomplishmentEntry[]>([]);
+  const [journalTotal, setJournalTotal] = useState(0);
+  const [journalRangeLabel, setJournalRangeLabel] = useState("");
   const recognitionRef = useRef<any>(null);
   const shouldListenRef = useRef(true);
   const messagesRef = useRef<ChatMsg[]>([]);
   const proposedActionRef = useRef<ProposedAction>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
   messagesRef.current = messages;
   proposedActionRef.current = proposedAction;
+
+  // v20.37.6 — Alex: new turns should appear at the TOP of the transcript
+  // (newest-first, oldest scrolls down and out of view) so he never has to
+  // scroll down mid-conversation to see what Lexi just said. Since the newest
+  // item is now the first DOM child, snapping scrollTop back to 0 on every
+  // new turn guarantees it's immediately visible even if he'd scrolled down
+  // to read older history.
+  useEffect(() => {
+    if (transcriptRef.current) transcriptRef.current.scrollTop = 0;
+  }, [messages.length, proposedAction]);
 
   // Hydrate the transcript from persistent server-side memory on mount.
   useEffect(() => {
@@ -103,6 +126,35 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
       }
     })();
   }, []);
+
+  // v20.37.7 — CEO accomplishment journal: daily log rolls up into weekly,
+  // then monthly. Alex: "as CEOs we owe this to the company proving our
+  // activities in progress." Fetches on open and whenever the tab switches.
+  const loadJournal = useCallback(async (tab: JournalTab) => {
+    setJournalLoading(true);
+    try {
+      const path = tab === "daily" ? "/api/assistant/journal/daily" : tab === "weekly" ? "/api/assistant/journal/weekly" : "/api/assistant/journal/monthly";
+      const res = await apiRequest("GET", path);
+      const data = await res.json();
+      setJournalEntries(Array.isArray(data.entries) ? data.entries : []);
+      setJournalTotal(typeof data.total === "number" ? data.total : 0);
+      setJournalRangeLabel(
+        tab === "daily" ? data.date || "" :
+        tab === "weekly" ? `${data.weekStart} – ${data.weekEnd}` :
+        data.month || ""
+      );
+    } catch {
+      setJournalEntries([]);
+      setJournalTotal(0);
+      setJournalRangeLabel("");
+    } finally {
+      setJournalLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (journalOpen) loadJournal(journalTab);
+  }, [journalOpen, journalTab, loadJournal]);
 
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
@@ -241,8 +293,8 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
 
   return (
     <div style={{
-      minHeight: "100dvh", background: "#080808", color: "#fff",
-      display: "flex", flexDirection: "column",
+      height: "100dvh", background: "#080808", color: "#fff",
+      display: "flex", flexDirection: "column", overflow: "hidden",
       fontFamily: "'Switzer','Inter',sans-serif",
     }}>
       <div className="ld-glow" />
@@ -271,11 +323,90 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
             fontSize: 16, letterSpacing: "0.16em", textTransform: "uppercase", color: "#fff",
           }}>Lexi</p>
         </div>
-        <div style={{ width: 62 }} />
+        <button onClick={() => setJournalOpen(true)} style={{
+          display: "flex", alignItems: "center", gap: 5,
+          fontSize: 10, letterSpacing: "0.10em", textTransform: "uppercase", fontWeight: 700,
+          color: "#c8aa5a", background: "rgba(200,170,90,0.10)",
+          border: "1px solid rgba(200,170,90,0.30)", borderRadius: 8, padding: "6px 9px", cursor: "pointer",
+        }}>
+          <BookOpen size={12} /> Journal
+        </button>
       </header>
 
+      {/* CEO Accomplishment Journal — Daily log rolls up into weekly, then monthly.
+          Alex: "as CEOs we owe this to the company proving our activities in progress." */}
+      {journalOpen && (
+        <div
+          onClick={() => setJournalOpen(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.72)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 640, maxHeight: "82dvh", background: "#0d0c0a",
+              borderTop: "1px solid rgba(200,170,90,0.3)", borderRadius: "18px 18px 0 0",
+              display: "flex", flexDirection: "column", overflow: "hidden",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px 10px" }}>
+              <p style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: 18, letterSpacing: "0.08em", color: "#fff" }}>
+                Accomplishment Journal
+              </p>
+              <button onClick={() => setJournalOpen(false)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 6, padding: "0 18px 12px" }}>
+              {((["daily", "weekly", "monthly"] as JournalTab[]).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setJournalTab(tab)}
+                  style={{
+                    flex: 1, padding: "8px 0", borderRadius: 9, cursor: "pointer", fontSize: 11, fontWeight: 700,
+                    letterSpacing: "0.06em", textTransform: "uppercase",
+                    background: journalTab === tab ? "rgba(200,170,90,0.18)" : "rgba(255,255,255,0.04)",
+                    border: journalTab === tab ? "1px solid rgba(200,170,90,0.45)" : "1px solid rgba(255,255,255,0.1)",
+                    color: journalTab === tab ? "#c8aa5a" : "rgba(255,255,255,0.55)",
+                  }}
+                >
+                  {tab === "daily" ? "Today" : tab === "weekly" ? "This Week" : "This Month"}
+                </button>
+              )))}
+            </div>
+            <div style={{ padding: "0 18px 8px", color: "rgba(255,255,255,0.4)", fontSize: 12 }}>
+              {journalRangeLabel} · {journalTotal} logged
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "0 18px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {journalLoading && (
+                <p style={{ textAlign: "center", color: "rgba(255,255,255,0.35)", fontSize: 13, marginTop: 30 }}>Loading…</p>
+              )}
+              {!journalLoading && journalEntries.length === 0 && (
+                <p style={{ textAlign: "center", color: "rgba(255,255,255,0.35)", fontSize: 13, marginTop: 30 }}>Nothing logged yet — get after it.</p>
+              )}
+              {!journalLoading && [...journalEntries].reverse().map((e) => (
+                <div key={e.id} style={{
+                  background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 10, padding: "10px 12px",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#c8aa5a" }}>
+                      {CATEGORY_LABEL[e.category] || e.category}
+                    </span>
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)" }}>{e.log_date}{e.created_by ? ` · ${e.created_by}` : ""}</span>
+                  </div>
+                  <p style={{ fontSize: 13, color: "#eee" }}>{e.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Orb + status */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "36px 20px 18px" }}>
+      <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", padding: "36px 20px 18px" }}>
         <div style={{
           width: 96, height: 96, borderRadius: "50%",
           background: `radial-gradient(circle, ${orbColor}33 0%, transparent 70%)`,
@@ -297,8 +428,8 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
-      {/* Transcript */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 20px", display: "flex", flexDirection: "column", gap: 12, maxWidth: 640, margin: "0 auto", width: "100%" }}>
+      {/* Transcript. Newest turn pinned at top; older turns scroll down out of view. */}
+      <div ref={transcriptRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 20px 20px", display: "flex", flexDirection: "column", gap: 12, maxWidth: 640, margin: "0 auto", width: "100%" }}>
         {historyLoaded && messages.length === 0 && status !== "unsupported" && (
           <p style={{ textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13, marginTop: 20 }}>
             Just start talking — Lexi's listening.
@@ -309,24 +440,11 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
             This browser doesn't support voice recognition. Type a message below instead.
           </p>
         )}
-        {messages.map((m, i) => (
-          <div key={i} style={{
-            alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-            maxWidth: "82%",
-            background: m.role === "user" ? "rgba(200,170,90,0.14)" : "rgba(255,255,255,0.06)",
-            border: m.role === "user" ? "1px solid rgba(200,170,90,0.3)" : "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 14, padding: "10px 14px", fontSize: 14, lineHeight: 1.5,
-            color: m.role === "user" ? "#f5e6c4" : "#eee",
-          }}>
-            {m.content}
-          </div>
-        ))}
-
         {proposedAction && (
           <div style={{
             alignSelf: "center", width: "100%",
             background: "rgba(200,170,90,0.08)", border: "1px solid rgba(200,170,90,0.35)",
-            borderRadius: 14, padding: "14px 16px", marginTop: 4,
+            borderRadius: 14, padding: "14px 16px", marginBottom: 4,
           }}>
             <p style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#c8aa5a", marginBottom: 6, fontWeight: 700 }}>
               Proposed action
@@ -362,13 +480,30 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         )}
+        {[...messages].reverse().map((m, i) => (
+          <div key={i} style={{
+            alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+            maxWidth: "82%",
+            background: m.role === "user" ? "rgba(200,170,90,0.14)" : "rgba(255,255,255,0.06)",
+            border: m.role === "user" ? "1px solid rgba(200,170,90,0.3)" : "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 14, padding: "10px 14px", fontSize: 14, lineHeight: 1.5,
+            color: m.role === "user" ? "#f5e6c4" : "#eee",
+          }}>
+            {m.content}
+          </div>
+        ))}
       </div>
 
-      {/* Manual text fallback — always available, useful when mic access is denied or noisy. */}
+      {/* Manual text fallback — always available, useful when mic access is denied or noisy.
+          v20.37.6 — Alex: the Send button kept getting covered at the bottom of the screen.
+          flexShrink:0 plus the fixed-height/overflow-hidden container above pins this bar to
+          the visible viewport instead of the whole page, and the safe-area padding keeps it
+          clear of the iPhone home-indicator strip. */}
+      <div style={{ flexShrink: 0, background: "rgba(8,8,8,0.98)", borderTop: "1px solid rgba(255,255,255,0.08)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
       <form
         onSubmit={(e) => { e.preventDefault(); if (manualInput.trim()) { sendToLexi(manualInput.trim()); setManualInput(""); } }}
         style={{
-          display: "flex", gap: 8, padding: "12px 20px", borderTop: "1px solid rgba(255,255,255,0.08)",
+          display: "flex", gap: 8, padding: "12px 20px",
           maxWidth: 640, margin: "0 auto", width: "100%", boxSizing: "border-box",
         }}
       >
@@ -388,6 +523,7 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
           Send
         </button>
       </form>
+      </div>
     </div>
   );
 }

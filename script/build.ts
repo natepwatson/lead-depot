@@ -79,6 +79,12 @@ async function buildAll() {
     console.log("copied public/apply.html → dist/public/apply.html");
   }
 
+  // ecosystem.html — v20.32.39 master "ecosystem" hub page (served at /ecosystem)
+  if (existsSync("public/ecosystem.html")) {
+    await copyFile("public/ecosystem.html", "dist/public/ecosystem.html");
+    console.log("copied public/ecosystem.html → dist/public/ecosystem.html");
+  }
+
   // agent headshots — slug-named jpg files served at /headshots/
   const headshotSrc = "public/headshots";
   const headshotDst = "dist/public/headshots";

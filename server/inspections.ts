@@ -475,7 +475,7 @@ function brandedHeader(title: string, subtitle: string): string {
 function brandedFooter(): string {
   return `
   <div style="padding:16px 32px;background:${BRAND.gray};color:#fff;font-size:11px;text-align:center">
-    Alex &amp; Nate Watson — (904) 504-3794 — www.brothersgroup.realestate
+    Alex &amp; Nate Watson — (904) 867-3984 — www.brothersgroup.realestate
   </div>`;
 }
 function itemsTableHtml(items: any[]): string {
@@ -647,7 +647,7 @@ async function generateInspectionWiringPdf(order: any): Promise<{ path: string; 
   row("BUSINESS ADDRESS", RELAY_WIRE.businessAddress);
 
   page.drawText("PREFER ZELLE OR VENMO?", { x: 38, y, size: 9, font: bold, color: gray });
-  page.drawText("We also accept Zelle and Venmo. Reply to this email or call (904) 504-3794 and we'll send the account to use.", { x: 38, y: y - 14, size: 9.5, font, color: black });
+  page.drawText("We also accept Zelle and Venmo. Reply to this email or call (904) 867-3984 and we'll send the account to use.", { x: 38, y: y - 14, size: 9.5, font, color: black });
   y -= 30;
 
   y -= 6;
@@ -659,11 +659,11 @@ async function generateInspectionWiringPdf(order: any): Promise<{ path: string; 
   page.drawText(line1, { x: 50, y: y - 34, size: 9, font, color: black });
   page.drawText(line2, { x: 50, y: y - 47, size: 9, font, color: black });
   page.drawText("PAYMENT FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
-  const line3 = "These instructions will never change over email. Verify by phone at (904) 504-3794 before sending funds.";
+  const line3 = "These instructions will never change over email. Verify by phone at (904) 867-3984 before sending funds.";
   page.drawText(line3, { x: 50, y: y - 82, size: 9, font, color: black });
   y -= warnH + 20;
 
-  page.drawText("Alex & Nate Watson — Brothers Group at Momentum Realty — (904) 504-3794 — www.brothersgroup.realestate", { x: 38, y: 40, size: 8, font, color: gray });
+  page.drawText("Alex & Nate Watson — Brothers Group at Momentum Realty — (904) 867-3984 — www.brothersgroup.realestate", { x: 38, y: 40, size: 8, font, color: gray });
 
   const bytes = await pdfDoc.save();
   const filename = `wiring-INS-${order.id}-${Date.now()}.pdf`;
@@ -698,13 +698,13 @@ async function sendWiringInstructionsToClient(orderId: number) {
         <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> We also accept Zelle and Venmo. Just reply to this email or call us at (904) 504-3794 and we'll send you the account to use.</p>
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> We also accept Zelle and Venmo. Just reply to this email or call us at (904) 867-3984 and we'll send you the account to use.</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
         <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — contract and inspection contingency deadlines do not pause while payment is processed. Please pay within 48 hours to keep your order on schedule.</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Payment fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated payment instructions, do not act on it — call us directly at (904) 504-3794 to verify before sending any funds.</p>
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Payment fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated payment instructions, do not act on it — call us directly at (904) 867-3984 to verify before sending any funds.</p>
       </div>
       <p style="font-size:11px;color:#333;margin-top:14px">Full wire instructions are also attached as a PDF for your records. Let us know if you have any questions.</p>
     </div>
@@ -775,7 +775,7 @@ async function generateAddonWiringPdf(order: any, addon: any): Promise<{ path: s
   row("BUSINESS ADDRESS", RELAY_WIRE.businessAddress);
 
   page.drawText("PREFER ZELLE OR VENMO?", { x: 38, y, size: 9, font: bold, color: gray });
-  page.drawText("We also accept Zelle and Venmo. Reply to this email or call (904) 504-3794 and we'll send the account to use.", { x: 38, y: y - 14, size: 9.5, font, color: black });
+  page.drawText("We also accept Zelle and Venmo. Reply to this email or call (904) 867-3984 and we'll send the account to use.", { x: 38, y: y - 14, size: 9.5, font, color: black });
   y -= 30;
 
   y -= 6;
@@ -787,11 +787,11 @@ async function generateAddonWiringPdf(order: any, addon: any): Promise<{ path: s
   page.drawText(line1, { x: 50, y: y - 34, size: 9, font, color: black });
   page.drawText(line2, { x: 50, y: y - 47, size: 9, font, color: black });
   page.drawText("PAYMENT FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
-  const line3 = "These instructions will never change over email. Verify by phone at (904) 504-3794 before sending funds.";
+  const line3 = "These instructions will never change over email. Verify by phone at (904) 867-3984 before sending funds.";
   page.drawText(line3, { x: 50, y: y - 82, size: 9, font, color: black });
   y -= warnH + 20;
 
-  page.drawText("Alex & Nate Watson — Brothers Group at Momentum Realty — (904) 504-3794 — www.brothersgroup.realestate", { x: 38, y: 40, size: 8, font, color: gray });
+  page.drawText("Alex & Nate Watson — Brothers Group at Momentum Realty — (904) 867-3984 — www.brothersgroup.realestate", { x: 38, y: 40, size: 8, font, color: gray });
 
   const bytes = await pdfDoc.save();
   const filename = `wiring-INS-${order.id}-ADD-${addon.id}-${Date.now()}.pdf`;
@@ -832,13 +832,13 @@ async function sendAddonWiringInstructionsToClient(itemId: number) {
         <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> We also accept Zelle and Venmo. Just reply to this email or call us at (904) 504-3794 and we'll send you the account to use.</p>
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> We also accept Zelle and Venmo. Just reply to this email or call us at (904) 867-3984 and we'll send you the account to use.</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
         <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — please pay within 48 hours to keep your order on schedule.</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fde2e2;border:1px solid #e08585;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Payment fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated payment instructions, do not act on it — call us directly at (904) 504-3794 to verify before sending any funds.</p>
+        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Payment fraud warning:</strong> these instructions will never change over email. If you receive an email claiming updated payment instructions, do not act on it — call us directly at (904) 867-3984 to verify before sending any funds.</p>
       </div>
       <p style="font-size:11px;color:#333;margin-top:14px">Full wire instructions are also attached as a PDF for your records. Let us know if you have any questions.</p>
     </div>
@@ -1561,7 +1561,7 @@ async function checkAndSendInspectionPaymentReminders() {
               <tr><td style="padding:4px 0;color:${BRAND.gray};width:140px">Balance Due</td><td style="font-weight:700;font-size:16px">$${balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
               <tr><td style="padding:4px 0;color:${BRAND.gray}">Reference</td><td>INS-${order.id}</td></tr>
             </table>
-            <p style="font-size:12.5px;color:#333">Please refer to the wiring instructions we emailed when you approved this order, or reply to this email / call us at (904) 504-3794 and we'll resend them. As always, verify our wiring details by phone before sending any funds — they will never change over email.</p>
+            <p style="font-size:12.5px;color:#333">Please refer to the wiring instructions we emailed when you approved this order, or reply to this email / call us at (904) 867-3984 and we'll resend them. As always, verify our wiring details by phone before sending any funds — they will never change over email.</p>
           </div>
           ${brandedFooter()}
         </div>

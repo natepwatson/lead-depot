@@ -45,7 +45,7 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"];
 const FROM = "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>";
 const BRAND = {
-  contactLine: "Alex & Nate Watson — (904) 504-3794 — www.brothersgroup.realestate",
+  contactLine: "Alex & Nate Watson — (904) 867-3984 — www.brothersgroup.realestate",
   gray: "#808080",
   lightGray: "#f2f2f2",
   border: "#999999",

@@ -44,7 +44,7 @@ const APP_URL = "https://depot.watsonbrothersgroup.com";
 const BRAND = {
   companyName: "Brothers Group",
   brokerage: "Momentum Realty",
-  contactLine: "Alex & Nate Watson — (904) 504-3794 — www.brothersgroup.realestate",
+  contactLine: "Alex & Nate Watson — (904) 867-3984 — www.brothersgroup.realestate",
   black: "#0a0a0a",
   gray: "#808080",
   lightGray: "#f2f2f2",
@@ -1181,7 +1181,7 @@ export async function dispatchVendorEmails(consultId: number) {
         ${clientRowHtml}
         <p style="font-size:13px;color:#333"><strong>Desired Start:</strong> ${startWindowLabel(consult)}</p>
         <p style="font-size:12.5px;color:#333;margin-top:14px">Please send your quote and earliest availability back to us — <strong>alex@watsonbrothersgroup.com</strong> and <strong>nate@watsonbrothersgroup.com</strong> at Brothers Group. As one of our preferred vendors, our standard payout-at-close arrangement applies where offered — happy to discuss.</p>
-        <p style="font-size:12.5px;color:#333;margin-top:10px">If you'd like to schedule a time to come take a look in person before quoting, feel free to call the client directly${clientPhoneClause} to set it up, or call us at <strong>(904) 504-3794</strong> and we'll help coordinate.</p>
+        <p style="font-size:12.5px;color:#333;margin-top:10px">If you'd like to schedule a time to come take a look in person before quoting, feel free to call the client directly${clientPhoneClause} to set it up, or call us at <strong>(904) 867-3984</strong> and we'll help coordinate.</p>
       </div>
       ${brandedFooter()}
     </div>

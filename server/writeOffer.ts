@@ -24,7 +24,7 @@ const BRAND = {
   lightGray: "#f2f2f2",
   border: "#999999",
   green: "#008000",
-  contactLine: "Alex & Nate Watson — (904) 504-3794 — www.brothersgroup.realestate",
+  contactLine: "Alex & Nate Watson — (904) 867-3984 — www.brothersgroup.realestate",
 };
 
 // TEMPORARY (as of v20.14.7) — Nate is standing in as TC while this offer
@@ -36,7 +36,7 @@ const BRAND = {
 //   Real TC: Whittney Rocha — whittney@nextlevelfl.com — (904) 703-8023
 const TC_EMAIL = "nate@watsonbrothersgroup.com";
 const TC_NAME = "Nate Watson";
-const TC_PHONE = "(904) 504-3794";
+const TC_PHONE = "(904) 867-3984";
 const CC_EMAILS = ["alex@watsonbrothersgroup.com"];
 
 // Preset lender list — Alex's main lenders. "Other" lets the agent type in

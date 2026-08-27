@@ -172,7 +172,7 @@ export function RepairQuoteBody({
         </div>
 
         <div style={{ background: "#111", padding: "16px 32px", textAlign: "center" }}>
-          <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, margin: 0 }}>ALEX & NATE WATSON · (904) 504-3794 · nate@brothersgroup.realestate</p>
+          <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, margin: 0 }}>ALEX & NATE WATSON · (904) 867-3984 · nate@brothersgroup.realestate</p>
         </div>
       </div>
     </div>

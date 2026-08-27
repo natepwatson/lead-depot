@@ -141,17 +141,28 @@ async function buildAll() {
   const kokoroSrc = "server/kokoro-cache";
   const kokoroDst = "dist/kokoro-cache";
   if (existsSync(kokoroSrc)) {
-    await cp(kokoroSrc, kokoroDst, { recursive: true });
+    await cp(kokoroSrc, kokoroDst, { recursive: true, verbatimSymlinks: true });
     console.log("copied Kokoro voice model → dist/kokoro-cache/");
   }
 
   // v20.37.5 — Piper binary + Amy voice model (server/tts-piper.ts resolves
   // it relative to __dirname, which at runtime is dist/, not server/).
   // This is now the ACTIVE voice engine for Lexi.
+  // v20.37.8 — CRITICAL FIX: added `verbatimSymlinks: true`. Without it,
+  // Node's fs.cp() default (verbatimSymlinks: false) re-resolves the
+  // relative .so symlinks (libespeak-ng.so -> libespeak-ng.so.1, etc.) into
+  // ABSOLUTE paths pointing back at this sandbox's own filesystem
+  // (/home/user/workspace/lead-depot-v10/server/piper-cache/bin/...). That
+  // path doesn't exist on Railway, so the Piper binary crashed with
+  // "libespeak-ng.so.1: cannot open shared object file" on every real
+  // request (exit code 127) and every voice reply silently fell back to the
+  // browser's built-in speechSynthesis (why it sounded like the Mac's Apple
+  // voice instead of Piper Amy). verbatimSymlinks: true copies the symlink
+  // target string as-is (relative), so it stays valid in dist/ on any host.
   const piperSrc = "server/piper-cache";
   const piperDst = "dist/piper-cache";
   if (existsSync(piperSrc)) {
-    await cp(piperSrc, piperDst, { recursive: true });
+    await cp(piperSrc, piperDst, { recursive: true, verbatimSymlinks: true });
     console.log("copied Piper voice engine → dist/piper-cache/");
   }
 }

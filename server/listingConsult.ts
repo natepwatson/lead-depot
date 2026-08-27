@@ -28,6 +28,7 @@
 import type { Express, Request, Response } from "express";
 import { rawDb } from "./db";
 import { storage } from "./storage";
+import { awardPoints } from "./points";
 import { fubRequest } from "./fub";
 import { Resend } from "resend";
 import fs from "node:fs";
@@ -682,6 +683,14 @@ export function registerListingConsultRoutes(app: Express) {
     let newLeadId: number | null = null;
     try { newLeadId = createSignedLeadFromConsult(r, data); }
     catch (err) { console.error("[ListingConsult] Signed lead creation failed:", err); }
+
+    // v20.32.43 — Credit the listing agent 200 points for a signed listing
+    // contract. r.agent_id is the consult's owning agent (same field used by
+    // createSignedLeadFromConsult above).
+    if (r.agent_id) {
+      try { awardPoints(r.agent_id, "listing_signed", newLeadId ?? undefined, "seller"); }
+      catch (err) { console.error("[ListingConsult] awardPoints failed:", err); }
+    }
 
     pushListingConsultStageToFub({
       fubPersonId: data.prep?.fubPersonId,

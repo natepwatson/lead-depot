@@ -13,6 +13,7 @@
 
 import type { Express, Request, Response } from "express";
 import { Resend } from "resend";
+import { awardPoints } from "./points";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -247,6 +248,19 @@ export function registerWriteOfferRoutes(app: Express) {
           subject,
           html,
         });
+      }
+
+      // v20.32.43 — Credit the submitting agent 200 points for writing an
+      // offer. Prefer the authenticated session agent (req.currentAgent, set
+      // by attachSession); fall back to an explicit agentId in the payload
+      // if a future client sends one. agentName alone isn't a reliable FK,
+      // so if neither is present we simply skip the award rather than guess.
+      const submittingAgentId = req.currentAgent?.id ?? (payload as any)?.agentId ?? null;
+      if (submittingAgentId) {
+        try { awardPoints(submittingAgentId, "offer_submitted"); }
+        catch (e) { console.error("[write-offer] awardPoints failed:", e); }
+      } else {
+        console.warn("[write-offer] no agentId resolved — skipped points award for offer by", payload?.agentName);
       }
 
       res.json({ sent: true, to: TC_EMAIL, cc: CC_EMAILS });

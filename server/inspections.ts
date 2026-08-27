@@ -20,6 +20,7 @@
 import type { Express, Request, Response } from "express";
 
 import { rawDb } from "./db";
+import { awardPoints } from "./points";
 import { Resend } from "resend";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
@@ -1289,6 +1290,14 @@ export function registerInspectionsRoutes(app: Express) {
     if (!order.client_email) return res.status(400).json({ error: "This client has no email on file — add one before sending." });
     try {
       await sendInspectionOrderToClient(id);
+      // v20.32.43 — Credit the requesting agent 50 points for submitting the
+      // inspection request to the client. Flat, once per order (the pool of
+      // "send" calls per order is naturally low — agents don't re-send after
+      // the client has already received it in normal use).
+      if (order.agent_id) {
+        try { awardPoints(order.agent_id, "inspection_request_submitted", order.lead_id ?? undefined, "seller"); }
+        catch (e) { console.error("[inspections] awardPoints (request submitted) failed:", e); }
+      }
       res.json({ ok: true, signToken: order.sign_token });
     } catch (err: any) {
       console.error("send inspection order error:", err);
@@ -1360,6 +1369,12 @@ export function registerInspectionsRoutes(app: Express) {
     `).run(String(signatureName).trim(), ip, order.id);
     try { await sendInspectionOrderAcceptedInternal(order.id); } catch (e) { console.error("inspection accepted email failed:", e); }
     try { await sendWiringInstructionsToClient(order.id); } catch (e) { console.error("inspection wiring instructions email failed:", e); }
+    // v20.32.43 — Credit the order's agent 50 points now that the client has
+    // approved (e-signed) the inspection order.
+    if (order.agent_id) {
+      try { awardPoints(order.agent_id, "inspection_approved", order.lead_id ?? undefined, "seller"); }
+      catch (e) { console.error("[inspections] awardPoints (approved) failed:", e); }
+    }
     // v20.32.13 Part 4 — milestone task: confirm inspection scheduling
     fireMilestoneTasks("inspection_scheduled", {
       personId: order.fub_contact_id ? Number(order.fub_contact_id) : null,

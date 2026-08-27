@@ -3,6 +3,7 @@ import type { Express } from "express";
 import { createServer } from "http";
 import { storage } from "./storage";
 import { rawDb } from "./db";
+import { awardPoints } from "./points";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
@@ -138,101 +139,6 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 //   Cold email (Stage 1)      3   (v14.18 email system)
 //   Any other dial (base)     2
 //
-// v12.5 — scoped: "seller" (default, existing seller-side call flow) or
-// "recruiting" (agent-recruiting depot). Leaderboards + hard resets filter by
-// scope so the two systems stay fully isolated.
-export function awardPoints(
-  agentId: number | null | undefined,
-  outcome: string,
-  leadId?: number,
-  scope: "seller" | "recruiting" = "seller",
-) {
-  if (!agentId) return;
-  // v15.11.26 — REBALANCED point system.
-  // Appt Set crushes everything (only outcome that generates revenue). KIT is a real
-  // conversation. Network referral is meaningful but doesn't move revenue directly.
-  // Emails and voicemails award ZERO points — they were noise. Base dial fallback = 1.
-  const pts: Record<string, number> = {
-    contacted_appointment:     60,   // v15.11.31 — bumped 40→60. One Prime appt (120 pts) crushes 8 Prime KITs. Producers win.
-    keep_in_touch:             15,   // v15.11.31 — trimmed 20→15. Still real convo value but no longer dial-farmable.
-    network_referral:          20,   // v15.11.31 — bumped 15→20. Referrals ARE revenue-direct.
-    open_house_lead:           20,   // v16.7 — OH captured lead. Same value as network referral (real capture, revenue-direct).
-    open_house_log:            50,   // v17.6 — OH physical presence log, bumped 20→50 (evidence bar higher, encourages field work).
-    oh_knock_route:            40,   // v17.6 — OH knock route piggyback, bumped 15→40 (SetRep evidence, real effort during OH).
-    direct_mail:                1,   // v20.4.4 — Direct Mail: 1 point per mailer approved (was 3).
-    door_knock:                 2,   // v17.6 — Base per-door value. Actual session points_potential = doors × 2 (25+ doors min).
-    social_post:               10,   // v20.7.20 — BASE per-platform. Actual points_potential = 10 × platforms.length (1-3). 2/day cap enforced upstream.
-    contacted_not_interested:   5,   // Real contact, worth something.
-    listed:                     3,   // Rare informational outcome.
-    recycled:                   2,   // Re-queue, minor effort.
-    no_answer:                  2,   // Real dial, most common outcome.
-    wrong_number:               1,   // Data cleanup.
-    disconnected:               1,   // Data cleanup.
-    left_voicemail:             6,   // v15.11.41 — Owner - No Answer: confirmed owner + recycle + boost. 6 pts.
-    agent_referral_approved:  100,   // v19.6 — Referred agent got hired. Big deal.
-    agent_invite_sent:         50,   // v20.7.9 — Immediate credit when an agent sends an invite (before candidate submits or gets approved).
-    // Any other outcome falls back to base dial (1).
-  };
-  const basePoints = pts[outcome] ?? 1;
-  // v17.6 — Evidence-gated field activities are FLAT (no Prime multiplier).
-  // The dial multiplier exists because dial connect rates vary by hour; field
-  // work happens whenever the agent shows up and admin approval can be delayed
-  // hours or days, so multiplying by tier-at-approval is arbitrary and gameable.
-  // Award the flat rate and short-circuit.
-  const FLAT_OUTCOMES = new Set(["open_house_log", "open_house_lead", "oh_knock_route", "direct_mail", "door_knock", "social_post", "network_referral", "agent_referral_approved", "agent_invite_sent"]);
-  if (FLAT_OUTCOMES.has(outcome)) {
-    if (basePoints === 0) return;
-    rawDb.prepare(
-      `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(agentId, basePoints, outcome, leadId ?? null, scope, new Date().toISOString());
-    // v19.5 — Instant broadcast so leaderboard/team-pot/agent-stats refresh with no poll delay.
-    try { broadcast({ type: "points_awarded", agentId, delta: basePoints, outcome, scope, ts: new Date().toISOString() }); } catch {}
-    return;
-  }
-  // v15.11.26 — 5-TIER call-heat multiplier (was 2-tier). Multipliers align with
-  // the 5-tier schedule grid in shared/prime-schedule.ts and drive the leaderboard
-  // toward proven high-connect hours.
-  //   Prime  🟢 → 2×
-  //   Mid    🟡 → 1.5×
-  //   Low    🟠 → 1.25×
-  //   Down   ⬜ → 1× (dial-locked in UI; multiplier here as belt-and-suspenders)
-  //   Illegal ⬛ → never awards (upstream endpoints refuse the call in the first place)
-  let multiplier = 1;
-  let tier: string = "base";
-  try {
-    tier = getCallHeatTier();
-    if (tier === "prime") multiplier = 2;
-    else if (tier === "mid") multiplier = 1.5;
-    else if (tier === "low") multiplier = 1.25;
-    else if (tier === "down") multiplier = 1;
-    else multiplier = 1; // illegal shouldn't reach here, but be safe
-  } catch (err) {
-    console.error("[awardPoints] tier lookup failed", err);
-  }
-  // If the base points are 0 (emails, voicemail), no multiplier can save them.
-  if (basePoints === 0) return;
-  const points = Math.round(basePoints * multiplier);
-  const reason = multiplier > 1 ? `${outcome}_${tier}_${multiplier}x` : outcome;
-  rawDb.prepare(
-    `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(agentId, points, reason, leadId ?? null, scope, new Date().toISOString());
-  // v19.5 — Instant broadcast so leaderboard/team-pot/agent-stats refresh with no poll delay.
-  try { broadcast({ type: "points_awarded", agentId, delta: points, outcome, tier, scope, ts: new Date().toISOString() }); } catch {}
-  // v20.7.8 — Auto-detect challenge completions immediately (used to only run
-  // when the agent opened the Challenges tab). Fires the daily + weekly sweep.
-  // Broadcasts a challenges refresh signal so the Home card + Challenges tab
-  // live-update without a full refetch.
-  try {
-    const dailyAwarded = checkAndAwardAutoDetect(agentId, currentDailyKey(), "daily");
-    const weeklyAwarded = checkAndAwardAutoDetect(agentId, currentWeeklyKey(), "weekly");
-    if (dailyAwarded > 0 || weeklyAwarded > 0) {
-      try { broadcast({ type: "challenges_updated", agentId, dailyAwarded, weeklyAwarded, ts: new Date().toISOString() }); } catch {}
-    }
-  } catch (e) {
-    console.error("[awardPoints] challenge auto-detect failed:", e);
-  }
-}
-
 
 // v19.6 — Warm-lead / lead-gen activity admin notification helper.
 // Fires an admin-facing summary email to alex@ + nate@ (+ denise@ where relevant)
@@ -263,7 +169,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.42 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.43 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -492,7 +398,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.32.42 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.32.43 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -551,7 +457,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.42 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.43 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -599,7 +505,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.42 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.32.43 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1847,7 +1753,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.32.42</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.32.43</p>
             </div>
           `,
         });
@@ -2007,7 +1913,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.32.42 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.32.43 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -8584,7 +8490,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.32.42 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.32.43 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -9704,7 +9610,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.32.42",
+      version: "v20.32.43",
       services: results,
     });
   });
@@ -11248,7 +11154,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.32.42</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.32.43</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

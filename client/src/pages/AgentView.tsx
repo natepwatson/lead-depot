@@ -6108,7 +6108,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   const [leadGenOpen, setLeadGenOpen] = useState(false);
   const [buyerChooserOpen, setBuyerChooserOpen] = useState(false); // v20.32.13 — Buyers chooser: Write an Offer / Inspections+ / Instant Repair Quote (order: Inspections+, Instant Repair Quote, Write an Offer)
   const [sellerChooserOpen, setSellerChooserOpen] = useState(false); // v20.32.12 — Sellers+ chooser: Repair Consult / Listing Consultation / Inspections+
-  // v20.33.0 — Repair Consult and Inspections+ are shared, single-mount tools
+  // v20.33.1 — Repair Consult and Inspections+ are shared, single-mount tools
   // reachable from BOTH the Buyer and Seller choosers. Track which side of
   // the deal launched the tool so it knows whether the client's FUB
   // address(es) are valid candidates for the subject property (seller: yes,
@@ -6398,7 +6398,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.33.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.33.1</span>
             </div>
           </div>
           {onBackToAdmin && (

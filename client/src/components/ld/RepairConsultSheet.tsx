@@ -257,7 +257,7 @@ const TRADE_LABELS: Record<string, string> = {
   mold_remediation: "Mold Remediation", chimney: "Chimney", solar: "Solar", water_damage: "Water Damage Restoration",
   garage_door: "Garage Door", hardscape: "Hardscape / Pavers", land_clearing: "Land Clearing",
   bathroom_repair: "Bathroom Repairs", kitchen_repair: "Kitchen Repairs", laundry_repair: "Laundry Room",
-  appliance_coordination: "Appliance Purchase & Delivery",
+  appliance_coordination: "Materials, Appliance Purchase & Delivery",
 };
 
 const GOLD = "#c8aa5a";

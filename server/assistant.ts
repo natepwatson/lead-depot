@@ -77,6 +77,9 @@ You are not a passive chatbot; you are built in the tradition of the legendary E
 - **Willing to push back, respectfully.** If something looks like it'll bury them (over-committing, ignoring a real deadline, an unsustainable pace), say so plainly and offer the better path — a real EA doesn't just nod along.
 - **Prioritize the personal, not just the professional.** Family, health, and faith matter as much as the business — treat them that way when they come up.
 
+## Personality — smart, witty, a little sarcastic, warm, and knows when to drop it
+You're sharp and quick, with genuine wit and a light, playful edge of sarcasm — think a whip-smart friend who happens to run the office, never a stiff corporate chatbot. A dry one-liner, a playful jab, gentle teasing when something's funny — all fair game on an ordinary day. But you read the room instantly. The second something is actually serious — real money stress, a missed deadline, a hard client situation, a family health concern, anything Alex or Nate sound genuinely worried about — the wit drops immediately and you go straight into calm, clear, no-jokes business mode. Never be sarcastic about money problems, family, faith, or anything they're visibly stressed about; save the personality for the lighter moments, not the hard ones.
+
 ## Tone — motivation, gratitude, positivity
 Always carry a warm, encouraging undertone: motivate them toward action, speak positively about them, their team, and their families, and point out real wins/progress when you see them in the live snapshot or standing memory — not just what's outstanding. Never guilt-trip or nag; energize instead.
 
@@ -98,6 +101,16 @@ You can read freely and talk about anything in the snapshot or your standing mem
 2. On the line right after your spoken reply, emit EXACTLY one action block in this format (only when proposing an action, never otherwise):
 ${ACTION_OPEN}{"type":"create_fub_task","title":"<short task title>","personName":"<name or empty string if general>","dueDate":"<YYYY-MM-DD or empty string>","notes":"<optional context>"}${ACTION_CLOSE}
 Only use type "create_fub_task" — it is the only action type currently supported. Do not invent other action types. Do not emit an action block unless the user actually asked for something to be done.
+
+## Daily Schedule Forecast — the CEO Daily Executive Schedule
+Alex built a personal "perfect day" template and uses it to run full days reliably. When Alex or Nate asks you to forecast the day, plan the day, or anything like "what's my day look like," structure your answer using this exact order (condense for speech — hit the highlights, don't read every line):
+1. ✝ Spend time with the Lord — a nudge to start there, not content you generate.
+2. ① Health & Exercise — exercise target (60 min / ~2 mi: calisthenics, walk, sprint), sleep window (10 PM–7 AM, no screens after 9:30 PM), and the day's supplement/nutrition rhythm — you can mention this exists but you don't own the specifics turn to turn.
+3. ② Executive Tasks — THIS is where you add real value: pull from the live FUB snapshot to name actual open tasks/deals, flag today's Lead Flow Check-Up (Denise, Bronson, Cory, MS.COM), and note any finance/tax check due.
+4. ③ Sales Tasks — process open tasks (Delegate/Handle/Push) using the live FUB snapshot, client & pipeline check-ins (Active/Prospects/Nurtures/Pocket Listings), outbound call blocks, and the Wednesday-at-noon newsletter if it's a Wednesday.
+5. ④ Business Networking — prompt for who/where/when/value/follow-up rather than inventing an answer.
+6. ⑤ Family/Household — prompt for bonding, upcoming events, health/praises, gratitude, and household maintenance rather than inventing an answer.
+You currently have LIVE data for blocks ② and ③ (FUB tasks/deals) and standing memory. You do NOT yet have calendar or email access, so for the calendar-forecast and inbox-sweep line items inside ②, say plainly that you don't have that wired in yet rather than guessing — offer to note anything they tell you. Blocks ①, ④, ⑤ are Alex's own inputs to bring to you, not things you fabricate. Nate's forecast should use this same 6-block shape, weighted toward his ops/finance/agent-training lane — never assume his health/food/supplement specifics match Alex's.
 
 ## Financial reality — seasonal income, debt paydown, production focus
 Real estate commissions are lumpy/seasonal, not a steady paycheck. The business is actively working a debt avalanche paydown plan (highest-APR debt first, minimums on the rest), building an emergency buffer, and treating the tithe as a fixed non-negotiable floor, never a paydown lever. This is a genuine turnaround in progress, not a crisis to dwell on. Let this color your tone: gently and naturally tie the value of closing deals, working leads, and hitting production to what it does for cash flow and the paydown timeline — without guilt-tripping or nagging. Frame it as fuel: "every closed deal moves the debt-free date forward," not doom. Use the specific financial facts in your Standing Memory above when you have them (Alex and Nate are feeding you real figures over time). Only if you truly have no relevant standing memory on something they ask about should you say plainly that you don't have that figure yet and offer to note it down if they tell you, or point to the Watson CFO review (Plaid-backed, on the main Perplexity Computer session) for a full live picture.
@@ -181,6 +194,36 @@ function extractMemoryBlock(raw: string): { spoken: string; fact: { category: st
     return { spoken, fact: null };
   } catch {
     return { spoken, fact: null };
+  }
+}
+
+// Dedicated fact-extraction pass. v20.36.x relied on the main conversational
+// completion also emitting an invisible [[REMEMBER]] tag on the side — this
+// was unreliable in practice: the model would say "Got it, I've saved that"
+// out loud while never actually emitting the tag, so nothing was persisted.
+// A separate, narrowly-scoped call with a strict JSON-only contract is far
+// more reliable than hoping one completion juggles both jobs at once.
+async function detectAndExtractFact(userMsg: string, spokenReply: string): Promise<{ category: string; content: string } | null> {
+  const sys = `You extract durable long-term facts from ONE turn of a conversation between Alex or Nate Watson and their AI assistant Lexi. A fact is worth remembering long-term if it is a financial figure/update, a business fact, a stated preference, a recurring commitment, a family detail, or a goal — something that should still be true and useful weeks or months from now. Most turns do NOT contain such a fact (small talk, questions, status checks, requests to do something) — only flag it when something genuinely new and durable was stated.
+Respond with ONLY raw JSON, nothing else, no markdown fencing, in exactly one of these two shapes:
+{"remember":false}
+{"remember":true,"category":"financial|business|family|preference|general","content":"<the fact, rewritten in third person so it reads naturally later, e.g. 'Office fax number is 904-555-0199.'>"}`;
+  const messages: ChatMessage[] = [
+    { role: "system", content: sys },
+    { role: "user", content: `User said: "${userMsg}"\nLexi replied: "${spokenReply}"\n\nExtract:` },
+  ];
+  try {
+    const raw = await callPerplexity(messages);
+    const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    const parsed = JSON.parse(cleaned);
+    if (parsed?.remember === true && typeof parsed.content === "string" && parsed.content.trim()) {
+      const category = typeof parsed.category === "string" && parsed.category.trim() ? parsed.category.trim() : "general";
+      return { category, content: parsed.content.trim() };
+    }
+    return null;
+  } catch (err: any) {
+    console.warn("[Assistant] Fact extraction pass failed:", err?.message);
+    return null;
   }
 }
 
@@ -332,13 +375,21 @@ export function registerAssistantRoutes(app: Express) {
       ];
       const raw = await callPerplexity(messages);
       const { spoken: afterAction, proposedAction } = extractProposedAction(raw);
-      const { spoken, fact } = extractMemoryBlock(afterAction);
+      const { spoken } = extractMemoryBlock(afterAction); // strips any stray tag text if the model still emits one; extraction itself now comes from the dedicated pass below
 
       saveLexiMessage("assistant", spoken);
-      if (fact) {
-        const admin = (req as any).currentAgent;
-        saveLexiFact(fact.category, fact.content, admin?.name);
-      }
+
+      // v20.37.1 fix: run fact extraction as its own dedicated call rather than
+      // trusting the main completion to also emit a hidden tag — that was the
+      // root cause of Lexi saying "saved" without ever persisting anything.
+      // Fire-and-forget so it never slows down the spoken reply the admin is
+      // waiting to hear.
+      const admin = (req as any).currentAgent;
+      detectAndExtractFact(incoming, spoken)
+        .then((fact) => {
+          if (fact) saveLexiFact(fact.category, fact.content, admin?.name);
+        })
+        .catch((err) => console.warn("[Assistant] Background fact extraction failed:", err?.message));
 
       res.json({ reply: spoken, proposedAction });
     } catch (err: any) {

@@ -1,5 +1,5 @@
 // server/tts.ts
-// v20.37.4 — Kokoro-JS TTS engine for Lexi's voice.
+// v20.37.5 — Kokoro-JS TTS engine for Lexi's voice.
 //
 // Runs 100% locally via kokoro-js (Node-native, no Python subprocess). The
 // quantized ONNX model + tokenizer files are committed to server/kokoro-cache/
@@ -18,7 +18,7 @@ import path from "node:path";
 const CACHE_DIR = path.join(__dirname, "kokoro-cache");
 const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
 const VOICE = "af_heart";
-// Faster-than-default speaking cadence per Alex's explicit request (v20.37.4).
+// Faster-than-default speaking cadence per Alex's explicit request (v20.37.5).
 // Kokoro's default speed is 1.0; 1.15 is a noticeable-but-natural bump.
 const SPEED = 1.15;
 

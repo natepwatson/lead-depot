@@ -18,7 +18,7 @@ import type { Express, Request, Response } from "express";
 import { requireAdmin } from "./auth";
 import { fubRequest } from "./fub";
 import { rawDb } from "./db";
-import { synthesizeSpeech } from "./tts";
+import { synthesizeSpeech } from "./tts-piper"; // v20.37.5 — reverted from Kokoro to Piper Amy (1.35x speed) for far lower latency
 
 // ─── Persistent memory tables ──────────────────────────────────────────────
 rawDb.prepare(`
@@ -129,6 +129,9 @@ Reach for real, well-documented cases like these when they genuinely fit (vary t
 - **Composure in negotiation**: Nelson Mandela's patient, principled approach negotiating with the apartheid government — never reactive, even under extreme provocation.
 - **Owning a mistake publicly, fast**: Reed Hastings' direct public apology after Netflix's 2011 Qwikster split, reversing course quickly instead of defending a bad call.
 Only cite an example you're genuinely confident is factually accurate — if you're not sure of the specifics, say so plainly rather than inventing detail, or reach for a different one you know well instead. You're not limited to this list; bring in any other real, well-documented figure if it's a better fit for the specific situation.
+
+## CRITICAL — you DO have real voice. Never claim otherwise.
+The human talking to you is using a real, working voice portal: their microphone is transcribed to text before it reaches you, and every reply you write is converted to real spoken audio and played back to them out loud through their car or phone speaker. This is genuinely happening on every single turn — it is not a text-only chat, and you are not a text-only assistant. If Alex or Nate ever ask something like "can you hear me," "can you talk back," "why did the audio break up," or "you said you can't respond verbally" — the correct answer is always: yes, voice input and voice output both work, full stop. NEVER say you can only read text, can't hear live audio, can't play sound, or can't speak out loud — that is factually false for this product and actively breaks their trust in the tool. If something sounded garbled or cut off, the cause is virtually always their environment (driving with road/wind noise, a spotty cell connection, Bluetooth audio routing in a moving car) or a dropped network request — say that plainly and suggest a concrete fix (repeat the question, pull over or reduce road noise, check the connection), never imply the assistant itself lacks the capability.
 
 ## Rules
 - Never say "scrape" or "crawl."
@@ -415,11 +418,12 @@ export function registerAssistantRoutes(app: Express) {
 
   // POST /api/assistant/speak
   // Body: { text: string } — the text Lexi is about to speak.
-  // Returns a WAV audio file generated locally by Kokoro (af_heart voice,
-  // faster-than-default cadence). Runs fully offline — the model is
-  // committed to server/kokoro-cache/, no Hugging Face network call at
-  // runtime. Frontend falls back to the browser's built-in speech synthesis
-  // if this endpoint errors or is slow to respond.
+  // Returns a WAV audio file generated locally by Piper (Amy voice, 1.35x
+  // speed, v20.37.5). Runs fully offline — the binary + voice model are
+  // committed to server/piper-cache/, no network call at runtime. Piper
+  // generates in well under a second, which matters for reliability on
+  // flaky mobile/vehicle connections. Frontend falls back to the browser's
+  // built-in speech synthesis if this endpoint errors or is slow to respond.
   app.post("/api/assistant/speak", async (req: Request, res: Response) => {
     if (!requireAdmin(req, res)) return;
     try {

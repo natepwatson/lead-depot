@@ -136,12 +136,23 @@ async function buildAll() {
 
   // v20.37.4 — Kokoro voice model (server/tts.ts resolves it relative to
   // __dirname, which at runtime is dist/, not server/). Recursive copy since
-  // it contains a nested onnx/ subfolder.
+  // it contains a nested onnx/ subfolder. Kept for a possible future revert
+  // even though v20.37.5 no longer imports server/tts.ts by default.
   const kokoroSrc = "server/kokoro-cache";
   const kokoroDst = "dist/kokoro-cache";
   if (existsSync(kokoroSrc)) {
     await cp(kokoroSrc, kokoroDst, { recursive: true });
     console.log("copied Kokoro voice model → dist/kokoro-cache/");
+  }
+
+  // v20.37.5 — Piper binary + Amy voice model (server/tts-piper.ts resolves
+  // it relative to __dirname, which at runtime is dist/, not server/).
+  // This is now the ACTIVE voice engine for Lexi.
+  const piperSrc = "server/piper-cache";
+  const piperDst = "dist/piper-cache";
+  if (existsSync(piperSrc)) {
+    await cp(piperSrc, piperDst, { recursive: true });
+    console.log("copied Piper voice engine → dist/piper-cache/");
   }
 }
 

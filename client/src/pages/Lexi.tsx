@@ -18,7 +18,7 @@ type ProposedAction = { type: string; title?: string; personName?: string; dueDa
 const CONFIRM_WORDS = ["yes", "yeah", "yep", "confirm", "go ahead", "do it", "please do", "sounds good", "sure"];
 const CANCEL_WORDS = ["no", "nope", "cancel", "never mind", "nevermind", "don't", "stop", "skip it"];
 
-// v20.37.4 — Lexi's voice is now generated server-side by Kokoro (af_heart,
+// v20.37.5 — Lexi's voice is now generated server-side by Kokoro (af_heart,
 // faster-than-default cadence) instead of the browser's robotic built-in
 // speechSynthesis. Falls back to speechSynthesis if the server voice is
 // unreachable or errors, so Lexi never goes silent.

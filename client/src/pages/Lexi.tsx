@@ -37,7 +37,6 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [interim, setInterim] = useState("");
   const [proposedAction, setProposedAction] = useState<ProposedAction>(null);
-  const [error, setError] = useState<string | null>(null);
   const [manualInput, setManualInput] = useState("");
 
   const recognitionRef = useRef<any>(null);
@@ -98,7 +97,9 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
       const failText = err?.message?.includes("PERPLEXITY_API_KEY")
         ? "My brain isn't wired up yet — the Perplexity API key isn't set on the server."
         : "I hit an error reaching my brain — try again in a second.";
-      setError(failText);
+      // v20.36.1 — do NOT also setError() here; the failText already renders as a
+      // chat bubble two lines below. Setting both produced a duplicate on-screen
+      // error (bubble + red-text line) reported in Tier V visual QA.
       setMessages((m) => [...m, { role: "assistant", content: failText }]);
       setStatus("speaking");
       speak(failText, () => { setStatus("listening"); startListening(); });
@@ -303,9 +304,6 @@ export default function Lexi({ onClose }: { onClose: () => void }) {
               </button>
             </div>
           </div>
-        )}
-        {error && (
-          <p style={{ textAlign: "center", color: "#f87171", fontSize: 12 }}>{error}</p>
         )}
       </div>
 

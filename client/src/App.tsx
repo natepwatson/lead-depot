@@ -26,6 +26,7 @@ import RepairQuotePage from "./pages/RepairQuotePage";
 import RepairChangeOrderPage from "./pages/RepairChangeOrderPage";
 import InspectionOrderPage from "./pages/InspectionOrderPage";
 import InspectionAddonPage from "./pages/InspectionAddonPage";
+import Lexi from "./pages/Lexi";
 import { useEffect, useState } from "react";
 
 function AppRoutes() {
@@ -62,9 +63,18 @@ function AppRoutes() {
   // The old adminAgentTab state (Nov ’25 era) is dead — admins navigate the
   // same 5-tab bottom nav as agents.
   const [adminMode, setAdminMode] = useState(false);
+  // v20.36.0 — Lexi voice assistant takeover, same boolean-toggle pattern as adminMode.
+  const [lexiMode, setLexiMode] = useState(false);
   const [location, navigate] = useLocation();
 
   if (!user) return <LoginPage />;
+
+  // v20.36.0 — /#/lexi deep link (e.g. from the ecosystem hub) opens the takeover directly.
+  if (location.startsWith("/lexi") && !lexiMode) {
+    setLexiMode(true);
+    navigate("/", { replace: true });
+    return null;
+  }
 
   // v13.10 — Two required gates for agents (admins skip both).
   //   1. HomeCountyGate — hard block until they pick their county (drives lead flow)
@@ -127,6 +137,9 @@ function AppRoutes() {
   // Admins do NOT get a separate landing page anymore — they see AgentView by
   // default (Home / Pipeline / Lead Gen / Challenges / Profile), same as agents,
   // with an extra "Admin" button in the top bar to enter the toolset.
+  if (user.role === "admin" && lexiMode) {
+    return <Lexi onClose={() => setLexiMode(false)} />;
+  }
   if (user.role === "admin" && adminMode) {
     return (
       <>
@@ -135,6 +148,7 @@ function AppRoutes() {
           onWorkMyLeads={() => setAdminMode(false)}
           onOpenAgentTab={() => setAdminMode(false)}
           onCloseAdmin={() => setAdminMode(false)}
+          onOpenLexi={() => setLexiMode(true)}
         />
       </>
     );

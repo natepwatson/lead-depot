@@ -1,0 +1,21 @@
+{
+  "version": "v20.35.1",
+  "changes": [
+    "New public per-agent 'Get In Touch' lead-capture landing page at /get-in-touch/:agentId, served for every agent's own QR code (yard signs, open house signs). Displays the agent's photo, name, phone, and a value-proposition pitch on why to hire Brothers Group.",
+    "New public API GET /api/public/agents/:id returns safe agent fields (name, phone, headshot) for the landing page, no auth required.",
+    "New public API POST /api/public/get-in-touch creates a Lead Depot lead attributed to the agent whose QR code the visitor scanned, and fires the standard new-lead admin/agent notification emails.",
+    "Fixed unformatted raw-digit phone number display on Get In Touch landing pages (header call button and post-submit success panel) - now renders (XXX) XXX-XXXX consistently.",
+    "Corrected a stale/incorrect phone number printed on Alex Watson's 'For Sale' yard sign artwork ((904) 608-1977 -> (904) 785-8147) and added each agent's Get In Touch QR code to the Alex, Nate, and Vonda yard sign PDFs."
+  ],
+  "endpoints": [
+    { "path": "/get-in-touch/1", "method": "GET", "auth": "none", "expectStatus": 200 },
+    { "path": "/get-in-touch/2", "method": "GET", "auth": "none", "expectStatus": 200 },
+    { "path": "/get-in-touch/8", "method": "GET", "auth": "none", "expectStatus": 200 },
+    { "path": "/api/public/agents/1", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["ok", "agent"] },
+    { "path": "/api/public/agents/2", "method": "GET", "auth": "none", "expectStatus": 200, "expectKeys": ["ok", "agent"] }
+  ],
+  "bundleMustContain": [],
+  "bundleMustNotContain": [],
+  "__bundleNotes": "The Get In Touch page is a static public HTML file (public/get-in-touch.html), not part of the SPA client bundle, so its own markup/phone-formatting logic is verified via the direct GET /get-in-touch/:id checks above plus the local/live Playwright renders done during development, rather than a Layer 2 bundle-string check.",
+  "mathChecks": []
+}

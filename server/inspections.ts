@@ -54,25 +54,44 @@ function zelleQrPath(): string {
   const devPath = path.resolve(__dirname, "public", "zelle-qr.jpg");
   return IS_PROD && fs.existsSync(prodPath) ? prodPath : devPath;
 }
+function venmoQrPath(): string {
+  const prodPath = "/app/dist/public/venmo-qr.jpg";
+  const devPath = path.resolve(__dirname, "public", "venmo-qr.jpg");
+  return IS_PROD && fs.existsSync(prodPath) ? prodPath : devPath;
+}
 
-// Draws the "Prefer Zelle or Venmo?" block with a scannable Zelle QR code on
-// the right and fallback text on the left. Returns the new y cursor position.
-async function drawZellePreferBlock(pdfDoc: PDFDocument, page: any, y: number, font: any, bold: any, gray: any, black: any): Promise<number> {
+// Draws the "Prefer Zelle or Venmo?" block with scannable Zelle + Venmo QR
+// codes side by side on the right and fallback text on the left. Returns
+// the new y cursor position. (v20.32.44 — added Venmo QR alongside Zelle.)
+async function drawPaymentPreferBlock(pdfDoc: PDFDocument, page: any, y: number, font: any, bold: any, gray: any, black: any): Promise<number> {
   page.drawText("PREFER ZELLE OR VENMO?", { x: 38, y, size: 9, font: bold, color: gray });
-  page.drawText("Scan the QR code to pay Alexander Watson directly via Zelle.", { x: 38, y: y - 15, size: 9.5, font, color: black });
-  page.drawText("Prefer Venmo, or to type it in instead? Reply to this email or call", { x: 38, y: y - 30, size: 8.5, font, color: gray });
-  page.drawText("(904) 867-3984 and we'll send the account to use.", { x: 38, y: y - 41, size: 8.5, font, color: gray });
+  page.drawText("Scan a QR code to pay Alexander Watson directly.", { x: 38, y: y - 15, size: 9.5, font, color: black });
+  page.drawText("Questions, or need to type it in instead? Call", { x: 38, y: y - 30, size: 8.5, font, color: gray });
+  page.drawText("(904) 867-3984 and we'll help.", { x: 38, y: y - 41, size: 8.5, font, color: gray });
 
   let blockH = 52;
+  const qrW = 62;
+  const gap = 14;
+  const startX = 612 - 38 - (qrW * 2 + gap);
+
   try {
     const qrBytes = fs.readFileSync(zelleQrPath());
     const qrImg = await pdfDoc.embedJpg(qrBytes);
-    const qrW = 72;
     const qrH = (qrImg.height / qrImg.width) * qrW;
-    const qrX = 612 - 38 - qrW;
+    const qrY = y - qrH + 6;
+    page.drawImage(qrImg, { x: startX, y: qrY, width: qrW, height: qrH });
+    page.drawText("Zelle \u00b7 Alexander Watson", { x: startX + qrW / 2 - font.widthOfTextAtSize("Zelle \u00b7 Alexander Watson", 6) / 2, y: qrY - 9, size: 6, font, color: gray });
+    blockH = Math.max(blockH, qrH + 20);
+  } catch { /* QR optional */ }
+
+  try {
+    const qrBytes = fs.readFileSync(venmoQrPath());
+    const qrImg = await pdfDoc.embedJpg(qrBytes);
+    const qrH = (qrImg.height / qrImg.width) * qrW;
+    const qrX = startX + qrW + gap;
     const qrY = y - qrH + 6;
     page.drawImage(qrImg, { x: qrX, y: qrY, width: qrW, height: qrH });
-    page.drawText("Zelle \u00b7 Alexander Watson", { x: qrX + qrW / 2 - font.widthOfTextAtSize("Zelle \u00b7 Alexander Watson", 6.5) / 2, y: qrY - 9, size: 6.5, font, color: gray });
+    page.drawText("Venmo \u00b7 @MrWatson1", { x: qrX + qrW / 2 - font.widthOfTextAtSize("Venmo \u00b7 @MrWatson1", 6) / 2, y: qrY - 9, size: 6, font, color: gray });
     blockH = Math.max(blockH, qrH + 20);
   } catch { /* QR optional */ }
 
@@ -676,7 +695,7 @@ async function generateInspectionWiringPdf(order: any): Promise<{ path: string; 
   row("ACCOUNT TYPE", RELAY_WIRE.accountType);
   row("BUSINESS ADDRESS", RELAY_WIRE.businessAddress);
 
-  y = await drawZellePreferBlock(pdfDoc, page, y, font, bold, gray, black);
+  y = await drawPaymentPreferBlock(pdfDoc, page, y, font, bold, gray, black);
 
   y -= 6;
   const warnH = 96;
@@ -728,11 +747,20 @@ async function sendWiringInstructionsToClient(orderId: number) {
       <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px">
         <table style="width:100%"><tr>
           <td style="vertical-align:middle">
-            <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle?</strong> Scan the QR code to pay Alexander Watson directly.</p>
-            <p style="margin:6px 0 0;font-size:11px;color:${BRAND.gray}">Prefer Venmo, or to type it in instead? Reply to this email or call us at (904) 867-3984.</p>
+            <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> Scan a QR code to pay Alexander Watson directly.</p>
+            <p style="margin:6px 0 0;font-size:11px;color:${BRAND.gray}">Questions, or need to type it in instead? Reply to this email or call us at (904) 867-3984.</p>
           </td>
-          <td style="width:80px;text-align:center;vertical-align:middle">
-            <img src="${APP_URL}/zelle-qr.jpg" alt="Zelle QR code — Alexander Watson" style="width:70px;height:auto;display:block;margin:0 auto" />
+          <td style="width:150px;text-align:center;vertical-align:middle">
+            <table style="margin:0 auto"><tr>
+              <td style="text-align:center;padding-right:6px">
+                <img src="${APP_URL}/zelle-qr.jpg" alt="Zelle QR code — Alexander Watson" style="width:65px;height:auto;display:block;margin:0 auto" />
+                <p style="margin:3px 0 0;font-size:9px;color:${BRAND.gray}">Zelle</p>
+              </td>
+              <td style="text-align:center;padding-left:6px">
+                <img src="${APP_URL}/venmo-qr.jpg" alt="Venmo QR code — @MrWatson1" style="width:65px;height:auto;display:block;margin:0 auto" />
+                <p style="margin:3px 0 0;font-size:9px;color:${BRAND.gray}">Venmo</p>
+              </td>
+            </tr></table>
           </td>
         </tr></table>
       </div>
@@ -810,7 +838,7 @@ async function generateAddonWiringPdf(order: any, addon: any): Promise<{ path: s
   row("ACCOUNT TYPE", RELAY_WIRE.accountType);
   row("BUSINESS ADDRESS", RELAY_WIRE.businessAddress);
 
-  y = await drawZellePreferBlock(pdfDoc, page, y, font, bold, gray, black);
+  y = await drawPaymentPreferBlock(pdfDoc, page, y, font, bold, gray, black);
 
   y -= 6;
   const warnH = 96;
@@ -868,11 +896,20 @@ async function sendAddonWiringInstructionsToClient(itemId: number) {
       <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px">
         <table style="width:100%"><tr>
           <td style="vertical-align:middle">
-            <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle?</strong> Scan the QR code to pay Alexander Watson directly.</p>
-            <p style="margin:6px 0 0;font-size:11px;color:${BRAND.gray}">Prefer Venmo, or to type it in instead? Reply to this email or call us at (904) 867-3984.</p>
+            <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> Scan a QR code to pay Alexander Watson directly.</p>
+            <p style="margin:6px 0 0;font-size:11px;color:${BRAND.gray}">Questions, or need to type it in instead? Reply to this email or call us at (904) 867-3984.</p>
           </td>
-          <td style="width:80px;text-align:center;vertical-align:middle">
-            <img src="${APP_URL}/zelle-qr.jpg" alt="Zelle QR code — Alexander Watson" style="width:70px;height:auto;display:block;margin:0 auto" />
+          <td style="width:150px;text-align:center;vertical-align:middle">
+            <table style="margin:0 auto"><tr>
+              <td style="text-align:center;padding-right:6px">
+                <img src="${APP_URL}/zelle-qr.jpg" alt="Zelle QR code — Alexander Watson" style="width:65px;height:auto;display:block;margin:0 auto" />
+                <p style="margin:3px 0 0;font-size:9px;color:${BRAND.gray}">Zelle</p>
+              </td>
+              <td style="text-align:center;padding-left:6px">
+                <img src="${APP_URL}/venmo-qr.jpg" alt="Venmo QR code — @MrWatson1" style="width:65px;height:auto;display:block;margin:0 auto" />
+                <p style="margin:3px 0 0;font-size:9px;color:${BRAND.gray}">Venmo</p>
+              </td>
+            </tr></table>
           </td>
         </tr></table>
       </div>

@@ -1898,7 +1898,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.32.41
+              v20.32.42
             </p>
           </div>
         </div>
@@ -3814,7 +3814,7 @@ function ApprovalsPanel() {
   );
 }
 
-// ─── v20.32.41 Company Cam moderation ─────────────────────────────────────────
+// ─── v20.32.42 Company Cam moderation ─────────────────────────────────────────
 // Lists every approved photo (flattened from approval_requests.payload_json)
 // that feeds the public ecosystem page's Company Cam grid, and lets Alex/Nate
 // hide the not-so-great ones without touching the underlying approval record.

@@ -558,9 +558,14 @@ const IN_HOUSE_ITEMS: SeedItem[] = [
   { key: "paint_ext_trim", category: "in_house", trade: "painting_exterior", name: "Exterior Painting — Trim & Doors", unit: "linear_ft", rate: 3.50, min: 150, twoStory: true, seq: 41, instruction: "Paint exterior trim & doors — {qty} linear ft. Color-matched.{story}" },
   { key: "lawn_mow", category: "in_house", trade: "landscaping", name: "Lawn Mowing / Cut", unit: "sqft", rate: 0.03, min: 300, seq: 45, instruction: "Mow/cut lawn — {qty} sqft. (4-hour crew minimum)" },
   { key: "tree_hedge_removal", category: "in_house", trade: "landscaping", name: "Small Tree & Hedge Removal (up to 10 ft)", unit: "each", rate: 95, min: 0, seq: 46, instruction: "Remove {qty} small tree(s)/hedge(s)." },
+  { key: "tree_limb_trim_house", category: "in_house", trade: "landscaping", name: "Tree Limb Trimming — House Clearance (within 3 ft)", unit: "each", rate: 55, min: 0, seq: 46.5, instruction: "Trim {qty} tree limb(s) growing within 3 ft of the house/roofline back to a safe clearance. Cap 8 trees per job — limbs over 15 ft up, near power lines, or requiring a bucket truck route to vendor tree work." },
   { key: "hedge_trim", category: "in_house", trade: "landscaping", name: "Hedge/Shrub Trimming", unit: "linear_ft", rate: 3.00, min: 100, seq: 47, instruction: "Trim hedges/shrubs — {qty} linear ft." },
   { key: "weed_pull", category: "in_house", trade: "landscaping", name: "Weed Pulling — Beds", unit: "sqft", rate: 1.25, min: 100, seq: 48, instruction: "Pull weeds in beds — {qty} sqft." },
   { key: "mulching", category: "in_house", trade: "landscaping", name: "Mulching — Beds (material + labor)", unit: "sqft", rate: 2.50, min: 150, seq: 49, instruction: "Mulch beds — {qty} sqft." },
+  { key: "sod_install", category: "in_house", trade: "landscaping", name: "Sod Installation (material + labor)", unit: "sqft", rate: 1.50, min: 350, seq: 49.5, instruction: "Install sod — {qty} sqft (standard bermuda/St. Augustine grade). Cap 2,000 sqft per job — larger installs, grading/drainage work, or specialty sod varieties route to vendor landscaping." },
+  { key: "pest_nest_removal", category: "in_house", trade: "pest_rodent", name: "Wasp & Mud Dauber Nest Removal (Bundle)", unit: "flat", rate: 175, min: 175, twoStory: true, seq: 37.5, instruction: "Remove wasp and/or mud dauber nests — up to 10 nests included in this visit.{story} Additional nests beyond 10, active/aggressive hive treatment, or nests inside wall voids route to vendor pest control." },
+  { key: "rodent_seal_gaps", category: "in_house", trade: "pest_rodent", name: "Rodent Prevention — Seal Entry Points", unit: "each", rate: 45, min: 0, seq: 37.6, instruction: "Seal {qty} rodent entry point(s) — foam, hardware cloth, or steel wool + caulk as appropriate. Cap 8 entry points per job — beyond that, or structural/foundation-level gaps, route to vendor pest/rodent work." },
+  { key: "rodent_trap_set", category: "in_house", trade: "pest_rodent", name: "Rodent Prevention — Trap Placement", unit: "each", rate: 25, min: 0, seq: 37.7, instruction: "Set {qty} rodent trap(s) (snap, glue, or bait station — retail-grade). Cap 10 traps per job. Initial placement only — ongoing monitoring/rebaiting after this visit is billed as a separate follow-up." },
   { key: "paint_int_body", category: "in_house", trade: "painting_interior", name: "Interior Painting — Body (Walls)", unit: "sqft", rate: 2.00, min: 600, seq: 55, instruction: "Paint interior walls — {qty} sqft. Color-matched to existing.", notes: "Color match is visual-sample only; slight sheen/tone variance vs. original is possible." },
   { key: "paint_int_trim", category: "in_house", trade: "painting_interior", name: "Interior Painting — Trim & Doors", unit: "linear_ft", rate: 3.00, min: 150, seq: 56, instruction: "Paint interior trim & doors — {qty} linear ft. Color-matched." },
   { key: "paint_int_ceiling", category: "in_house", trade: "painting_interior", name: "Interior Painting — Ceiling", unit: "sqft", rate: 1.75, min: 300, seq: 57, instruction: "Paint ceiling — {qty} sqft." },
@@ -604,6 +609,7 @@ const VENDOR_TRADES: SeedItem[] = [
   { key: "v_garage_door", category: "vendor", trade: "garage_door", name: "Garage Door Repair / Replacement", unit: "flat", seq: 230, instruction: "Vendor quote — garage door repair/replacement." },
   { key: "v_hardscape", category: "vendor", trade: "hardscape", name: "Hardscape / Pavers / Retaining Walls", unit: "flat", seq: 231, instruction: "Vendor quote — hardscape/pavers/retaining wall work." },
   { key: "v_land_clearing", category: "vendor", trade: "land_clearing", name: "Land Clearing", unit: "flat", seq: 232, instruction: "Vendor quote — land clearing (acreage-based)." },
+  { key: "v_pest_control", category: "vendor", trade: "pest_control", name: "Pest Control / Rodent Extermination (Larger Jobs)", unit: "flat", seq: 233, instruction: "Vendor quote — full pest control treatment, active infestations, termite/wood-destroying-organism work, or extermination beyond in-house nest removal and basic rodent exclusion." },
 ];
 
 export const REPAIR_CATALOG_SEED: SeedItem[] = [...IN_HOUSE_ITEMS, ...VENDOR_TRADES];
@@ -3265,13 +3271,17 @@ export function registerRepairConsultRoutes(app: Express) {
   });
   app.patch("/api/admin/repair-pricing/:id", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
-    const { defaultRate, minCharge, active, name, instruction } = req.body || {};
+    const { defaultRate, minCharge, active, name, instruction, category } = req.body || {};
     const fields: string[] = []; const vals: any[] = [];
     if (defaultRate !== undefined) { fields.push("default_rate = ?"); vals.push(defaultRate); }
     if (minCharge !== undefined) { fields.push("min_charge = ?"); vals.push(minCharge); }
     if (active !== undefined) { fields.push("active = ?"); vals.push(active ? 1 : 0); }
     if (name !== undefined) { fields.push("name = ?"); vals.push(name); }
     if (instruction !== undefined) { fields.push("instruction = ?"); vals.push(instruction); }
+    if (category !== undefined) {
+      if (category !== "in_house" && category !== "vendor") return res.status(400).json({ error: "category must be 'in_house' or 'vendor'" });
+      fields.push("category = ?"); vals.push(category);
+    }
     if (fields.length === 0) return res.status(400).json({ error: "No fields to update" });
     fields.push("updated_at = datetime('now')");
     rawDb.prepare(`UPDATE repair_items SET ${fields.join(", ")} WHERE id = ?`).run(...vals, req.params.id);

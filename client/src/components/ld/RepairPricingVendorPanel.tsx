@@ -190,6 +190,24 @@ function PricingCatalogPanel() {
     });
   };
 
+  const [movingId, setMovingId] = useState<number | null>(null);
+  const [showVendorList, setShowVendorList] = useState(false);
+  const toggleCategory = async (item: PricingItem) => {
+    const nextCategory = item.category === "in_house" ? "vendor" : "in_house";
+    if (!confirm(nextCategory === "vendor"
+      ? `Move "${item.name}" to the Vendor Directory? Brothers Group will no longer price this in-house — it will route straight to a vendor quote.`
+      : `Move "${item.name}" to In-House pricing? Set a rate/min charge below after moving — vendor items carry no price.`)) return;
+    setMovingId(item.id);
+    try {
+      await fetch(`/api/admin/repair-pricing/${item.id}`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: nextCategory }),
+      });
+      setItems(prev => prev.map(it => it.id === item.id ? { ...it, category: nextCategory } : it));
+    } finally { setMovingId(null); }
+  };
+
   const inHouse = items.filter(i => i.category === "in_house");
   const vendorItems = items.filter(i => i.category === "vendor");
   const groups: Record<string, PricingItem[]> = {};
@@ -262,17 +280,27 @@ function PricingCatalogPanel() {
                         <td style={{ padding: "6px 10px", textAlign: "center" }}>
                           <input type="checkbox" checked={!!item.active} onChange={() => toggleActive(item)} />
                         </td>
-                        <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                        <td style={{ padding: "6px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
                           <button
                             onClick={() => save(item)}
                             disabled={!dirty || saving === item.id}
                             style={{
-                              fontSize: 10.5, padding: "3px 8px", borderRadius: 5,
+                              fontSize: 10.5, padding: "3px 8px", borderRadius: 5, marginRight: 4,
                               background: dirty ? "rgba(94,234,212,0.12)" : "rgba(255,255,255,0.03)",
                               border: `1px solid ${dirty ? "rgba(94,234,212,0.4)" : "rgba(255,255,255,0.08)"}`,
                               color: dirty ? "#5eead4" : "#666", cursor: dirty ? "pointer" : "default",
                             }}
                           >{saving === item.id ? "Saving…" : "Save"}</button>
+                          <button
+                            onClick={() => toggleCategory(item)}
+                            disabled={movingId === item.id}
+                            title="Move this item to the Vendor Directory — it will stop being priced in-house."
+                            style={{
+                              fontSize: 10.5, padding: "3px 8px", borderRadius: 5,
+                              background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.10)",
+                              color: "#94a3b8", cursor: movingId === item.id ? "default" : "pointer",
+                            }}
+                          >{movingId === item.id ? "Moving…" : "Move to Vendor"}</button>
                         </td>
                       </tr>
                     );
@@ -288,7 +316,46 @@ function PricingCatalogPanel() {
         {vendorItems.length} licensed-trade items ({vendorItems.map(v => v.trade.replace(/_/g, " ")).slice(0, 6).join(", ")}
         {vendorItems.length > 6 ? "…" : ""}) carry no in-house price — Brothers Group has no pricing authority over
         licensed-trade work. Those route straight to the matching vendor below.
+        {" "}
+        <button
+          onClick={() => setShowVendorList(v => !v)}
+          style={{ fontSize: 11, color: "#5eead4", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+        >{showVendorList ? "Hide vendor items" : "Show vendor items"}</button>
       </p>
+
+      {showVendorList && (
+        <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6, marginTop: 6 }}>
+          <table style={{ width: "100%", fontSize: 12, color: "#c7d1dd", borderCollapse: "collapse" }}>
+            <thead style={{ background: "rgba(255,255,255,0.03)", position: "sticky", top: 0 }}>
+              <tr>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Item</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}>Trade</th>
+                <th style={{ textAlign: "center", padding: "6px 10px", fontWeight: 600, color: "#94a3b8" }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {vendorItems.map(item => (
+                <tr key={item.id} style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                  <td style={{ padding: "6px 10px", color: "#e5e7eb" }}>{item.name}</td>
+                  <td style={{ padding: "6px 10px", color: "#94a3b8" }}>{item.trade.replace(/_/g, " ")}</td>
+                  <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                    <button
+                      onClick={() => toggleCategory(item)}
+                      disabled={movingId === item.id}
+                      title="Move this item to In-House pricing — you'll need to set a rate/min charge afterward."
+                      style={{
+                        fontSize: 10.5, padding: "3px 8px", borderRadius: 5,
+                        background: "rgba(94,234,212,0.08)", border: "1px solid rgba(94,234,212,0.3)",
+                        color: "#5eead4", cursor: movingId === item.id ? "default" : "pointer",
+                      }}
+                    >{movingId === item.id ? "Moving…" : "Move to In-House"}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

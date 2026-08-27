@@ -2138,7 +2138,7 @@ function LeadCard({ lead }: { lead: Lead }) {
             sourceRaw.includes("open_house")        ? { text: "OPEN HOUSE", color: "#f0abfc" } :
             sourceRaw.includes("door_knock")        ? { text: "DOOR KNOCK", color: "#f0abfc" } :
             sourceRaw.includes("direct_mail")       ? { text: "DIRECT MAIL", color: "#f0abfc" } :
-            sourceRaw.includes("website")           ? { text: "WEBSITE / QR CODE", color: "#7dd3fc" } : // v20.35.0 — Get In Touch landing page
+            sourceRaw.includes("website")           ? { text: "WEBSITE / QR CODE", color: "#7dd3fc" } : // v20.35.1 — Get In Touch landing page
             sourceRaw.includes("csv_upload")        ? { text: "MANUAL UPLOAD", color: "rgba(255,255,255,0.55)" } :
             null;
           const mergeReview = extra.mergeReview;
@@ -6399,7 +6399,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.35.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.35.1</span>
             </div>
           </div>
           {onBackToAdmin && (

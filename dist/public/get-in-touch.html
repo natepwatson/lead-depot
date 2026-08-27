@@ -522,6 +522,11 @@
     let agentName = '';
 
     function digitsOnly(s) { return String(s || '').replace(/\D/g, ''); }
+    function formatPhone(s) {
+      const d = digitsOnly(s).slice(-10);
+      if (d.length !== 10) return s;
+      return '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6);
+    }
 
     if (agentId) {
       fetch('/api/public/agents/' + encodeURIComponent(agentId))
@@ -536,12 +541,12 @@
             document.getElementById('agentPhoto').alt = d.agent.name;
           }
           if (d.agent.phone) {
-            agentPhone = d.agent.phone;
+            agentPhone = formatPhone(d.agent.phone);
             const digits = digitsOnly(d.agent.phone);
             document.getElementById('callLink').href = 'tel:1' + digits;
-            document.getElementById('callLabel').textContent = d.agent.phone;
+            document.getElementById('callLabel').textContent = agentPhone;
             document.getElementById('successCallLink').href = 'tel:1' + digits;
-            document.getElementById('successCallLink').textContent = d.agent.phone;
+            document.getElementById('successCallLink').textContent = agentPhone;
           }
         })
         .catch(() => { /* fall back to generic Brothers Group branding — page still works */ });
@@ -598,10 +603,11 @@
         }
 
         const respAgentName = d.agentName || agentName;
+        const respAgentPhone = d.agentPhone ? formatPhone(d.agentPhone) : agentPhone;
         document.getElementById('successName').textContent = `Thanks, ${name.split(' ')[0]} — we've got it.`;
         document.getElementById('successBody').innerHTML =
           (respAgentName ? respAgentName : 'Our team') +
-          ' will reach out to you shortly. Need us sooner? Call <a href="tel:1' + digitsOnly(d.agentPhone || agentPhone) + '" style="color:#c8aa5a;">' + (d.agentPhone || agentPhone) + '</a>.';
+          ' will reach out to you shortly. Need us sooner? Call <a href="tel:1' + digitsOnly(respAgentPhone) + '" style="color:#c8aa5a;">' + respAgentPhone + '</a>.';
         document.getElementById('successPanel').classList.add('visible');
         form.style.display = 'none';
         document.getElementById('successPanel').scrollIntoView({ behavior: 'smooth', block: 'center' });

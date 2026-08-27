@@ -1085,6 +1085,21 @@ rawDb.exec(`
   )
 `);
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_status ON approval_requests(status, submitted_at DESC)`).run();
+
+// v20.32.41 — Company Cam moderation. Individual photos inside an approved
+// approval_requests row's payload_json can be hidden from the public
+// ecosystem-page feed without touching the underlying approval record (which
+// stays intact for audit/points history). Keyed by (approval row id, index
+// of the photo within that row's photoDataUrls array).
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS company_cam_hidden (
+    approval_id  INTEGER NOT NULL,
+    photo_index  INTEGER NOT NULL,
+    hidden_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    hidden_by    INTEGER,
+    PRIMARY KEY (approval_id, photo_index)
+  )
+`);
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_agent ON approval_requests(agent_id, submitted_at DESC)`).run();
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_approvals_kind ON approval_requests(kind, status)`).run();
 

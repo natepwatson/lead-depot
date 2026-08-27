@@ -200,13 +200,13 @@
     }
     .sub-hub p.lead { margin-bottom: 24px; }
 
-    /* ── PHOTO ROLL ── */
-    #photo-roll-grid {
+    /* ── COMPANY CAM ── */
+    #company-cam-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
       gap: 10px;
     }
-    #photo-roll-grid img, #photo-roll-grid .ph-placeholder {
+    #company-cam-grid img, #company-cam-grid .ph-placeholder {
       width: 100%;
       aspect-ratio: 1 / 1;
       object-fit: cover;
@@ -257,7 +257,7 @@
     <a href="#real-estate-team">Real Estate Team</a>
     <a href="#lead-depot">Lead Depot</a>
     <a href="#home-solutions">Home Solutions</a>
-    <a href="#photo-roll">Photo Roll</a>
+    <a href="#company-cam">Company Cam</a>
   </nav>
 
   <!-- ── HUB 1: REAL ESTATE TEAM (with Careers nested) ── -->
@@ -355,14 +355,14 @@
     </div>
   </section>
 
-  <!-- ── PHOTO ROLL ── -->
-  <section class="hub" id="photo-roll">
+  <!-- ── COMPANY CAM ── -->
+  <section class="hub" id="company-cam">
     <div class="hub-kicker">The Empire, In Photos</div>
-    <h2>Photo Roll</h2>
+    <h2>Company Cam</h2>
     <p class="lead">Every open house selfie, listing win, and team post that gets approved inside Lead Depot automatically lands here.</p>
 
-    <div id="photo-roll-grid"><!-- populated by script below --></div>
-    <p class="photo-note" id="photo-roll-note"></p>
+    <div id="company-cam-grid"><!-- populated by script below --></div>
+    <p class="photo-note" id="company-cam-note"></p>
   </section>
 
   <footer>
@@ -389,7 +389,7 @@
     ];
 
     function renderPhotos(photos) {
-      var grid = document.getElementById("photo-roll-grid");
+      var grid = document.getElementById("company-cam-grid");
       grid.innerHTML = "";
       photos.forEach(function (p) {
         var cell = document.createElement("div");
@@ -409,7 +409,7 @@
 
     renderPhotos(SEED_PHOTOS);
 
-    fetch("/api/photo-roll")
+    fetch("/api/company-cam")
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var live = (data.photos || []).map(function (p) {
@@ -418,13 +418,13 @@
         });
         if (live.length) {
           renderPhotos(live.concat(SEED_PHOTOS).slice(0, 24));
-          document.getElementById("photo-roll-note").textContent = live.length + " photo" + (live.length === 1 ? "" : "s") + " from approved team activity, updated automatically.";
+          document.getElementById("company-cam-note").textContent = live.length + " photo" + (live.length === 1 ? "" : "s") + " from approved team activity, updated automatically.";
         } else {
-          document.getElementById("photo-roll-note").textContent = "Live team photos will appear here automatically as open house, social, and activity submissions get approved in Lead Depot.";
+          document.getElementById("company-cam-note").textContent = "Live team photos will appear here automatically as open house, social, and activity submissions get approved in Lead Depot.";
         }
       })
       .catch(function () {
-        document.getElementById("photo-roll-note").textContent = "Live team photos will appear here automatically as open house, social, and activity submissions get approved in Lead Depot.";
+        document.getElementById("company-cam-note").textContent = "Live team photos will appear here automatically as open house, social, and activity submissions get approved in Lead Depot.";
       });
   </script>
 </body>

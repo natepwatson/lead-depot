@@ -48,6 +48,35 @@ function brandLogoPath(): string {
   const devPath = path.resolve(__dirname, "public", "brand-logo.jpg");
   return IS_PROD && fs.existsSync(prodPath) ? prodPath : devPath;
 }
+function zelleQrPath(): string {
+  const prodPath = "/app/dist/public/zelle-qr.jpg";
+  const devPath = path.resolve(__dirname, "public", "zelle-qr.jpg");
+  return IS_PROD && fs.existsSync(prodPath) ? prodPath : devPath;
+}
+
+// Draws the "Prefer Zelle or Venmo?" block with a scannable Zelle QR code on
+// the right and fallback text on the left. Returns the new y cursor position.
+async function drawZellePreferBlock(pdfDoc: PDFDocument, page: any, y: number, font: any, bold: any, gray: any, black: any): Promise<number> {
+  page.drawText("PREFER ZELLE OR VENMO?", { x: 38, y, size: 9, font: bold, color: gray });
+  page.drawText("Scan the QR code to pay Alexander Watson directly via Zelle.", { x: 38, y: y - 15, size: 9.5, font, color: black });
+  page.drawText("Prefer Venmo, or to type it in instead? Reply to this email or call", { x: 38, y: y - 30, size: 8.5, font, color: gray });
+  page.drawText("(904) 867-3984 and we'll send the account to use.", { x: 38, y: y - 41, size: 8.5, font, color: gray });
+
+  let blockH = 52;
+  try {
+    const qrBytes = fs.readFileSync(zelleQrPath());
+    const qrImg = await pdfDoc.embedJpg(qrBytes);
+    const qrW = 72;
+    const qrH = (qrImg.height / qrImg.width) * qrW;
+    const qrX = 612 - 38 - qrW;
+    const qrY = y - qrH + 6;
+    page.drawImage(qrImg, { x: qrX, y: qrY, width: qrW, height: qrH });
+    page.drawText("Zelle \u00b7 Alexander Watson", { x: qrX + qrW / 2 - font.widthOfTextAtSize("Zelle \u00b7 Alexander Watson", 6.5) / 2, y: qrY - 9, size: 6.5, font, color: gray });
+    blockH = Math.max(blockH, qrH + 20);
+  } catch { /* QR optional */ }
+
+  return y - blockH;
+}
 
 // Relay banking details (Nathaniel Peter Watson LLC business checking) —
 // from Relay Bank Verification Letter, issued 3/20/26. Single source of
@@ -646,9 +675,7 @@ async function generateInspectionWiringPdf(order: any): Promise<{ path: string; 
   row("ACCOUNT TYPE", RELAY_WIRE.accountType);
   row("BUSINESS ADDRESS", RELAY_WIRE.businessAddress);
 
-  page.drawText("PREFER ZELLE OR VENMO?", { x: 38, y, size: 9, font: bold, color: gray });
-  page.drawText("We also accept Zelle and Venmo. Reply to this email or call (904) 867-3984 and we'll send the account to use.", { x: 38, y: y - 14, size: 9.5, font, color: black });
-  y -= 30;
+  y = await drawZellePreferBlock(pdfDoc, page, y, font, bold, gray, black);
 
   y -= 6;
   const warnH = 96;
@@ -698,7 +725,15 @@ async function sendWiringInstructionsToClient(orderId: number) {
         <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> We also accept Zelle and Venmo. Just reply to this email or call us at (904) 867-3984 and we'll send you the account to use.</p>
+        <table style="width:100%"><tr>
+          <td style="vertical-align:middle">
+            <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle?</strong> Scan the QR code to pay Alexander Watson directly.</p>
+            <p style="margin:6px 0 0;font-size:11px;color:${BRAND.gray}">Prefer Venmo, or to type it in instead? Reply to this email or call us at (904) 867-3984.</p>
+          </td>
+          <td style="width:80px;text-align:center;vertical-align:middle">
+            <img src="${APP_URL}/zelle-qr.jpg" alt="Zelle QR code — Alexander Watson" style="width:70px;height:auto;display:block;margin:0 auto" />
+          </td>
+        </tr></table>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
         <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — contract and inspection contingency deadlines do not pause while payment is processed. Please pay within 48 hours to keep your order on schedule.</p>
@@ -774,9 +809,7 @@ async function generateAddonWiringPdf(order: any, addon: any): Promise<{ path: s
   row("ACCOUNT TYPE", RELAY_WIRE.accountType);
   row("BUSINESS ADDRESS", RELAY_WIRE.businessAddress);
 
-  page.drawText("PREFER ZELLE OR VENMO?", { x: 38, y, size: 9, font: bold, color: gray });
-  page.drawText("We also accept Zelle and Venmo. Reply to this email or call (904) 867-3984 and we'll send the account to use.", { x: 38, y: y - 14, size: 9.5, font, color: black });
-  y -= 30;
+  y = await drawZellePreferBlock(pdfDoc, page, y, font, bold, gray, black);
 
   y -= 6;
   const warnH = 96;
@@ -832,7 +865,15 @@ async function sendAddonWiringInstructionsToClient(itemId: number) {
         <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px">
-        <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> We also accept Zelle and Venmo. Just reply to this email or call us at (904) 867-3984 and we'll send you the account to use.</p>
+        <table style="width:100%"><tr>
+          <td style="vertical-align:middle">
+            <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle?</strong> Scan the QR code to pay Alexander Watson directly.</p>
+            <p style="margin:6px 0 0;font-size:11px;color:${BRAND.gray}">Prefer Venmo, or to type it in instead? Reply to this email or call us at (904) 867-3984.</p>
+          </td>
+          <td style="width:80px;text-align:center;vertical-align:middle">
+            <img src="${APP_URL}/zelle-qr.jpg" alt="Zelle QR code — Alexander Watson" style="width:70px;height:auto;display:block;margin:0 auto" />
+          </td>
+        </tr></table>
       </div>
       <div style="margin-top:10px;padding:12px 16px;background:#fff4d6;border:1px solid #e6c766;border-radius:8px">
         <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Time is of the essence</strong> — please pay within 48 hours to keep your order on schedule.</p>

@@ -1898,7 +1898,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.32.40
+              v20.32.41
             </p>
           </div>
         </div>
@@ -3804,6 +3804,106 @@ function ApprovalsPanel() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      <div style={{ marginTop: 40, paddingTop: 24, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+        <CompanyCamPanel />
+      </div>
+    </div>
+  );
+}
+
+// ─── v20.32.41 Company Cam moderation ─────────────────────────────────────────
+// Lists every approved photo (flattened from approval_requests.payload_json)
+// that feeds the public ecosystem page's Company Cam grid, and lets Alex/Nate
+// hide the not-so-great ones without touching the underlying approval record.
+function CompanyCamPanel() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [showHidden, setShowHidden] = useState(false);
+
+  const { data, isLoading } = useQuery<{
+    photos: Array<{ approvalId: number; photoIndex: number; dataUrl: string; agentName: string; kind: string; capturedAt: string; hidden: boolean }>;
+  }>({
+    queryKey: ["/api/admin/company-cam"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/company-cam");
+      return r.json();
+    },
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: async ({ approvalId, photoIndex, hidden }: { approvalId: number; photoIndex: number; hidden: boolean }) => {
+      const r = await apiRequest("POST", `/api/admin/company-cam/${approvalId}/${photoIndex}`, { hidden });
+      return r.json();
+    },
+    onSuccess: (_result, vars) => {
+      toast({ title: vars.hidden ? "Removed from Company Cam" : "Restored to Company Cam" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/company-cam"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Update failed", description: err?.message || "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const allPhotos = data?.photos || [];
+  const visiblePhotos = showHidden ? allPhotos : allPhotos.filter(p => !p.hidden);
+  const hiddenCount = allPhotos.filter(p => p.hidden).length;
+
+  const fmtDate = (iso: string | null) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{
+          fontFamily: "'Cormorant Garamond','Georgia',serif",
+          fontSize: "1.25rem", fontWeight: 300, color: "#fff",
+        }}>Company Cam</h3>
+        <button onClick={() => setShowHidden(v => !v)} style={{
+          padding: "5px 12px", borderRadius: 999,
+          background: showHidden ? "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)" : "rgba(255,255,255,0.03)",
+          border: showHidden ? "none" : "1px solid rgba(200,170,90,0.28)",
+          color: showHidden ? "#080808" : "rgba(255,255,255,0.75)",
+          fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase",
+          cursor: "pointer",
+        }}>{showHidden ? "Showing Hidden" : `Show Hidden (${hiddenCount})`}</button>
+      </div>
+      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.5, marginBottom: 16 }}>
+        Every approved photo currently eligible to appear on the public ecosystem page's Company Cam. Hide any that shouldn't be shown publicly — this only affects the public feed, not points or approval history.
+      </p>
+
+      {isLoading ? (
+        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Loading…</p>
+      ) : visiblePhotos.length === 0 ? (
+        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>{showHidden ? "No hidden photos." : "No approved photos yet."}</p>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10 }}>
+          {visiblePhotos.map(p => (
+            <div key={`${p.approvalId}-${p.photoIndex}`} style={{ position: "relative", borderRadius: 10, overflow: "hidden", border: "1px solid rgba(255,255,255,0.1)", opacity: p.hidden ? 0.45 : 1 }}>
+              <img src={p.dataUrl} alt={p.agentName || "photo"} style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block" }} />
+              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "6px 8px", background: "linear-gradient(to top, rgba(0,0,0,0.75), transparent)" }}>
+                <div style={{ fontSize: 10, color: "#fff", fontWeight: 600, lineHeight: 1.3 }}>{p.agentName || "—"}</div>
+                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.65)" }}>{fmtDate(p.capturedAt)}</div>
+              </div>
+              <button
+                onClick={() => toggleMut.mutate({ approvalId: p.approvalId, photoIndex: p.photoIndex, hidden: !p.hidden })}
+                disabled={toggleMut.isPending}
+                title={p.hidden ? "Restore to Company Cam" : "Remove from Company Cam"}
+                style={{
+                  position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: "50%",
+                  border: "none", cursor: toggleMut.isPending ? "wait" : "pointer",
+                  background: p.hidden ? "rgba(76,175,80,0.9)" : "rgba(244,67,54,0.9)",
+                  color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >{p.hidden ? "↺" : "×"}</button>
+            </div>
+          ))}
         </div>
       )}
     </div>

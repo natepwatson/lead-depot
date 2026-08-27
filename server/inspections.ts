@@ -62,7 +62,7 @@ function venmoQrPath(): string {
 
 // Draws the "Prefer Zelle or Venmo?" block with scannable Zelle + Venmo QR
 // codes side by side on the right and fallback text on the left. Returns
-// the new y cursor position. (v20.32.44 — added Venmo QR alongside Zelle.)
+// the new y cursor position. (v20.32.45 — added Venmo QR alongside Zelle.)
 async function drawPaymentPreferBlock(pdfDoc: PDFDocument, page: any, y: number, font: any, bold: any, gray: any, black: any): Promise<number> {
   page.drawText("PREFER ZELLE OR VENMO?", { x: 38, y, size: 9, font: bold, color: gray });
   page.drawText("Scan a QR code to pay Alexander Watson directly.", { x: 38, y: y - 15, size: 9.5, font, color: black });
@@ -70,7 +70,7 @@ async function drawPaymentPreferBlock(pdfDoc: PDFDocument, page: any, y: number,
   page.drawText("(904) 867-3984 and we'll help.", { x: 38, y: y - 41, size: 8.5, font, color: gray });
 
   let blockH = 52;
-  const qrW = 62;
+  const qrW = 124;
   const gap = 14;
   const startX = 612 - 38 - (qrW * 2 + gap);
 
@@ -662,21 +662,21 @@ async function generateInspectionWiringPdf(order: any): Promise<{ path: string; 
     const logoW = 200;
     const logoH = (logoImg.height / logoImg.width) * logoW;
     page.drawImage(logoImg, { x: (612 - logoW) / 2, y: y - logoH, width: logoW, height: logoH });
-    y -= logoH + 20;
+    y -= logoH + 14;
   } catch { /* logo optional */ }
 
   page.drawText("Wire Payment Instructions", { x: 306 - bold.widthOfTextAtSize("Wire Payment Instructions", 20) / 2, y, size: 20, font: bold, color: black });
-  y -= 30;
+  y -= 22;
 
   // Property bar
   page.drawRectangle({ x: 38, y: y - 22, width: 612 - 76, height: 24, color: black });
   page.drawText(order.property_address || "", { x: 46, y: y - 16, size: 10.5, font: bold, color: rgb(1, 1, 1) });
-  y -= 46;
+  y -= 40;
 
   const row = (label: string, value: string, size = 11) => {
     page.drawText(label, { x: 38, y, size: 9, font: bold, color: gray });
     page.drawText(value, { x: 38, y: y - 14, size, font, color: black });
-    y -= 34;
+    y -= 27;
   };
 
   row("REFERENCE", `INS-${order.id} — ${order.client_name || ""}`);
@@ -684,10 +684,10 @@ async function generateInspectionWiringPdf(order: any): Promise<{ path: string; 
 
   y -= 6;
   page.drawLine({ start: { x: 38, y }, end: { x: 612 - 38, y }, thickness: 1, color: rgb(0.85, 0.85, 0.85) });
-  y -= 26;
+  y -= 18;
 
   page.drawText("WIRE TO", { x: 38, y, size: 10.5, font: bold, color: black });
-  y -= 20;
+  y -= 14;
   row("BENEFICIARY", RELAY_WIRE.beneficiary);
   row("BANK", RELAY_WIRE.bankName);
   row("ACCOUNT NUMBER", RELAY_WIRE.accountNumber, 13);
@@ -698,16 +698,16 @@ async function generateInspectionWiringPdf(order: any): Promise<{ path: string; 
   y = await drawPaymentPreferBlock(pdfDoc, page, y, font, bold, gray, black);
 
   y -= 6;
-  const warnH = 96;
+  const warnH = 80;
   page.drawRectangle({ x: 38, y: y - warnH, width: 612 - 76, height: warnH, color: rgb(0.99, 0.95, 0.85), borderColor: rgb(0.85, 0.68, 0.25), borderWidth: 1 });
-  page.drawText("TIME IS OF THE ESSENCE", { x: 50, y: y - 18, size: 10.5, font: bold, color: black });
+  page.drawText("TIME IS OF THE ESSENCE", { x: 50, y: y - 15, size: 10.5, font: bold, color: black });
   const line1 = "Contract and inspection contingency deadlines do not pause while payment is processed.";
   const line2 = "Please pay within 48 hours of receiving this document to keep your order on schedule.";
-  page.drawText(line1, { x: 50, y: y - 34, size: 9, font, color: black });
-  page.drawText(line2, { x: 50, y: y - 47, size: 9, font, color: black });
-  page.drawText("PAYMENT FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
+  page.drawText(line1, { x: 50, y: y - 28, size: 9, font, color: black });
+  page.drawText(line2, { x: 50, y: y - 39, size: 9, font, color: black });
+  page.drawText("PAYMENT FRAUD WARNING", { x: 50, y: y - 55, size: 10.5, font: bold, color: red });
   const line3 = "These instructions will never change over email. Verify by phone at (904) 867-3984 before sending funds.";
-  page.drawText(line3, { x: 50, y: y - 82, size: 9, font, color: black });
+  page.drawText(line3, { x: 50, y: y - 68, size: 9, font, color: black });
   y -= warnH + 20;
 
   page.drawText("Alex & Nate Watson — Brothers Group at Momentum Realty — (904) 867-3984 — www.brothersgroup.realestate", { x: 38, y: 40, size: 8, font, color: gray });
@@ -744,23 +744,17 @@ async function sendWiringInstructionsToClient(orderId: number) {
         <p style="margin:0 0 4px"><strong>Account Type:</strong> ${RELAY_WIRE.accountType}</p>
         <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
       </div>
-      <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px">
-        <table style="width:100%"><tr>
-          <td style="vertical-align:middle">
-            <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> Scan a QR code to pay Alexander Watson directly.</p>
-            <p style="margin:6px 0 0;font-size:11px;color:${BRAND.gray}">Questions, or need to type it in instead? Reply to this email or call us at (904) 867-3984.</p>
+      <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px;text-align:center">
+        <p style="margin:0;font-size:12px;color:${BRAND.black};text-align:left"><strong>Prefer Zelle or Venmo?</strong> Scan a QR code to pay Alexander Watson directly.</p>
+        <p style="margin:6px 0 12px;font-size:11px;color:${BRAND.gray};text-align:left">Questions, or need to type it in instead? Reply to this email or call us at (904) 867-3984.</p>
+        <table style="margin:0 auto"><tr>
+          <td style="text-align:center;padding-right:14px">
+            <img src="${APP_URL}/zelle-qr.jpg" alt="Zelle QR code — Alexander Watson" style="width:130px;height:auto;display:block;margin:0 auto" />
+            <p style="margin:4px 0 0;font-size:10px;color:${BRAND.gray}">Zelle</p>
           </td>
-          <td style="width:150px;text-align:center;vertical-align:middle">
-            <table style="margin:0 auto"><tr>
-              <td style="text-align:center;padding-right:6px">
-                <img src="${APP_URL}/zelle-qr.jpg" alt="Zelle QR code — Alexander Watson" style="width:65px;height:auto;display:block;margin:0 auto" />
-                <p style="margin:3px 0 0;font-size:9px;color:${BRAND.gray}">Zelle</p>
-              </td>
-              <td style="text-align:center;padding-left:6px">
-                <img src="${APP_URL}/venmo-qr.jpg" alt="Venmo QR code — @MrWatson1" style="width:65px;height:auto;display:block;margin:0 auto" />
-                <p style="margin:3px 0 0;font-size:9px;color:${BRAND.gray}">Venmo</p>
-              </td>
-            </tr></table>
+          <td style="text-align:center;padding-left:14px">
+            <img src="${APP_URL}/venmo-qr.jpg" alt="Venmo QR code — @MrWatson1" style="width:130px;height:auto;display:block;margin:0 auto" />
+            <p style="margin:4px 0 0;font-size:10px;color:${BRAND.gray}">Venmo</p>
           </td>
         </tr></table>
       </div>
@@ -805,20 +799,20 @@ async function generateAddonWiringPdf(order: any, addon: any): Promise<{ path: s
     const logoW = 200;
     const logoH = (logoImg.height / logoImg.width) * logoW;
     page.drawImage(logoImg, { x: (612 - logoW) / 2, y: y - logoH, width: logoW, height: logoH });
-    y -= logoH + 20;
+    y -= logoH + 14;
   } catch { /* logo optional */ }
 
   page.drawText("Wire Payment Instructions — Add-On", { x: 306 - bold.widthOfTextAtSize("Wire Payment Instructions — Add-On", 18) / 2, y, size: 18, font: bold, color: black });
-  y -= 30;
+  y -= 22;
 
   page.drawRectangle({ x: 38, y: y - 22, width: 612 - 76, height: 24, color: black });
   page.drawText(order.property_address || "", { x: 46, y: y - 16, size: 10.5, font: bold, color: rgb(1, 1, 1) });
-  y -= 46;
+  y -= 40;
 
   const row = (label: string, value: string, size = 11) => {
     page.drawText(label, { x: 38, y, size: 9, font: bold, color: gray });
     page.drawText(value, { x: 38, y: y - 14, size, font, color: black });
-    y -= 34;
+    y -= 27;
   };
 
   row("ADD-ON", addon.name || "");
@@ -827,10 +821,10 @@ async function generateAddonWiringPdf(order: any, addon: any): Promise<{ path: s
 
   y -= 6;
   page.drawLine({ start: { x: 38, y }, end: { x: 612 - 38, y }, thickness: 1, color: rgb(0.85, 0.85, 0.85) });
-  y -= 26;
+  y -= 18;
 
   page.drawText("WIRE TO", { x: 38, y, size: 10.5, font: bold, color: black });
-  y -= 20;
+  y -= 14;
   row("BENEFICIARY", RELAY_WIRE.beneficiary);
   row("BANK", RELAY_WIRE.bankName);
   row("ACCOUNT NUMBER", RELAY_WIRE.accountNumber, 13);
@@ -841,16 +835,16 @@ async function generateAddonWiringPdf(order: any, addon: any): Promise<{ path: s
   y = await drawPaymentPreferBlock(pdfDoc, page, y, font, bold, gray, black);
 
   y -= 6;
-  const warnH = 96;
+  const warnH = 80;
   page.drawRectangle({ x: 38, y: y - warnH, width: 612 - 76, height: warnH, color: rgb(0.99, 0.95, 0.85), borderColor: rgb(0.85, 0.68, 0.25), borderWidth: 1 });
-  page.drawText("TIME IS OF THE ESSENCE", { x: 50, y: y - 18, size: 10.5, font: bold, color: black });
+  page.drawText("TIME IS OF THE ESSENCE", { x: 50, y: y - 15, size: 10.5, font: bold, color: black });
   const line1 = "This is a separate, additional amount for the add-on above — it does not replace any prior payment.";
   const line2 = "Please pay within 48 hours of signing this add-on to keep your order on schedule.";
-  page.drawText(line1, { x: 50, y: y - 34, size: 9, font, color: black });
-  page.drawText(line2, { x: 50, y: y - 47, size: 9, font, color: black });
-  page.drawText("PAYMENT FRAUD WARNING", { x: 50, y: y - 66, size: 10.5, font: bold, color: red });
+  page.drawText(line1, { x: 50, y: y - 28, size: 9, font, color: black });
+  page.drawText(line2, { x: 50, y: y - 39, size: 9, font, color: black });
+  page.drawText("PAYMENT FRAUD WARNING", { x: 50, y: y - 55, size: 10.5, font: bold, color: red });
   const line3 = "These instructions will never change over email. Verify by phone at (904) 867-3984 before sending funds.";
-  page.drawText(line3, { x: 50, y: y - 82, size: 9, font, color: black });
+  page.drawText(line3, { x: 50, y: y - 68, size: 9, font, color: black });
   y -= warnH + 20;
 
   page.drawText("Alex & Nate Watson — Brothers Group at Momentum Realty — (904) 867-3984 — www.brothersgroup.realestate", { x: 38, y: 40, size: 8, font, color: gray });
@@ -893,23 +887,17 @@ async function sendAddonWiringInstructionsToClient(itemId: number) {
         <p style="margin:0 0 4px"><strong>Account Type:</strong> ${RELAY_WIRE.accountType}</p>
         <p style="margin:0"><strong>Business Address:</strong> ${RELAY_WIRE.businessAddress}</p>
       </div>
-      <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px">
-        <table style="width:100%"><tr>
-          <td style="vertical-align:middle">
-            <p style="margin:0;font-size:12px;color:${BRAND.black}"><strong>Prefer Zelle or Venmo?</strong> Scan a QR code to pay Alexander Watson directly.</p>
-            <p style="margin:6px 0 0;font-size:11px;color:${BRAND.gray}">Questions, or need to type it in instead? Reply to this email or call us at (904) 867-3984.</p>
+      <div style="margin-top:10px;padding:12px 16px;background:#eef6fb;border:1px solid #a9cfe3;border-radius:8px;text-align:center">
+        <p style="margin:0;font-size:12px;color:${BRAND.black};text-align:left"><strong>Prefer Zelle or Venmo?</strong> Scan a QR code to pay Alexander Watson directly.</p>
+        <p style="margin:6px 0 12px;font-size:11px;color:${BRAND.gray};text-align:left">Questions, or need to type it in instead? Reply to this email or call us at (904) 867-3984.</p>
+        <table style="margin:0 auto"><tr>
+          <td style="text-align:center;padding-right:14px">
+            <img src="${APP_URL}/zelle-qr.jpg" alt="Zelle QR code — Alexander Watson" style="width:130px;height:auto;display:block;margin:0 auto" />
+            <p style="margin:4px 0 0;font-size:10px;color:${BRAND.gray}">Zelle</p>
           </td>
-          <td style="width:150px;text-align:center;vertical-align:middle">
-            <table style="margin:0 auto"><tr>
-              <td style="text-align:center;padding-right:6px">
-                <img src="${APP_URL}/zelle-qr.jpg" alt="Zelle QR code — Alexander Watson" style="width:65px;height:auto;display:block;margin:0 auto" />
-                <p style="margin:3px 0 0;font-size:9px;color:${BRAND.gray}">Zelle</p>
-              </td>
-              <td style="text-align:center;padding-left:6px">
-                <img src="${APP_URL}/venmo-qr.jpg" alt="Venmo QR code — @MrWatson1" style="width:65px;height:auto;display:block;margin:0 auto" />
-                <p style="margin:3px 0 0;font-size:9px;color:${BRAND.gray}">Venmo</p>
-              </td>
-            </tr></table>
+          <td style="text-align:center;padding-left:14px">
+            <img src="${APP_URL}/venmo-qr.jpg" alt="Venmo QR code — @MrWatson1" style="width:130px;height:auto;display:block;margin:0 auto" />
+            <p style="margin:4px 0 0;font-size:10px;color:${BRAND.gray}">Venmo</p>
           </td>
         </tr></table>
       </div>

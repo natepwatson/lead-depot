@@ -1169,41 +1169,73 @@ export function registerInspectionsRoutes(app: Express) {
   });
 
   // ── Agent: create draft order ──
+  // v20.33.3 — Save Button + Queue parity with Instant Quote: `orderId` is
+  // now optional-but-honored. First Save (no orderId) creates the draft row
+  // exactly as before. Every Save after that passes the same orderId back,
+  // so this UPDATEs the existing draft in place instead of INSERTing a
+  // duplicate row every time the agent hits Save. itemKeys is no longer
+  // required — an agent can Save after just entering client + property (step
+  // 1) and the order shows up in their queue (/mine) to resume later, same
+  // as Instant Quote's resumable consults. The hard "pick at least one
+  // inspection" gate now lives on /send instead, where it actually matters.
   app.post("/api/inspection-orders", (req: any, res: Response) => {
     const {
-      leadId, agentId, fubContactId, clientName, clientEmail, clientPhone,
+      orderId: existingOrderId, leadId, agentId, fubContactId, clientName, clientEmail, clientPhone,
       propertyAddress, neededBy, neededByDate, contingencyExpirationDate, itemKeys,
       vendorId, subjectSqft, dealSide,
     } = req.body || {};
     if (!propertyAddress || !String(propertyAddress).trim()) return res.status(400).json({ error: "propertyAddress is required" });
     if (!clientName || !String(clientName).trim()) return res.status(400).json({ error: "clientName is required" });
-    if (!Array.isArray(itemKeys) || itemKeys.length === 0) return res.status(400).json({ error: "Select at least one inspection" });
+    const keys: string[] = Array.isArray(itemKeys) ? itemKeys : [];
 
     const resolvedAgentId = agentId || req.currentAgent?.id || null;
     const resolvedVendorId = vendorId ? Number(vendorId) : null;
     const resolvedSqft = subjectSqft ? Number(subjectSqft) : null;
     const resolvedDealSide = dealSide === "seller" ? "seller" : "buyer";
-    const token = randomBytes(20).toString("hex");
-    const result = rawDb.prepare(`
-      INSERT INTO inspection_orders
-        (lead_id, agent_id, fub_contact_id, client_name, client_email, client_phone, property_address,
-         needed_by, needed_by_date, contingency_expiration_date, sign_token, vendor_id, subject_sqft, deal_side)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      leadId || null, resolvedAgentId, fubContactId || null, String(clientName).trim(), clientEmail || null, clientPhone || null,
-      String(propertyAddress).trim(), neededBy === "specific" ? "specific" : "asap", neededBy === "specific" ? (neededByDate || null) : null,
-      contingencyExpirationDate || null, token, resolvedVendorId, resolvedSqft, resolvedDealSide
-    );
-    const orderId = Number(result.lastInsertRowid);
+
+    // Reuse an existing draft row if the caller has one and it's still a
+    // draft (never resurrect/overwrite a sent/accepted order this way).
+    let orderId: number;
+    const existing = existingOrderId
+      ? rawDb.prepare(`SELECT id, status FROM inspection_orders WHERE id = ?`).get(Number(existingOrderId)) as any
+      : null;
+    if (existing && existing.status === "draft") {
+      orderId = existing.id;
+      rawDb.prepare(`
+        UPDATE inspection_orders SET
+          lead_id = ?, agent_id = ?, fub_contact_id = ?, client_name = ?, client_email = ?, client_phone = ?,
+          property_address = ?, needed_by = ?, needed_by_date = ?, contingency_expiration_date = ?,
+          vendor_id = ?, subject_sqft = ?, deal_side = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(
+        leadId || null, resolvedAgentId, fubContactId || null, String(clientName).trim(), clientEmail || null, clientPhone || null,
+        String(propertyAddress).trim(), neededBy === "specific" ? "specific" : "asap", neededBy === "specific" ? (neededByDate || null) : null,
+        contingencyExpirationDate || null, resolvedVendorId, resolvedSqft, resolvedDealSide, orderId
+      );
+      rawDb.prepare(`DELETE FROM inspection_order_items WHERE order_id = ?`).run(orderId);
+    } else {
+      const token = randomBytes(20).toString("hex");
+      const result = rawDb.prepare(`
+        INSERT INTO inspection_orders
+          (lead_id, agent_id, fub_contact_id, client_name, client_email, client_phone, property_address,
+           needed_by, needed_by_date, contingency_expiration_date, sign_token, vendor_id, subject_sqft, deal_side)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        leadId || null, resolvedAgentId, fubContactId || null, String(clientName).trim(), clientEmail || null, clientPhone || null,
+        String(propertyAddress).trim(), neededBy === "specific" ? "specific" : "asap", neededBy === "specific" ? (neededByDate || null) : null,
+        contingencyExpirationDate || null, token, resolvedVendorId, resolvedSqft, resolvedDealSide
+      );
+      orderId = Number(result.lastInsertRowid);
+    }
 
     // v20.32.13 — Part 1: resolve per-vendor sqft-tiered pricing when a vendor
     // + sqft were provided. WM/4pt price differently depending on whether a
     // full HI is also in this same order ("bundled_with_hi" vs "standalone").
-    const hasHi = itemKeys.includes("hi");
+    const hasHi = keys.includes("hi");
     const catalog = rawDb.prepare(`SELECT * FROM inspection_items WHERE active = 1`).all() as any[];
     const byKey = new Map(catalog.map(c => [c.key, c]));
     const insItem = rawDb.prepare(`INSERT INTO inspection_order_items (order_id, item_key, name, client_price, vendor_cost, vendor_id) VALUES (?, ?, ?, ?, ?, ?)`);
-    for (const key of itemKeys) {
+    for (const key of keys) {
       const cat = byKey.get(key);
       if (!cat) continue;
       // v20.32.21 — only WM/4pt actually have separate "bundled_with_hi" vs
@@ -1289,12 +1321,20 @@ export function registerInspectionsRoutes(app: Express) {
   });
 
   // ── Agent: my recent orders (resume/history) — MUST be before "/:id" ──
+  // v20.33.3 — this is the resumable queue Alex asked for, mirroring
+  // /api/repair-consult/mine: only in-flight orders (draft = saved but not
+  // sent, sent = waiting on client signature) show up here. accepted/
+  // completed orders are done deals and drop out of the active queue.
+  // Ordered by updated_at so the most recently touched draft resumes first.
   app.get("/api/inspection-orders/mine", (req: any, res: Response) => {
     const agentId = parseInt(req.query.agentId as string) || req.currentAgent?.id || null;
     if (!agentId) return res.json({ orders: [] });
     const rows = rawDb.prepare(`
       SELECT id, property_address, client_name, status, total, updated_at, created_at
-      FROM inspection_orders WHERE agent_id = ? ORDER BY created_at DESC LIMIT 30
+      FROM inspection_orders
+      WHERE agent_id = ? AND status IN ('draft', 'sent')
+      ORDER BY updated_at DESC
+      LIMIT 20
     `).all(agentId);
     res.json({ orders: rows });
   });
@@ -1313,6 +1353,11 @@ export function registerInspectionsRoutes(app: Express) {
     const order = getOrderRow(id);
     if (!order) return res.status(404).json({ error: "Order not found" });
     if (!order.client_email) return res.status(400).json({ error: "This client has no email on file — add one before sending." });
+    // v20.33.3 — the create/save endpoint no longer requires itemKeys (a bare
+    // draft can be saved with just client + property), so the "must have
+    // picked something" gate now lives here, right before it actually sends.
+    const sendItems = getOrderItems(id).filter((i: any) => !i.is_addon);
+    if (!sendItems.length) return res.status(400).json({ error: "Select at least one inspection before sending" });
     try {
       await sendInspectionOrderToClient(id);
       // v20.32.43 — Credit the requesting agent 50 points for submitting the

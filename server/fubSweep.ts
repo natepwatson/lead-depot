@@ -25,6 +25,7 @@ import {
   fubPersonIntentBlob,
 } from "./fub";
 import { parseIntent } from "./buyerIntentParser";
+import { awardPoints } from "./points";
 
 // v20.6.8 — Locked buyer stages (unchanged from v20.4.9).
 const ACTIVE_BUYER_STAGES = ["Active Client"];
@@ -147,6 +148,51 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
       updated_at    = datetime('now')
   `);
 
+  const readListingStatus = rawDb.prepare(
+    `SELECT status, listing_agent FROM listings WHERE lower(address) = lower(?) AND coalesce(zip,'') = coalesce(?, '') LIMIT 1`
+  );
+
+  // v20.33.3 — golden-bubble milestone. FUB deal-stage sync is the PRIMARY
+  // real-world path for a listing going under contract (Denise/agents move
+  // the FUB stage to "Pending", this sweep runs on schedule and picks it up).
+  // Wrap the raw upsert so we can diff status before/after and award
+  // listing_under_contract (200 pts, flat) exactly on the
+  // active/coming_soon/pocket -> pending edge. Best-effort: never throws,
+  // never blocks the sweep.
+  function upsertListingAndMaybeAward(params: { address: string; city: string | null; state: string | null; zip: string | null; list_price: number | null; status: string; listing_agent: string | null; source: string; source_ref: string }) {
+    let before: any = null;
+    try { before = readListingStatus.get(params.address, params.zip); } catch { /* best-effort */ }
+    upsertListing.run(params);
+    try {
+      const prev = String(before?.status || "").toLowerCase();
+      const next = String(params.status || "").toLowerCase();
+      if (next === "pending" && prev !== "pending" && ["active", "coming_soon", "pocket"].includes(prev)) {
+        const agentName = params.listing_agent || before?.listing_agent || null;
+        const nameNorm = String(agentName || "").trim().toLowerCase();
+        if (nameNorm) {
+          const agents = rawDb.prepare(`SELECT id, name FROM agents WHERE is_active = 1`).all() as any[];
+          let agentId: number | null = null;
+          for (const a of agents) {
+            if (String(a.name || "").trim().toLowerCase() === nameNorm) { agentId = a.id; break; }
+          }
+          if (!agentId) {
+            const firstToken = nameNorm.split(/\s+/)[0];
+            const matches = agents.filter(a => String(a.name || "").trim().toLowerCase().split(/\s+/)[0] === firstToken);
+            if (matches.length === 1) agentId = matches[0].id;
+          }
+          if (agentId) {
+            awardPoints(agentId, "listing_under_contract", undefined, "seller");
+            console.log(`[golden-bubble][fub-sweep] +200 listing_under_contract → agent ${agentId} for "${params.address}"`);
+          } else {
+            console.warn(`[golden-bubble][fub-sweep] listing "${params.address}" went under contract but listing_agent "${agentName}" didn't match any active agent — no points awarded`);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[golden-bubble][fub-sweep] award check failed", e);
+    }
+  }
+
   const upsertBuyer = rawDb.prepare(`
     INSERT INTO buyers (
       name, phone, email, buyers_agent, status,
@@ -237,7 +283,7 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
           const a = fubPersonAddress(p);
           if (!a.address) { skipped++; continue; }
           try {
-            upsertListing.run({
+            upsertListingAndMaybeAward({
               address:       a.address,
               city:          a.city,
               state:         a.state,
@@ -276,7 +322,7 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
         const a = fubPersonAddress(p);
         if (!a.address) { skipped++; continue; }
         try {
-          upsertListing.run({
+          upsertListingAndMaybeAward({
             address:       a.address,
             city:          a.city,
             state:         a.state,
@@ -306,7 +352,7 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
         const a = fubPersonAddress(p);
         if (!a.address) { skipped++; continue; }
         try {
-          upsertListing.run({
+          upsertListingAndMaybeAward({
             address:       a.address,
             city:          a.city,
             state:         a.state,
@@ -414,7 +460,7 @@ export async function runFubInventorySweep(): Promise<SweepResult> {
         const address = personAddr.address || d.address || null;
         if (!address) { skipped++; continue; }
         try {
-          upsertListing.run({
+          upsertListingAndMaybeAward({
             address:       address,
             city:          personAddr.city  || d.city  || null,
             state:         personAddr.state || d.state || null,

@@ -34,12 +34,26 @@ export function awardPoints(
     door_knock:                 2,   // v17.6 — Base per-door value. Actual session points_potential = doors × 2 (25+ doors min).
     social_post:               10,   // v20.7.20 — BASE per-platform. Actual points_potential = 10 × platforms.length (1-3). 2/day cap enforced upstream.
     contacted_not_interested:   5,   // Real contact, worth something.
+    // v20.33.3 — audit fix: was missing from this dict entirely, so it fell
+    // through to the anonymous base-dial fallback (1 pt, still multiplied by
+    // the Prime-time tier). nice_not_interested is a CONFIRMED real owner
+    // contact (same evidence bar as contacted_not_interested) that gets
+    // nurtured with a 180-day recycle instead of a dead delete — priced the
+    // same as contacted_not_interested, not the anonymous-dial default.
+    nice_not_interested:         5,
     listed:                     3,   // Rare informational outcome.
     recycled:                   2,   // Re-queue, minor effort.
     no_answer:                  2,   // Real dial, most common outcome.
     wrong_number:               1,   // Data cleanup.
     disconnected:               1,   // Data cleanup.
     left_voicemail:             6,   // v15.11.41 — Owner - No Answer: confirmed owner + recycle + boost. 6 pts.
+    // v20.33.3 — audit fix: header comment above has always said "Emails and
+    // voicemails award ZERO points", but email_sent had no explicit dict entry
+    // and was silently falling to the 1-pt anonymous-dial fallback (up to 2x
+    // at Prime). Voicemail was deliberately re-priced later (see left_voicemail
+    // above); email never was — this closes that gap and matches the documented
+    // intent, preventing point-farming via repeated manual email taps.
+    email_sent:                  0,
     agent_referral_approved:  100,   // v19.6 — Referred agent got hired. Big deal.
     agent_invite_sent:         50,   // v20.7.9 — Immediate credit when an agent sends an invite (before candidate submits or gets approved).
     // v20.32.43 — Milestone events with a direct line to closed revenue.
@@ -49,6 +63,16 @@ export function awardPoints(
     listing_signed:                     200,  // Seller signed the listing contract.
     inspection_request_submitted:        50,  // Inspections+ order sent to client for approval.
     inspection_approved:                 50,  // Client e-signed / accepted the inspection order.
+    // v20.33.4 — Repairs was the one milestone tool with zero points wired
+    // in. Mirrors the Inspections+ pair exactly: 50 when the quote goes out,
+    // 50 when the client e-signs it (repairConsult.ts send-to-client / the
+    // public /api/repair-quote/:token/accept endpoint).
+    repair_quote_sent:                    50,  // Repair quote generated + sent to client.
+    repair_quote_accepted:                50,  // Client e-signed the repair agreement.
+    // v20.33.3 — golden-bubble milestone: an EXISTING active listing (already
+    // on the market) goes under contract. Distinct from listing_signed (getting
+    // the listing in the first place) — this rewards actually selling it.
+    listing_under_contract:              200,  // Existing listing flips active/coming_soon/pocket -> pending.
     // Any other outcome falls back to base dial (1).
   };
   const basePoints = pts[outcome] ?? 1;
@@ -62,6 +86,7 @@ export function awardPoints(
     "social_post", "network_referral", "agent_referral_approved", "agent_invite_sent",
     // v20.32.43 — milestone events (see note above): flat, no Prime multiplier.
     "offer_submitted", "listing_signed", "inspection_request_submitted", "inspection_approved",
+    "repair_quote_sent", "repair_quote_accepted", "listing_under_contract",
   ]);
   if (FLAT_OUTCOMES.has(outcome)) {
     if (basePoints === 0) return;

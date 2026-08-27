@@ -82,6 +82,10 @@ export function PaymentRecordModal({
   const [uploadingKind, setUploadingKind] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // v20.33.3 — Part 7: show the confirmation # before closing instead of
+  // silently vanishing, so the person recording the payment (and the client,
+  // via the emailed receipt) both have a durable reference number.
+  const [successInfo, setSuccessInfo] = useState<{ confirmationNumber: string; amount: number } | null>(null);
   const evidenceInputRef = useRef<HTMLInputElement>(null);
   const receiptInputRef = useRef<HTMLInputElement>(null);
 
@@ -144,7 +148,7 @@ export function PaymentRecordModal({
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "Failed to record payment");
       onRecorded();
-      onClose();
+      setSuccessInfo({ confirmationNumber: data.confirmationNumber || "", amount: amt });
     } catch (e: any) {
       setError(e.message || "Failed to record payment");
     } finally {
@@ -153,6 +157,25 @@ export function PaymentRecordModal({
   }
 
   const evidenceLabel = method === "cash" ? "Photo of the cash" : method === "check" ? "Photo of the check" : method === "money_order" ? "Photo of the money order" : "Screenshot of the confirmation";
+
+  if (successInfo) {
+    return (
+      <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+        <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, background: "#141414", border: "1px solid rgba(74,222,128,0.35)", borderRadius: 12, padding: 24, textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
+          <h3 style={{ margin: 0, marginBottom: 6, fontSize: 16, fontWeight: 700, color: "#4ade80" }}>Payment Recorded</h3>
+          <p style={{ margin: 0, marginBottom: 14, fontSize: 12.5, color: "#94a3b8" }}>{propertyAddress}</p>
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+            <p style={{ margin: 0, marginBottom: 4, fontSize: 10.5, fontWeight: 700, color: "#94a3b8", letterSpacing: 0.3, textTransform: "uppercase" }}>Confirmation Number</p>
+            <p style={{ margin: 0, marginBottom: 10, fontSize: 20, fontWeight: 800, color: GOLD, fontFamily: "monospace" }}>{successInfo.confirmationNumber || "—"}</p>
+            <p style={{ margin: 0, fontSize: 13, color: "#c7d1dd" }}>Amount recorded: <strong style={{ color: "#4ade80" }}>${successInfo.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></p>
+          </div>
+          <p style={{ margin: 0, marginBottom: 16, fontSize: 11.5, color: "#94a3b8" }}>A receipt with this confirmation number has been emailed to the client and CC'd to the team.</p>
+          <button onClick={onClose} style={{ width: "100%", padding: "10px 16px", borderRadius: 6, fontSize: 13, fontWeight: 700, background: GOLD, border: "none", color: "#141414", cursor: "pointer" }}>Done</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>

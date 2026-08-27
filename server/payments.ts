@@ -28,9 +28,55 @@
 import type { Express, Request, Response } from "express";
 import fs from "node:fs";
 import path from "node:path";
+import { Resend } from "resend";
 import { rawDb } from "./db";
 import { fubRequest, resolveFubPersonId } from "./fub";
 import { notifyTCPaymentReceivedForInspectionOrder } from "./inspections";
+
+// v20.33.3 — local branded-email constants, matching the exact pattern
+// already duplicated in repairConsult.ts and inspections.ts (no shared
+// brand module exists yet in this codebase — this follows the established
+// convention rather than introducing a new cross-import, which would risk
+// a circular dependency since repairConsult.ts already imports FROM this
+// file (ACCEPTED_PAYMENT_METHODS_LABEL)).
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"];
+const FROM = "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>";
+const APP_URL = "https://depot.watsonbrothersgroup.com";
+const BRAND = {
+  black: "#0a0a0a",
+  gray: "#808080",
+  lightGray: "#f2f2f2",
+  green: "#1a7a3c",
+  border: "#e0e0e0",
+};
+
+function brandedHeader(title: string, subtitle: string): string {
+  return `
+  <div style="background:${BRAND.black};padding:28px 32px;text-align:center">
+    <img src="${APP_URL}/brand-logo.jpg" alt="Brothers Group" style="width:220px;max-width:70%;height:auto;display:inline-block" />
+  </div>
+  <div style="padding:22px 32px 4px;text-align:center;border-bottom:3px solid ${BRAND.black}">
+    <h1 style="margin:0;font-size:19px;color:${BRAND.black};font-family:Helvetica,Arial,sans-serif;font-weight:700">${title}</h1>
+    ${subtitle ? `<p style="margin:6px 0 16px;font-size:12.5px;color:${BRAND.gray}">${subtitle}</p>` : ""}
+  </div>`;
+}
+
+function brandedFooter(): string {
+  return `
+  <div style="padding:16px 32px;background:${BRAND.gray};color:#fff;font-size:11px;text-align:center">
+    Alex &amp; Nate Watson — (904) 867-3984 — www.brothersgroup.realestate
+  </div>`;
+}
+
+// v20.33.3 — deterministic, human-readable confirmation number. Not a
+// security token (nothing sensitive is derivable from it) — purely a
+// reference number the client can quote back to us, matching how wire
+// confirmation #s / check #s already work elsewhere in this flow. Format:
+// BG-PMT-<zero-padded payment_records.id> so it's stable and unique forever.
+function paymentConfirmationNumber(paymentId: number): string {
+  return `BG-PMT-${String(paymentId).padStart(6, "0")}`;
+}
 
 const IS_PROD = process.env.NODE_ENV === "production";
 function paymentPhotosDir(): string {
@@ -99,6 +145,75 @@ function getSourceRow(sourceType: PaymentSourceType, sourceId: number): any {
 function sumPaymentsForSource(sourceType: PaymentSourceType, sourceId: number): number {
   const row = rawDb.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM payment_records WHERE source_type = ? AND source_id = ?`).get(sourceType, sourceId) as any;
   return row?.total || 0;
+}
+
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  check: "Check", wire: "Wire Transfer", zelle: "Zelle", money_order: "Money Order",
+  apple_pay: "Apple Pay", venmo: "Venmo", cash: "Cash",
+};
+
+// v20.33.3 — client-facing payment confirmation receipt. Fire-and-forget,
+// non-fatal (mirrors the existing FUB tie-in block's error handling) so an
+// email hiccup never blocks the payment record itself from saving. Every
+// receipt includes a stable confirmation number AND an explicit anti-fraud
+// line — real deals with wiring instructions in flow means every client
+// touchpoint should reinforce "we will never change payment instructions by
+// email alone," which is the single highest-leverage wire-fraud deterrent a
+// small brokerage can put in writing (industry-standard advice from ALTA /
+// FBI IC3 wire-fraud guidance for real estate closings).
+async function sendPaymentConfirmationEmail(opts: {
+  paymentId: number;
+  sourceType: PaymentSourceType;
+  source: any;
+  amount: number;
+  method: PaymentMethod;
+  referenceNote?: string | null;
+  totalPaid: number;
+  contractTotal: number;
+  balanceRemaining: number;
+  reconciled: boolean;
+}) {
+  if (!resend || !opts.source?.client_email) return;
+  const confNum = paymentConfirmationNumber(opts.paymentId);
+  const methodLabel = PAYMENT_METHOD_LABELS[opts.method] || opts.method;
+  const jobLabel = opts.sourceType === "inspection_order" ? "Inspection Order" : "Repair Proposal";
+  const firstName = (opts.source.client_name || "").split(" ")[0] || "there";
+
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Payment Received — Confirmation", opts.source.property_address)}
+    <div style="padding:24px 32px">
+      <p style="font-size:13.5px;color:#333;line-height:1.6;margin-top:0">Hi ${firstName} — this confirms we received your payment. Please keep this confirmation number for your records.</p>
+      <table style="width:100%;border-collapse:collapse;margin-top:10px">
+        <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Confirmation #</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-weight:700;font-size:13px;text-align:right">${confNum}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Property</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">${opts.source.property_address}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Job</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">${jobLabel}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Amount Received</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-weight:700;font-size:14px;text-align:right;color:${BRAND.green}">$${opts.amount.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Method</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">${methodLabel}</td></tr>
+        ${opts.referenceNote ? `<tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Reference #</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">${opts.referenceNote}</td></tr>` : ""}
+        <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Total Paid to Date</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">$${opts.totalPaid.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
+        <tr><td style="padding:8px 0 0;color:${BRAND.gray};font-size:12.5px">${opts.reconciled ? "Balance" : "Balance Remaining"}</td><td style="padding:8px 0 0;font-weight:700;font-size:14px;text-align:right">${opts.reconciled ? "Paid in Full" : `$${opts.balanceRemaining.toLocaleString(undefined,{minimumFractionDigits:2})}`}</td></tr>
+      </table>
+      <div style="margin-top:18px;padding:12px 14px;background:#fdf3e7;border:1px solid #f0dcb8;border-radius:6px">
+        <p style="font-size:11.5px;color:#5a4522;margin:0;line-height:1.55"><strong>Protect yourself from wire fraud:</strong> this email is your official receipt. We will <strong>never</strong> ask you to change payment instructions, wiring details, or account numbers by email alone. If you receive any message asking you to send funds a different way — even if it looks like it's from us — stop and call us directly at <strong>(904) 867-3984</strong> before sending anything.</p>
+      </div>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to: [opts.source.client_email],
+      cc: ADMIN_EMAILS,
+      subject: `Payment Confirmation ${confNum} — ${opts.source.property_address}`,
+      html,
+    });
+  } catch (err) {
+    console.error("[Payments] confirmation email failed:", err);
+  }
 }
 
 export function registerPaymentRoutes(app: Express) {
@@ -236,9 +351,19 @@ export function registerPaymentRoutes(app: Express) {
       }
     })();
 
+    // v20.33.3 — client-facing confirmation-number receipt email, same
+    // fire-and-forget/non-fatal treatment as the FUB tie-in above.
+    sendPaymentConfirmationEmail({
+      paymentId: Number(result.lastInsertRowid),
+      sourceType, source, amount: Number(amount), method, referenceNote,
+      totalPaid: paid, contractTotal: source.total || 0,
+      balanceRemaining: Math.max(0, (source.total || 0) - paid), reconciled,
+    }).catch((err) => console.warn("[Payments] confirmation email failed:", err?.message || err));
+
     res.json({
       ok: true,
       id: result.lastInsertRowid,
+      confirmationNumber: paymentConfirmationNumber(Number(result.lastInsertRowid)),
       totalPaid: paid,
       contractTotal: source.total || 0,
       balanceRemaining: Math.max(0, (source.total || 0) - paid),
@@ -252,5 +377,61 @@ export function registerPaymentRoutes(app: Express) {
     const row = rawDb.prepare(`SELECT * FROM payment_records WHERE id = ?`).get(parseInt(req.params.id));
     if (!row) return res.status(404).json({ error: "Payment record not found" });
     res.json({ payment: row });
+  });
+
+  // v20.33.4 — Accounts Receivable admin tab. Unions repair_consults and
+  // inspection_orders (the only two payment_records source types) into one
+  // receivables ledger: total, paid-to-date (from payment_records), and
+  // balance, plus a reference date for aging. Excludes draft/declined rows
+  // (never billable) and anything with total <= 0 (nothing was ever owed).
+  app.get("/api/admin/accounts-receivable", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const repairRows = rawDb.prepare(`
+      SELECT
+        'repair_consult' AS source_type, rc.id AS source_id,
+        rc.property_address, rc.client_name, rc.client_email, rc.client_phone,
+        a.name AS agent_name, rc.status, rc.total AS total,
+        COALESCE((SELECT SUM(amount) FROM payment_records WHERE source_type = 'repair_consult' AND source_id = rc.id), 0) AS paid,
+        COALESCE(rc.accepted_at, rc.work_order_sent_at, rc.created_at) AS reference_date,
+        rc.completed_at AS completed_at
+      FROM repair_consults rc
+      LEFT JOIN agents a ON a.id = rc.agent_id
+      WHERE rc.status NOT IN ('draft', 'declined') AND rc.total > 0
+    `).all() as any[];
+    const inspectionRows = rawDb.prepare(`
+      SELECT
+        'inspection_order' AS source_type, io.id AS source_id,
+        io.property_address, io.client_name, io.client_email, io.client_phone,
+        a.name AS agent_name, io.status, io.total AS total,
+        COALESCE((SELECT SUM(amount) FROM payment_records WHERE source_type = 'inspection_order' AND source_id = io.id), 0) AS paid,
+        COALESCE(io.accepted_at, io.created_at) AS reference_date,
+        io.completed_at AS completed_at
+      FROM inspection_orders io
+      LEFT JOIN agents a ON a.id = io.agent_id
+      WHERE io.status NOT IN ('draft', 'declined') AND io.total > 0
+    `).all() as any[];
+
+    const all = [...repairRows, ...inspectionRows].map(r => ({
+      ...r,
+      balance: Math.max(0, (r.total || 0) - (r.paid || 0)),
+    }));
+
+    const outstanding = all.filter(r => r.balance > 0.005);
+    const paidInFull = all.filter(r => r.balance <= 0.005);
+
+    // Oldest reference date first — the longest-outstanding balance surfaces
+    // at the top, matching how any real AR aging report is read.
+    outstanding.sort((a, b) => (a.reference_date || "").localeCompare(b.reference_date || ""));
+    paidInFull.sort((a, b) => (b.reference_date || "").localeCompare(a.reference_date || ""));
+
+    res.json({
+      outstanding,
+      paidInFull,
+      totals: {
+        totalOutstanding: outstanding.reduce((s, r) => s + r.balance, 0),
+        totalCollected: all.reduce((s, r) => s + (r.paid || 0), 0),
+        countOutstanding: outstanding.length,
+      },
+    });
   });
 }

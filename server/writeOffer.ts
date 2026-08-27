@@ -28,21 +28,38 @@ const BRAND = {
   contactLine: "Alex & Nate Watson — (904) 867-3984 — www.brothersgroup.realestate",
 };
 
-// TEMPORARY (as of v20.14.7) — Nate is standing in as TC while this offer
-// flow is still being built and tested. Whittney Rocha is the real outside
-// TC (Next Level FL) and will take this role back once Alex confirms the
-// app is ready — don't bog down her actual business with test/in-progress
-// offers in the meantime. Keeping her info here (commented) so switching
-// back is a one-line change, not a re-discovery:
-//   Real TC: Whittney Rocha — whittney@nextlevelfl.com — (904) 703-8023
-const TC_EMAIL = "nate@watsonbrothersgroup.com";
+// v20.33.4 — Alex confirmed: Whitney Rocha (Next Level FL) is now added as
+// a live recipient on every buyer-offer-submitted notification, alongside
+// Nate (who remains on the list too — Alex said "as well", not "instead
+// of"). If Alex later wants Nate dropped off entirely, remove him from
+// TC_RECIPIENTS below — everything else (points award, CC, template) is
+// unaffected.
+const TC_EMAIL = "nate@watsonbrothersgroup.com"; // kept for the /api/write-offer/config response (tc.email) shown in the UI
 const TC_NAME = "Nate Watson";
 const TC_PHONE = "(904) 867-3984";
+const WHITNEY_EMAIL = "whittney@nextlevelfl.com";
+const WHITNEY_NAME = "Whitney Rocha";
+const WHITNEY_PHONE = "(904) 703-8023";
+// Full "to" list for offer-submitted emails — both TCs get it directly.
+const TC_RECIPIENTS = [TC_EMAIL, WHITNEY_EMAIL];
 const CC_EMAILS = ["alex@watsonbrothersgroup.com"];
 
 // Preset lender list — Alex's main lenders. "Other" lets the agent type in
 // anyone else on the spot.
 export const LENDER_PRESETS = ["Tyler Payne", "Matt Sapienza", "John O'Leary"];
+
+// v20.34.0 — lender contact map, confirmed from each lender's own email
+// signature in Alex's inbox (Tyler Payne / Jet HomeLoans, Matt Sapienza /
+// Rate, John O'Leary / Sharp Mortgages). Used so the selected lender is
+// emailed the offer immediately alongside the TC recipients, instead of
+// only being named as plain text inside the offer HTML. Agent-typed
+// "Other" lenders intentionally have no entry — there's no known email to
+// notify, so they're silently skipped (TC recipients still get the email).
+const LENDER_EMAILS: Record<string, { email: string; phone?: string }> = {
+  "Tyler Payne": { email: "tyler.payne@jethl.com", phone: "833-270-7191" },
+  "Matt Sapienza": { email: "matt.sapienza@rate.com" },
+  "John O'Leary": { email: "john@sharpmortgages.com", phone: "904-738-5472" },
+};
 
 function brandedHeader(title: string, subtitle: string): string {
   return `
@@ -240,10 +257,22 @@ export function registerWriteOfferRoutes(app: Express) {
       const html = buildOfferHtml(payload);
       const subject = `Write an Offer — ${payload.propertyAddress} — ${money(Number(payload.purchasePrice) || 0)}`;
 
+      // v20.34.0 — notify the selected lender directly and immediately,
+      // added to the "to" list alongside the TC recipients, whenever
+      // financing isn't Cash and the lender is a known preset. They get
+      // the same full offer HTML (buyer info, price, all terms) as the TC
+      // — judgment call: the lender needs the full deal terms to start
+      // processing right away, not a trimmed summary. "Other" lenders (no
+      // known email) are skipped — TC recipients still get the email as
+      // before.
+      const isCash = payload.financingType === "Cash";
+      const lenderContact = !isCash && payload.lender ? LENDER_EMAILS[payload.lender] : undefined;
+      const recipients = lenderContact ? [...TC_RECIPIENTS, lenderContact.email] : TC_RECIPIENTS;
+
       if (resend) {
         await resend.emails.send({
           from: FROM,
-          to: [TC_EMAIL],
+          to: recipients,
           cc: CC_EMAILS,
           subject,
           html,
@@ -263,7 +292,7 @@ export function registerWriteOfferRoutes(app: Express) {
         console.warn("[write-offer] no agentId resolved — skipped points award for offer by", payload?.agentName);
       }
 
-      res.json({ sent: true, to: TC_EMAIL, cc: CC_EMAILS });
+      res.json({ sent: true, to: recipients, cc: CC_EMAILS, lenderNotified: lenderContact?.email ?? null });
     } catch (e: any) {
       console.error("write-offer send failed:", e);
       res.status(500).json({ error: e?.message || "Failed to send offer." });
@@ -271,6 +300,13 @@ export function registerWriteOfferRoutes(app: Express) {
   });
 
   app.get("/api/write-offer/lenders", (_req: Request, res: Response) => {
-    res.json({ lenders: LENDER_PRESETS, tc: { name: TC_NAME, email: TC_EMAIL, phone: TC_PHONE } });
+    res.json({
+      lenders: LENDER_PRESETS,
+      tc: { name: TC_NAME, email: TC_EMAIL, phone: TC_PHONE },
+      tcs: [
+        { name: TC_NAME, email: TC_EMAIL, phone: TC_PHONE },
+        { name: WHITNEY_NAME, email: WHITNEY_EMAIL, phone: WHITNEY_PHONE },
+      ],
+    });
   });
 }

@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Request a Quote · Brothers Group Home Solutions</title>
+  <meta name="description" content="Repairs, painting, cleaning, landscaping, and more — request a free quote from Brothers Group Home Solutions, LLC." />
+  <link rel="icon" type="image/png" sizes="32x32" href="/join-icons/favicon-32.png?v=1" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/join-icons/favicon-16.png?v=1" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/join-icons/apple-touch-icon.png?v=1" />
+  <link rel="shortcut icon" href="/join-icons/favicon-32.png?v=1" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --gold: #c8aa5a;
+      --gold-dim: rgba(200,170,90,0.18);
+      --gold-border: rgba(200,170,90,0.22);
+      --bg: #080808;
+      --surface: #0f0d09;
+      --text: #ffffff;
+      --text-muted: rgba(255,255,255,0.45);
+      --text-faint: rgba(255,255,255,0.2);
+      --serif: 'Cormorant Garamond', Georgia, serif;
+      --sans: 'Inter', system-ui, sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+    }
+
+    header {
+      text-align: center;
+      padding: 48px 20px 28px;
+    }
+
+    .bghs-logo {
+      max-width: 320px;
+      width: 70%;
+      height: auto;
+      margin: 0 auto 24px;
+      display: block;
+    }
+
+    h1 {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-size: clamp(1.9rem, 5vw, 2.6rem);
+      margin-bottom: 12px;
+    }
+
+    header p {
+      color: var(--text-muted);
+      font-size: 15px;
+      max-width: 460px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    .call-row {
+      margin-top: 20px;
+    }
+
+    .call-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--gold);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border: 1px solid var(--gold-border);
+      border-radius: 999px;
+      padding: 10px 20px;
+    }
+
+    .form-section { background: var(--surface); padding: 40px 20px 80px; }
+    .form-inner { max-width: 480px; margin: 0 auto; }
+
+    .form-section-label {
+      font-size: 9px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: rgba(200,170,90,0.5);
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+
+    .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .form-row { display: flex; gap: 10px; }
+    .form-row .form-group { flex: 1; }
+
+    label {
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(200,170,90,0.65);
+      font-weight: 600;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(200,170,90,0.2);
+      border-radius: 8px;
+      padding: 13px 14px;
+      font-family: var(--sans);
+      font-size: 15px;
+      color: var(--text);
+      outline: none;
+      -webkit-appearance: none;
+      transition: border-color 0.15s;
+    }
+
+    input:focus, select:focus, textarea:focus { border-color: rgba(200,170,90,0.5); }
+    input::placeholder, textarea::placeholder { color: rgba(255,255,255,0.2); }
+    select option { background: #1a1a1a; color: #fff; }
+    textarea { resize: vertical; min-height: 100px; line-height: 1.6; }
+
+    .form-block { margin-bottom: 28px; }
+
+    .form-error {
+      display: none;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.25);
+      font-size: 13px;
+      color: #f87171;
+      margin-bottom: 16px;
+    }
+    .form-error.visible { display: block; }
+
+    .submit-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 16px;
+      background: linear-gradient(135deg, #c8aa5a 0%, #a8893a 100%);
+      border: none;
+      border-radius: 10px;
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #080808;
+      cursor: pointer;
+      box-shadow: 0 6px 24px rgba(200,170,90,0.28);
+      transition: all 0.2s;
+    }
+    .submit-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 32px rgba(200,170,90,0.36); }
+    .submit-btn:disabled { background: rgba(200,170,90,0.25); color: rgba(255,255,255,0.3); box-shadow: none; transform: none; cursor: not-allowed; }
+
+    .form-note { text-align: center; font-size: 11px; color: var(--text-faint); margin-top: 14px; line-height: 1.6; }
+
+    .success-panel {
+      display: none;
+      text-align: center;
+      padding: 48px 28px;
+      background: rgba(15,13,8,0.96);
+      border: 1px solid var(--gold-border);
+      border-radius: 18px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    }
+    .success-panel.visible { display: block; }
+
+    .success-icon {
+      width: 60px; height: 60px; border-radius: 50%;
+      background: rgba(200,170,90,0.1);
+      border: 1px solid rgba(200,170,90,0.3);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px;
+    }
+
+    .success-title { font-family: var(--serif); font-size: 1.8rem; font-weight: 300; color: var(--text); margin-bottom: 10px; }
+    .success-body { font-size: 14px; color: var(--text-muted); line-height: 1.7; }
+
+    footer {
+      padding: 32px 24px;
+      text-align: center;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      font-size: 12px;
+      color: var(--text-faint);
+    }
+    footer a { color: var(--gold); text-decoration: none; }
+
+    .hp { position: absolute; left: -9999px; opacity: 0; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <img class="bghs-logo" src="/bghs/logo-dark.png" alt="Brothers Group Home Solutions" />
+    <h1>Request a Free Quote</h1>
+    <p>Repairs, painting, cleaning, landscaping, appliances, and more — tell us what's going on and we'll call you back with a plan and a price.</p>
+    <div class="call-row">
+      <a class="call-link" href="tel:19048673984">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        (904) 867-3984
+      </a>
+    </div>
+  </header>
+
+  <section class="form-section" id="quote">
+    <div class="form-inner">
+
+      <form id="quoteForm" novalidate>
+        <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" />
+
+        <div class="form-block">
+          <p class="form-section-label">Your Info</p>
+          <div class="form-group">
+            <label for="name">Full Name</label>
+            <input type="text" id="name" name="name" placeholder="Jane Smith" autocomplete="name" required />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="phone">Phone</label>
+              <input type="tel" id="phone" name="phone" placeholder="(904) 555-0100" autocomplete="tel" inputmode="tel" required />
+            </div>
+            <div class="form-group">
+              <label for="email">Email (optional)</label>
+              <input type="email" id="email" name="email" placeholder="you@email.com" autocomplete="email" inputmode="email" />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-block">
+          <p class="form-section-label">The Job</p>
+          <div class="form-group">
+            <label for="serviceAddress">Service Address</label>
+            <input type="text" id="serviceAddress" name="serviceAddress" placeholder="123 Main St, Jacksonville, FL" autocomplete="street-address" required />
+          </div>
+          <div class="form-group">
+            <label for="category">Category</label>
+            <select id="category" name="category" required>
+              <option value="" disabled selected>Select one…</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="description">Tell us what's going on</label>
+            <textarea id="description" name="description" placeholder="e.g. Two bathroom faucets are leaking and the guest bathroom needs a repaint." required></textarea>
+          </div>
+        </div>
+
+        <div class="form-error" id="formError"></div>
+
+        <button type="submit" class="submit-btn" id="submitBtn">
+          Get My Quote
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+
+        <p class="form-note">No obligation. We'll call or text you back — usually same day, always within one business day.</p>
+      </form>
+
+      <div class="success-panel" id="successPanel">
+        <div class="success-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#c8aa5a" stroke-width="2"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <h2 class="success-title" id="successName">Thanks — we've got it.</h2>
+        <p class="success-body">Nate or Alex will reach out shortly to talk through the job and get you a price. Need us sooner? Call <a href="tel:19048673984" style="color:#c8aa5a;">(904) 867-3984</a>.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <footer>
+    <div>Brothers Group Home Solutions, LLC</div>
+    <div style="margin-top:6px;"><a href="/ecosystem">Back to Brothers Group</a> · <a href="tel:19048673984">(904) 867-3984</a></div>
+  </footer>
+
+  <script>
+    // Populate category dropdown from the server so it always matches the
+    // backend's PUBLIC_CATEGORIES list (single source of truth).
+    fetch('/api/bghs/categories')
+      .then((r) => r.json())
+      .then((d) => {
+        const sel = document.getElementById('category');
+        (d.categories || []).forEach((c) => {
+          const opt = document.createElement('option');
+          opt.value = c.value;
+          opt.textContent = c.label;
+          sel.appendChild(opt);
+        });
+      })
+      .catch(() => {
+        // Fallback static list if the endpoint is unreachable.
+        const fallback = [
+          ['bathroom', 'Bathroom Repair / Update'], ['kitchen', 'Kitchen Repair / Update'],
+          ['handyman', 'General Handyman / Small Repairs'], ['painting', 'Painting'],
+          ['flooring', 'Flooring'], ['electrical', 'Electrical'], ['plumbing', 'Plumbing'],
+          ['hvac', 'HVAC'], ['pressure_washing', 'Pressure Washing'], ['landscaping', 'Landscaping / Lawn'],
+          ['cleaning', 'House Cleaning'], ['junk_removal', 'Junk Removal'], ['other', 'Something Else'],
+        ];
+        const sel = document.getElementById('category');
+        fallback.forEach(([value, label]) => {
+          const opt = document.createElement('option');
+          opt.value = value; opt.textContent = label;
+          sel.appendChild(opt);
+        });
+      });
+
+    document.getElementById('phone').addEventListener('input', function (e) {
+      let v = e.target.value.replace(/\D/g, '').slice(0, 10);
+      let out = v;
+      if (v.length > 6) out = `(${v.slice(0,3)}) ${v.slice(3,6)}-${v.slice(6)}`;
+      else if (v.length > 3) out = `(${v.slice(0,3)}) ${v.slice(3)}`;
+      e.target.value = out;
+    });
+
+    document.getElementById('quoteForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const form = e.target;
+      const btn = document.getElementById('submitBtn');
+      const errEl = document.getElementById('formError');
+
+      const name = document.getElementById('name').value.trim();
+      const phone = document.getElementById('phone').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const serviceAddress = document.getElementById('serviceAddress').value.trim();
+      const category = document.getElementById('category').value;
+      const description = document.getElementById('description').value.trim();
+
+      errEl.classList.remove('visible');
+
+      if (!name) { errEl.textContent = 'Please enter your name.'; errEl.classList.add('visible'); return; }
+      if (phone.replace(/\D/g, '').length < 10) { errEl.textContent = 'Please enter a valid phone number.'; errEl.classList.add('visible'); return; }
+      if (!serviceAddress) { errEl.textContent = 'Please enter the service address.'; errEl.classList.add('visible'); return; }
+      if (!category) { errEl.textContent = 'Please select a category.'; errEl.classList.add('visible'); return; }
+      if (!description) { errEl.textContent = 'Please give us a short description of the job.'; errEl.classList.add('visible'); return; }
+
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+
+      try {
+        const payload = {
+          name, phone, email, serviceAddress, category, description,
+          website: form.querySelector('.hp').value,
+        };
+
+        const res = await fetch('/api/bghs/quote-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const d = await res.json();
+
+        if (!res.ok || !d.ok) {
+          errEl.textContent = d.error || 'Something went wrong. Please try again or call us.';
+          errEl.classList.add('visible');
+          btn.disabled = false;
+          btn.innerHTML = 'Get My Quote <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+          return;
+        }
+
+        document.getElementById('successName').textContent = `Thanks, ${name.split(' ')[0]} — we've got it.`;
+        document.getElementById('successPanel').classList.add('visible');
+        form.style.display = 'none';
+        document.getElementById('successPanel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      } catch {
+        errEl.textContent = 'Network error — please check your connection and try again.';
+        errEl.classList.add('visible');
+        btn.disabled = false;
+        btn.innerHTML = 'Get My Quote <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#080808" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -95,6 +95,8 @@
   "GET /api/team-pot",
   "GET /api/territories",
   "GET /ecosystem",
+  "GET /get-in-touch/:id",
+  "GET /home-solutions",
   "GET /join",
   "GET /join/:token",
   "GET /join/fast-track",

@@ -85,6 +85,18 @@ async function buildAll() {
     console.log("copied public/ecosystem.html → dist/public/ecosystem.html");
   }
 
+  // home-solutions.html — v20.34.0 BGHS public quote-request app (served at /home-solutions)
+  if (existsSync("public/home-solutions.html")) {
+    await copyFile("public/home-solutions.html", "dist/public/home-solutions.html");
+    console.log("copied public/home-solutions.html → dist/public/home-solutions.html");
+  }
+
+  // get-in-touch.html — v20.35.0 per-agent public lead-capture landing page (served at /get-in-touch/:id)
+  if (existsSync("public/get-in-touch.html")) {
+    await copyFile("public/get-in-touch.html", "dist/public/get-in-touch.html");
+    console.log("copied public/get-in-touch.html → dist/public/get-in-touch.html");
+  }
+
   // agent headshots — slug-named jpg files served at /headshots/
   const headshotSrc = "public/headshots";
   const headshotDst = "dist/public/headshots";
@@ -107,6 +119,19 @@ async function buildAll() {
       await copyFile(path.join(teamSrc, f), path.join(teamDst, f));
     }
     console.log(`copied ${files.length} team photos → dist/public/team/`);
+  }
+
+  // v20.33.3 — BGHS (Brothers Group Home Solutions) brand assets used on the
+  // overhauled /ecosystem "Empire" page Home Solutions hub.
+  const bghsSrc = "public/bghs";
+  const bghsDst = "dist/public/bghs";
+  if (existsSync(bghsSrc)) {
+    await mkdir(bghsDst, { recursive: true });
+    const files = await readdir(bghsSrc);
+    for (const f of files) {
+      await copyFile(path.join(bghsSrc, f), path.join(bghsDst, f));
+    }
+    console.log(`copied ${files.length} BGHS brand assets → dist/public/bghs/`);
   }
 }
 

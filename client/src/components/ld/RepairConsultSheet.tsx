@@ -9,7 +9,7 @@
 // proposal + accept link; "Request Vendor Quotes" fires trade-specific
 // quote-request emails with photos to our preferred vendors.
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X, Plus, Pencil } from "lucide-react";
+import { Camera, Loader2, CheckCircle2, ChevronRight, ChevronLeft, ChevronDown, Star, X, Plus, Pencil, Save } from "lucide-react";
 import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 import { PdfViewerModal } from "./PdfViewerModal";
 import { SmartDataPanel } from "./SmartDataPanel";
@@ -34,7 +34,19 @@ type CheckedState = {
   // what needs quoting, on top of photo(s) + measurement notes, before a
   // vendor dispatch email can be sent. Only meaningful on vendor items.
   vendorScopeNote: string;
+  // v20.33.3 — Electrical Vendor Quote Needed: agent flags that this
+  // in-house item's location has no existing wiring (e.g. a bath exhaust
+  // fan going into a spot that never had one), so a licensed electrician
+  // has to run/tap a circuit before/around the in-house work. Only
+  // rendered on a small set of electrical-adjacent in-house item keys —
+  // see ELECTRICAL_VENDOR_TRIGGER_KEYS below.
+  needsElectricalVendor: boolean;
 };
+
+// v20.33.3 — in-house item keys where "no existing wiring" is a realistic
+// scenario the agent needs to flag on the spot. Keep narrow and specific —
+// this is NOT a general electrical-trade flag, just these three.
+const ELECTRICAL_VENDOR_TRIGGER_KEYS = ["gfci_install", "bath_exhaust_fan", "ceiling_fan_install"];
 
 // v20.19.0 — bundled discount packages. itemKeys are auto-checked in-house
 // items; vendorItemKeys (rare — only smoke_remediation today) are auto-checked
@@ -384,6 +396,12 @@ export function RepairConsultSheet({
   const [resumePhase, setResumePhase] = useState<"checking" | "picking" | "ready">((nestedFromListing || initialConsultId) ? "ready" : "checking");
   const [resumeList, setResumeList] = useState<ResumeItem[]>([]);
 
+  // v20.33.3 — explicit "Save" button state (mirrors Inspections+'s
+  // handleSaveDraft/savedFlash pattern — same shared engine, per Alex's
+  // "adding a save button on each" instruction).
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+
   const [clientName, setClientName] = useState(initialClientName || "");
   const [clientEmail, setClientEmail] = useState(initialClientEmail || "");
   const [clientPhone, setClientPhone] = useState(initialClientPhone || "");
@@ -732,11 +750,34 @@ export function RepairConsultSheet({
     return [...map.entries()];
   };
 
-  const DEFAULT_ITEM_STATE: CheckedState = { checked: false, quantity: "1", twoStory: false, photos: [], measurementNotes: "", hasVendorQuote: false, vendorQuoteAmount: "", vendorScopeNote: "" };
+  const DEFAULT_ITEM_STATE: CheckedState = { checked: false, quantity: "1", twoStory: false, photos: [], measurementNotes: "", hasVendorQuote: false, vendorQuoteAmount: "", vendorScopeNote: "", needsElectricalVendor: false };
   const setItemState = (key: string, patch: Partial<CheckedState>) => {
     setChecked(prev => {
       const base = prev[key] || DEFAULT_ITEM_STATE;
       return { ...prev, [key]: { ...base, ...patch } };
+    });
+  };
+
+  // v20.33.3 — Electrical Vendor Quote Needed: checking this box (on GFCI /
+  // bath exhaust fan / ceiling fan items) both flags the in-house line item
+  // AND auto-checks the v_electrical vendor trade so the electrician dispatch
+  // is already queued up — the agent still has to fill in the vendor's
+  // required photo/measurements/scope note before that dispatch can send,
+  // same gate as any other vendor item (v20.33.0 rule, unchanged).
+  const handleElectricalVendorToggle = (it: RepairItem, wantsVendor: boolean) => {
+    setChecked(prev => {
+      const base = prev[it.key] || DEFAULT_ITEM_STATE;
+      const next: Record<string, CheckedState> = { ...prev, [it.key]: { ...base, needsElectricalVendor: wantsVendor } };
+      if (wantsVendor) {
+        const vBase = prev["v_electrical"] || DEFAULT_ITEM_STATE;
+        const autoNote = `No existing wiring at "${it.name}" location — electrician needed to run/tap a circuit before this in-house item can be completed.`;
+        next["v_electrical"] = {
+          ...vBase,
+          checked: true,
+          vendorScopeNote: vBase.vendorScopeNote?.trim() ? vBase.vendorScopeNote : autoNote,
+        };
+      }
+      return next;
     });
   };
 
@@ -839,6 +880,13 @@ export function RepairConsultSheet({
             )}
             <input placeholder="Measurement notes (optional)" value={st.measurementNotes} onChange={e => setItemState(it.key, { measurementNotes: e.target.value })}
               style={{ ...inputStyle, fontSize: 12.5 }} />
+            {ELECTRICAL_VENDOR_TRIGGER_KEYS.includes(it.key) && (
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10, fontSize: 12, color: "rgba(255,159,10,0.9)", cursor: "pointer" }}>
+                <input type="checkbox" checked={!!st.needsElectricalVendor} onChange={e => handleElectricalVendorToggle(it, e.target.checked)}
+                  style={{ marginTop: 2, accentColor: "#ff9f0a" }} />
+                <span>No existing wiring — needs an electrician quote before this can be completed</span>
+              </label>
+            )}
           </div>
         )}
       </div>
@@ -993,6 +1041,7 @@ export function RepairConsultSheet({
             hasVendorQuote: it.vendor_quote_amount != null,
             vendorQuoteAmount: it.vendor_quote_amount != null ? String(it.vendor_quote_amount) : "",
             vendorScopeNote: it.vendor_scope_note || "",
+            needsElectricalVendor: !!it.needs_electrical_vendor,
           };
         }
         setChecked(nextChecked);
@@ -1142,6 +1191,9 @@ export function RepairConsultSheet({
         // sent) for vendor items — never lets a stray note override an
         // in-house item's catalog instruction text.
         scopeNote: vendorItems.some(vi => vi.key === itemKey) && v.vendorScopeNote?.trim() ? v.vendorScopeNote.trim() : undefined,
+        // v20.33.3 — Electrical Vendor Quote Needed flag (in-house items only:
+        // GFCI/bath exhaust fan/ceiling fan with no existing wiring).
+        needsElectricalVendor: v.needsElectricalVendor || undefined,
       }));
     if (items.length === 0) throw new Error("Check off at least one repair item before continuing.");
     const d = await fetchJson(`/api/repair-consult/${id}/items`, {
@@ -1150,6 +1202,42 @@ export function RepairConsultSheet({
     setTotals({ subtotal: d.subtotal, total: d.total, discountAmount: d.discountAmount, freeItemKey: d.freeItemKey, vendorQuotedSubtotal: d.vendorQuotedSubtotal });
     return d;
   };
+
+  // v20.33.3 — explicit "Save" affordance. Instant Quote already auto-saves
+  // at every step transition via ensureConsult()/submitCurrentItems(), so
+  // this button just runs the same persistence on demand and gives the
+  // agent a visible confirmation instead of relying on invisible autosave.
+  // Only pushes item state to the server when items are actually checked
+  // (matches submitCurrentItems' own guard) — on the info step this simply
+  // creates/updates the consult row (client + property) so it shows up in
+  // the agent's queue immediately.
+  const handleSaveDraft = async () => {
+    setError(""); setSavingDraft(true); setSavedFlash(false);
+    try {
+      await ensureConsult();
+      if (Object.values(checked).some(v => v.checked)) await submitCurrentItems();
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2400);
+    } catch (e: any) {
+      setError(e.message || "Failed to save this draft.");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const SaveDraftButton = () => (
+    <button type="button" onClick={handleSaveDraft} disabled={savingDraft} style={{
+      width: "100%", padding: "11px 14px", borderRadius: 10, marginTop: 4, marginBottom: 4,
+      background: savedFlash ? "rgba(126,212,154,0.12)" : "transparent",
+      border: `1px solid ${savedFlash ? "#7ed49a" : "rgba(255,255,255,0.18)"}`,
+      color: savedFlash ? "#7ed49a" : "rgba(255,255,255,0.75)", fontSize: 12.5, fontWeight: 700,
+      cursor: savingDraft ? "not-allowed" : "pointer", opacity: savingDraft ? 0.6 : 1,
+      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+    }}>
+      {savingDraft ? <Loader2 size={13} className="animate-spin" /> : savedFlash ? <CheckCircle2 size={13} /> : <Save size={13} />}
+      {savingDraft ? "Saving…" : savedFlash ? "Saved to Your Queue" : "Save Draft"}
+    </button>
+  );
 
   const handleChecklistNext = async () => {
     setSubmittingItems(true);
@@ -1487,6 +1575,7 @@ export function RepairConsultSheet({
             <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: -2, marginBottom: 4 }}>
               Snap interior and detail photos as you walk through, or shoot them all with your phone's own camera and pick them from your camera roll later — either way, you'll bulk-upload the full set together at the end, right before sending the quote.
             </p>
+            {clientName.trim().length > 1 && effectiveAddress.trim().length > 3 && <SaveDraftButton />}
             {navButtons({ onNext: handleInfoNext, nextBusy: creating, nextDisabled: !effectiveAddress.trim() })}
           </>
         )}
@@ -1653,6 +1742,7 @@ export function RepairConsultSheet({
                 )}
               </div>
             )}
+            {selectedCount > 0 && <SaveDraftButton />}
             {navButtons({ onBack: nestedFromListing ? undefined : () => setStep("info"), onNext: handleChecklistNext, nextDisabled: selectedCount === 0, nextBusy: submittingItems, nextLabel: "Continue to Photos" })}
           </>
         )}
@@ -1817,6 +1907,13 @@ export function RepairConsultSheet({
                                     )}
                                     <input placeholder={item.category === "vendor" ? "Measurements (required to send a vendor quote request)" : "Measurement notes (optional)"} value={st?.measurementNotes ?? ""} onChange={e => setItemState(item.key, { measurementNotes: e.target.value })}
                                       style={{ ...inputStyle, fontSize: 12.5, ...(item.category === "vendor" && !(st?.measurementNotes ?? "").trim() ? { border: "1px solid rgba(255,159,10,0.5)" } : {}) }} />
+                                    {ELECTRICAL_VENDOR_TRIGGER_KEYS.includes(item.key) && (
+                                      <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10, fontSize: 12, color: "rgba(255,159,10,0.9)", cursor: "pointer" }}>
+                                        <input type="checkbox" checked={!!st?.needsElectricalVendor} onChange={e => handleElectricalVendorToggle(item, e.target.checked)}
+                                          style={{ marginTop: 2, accentColor: "#ff9f0a" }} />
+                                        <span>No existing wiring — needs an electrician quote before this can be completed</span>
+                                      </label>
+                                    )}
                                     {item.category === "vendor" && (
                                       <div style={{ marginTop: 10 }}>
                                         <textarea

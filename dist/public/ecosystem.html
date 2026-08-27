@@ -43,6 +43,15 @@
 
     a { color: var(--gold); text-decoration: none; }
 
+    @media (prefers-reduced-motion: no-preference) {
+      .fade-up { animation: fadeUp 0.7s ease both; }
+      .fade-up.d1 { animation-delay: .08s; }
+      .fade-up.d2 { animation-delay: .16s; }
+      .fade-up.d3 { animation-delay: .24s; }
+      .fade-up.d4 { animation-delay: .32s; }
+      @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+    }
+
     /* ── HERO ── */
     .hero {
       min-height: 78svh;
@@ -86,6 +95,13 @@
       margin: 22px auto 0;
       color: var(--text-muted);
       font-size: 16px;
+      position: relative;
+    }
+    .hero-rule {
+      width: 64px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      margin: 30px auto 0;
       position: relative;
     }
 
@@ -144,6 +160,8 @@
       margin-bottom: 40px;
       font-size: 15.5px;
     }
+    .hub.center { text-align: center; }
+    .hub.center > p.lead { margin-left: auto; margin-right: auto; }
 
     .tile-grid {
       display: grid;
@@ -155,6 +173,12 @@
       border: 1px solid var(--gold-border);
       border-radius: 14px;
       padding: 24px 22px;
+      transition: transform .25s ease, border-color .25s ease, background .25s ease;
+    }
+    .tile:hover {
+      transform: translateY(-3px);
+      border-color: rgba(200,170,90,0.5);
+      background: var(--surface2);
     }
     .tile h3 {
       font-family: var(--serif);
@@ -164,6 +188,60 @@
       margin-bottom: 8px;
     }
     .tile p { color: var(--text-muted); font-size: 13.5px; }
+
+    /* ── Service cards (Home Solutions) ── */
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 18px;
+    }
+    .service-card {
+      background: linear-gradient(180deg, var(--surface) 0%, var(--surface2) 100%);
+      border: 1px solid var(--gold-border);
+      border-radius: 16px;
+      padding: 28px 24px;
+      position: relative;
+      overflow: hidden;
+      transition: transform .25s ease, border-color .25s ease;
+    }
+    .service-card:hover { transform: translateY(-4px); border-color: rgba(200,170,90,0.55); }
+    .service-card .icon {
+      width: 40px;
+      height: 40px;
+      margin-bottom: 16px;
+      color: var(--gold);
+    }
+    .service-card .icon svg { width: 100%; height: 100%; }
+    .service-card h3 {
+      font-family: var(--serif);
+      font-weight: 600;
+      font-size: 20px;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    .service-card p { color: var(--text-muted); font-size: 13.5px; margin-bottom: 12px; }
+    .service-card .tag {
+      display: inline-block;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--gold);
+      border: 1px solid var(--gold-border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: var(--gold-glow);
+    }
+    .pricing-note {
+      margin-top: 34px;
+      padding: 20px 24px;
+      border: 1px dashed var(--gold-border);
+      border-radius: 12px;
+      background: rgba(200,170,90,0.04);
+      color: var(--text-muted);
+      font-size: 13px;
+      max-width: 720px;
+    }
+    .pricing-note strong { color: var(--gold); font-weight: 600; }
 
     .cta-row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 32px; }
     .btn {
@@ -199,6 +277,71 @@
       margin-bottom: 10px;
     }
     .sub-hub p.lead { margin-bottom: 24px; }
+
+    /* ── LEADERSHIP ── */
+    .leader-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 28px;
+      margin-top: 8px;
+    }
+    .leader-card {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+      background: var(--surface);
+      border: 1px solid var(--gold-border);
+      border-radius: 16px;
+      padding: 26px;
+    }
+    .leader-photo {
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid var(--gold);
+      flex-shrink: 0;
+    }
+    .leader-name {
+      font-family: var(--serif);
+      font-size: 21px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .leader-title {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin: 4px 0 10px;
+    }
+    .leader-bio { color: var(--text-muted); font-size: 13.5px; }
+    .founders-quote {
+      margin-top: 40px;
+      padding: 28px 30px;
+      border-left: 2px solid var(--gold);
+      background: var(--gold-glow);
+      border-radius: 0 12px 12px 0;
+      max-width: 720px;
+    }
+    .founders-quote p {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 19px;
+      line-height: 1.5;
+      color: var(--text);
+    }
+    .founders-quote cite {
+      display: block;
+      margin-top: 14px;
+      font-style: normal;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+
+    .bghs-logo { max-width: 340px; width: 100%; height: auto; display: block; margin-bottom: 22px; }
 
     /* ── COMPANY CAM ── */
     #company-cam-grid {
@@ -248,17 +391,50 @@
 <body>
 
   <div class="hero">
-    <div class="eyebrow">Watson Brothers Group</div>
-    <h1>The Brothers Group <em>Empire</em></h1>
-    <p>One ecosystem — Real Estate, Recruiting, Lead Generation, and Home Solutions — built to serve buyers, sellers, renters, and homeowners across Northeast Florida.</p>
+    <div class="eyebrow fade-up">Watson Brothers Group</div>
+    <h1 class="fade-up d1">The Brothers Group <em>Empire</em></h1>
+    <p class="fade-up d2">One ecosystem — Leadership, Real Estate, Recruiting, Lead Generation, and Home Solutions — built to serve buyers, sellers, renters, and homeowners across Northeast Florida.</p>
+    <div class="hero-rule fade-up d3"></div>
   </div>
 
   <nav class="subnav">
+    <a href="#leadership">Leadership</a>
     <a href="#real-estate-team">Real Estate Team</a>
     <a href="#lead-depot">Lead Depot</a>
     <a href="#home-solutions">Home Solutions</a>
     <a href="#company-cam">Company Cam</a>
   </nav>
+
+  <!-- ── LEADERSHIP ── -->
+  <section class="hub" id="leadership">
+    <div class="hub-kicker">Hub 00</div>
+    <h2>Leadership</h2>
+    <p class="lead">Two brothers built this from the ground up — one runs the real estate business day to day, the other built the systems that keep it running. Every hub on this page reports back to them.</p>
+
+    <div class="leader-grid">
+      <div class="leader-card">
+        <img class="leader-photo" src="/team/alex-watson.jpg" alt="Alex Watson" />
+        <div>
+          <div class="leader-name">Alex Watson</div>
+          <div class="leader-title">Team Lead &amp; Broker Associate</div>
+          <p class="leader-bio">Runs the day-to-day of the real estate team — buyer and seller transactions, agent coaching, and every client relationship start to finish. Licensed in Florida and Georgia.</p>
+        </div>
+      </div>
+      <div class="leader-card">
+        <img class="leader-photo" src="/team/nate-watson.jpg" alt="Nate Watson" />
+        <div>
+          <div class="leader-name">Nate Watson</div>
+          <div class="leader-title">Operations &amp; Home Solutions</div>
+          <p class="leader-bio">Builds and runs the systems behind the team — Lead Depot, repair and renovation coordination, and Brothers Group Home Solutions. If it needs a process or a set of hands, it runs through Nate.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="founders-quote">
+      <p>"We built this so no lead, no repair, and no client falls through the cracks — one team, one system, one standard."</p>
+      <cite>— Alex &amp; Nate Watson</cite>
+    </div>
+  </section>
 
   <!-- ── HUB 1: REAL ESTATE TEAM (with Careers nested) ── -->
   <section class="hub" id="real-estate-team">
@@ -327,31 +503,52 @@
   <!-- ── HUB 3: HOME SOLUTIONS ── -->
   <section class="hub" id="home-solutions">
     <div class="hub-kicker">Hub 03</div>
+    <img class="bghs-logo" src="/bghs/logo-dark.png" alt="Brothers Group Home Solutions" />
     <h2>Brothers Group Home Solutions, LLC</h2>
-    <p class="lead">Everything a property needs before, during, or after a sale — repairs, landscaping, cleaning, and inspection coordination, all under one roof.</p>
+    <p class="lead">Everything a property needs before, during, or after a sale — repairs, landscaping, cleaning, and inspection coordination, all under one roof, all backed by licensed and insured pros.</p>
 
-    <div class="tile-grid">
-      <div class="tile">
+    <div class="service-grid">
+      <div class="service-card">
+        <div class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
         <h3>Home Repairs &amp; Touchups</h3>
-        <p>Pre-listing touch-ups, turnovers, and change-order-backed repair work.</p>
+        <p>Pre-listing touch-ups, turnovers, and change-order-backed repair work — priced, scheduled, and photo-documented at completion.</p>
+        <span class="tag">Repairs</span>
       </div>
-      <div class="tile">
+      <div class="service-card">
+        <div class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v6M12 22c4-3 6-6 6-10a6 6 0 10-12 0c0 4 2 7 6 10z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
         <h3>Landscaping</h3>
-        <p>Mowing, clean-ups, and curb-appeal prep for listings and standing properties.</p>
+        <p>Mowing, clean-ups, and curb-appeal prep for active listings and standing properties alike.</p>
+        <span class="tag">Landscaping</span>
       </div>
-      <div class="tile">
+      <div class="service-card">
+        <div class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7l2-4h14l2 4M5 7v13h14V7M9 21v-6h6v6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
         <h3>Home Cleaning</h3>
-        <p>Move-out, move-in, and pre-listing cleaning services.</p>
+        <p>Move-out, move-in, and pre-listing cleaning services scheduled around your closing timeline.</p>
+        <span class="tag">Cleaning</span>
       </div>
-      <div class="tile">
+      <div class="service-card">
+        <div class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v3l2 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
         <h3>Inspections+</h3>
         <p>Standardized pricing across inspection types — we coordinate licensed, insured inspectors so buyers never have to shop for one.</p>
+        <span class="tag">Inspections</span>
       </div>
+    </div>
+
+    <div class="pricing-note">
+      <strong>How pricing works:</strong> Materials and appliances are quoted at standard Home Depot / Lowe's retail pricing — special or custom orders carry an additional cost. Delivery and installation are billed as separate line-item fees, and every completed job is photo-documented before we close it out.
     </div>
 
     <div class="cta-row">
       <a class="btn btn-solid" href="tel:19048673984">Call (904) 867-3984</a>
-      <a class="btn btn-outline" href="mailto:nate@watsonbrothersgroup.com?subject=Home%20Solutions%20—%20Quote%20Request">Request a Quote</a>
+      <a class="btn btn-outline" href="/home-solutions">Request a Quote</a>
     </div>
   </section>
 

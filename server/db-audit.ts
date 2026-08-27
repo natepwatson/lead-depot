@@ -131,10 +131,14 @@ function checkOrphans(): AuditFinding[] {
   if (tableExists("leads") && tableExists("agents")) {
     const cols = columnsOf("leads");
     if (cols.includes("assigned_agent_id")) {
+      // Fixed v20.33.3 — agents table has no `deactivated` column (that query
+      // silently threw inside safeAll() and returned [], meaning this check
+      // has been reporting a false "0 leads found" for an unknown period).
+      // Correct column is is_active (0 = deactivated).
       const rows = safeAll(`
         SELECT l.id, l.assigned_agent_id, a.name AS agent_name FROM leads l
         JOIN agents a ON a.id = l.assigned_agent_id
-        WHERE (a.deactivated = 1 OR a.deactivated IS NOT NULL AND a.deactivated != 0)
+        WHERE a.is_active = 0
         LIMIT 100
       `);
       if (rows.length > 0) {

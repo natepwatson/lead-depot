@@ -87,8 +87,11 @@ try { sqlite.exec(`ALTER TABLE leads ADD COLUMN buyer_target TEXT`); } catch {} 
 // lead_activity — lpmamab_snapshot column (v11.38)
 try { sqlite.exec(`ALTER TABLE lead_activity ADD COLUMN lpmamab_snapshot TEXT`); } catch {}
 
-// v18.0 — Recruiting module removed. can_recruit column no longer added.
-// agent_leads / agent_lead_activity tables are DROPped in server/db.ts on boot.
+// v18.0 — Recruiting module removed from the app; agent_leads / agent_lead_activity
+// tables are still DROPped in server/db.ts on boot. can_recruit itself is otherwise
+// unused by the app — see the ALTER TABLE restoring it further below, placed AFTER
+// the `CREATE TABLE IF NOT EXISTS agents` block runs (this comment sits before that
+// table exists on a fresh DB, so an ALTER here would silently no-op).
 
 // v11.82 — Performance gate: minDialsPerWeek column
 try { sqlite.exec(`ALTER TABLE agents ADD COLUMN min_dials_per_week INTEGER NOT NULL DEFAULT 0`); } catch {}
@@ -293,6 +296,16 @@ sqlite.exec(`
     updated_at TEXT NOT NULL DEFAULT ''
   );
 `);
+
+// v18.0 fresh-DB fix (found during v20.33.2 local QA): shared/schema.ts still
+// declares canRecruit on the agents table, and the admin-seed check below
+// (db.select().from(agents)...) runs at module-eval time. On a completely
+// fresh DB with no historical can_recruit column, Drizzle's prepare() throws
+// "no such column: can_recruit" and the whole process dies before Express
+// binds a port — same failure mode documented for min_dials_per_week,
+// territory1/2, profile_completed_at, etc. above. Must run here, AFTER the
+// CREATE TABLE IF NOT EXISTS agents block above has actually created the table.
+try { sqlite.exec(`ALTER TABLE agents ADD COLUMN can_recruit INTEGER NOT NULL DEFAULT 0`); } catch {}
 
 export interface IStorage {
   // Auth

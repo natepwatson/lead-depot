@@ -4,7 +4,7 @@
 // (auto-emailed from the Repair Consult client flow when an item needs a licensed trade).
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2, FilePlus2, XCircle, Pencil, Eye } from "lucide-react";
+import { RefreshCw, Trash2, Plus, DollarSign, Users2, FileSignature, Mail, Download, PenLine, CheckCircle2, FilePlus2, XCircle, Pencil, Eye, ClipboardCheck, Wrench, CalendarClock } from "lucide-react";
 // v20.30.0 — lets Alex open ANY repair consult (any agent's, any status)
 // from the admin Repair Program panel and edit the scope/items directly,
 // same tool the field agent uses, instead of only being able to view a
@@ -84,6 +84,18 @@ type Consult = {
   print_signed_confirmed_by: string | null;
   agent_name: string | null;
   created_at: string;
+  // v20.33.2 (Work Order admin tab) — completion + job-detail fields, already
+  // written by the backend (mark-complete, work-order-details endpoints) but
+  // not previously surfaced in this admin panel's data model.
+  target_completion_date: string | null;
+  tools_needed: string | null;
+  time_block_estimate: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  work_order_pdf_url: string | null;
+  // v20.33.4 (phased/partial payment confirm-as-you-go) — running paid total
+  // across payment_records for this job, joined in by the backend list query.
+  paid_amount?: number;
 };
 
 const GOLD = "#c8aa5a";
@@ -114,7 +126,7 @@ type ChangeOrder = {
 };
 
 export function RepairPricingVendorPanel() {
-  const [tab, setTab] = useState<"pricing" | "vendors" | "consults" | "changeorders">("pricing");
+  const [tab, setTab] = useState<"pricing" | "vendors" | "consults" | "changeorders" | "workorders">("pricing");
 
   return (
     <div style={{ marginTop: 24 }}>
@@ -124,6 +136,10 @@ export function RepairPricingVendorPanel() {
           { key: "vendors", label: "Vendor Directory", icon: Users2 },
           { key: "consults", label: "Consults", icon: FileSignature },
           { key: "changeorders", label: "Change Orders", icon: FilePlus2 },
+          // v20.33.2 — Work Orders: focused board of jobs actively in production
+          // (accepted / work_order_sent, not yet completed), separate from the
+          // full Consults CRM view which mixes every lifecycle stage together.
+          { key: "workorders", label: "Work Orders", icon: ClipboardCheck },
         ].map(t => (
           <button
             key={t.key}
@@ -141,7 +157,7 @@ export function RepairPricingVendorPanel() {
           </button>
         ))}
       </div>
-      {tab === "pricing" ? <PricingCatalogPanel /> : tab === "vendors" ? <VendorDirectoryPanel /> : tab === "consults" ? <ConsultsPanel /> : <ChangeOrdersPanel />}
+      {tab === "pricing" ? <PricingCatalogPanel /> : tab === "vendors" ? <VendorDirectoryPanel /> : tab === "consults" ? <ConsultsPanel /> : tab === "workorders" ? <WorkOrdersPanel /> : <ChangeOrdersPanel />}
     </div>
   );
 }
@@ -1049,6 +1065,245 @@ function ConsultsPanel() {
           consultId={meetingsFor.id}
           propertyAddress={meetingsFor.property_address}
           onClose={() => setMeetingsFor(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── WORK ORDERS BOARD (v20.33.2) ──
+// Focused view of jobs actively in production — status accepted or
+// work_order_sent, not yet completed — so Alex/Nate can see target
+// completion dates, tools/time needed, and mark a job done without wading
+// through the full Consults table which mixes in draft/quoted/declined rows.
+function WorkOrdersPanel() {
+  const [consults, setConsults] = useState<Consult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [meetingsFor, setMeetingsFor] = useState<Consult | null>(null);
+  const [pdfModal, setPdfModal] = useState<{ url: string; title: string } | null>(null);
+  // v20.33.4 — phased/partial payment confirm-as-you-go: record a payment
+  // against a job directly from its Work Order card, no trip to the
+  // Consults tab required, so the crew's on-site progress and the client's
+  // running balance stay confirmed together.
+  const [payModalFor, setPayModalFor] = useState<Consult | null>(null);
+  // Inline-editable draft values keyed by consult id, so typing in one row's
+  // date/tools/time fields doesn't require a round-trip per keystroke.
+  const [drafts, setDrafts] = useState<Record<number, { targetCompletionDate: string; toolsNeeded: string; timeBlockEstimate: string }>>({});
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/repair-consults", { credentials: "include" });
+      const d = await r.json();
+      const active: Consult[] = (d.consults || []).filter(
+        (c: Consult) => (c.status === "accepted" || c.status === "work_order_sent") && !c.completed_at
+      );
+      setConsults(active);
+      const nextDrafts: typeof drafts = {};
+      for (const c of active) {
+        nextDrafts[c.id] = {
+          targetCompletionDate: c.target_completion_date || "",
+          toolsNeeded: c.tools_needed || "",
+          timeBlockEstimate: c.time_block_estimate || "",
+        };
+      }
+      setDrafts(nextDrafts);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const saveDetails = async (c: Consult) => {
+    const d = drafts[c.id];
+    if (!d) return;
+    setBusy(c.id);
+    try {
+      await fetch(`/api/repair-consult/${c.id}/work-order-details`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          targetCompletionDate: d.targetCompletionDate || null,
+          toolsNeeded: d.toolsNeeded || null,
+          timeBlockEstimate: d.timeBlockEstimate || null,
+        }),
+      });
+      load();
+    } finally { setBusy(null); }
+  };
+
+  const markComplete = async (c: Consult) => {
+    if (!confirm(`Mark the job at ${c.property_address} as complete? This fires the final payment/invoice reminders and removes it from the active board.`)) return;
+    setBusy(c.id);
+    try {
+      const r = await fetch(`/api/repair-consult/${c.id}/mark-complete`, { method: "POST", credentials: "include" });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(body?.error || "Failed to mark complete"); return; }
+      load();
+    } finally { setBusy(null); }
+  };
+
+  const updateDraft = (id: number, field: keyof (typeof drafts)[number], value: string) => {
+    setDrafts(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+  };
+
+  const inputStyle: CSSProperties = {
+    width: "100%", padding: "4px 6px", fontSize: 11, borderRadius: 4,
+    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)", color: "#e5e7eb",
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb", display: "flex", alignItems: "center", gap: 6 }}>
+          <Wrench size={13} color={GOLD} /> Active Work Orders
+        </h3>
+        <button onClick={load} style={{
+          display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6,
+          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.10)",
+          color: "#94a3b8", fontSize: 11, cursor: "pointer",
+        }}><RefreshCw size={11} /> Refresh</button>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Jobs that are signed, in production (accepted or work order sent) and not yet marked complete. Set the
+        target completion date, tools needed, and time block estimate here — these feed the Work Order PDF and
+        crew scheduling. Full document/signature/payment history lives in the Consults tab.
+      </p>
+
+      {loading ? (
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>Loading work orders…</div>
+      ) : consults.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>No active work orders right now — jobs appear here once a client accepts and signs.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {consults.map(c => {
+            const d = drafts[c.id] || { targetCompletionDate: "", toolsNeeded: "", timeBlockEstimate: "" };
+            return (
+              <div key={c.id} style={{
+                border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 12,
+                background: "rgba(255,255,255,0.02)",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>{c.property_address}</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                      {c.client_name || "—"} · Agent: {c.agent_name || "—"} · ${(c.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    <span style={{
+                      fontSize: 10.5, padding: "3px 8px", borderRadius: 4, textTransform: "capitalize",
+                      color: c.status === "work_order_sent" ? "#5eead4" : "#e8d8a8",
+                      background: c.status === "work_order_sent" ? "rgba(94,234,212,0.10)" : "rgba(200,170,90,0.10)",
+                      border: `1px solid ${c.status === "work_order_sent" ? "rgba(94,234,212,0.35)" : "rgba(200,170,90,0.35)"}`,
+                    }}>{c.status.replace(/_/g, " ")}</span>
+                    <span style={{
+                      fontSize: 10.5, padding: "3px 8px", borderRadius: 4,
+                      color: c.deposit_received_at ? "#4ade80" : "#f87171",
+                      background: c.deposit_received_at ? "rgba(74,222,128,0.08)" : "rgba(248,113,113,0.08)",
+                      border: `1px solid ${c.deposit_received_at ? "rgba(74,222,128,0.3)" : "rgba(248,113,113,0.3)"}`,
+                    }}>{c.deposit_received_at ? "Deposit received" : "Deposit pending"}</span>
+                    {c.start_date || c.start_window ? (
+                      <span style={{ fontSize: 10.5, padding: "3px 8px", borderRadius: 4, color: "#93c5fd", background: "rgba(147,197,253,0.08)", border: "1px solid rgba(147,197,253,0.3)" }}>
+                        Start: {c.start_date ? `${c.start_date}${c.start_time ? " " + c.start_time : ""}` : c.start_window}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 8 }}>
+                  <label style={{ fontSize: 10.5, color: "#94a3b8" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3 }}><CalendarClock size={10} /> Target Completion</div>
+                    <input type="date" style={inputStyle} value={d.targetCompletionDate?.match(/^\d{4}-\d{2}-\d{2}$/) ? d.targetCompletionDate : ""}
+                      onChange={e => updateDraft(c.id, "targetCompletionDate", e.target.value)} />
+                  </label>
+                  <label style={{ fontSize: 10.5, color: "#94a3b8" }}>
+                    <div style={{ marginBottom: 3 }}>Tools Needed</div>
+                    <input type="text" placeholder="e.g. pressure washer, ladder" style={inputStyle} value={d.toolsNeeded}
+                      onChange={e => updateDraft(c.id, "toolsNeeded", e.target.value)} />
+                  </label>
+                  <label style={{ fontSize: 10.5, color: "#94a3b8" }}>
+                    <div style={{ marginBottom: 3 }}>Time Block Estimate</div>
+                    <input type="text" placeholder="e.g. 2 days" style={inputStyle} value={d.timeBlockEstimate}
+                      onChange={e => updateDraft(c.id, "timeBlockEstimate", e.target.value)} />
+                  </label>
+                </div>
+
+                {/* v20.33.4 — phased/partial payment progress. total/paid come
+                    straight from the joined admin list query; balance is
+                    derived client-side so the bar updates the instant a
+                    payment is recorded, no extra fetch needed. */}
+                {(() => {
+                  const total = c.total || 0;
+                  const paid = c.paid_amount || 0;
+                  const balance = Math.max(0, total - paid);
+                  const pct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
+                  return (
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#94a3b8", marginBottom: 3 }}>
+                        <span>Paid ${paid.toLocaleString(undefined, { minimumFractionDigits: 2 })} of ${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span style={{ color: balance > 0 ? "#f87171" : "#4ade80", fontWeight: 600 }}>
+                          {balance > 0 ? `$${balance.toLocaleString(undefined, { minimumFractionDigits: 2 })} balance` : "Paid in full"}
+                        </span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${pct}%`, background: balance > 0 ? GOLD : "#4ade80", borderRadius: 3 }} />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button disabled={busy === c.id} onClick={() => saveDetails(c)}
+                    style={{ ...actionBtnStyle, color: "#93c5fd", borderColor: "rgba(147,197,253,0.4)", background: "rgba(147,197,253,0.08)" }}>
+                    <Pencil size={11} /> Save Details
+                  </button>
+                  <button disabled={busy === c.id} onClick={() => setMeetingsFor(c)}
+                    style={{ ...actionBtnStyle, color: "#c4b5fd", borderColor: "rgba(196,181,253,0.4)", background: "rgba(196,181,253,0.08)" }}>
+                    Meetings
+                  </button>
+                  {c.work_order_pdf_url ? (
+                    <button disabled={busy === c.id} onClick={() => setPdfModal({ url: c.work_order_pdf_url!, title: `${c.property_address} — Work Order` })}
+                      style={actionBtnStyle}><Download size={11} /> Work Order PDF</button>
+                  ) : (
+                    <span style={{ fontSize: 10.5, color: "#64748b", alignSelf: "center" }}>Work order PDF generates automatically once signed</span>
+                  )}
+                  {((c.total || 0) - (c.paid_amount || 0)) > 0.005 && (
+                    <button disabled={busy === c.id} onClick={() => setPayModalFor(c)}
+                      style={{ ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)" }}>
+                      <DollarSign size={11} /> Record Payment
+                    </button>
+                  )}
+                  <button disabled={busy === c.id} onClick={() => markComplete(c)}
+                    style={{ ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)" }}>
+                    <CheckCircle2 size={11} /> Mark Complete
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {meetingsFor && (
+        <ProjectMeetingsModal
+          consultId={meetingsFor.id}
+          propertyAddress={meetingsFor.property_address}
+          onClose={() => setMeetingsFor(null)}
+        />
+      )}
+      {pdfModal && (
+        <PdfViewerModal url={pdfModal.url} title={pdfModal.title} onClose={() => setPdfModal(null)} />
+      )}
+      {payModalFor && (
+        <PaymentRecordModal
+          sourceType="repair_consult"
+          sourceId={payModalFor.id}
+          propertyAddress={payModalFor.property_address}
+          contractTotal={payModalFor.total || 0}
+          balanceRemaining={Math.max(0, (payModalFor.total || 0) - (payModalFor.paid_amount || 0))}
+          onClose={() => setPayModalFor(null)}
+          onRecorded={() => { setPayModalFor(null); load(); }}
         />
       )}
     </div>

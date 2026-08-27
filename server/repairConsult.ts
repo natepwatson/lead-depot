@@ -33,6 +33,7 @@ import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { fireMilestoneTasks } from "./fub";
 import { ACCEPTED_PAYMENT_METHODS_LABEL } from "./payments";
+import { awardPoints } from "./points";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -391,6 +392,14 @@ export function ensureRepairConsultSchema() {
   // generic default text.
   if (!rciCols.includes("vendor_scope_note")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN vendor_scope_note TEXT").run();
 
+  // v20.33.3 — Electrical Vendor Quote Needed: some in-house items (GFCI
+  // install, bath exhaust fan, ceiling fan install) sometimes hit a spot
+  // with no existing wiring — the in-house drywall/patch work can still
+  // proceed, but a licensed electrician has to run/tap the circuit first.
+  // This flag lets the agent flag that at checklist time instead of
+  // discovering it mid-job.
+  if (!rciCols.includes("needs_electrical_vendor")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN needs_electrical_vendor INTEGER DEFAULT 0").run();
+
   // v20.32.0 — E-Sign redesign: two-stage signature chain. Homeowner signs
   // first (status -> 'pending_countersignature', reusing accepted_at /
   // accepted_signature_name / accepted_ip / signature_method exactly as
@@ -518,6 +527,16 @@ interface SeedItem {
   instruction: string; notes?: string;
 }
 
+// v20.33.2 — Shared disclosure appended to every parts-at-cost in-house
+// catalog item. Home Depot/Lowe's stock and pricing shift day to day; if the
+// exact size/model/finish this rate is built around isn't available within
+// our budget and time window, we substitute the closest comparable in-stock
+// unit that keeps the job on schedule and on budget. Any resulting change in
+// scope or price is documented as a Change Order and the client is notified
+// before we proceed with the substitute.
+const STOCK_CHANGE_ORDER_CLAUSE =
+  " Home Depot/Lowe's stock and pricing can change day to day — if the exact size/model this rate is based on isn't available within our budget and time window, we substitute the closest comparable in-stock unit to stay on schedule; any resulting change in scope or price is documented as a Change Order and the client is notified before we proceed.";
+
 const IN_HOUSE_ITEMS: SeedItem[] = [
   // v20.24.0 — Always-Included baseline items. Auto-checked on EVERY repair
   // consult regardless of pillar flags or the scope slider position — these
@@ -598,23 +617,30 @@ const IN_HOUSE_ITEMS: SeedItem[] = [
   // to installation/workmanship errors — product defects are the
   // manufacturer's/retailer's responsibility, not ours. We take completion
   // photos on every job as proof of finished, working installation.
-  { key: "bath_vanity_replace", category: "in_house", trade: "bathroom_repair", name: "Bathroom Vanity Installation (Labor)", unit: "each", rate: 175, min: 175, seq: 70.1, instruction: "Install {qty} replacement bathroom vanity (cabinet + top + sink). Existing water supply lines and drain location only — no plumbing relocation. Vanity is billed to the client at cost — a readily-available stock unit from Home Depot, Lowe's, or a comparable retailer, unless a custom/special-order unit is requested, which carries an additional expense beyond cost. This rate is installation labor only; see the Materials Pickup & Delivery Fee if we're handling procurement/delivery. Cap 2 vanities per job — larger runs, plumbing relocation, or custom stone tops route to vendor plumbing/countertop work. Liability limited to installation workmanship — product defects are the manufacturer's responsibility. Completion photos taken and retained." },
-  { key: "bath_towel_hardware", category: "in_house", trade: "bathroom_repair", name: "Towel Bar / Ring / Robe Hook Installation (Labor)", unit: "each", rate: 25, min: 0, seq: 70.2, instruction: "Install {qty} towel bar, towel ring, or robe hook. Standard wall-mount hardware, existing mounting holes/drywall anchors only. Hardware billed to client at cost from Home Depot/Lowe's unless a custom/specialty finish is requested (additional expense). This rate is installation labor only. Liability limited to installation workmanship. Completion photos taken and retained." },
-  { key: "bath_mirror_replace", category: "in_house", trade: "bathroom_repair", name: "Bathroom Mirror Installation (Labor)", unit: "each", rate: 65, min: 65, seq: 70.3, instruction: "Install {qty} bathroom mirror(s). Standard framed or clip-mounted mirror up to 36\"x48\", existing wall only. Mirror billed to client at cost from Home Depot/Lowe's unless custom-cut/specialty ordered, which carries an additional expense. This rate is installation labor only; see the Materials Pickup & Delivery Fee if we're handling procurement/delivery. Custom-cut frameless mirrors or mirrors over 36\"x48\" route to vendor frameless-glass work. Liability limited to installation workmanship. Completion photos taken and retained." },
-  { key: "bath_toilet_replace", category: "in_house", trade: "bathroom_repair", name: "Toilet Installation (Labor)", unit: "each", rate: 150, min: 150, seq: 70.4, instruction: "Install {qty} replacement toilet (like-for-like) — existing water supply line and drain flange only, standard elongated/round bowl, wax ring included, old unit hauled away. Toilet billed to client at cost from Home Depot/Lowe's unless a custom/specialty unit is requested (additional expense). This rate is installation labor only; see the Materials Pickup & Delivery Fee if we're handling procurement/delivery. Cap 3 toilets per job — flange repair, subfloor damage, or non-standard comfort units route to vendor plumbing. Liability limited to installation workmanship — product defects are the manufacturer's responsibility. Completion photos taken and retained." },
-  { key: "bath_exhaust_fan", category: "in_house", trade: "electrical", name: "Bathroom Exhaust Fan Installation (Labor)", unit: "each", rate: 125, min: 125, seq: 70.5, instruction: "Install {qty} bathroom exhaust fan — existing wiring and vent duct run only, no new duct routing or roof/soffit penetration. Fan billed to client at cost from Home Depot/Lowe's unless a custom/specialty unit is requested (additional expense). This rate is installation labor only. Cap 2 fans per job — new duct runs or roof penetrations route to vendor electrical work. Liability limited to installation workmanship. Completion photos taken and retained." },
-  { key: "kitchen_faucet_replace", category: "in_house", trade: "kitchen_repair", name: "Kitchen Faucet Installation (Labor)", unit: "each", rate: 95, min: 95, seq: 75.1, instruction: "Install {qty} kitchen faucet — existing supply lines and sink cutout only, standard single or two-handle faucet. Faucet billed to client at cost from Home Depot/Lowe's unless a custom/specialty unit is requested (additional expense). This rate is installation labor only. Cap 2 per job — supply-line work beyond standard flex connectors, or sink replacement, routes to vendor plumbing. Liability limited to installation workmanship. Completion photos taken and retained." },
-  { key: "garbage_disposal_replace", category: "in_house", trade: "kitchen_repair", name: "Garbage Disposal Installation, Like-for-Like (Labor)", unit: "each", rate: 125, min: 125, seq: 75.2, instruction: "Install {qty} garbage disposal, like-for-like horsepower and mount type, existing outlet and drain connection only. Disposal billed to client at cost from Home Depot/Lowe's unless a custom/specialty unit is requested (additional expense). This rate is installation labor only. Cap 2 per job — new outlet wiring or drain-line modification routes to vendor plumbing/electrical. Liability limited to installation workmanship. Completion photos taken and retained." },
-  { key: "laundry_supply_line", category: "in_house", trade: "laundry_repair", name: "Washer/Dryer Supply Line & Vent Connector Installation (Labor)", unit: "each", rate: 35, min: 35, seq: 80.1, instruction: "Install {qty} washer supply hose(s) or dryer vent connector(s), existing connection points only. Parts billed to client at cost from Home Depot/Lowe's. This rate is installation labor only. Cap 4 per job. Liability limited to installation workmanship. Completion photos taken and retained." },
-  { key: "dryer_vent_clean", category: "in_house", trade: "laundry_repair", name: "Dryer Vent Cleaning / Clearing", unit: "flat", rate: 95, min: 95, seq: 80.2, instruction: "Clean and clear the dryer vent duct run, up to 15 linear ft from dryer to exterior termination. Service/labor fee only — no materials involved. Longer or inaccessible runs behind finished walls route to vendor carpentry/HVAC work. Completion photos taken and retained." },
-  { key: "laundry_faucet_replace", category: "in_house", trade: "laundry_repair", name: "Laundry / Utility Sink Faucet Installation (Labor)", unit: "each", rate: 95, min: 95, seq: 80.3, instruction: "Install {qty} laundry/utility sink faucet, existing supply lines and sink cutout only. Faucet billed to client at cost from Home Depot/Lowe's unless a custom/specialty unit is requested (additional expense). This rate is installation labor only. Cap 2 per job. Liability limited to installation workmanship. Completion photos taken and retained." },
+  { key: "bath_vanity_replace", category: "in_house", trade: "bathroom_repair", name: "Bathroom Vanity Installation (Labor)", unit: "each", rate: 175, min: 175, seq: 70.1, instruction: "Install {qty} replacement bathroom vanity (cabinet + top + sink). Existing water supply lines and drain location only — no plumbing relocation. This rate covers a standard single-sink vanity up to 30\" wide — the typical in-stock size and price point at Home Depot/Lowe's — billed to the client at documented cost. Vanities wider than 30\", double-sink units, or floating/wall-mount styles run higher at retail and are priced as a Change Order once the actual unit and cost are confirmed. This rate is installation labor only; see the Materials Pickup & Delivery Fee if we're handling procurement/delivery. Cap 2 vanities per job — larger runs, plumbing relocation, or custom stone tops route to vendor plumbing/countertop work." + STOCK_CHANGE_ORDER_CLAUSE + " Liability limited to installation workmanship — product defects are the manufacturer's responsibility. Completion photos taken and retained." },
+  { key: "bath_towel_hardware", category: "in_house", trade: "bathroom_repair", name: "Towel Bar / Ring / Robe Hook Installation (Labor)", unit: "each", rate: 25, min: 0, seq: 70.2, instruction: "Install {qty} towel bar, towel ring, or robe hook. Standard wall-mount hardware, existing mounting holes/drywall anchors only. Rate covers a standard in-stock finish (chrome, brushed nickel, matte black, or oil-rubbed bronze) at documented cost; specialty/designer finishes not in typical stock run higher and are priced as a Change Order once confirmed." + STOCK_CHANGE_ORDER_CLAUSE + " This rate is installation labor only. Liability limited to installation workmanship. Completion photos taken and retained." },
+  { key: "bath_mirror_replace", category: "in_house", trade: "bathroom_repair", name: "Bathroom Mirror Installation (Labor)", unit: "each", rate: 65, min: 65, seq: 70.3, instruction: "Install {qty} bathroom mirror(s). This rate covers a standard framed or clip-mounted mirror up to 36\"x48\" — the typical in-stock size at Home Depot/Lowe's — existing wall only, billed to the client at documented cost. Custom-cut frameless mirrors or mirrors over 36\"x48\" route to vendor frameless-glass work instead." + STOCK_CHANGE_ORDER_CLAUSE + " This rate is installation labor only; see the Materials Pickup & Delivery Fee if we're handling procurement/delivery. Liability limited to installation workmanship. Completion photos taken and retained." },
+  { key: "bath_toilet_replace", category: "in_house", trade: "bathroom_repair", name: "Toilet Installation (Labor)", unit: "each", rate: 150, min: 150, seq: 70.4, instruction: "Install {qty} replacement toilet (like-for-like) — existing water supply line and drain flange only. This rate covers a standard elongated or round-front bowl with a 12\" rough-in and wax ring — the typical in-stock configuration — billed to the client at documented cost, old unit hauled away. A different rough-in (10\"/14\"), comfort-height, or specialty bowl is priced as a Change Order once the actual unit and cost are confirmed. This rate is installation labor only; see the Materials Pickup & Delivery Fee if we're handling procurement/delivery. Cap 3 toilets per job — flange repair, subfloor damage, or non-standard comfort units route to vendor plumbing." + STOCK_CHANGE_ORDER_CLAUSE + " Liability limited to installation workmanship — product defects are the manufacturer's responsibility. Completion photos taken and retained." },
+  { key: "bath_exhaust_fan", category: "in_house", trade: "electrical", name: "Bathroom Exhaust Fan Installation (Labor)", unit: "each", rate: 125, min: 125, seq: 70.5, instruction: "Install {qty} bathroom exhaust fan — existing wiring and vent duct run only, no new duct routing or roof/soffit penetration. Rate covers a standard 80–110 CFM fan — the typical in-stock range — billed to the client at documented cost; fan/light/heater combo units or higher-CFM models run higher and are priced as a Change Order once confirmed." + STOCK_CHANGE_ORDER_CLAUSE + " This rate is installation labor only. Cap 2 fans per job — new duct runs or roof penetrations route to vendor electrical work. Liability limited to installation workmanship. Completion photos taken and retained." },
+  { key: "kitchen_faucet_replace", category: "in_house", trade: "kitchen_repair", name: "Kitchen Faucet Installation (Labor)", unit: "each", rate: 95, min: 95, seq: 75.1, instruction: "Install {qty} kitchen faucet — existing supply lines and sink cutout only. Rate covers a standard single or two-handle deck-mount faucet — the typical in-stock style at Home Depot/Lowe's — billed to the client at documented cost; touchless, pull-down commercial-style, or specialty-finish faucets run higher and are priced as a Change Order once confirmed." + STOCK_CHANGE_ORDER_CLAUSE + " This rate is installation labor only. Cap 2 per job — supply-line work beyond standard flex connectors, or sink replacement, routes to vendor plumbing. Liability limited to installation workmanship. Completion photos taken and retained." },
+  { key: "garbage_disposal_replace", category: "in_house", trade: "kitchen_repair", name: "Garbage Disposal Installation, Like-for-Like (Labor)", unit: "each", rate: 125, min: 125, seq: 75.2, instruction: "Install {qty} garbage disposal, like-for-like mount type, existing outlet and drain connection only. Rate covers a standard 1/2–3/4 HP continuous-feed unit — the typical in-stock range — billed to the client at documented cost; higher-HP or batch-feed units run higher and are priced as a Change Order once confirmed." + STOCK_CHANGE_ORDER_CLAUSE + " This rate is installation labor only. Cap 2 per job — new outlet wiring or drain-line modification routes to vendor plumbing/electrical. Liability limited to installation workmanship. Completion photos taken and retained." },
+  { key: "laundry_supply_line", category: "in_house", trade: "laundry_repair", name: "Washer/Dryer Supply Line & Vent Connector Installation (Labor)", unit: "each", rate: 35, min: 35, seq: 80.1, instruction: "Install {qty} washer supply hose(s) or dryer vent connector(s), existing connection points only. Standard stock parts billed to client at documented cost." + STOCK_CHANGE_ORDER_CLAUSE + " This rate is installation labor only. Cap 4 per job. Liability limited to installation workmanship. Completion photos taken and retained." },
+  { key: "dryer_vent_clean", category: "in_house", trade: "laundry_repair", name: "Dryer Vent Cleaning / Clearing", unit: "flat", rate: 95, min: 95, seq: 80.2, instruction: "Clean and clear the dryer vent duct run, up to 15 linear ft from dryer to exterior termination. Service/labor fee only — no materials purchased for this item. Longer or inaccessible runs behind finished walls route to vendor carpentry/HVAC work. Completion photos taken and retained." },
+  { key: "laundry_faucet_replace", category: "in_house", trade: "laundry_repair", name: "Laundry / Utility Sink Faucet Installation (Labor)", unit: "each", rate: 95, min: 95, seq: 80.3, instruction: "Install {qty} laundry/utility sink faucet, existing supply lines and sink cutout only. Rate covers a standard in-stock faucet billed to the client at documented cost; specialty-finish or commercial-style faucets run higher and are priced as a Change Order once confirmed." + STOCK_CHANGE_ORDER_CLAUSE + " This rate is installation labor only. Cap 2 per job. Liability limited to installation workmanship. Completion photos taken and retained." },
+  // v20.33.2 — Trip/delivery fees for materials procurement, added at Alex's
+  // request: stock at Home Depot/Lowe's changes day to day, and if the
+  // needed part/fixture/appliance isn't at the first store, going to a
+  // second store is a separate billed trip — not absorbed into the flat
+  // delivery fee. Kept as its own line so agents only add it when it
+  // actually happens.
+  { key: "additional_store_trip_fee", category: "in_house", trade: "appliance_coordination", name: "Additional Store Trip Fee", unit: "flat", rate: 45, min: 45, seq: 83, instruction: "Fee for an additional store trip when the needed part, fixture, or appliance was not in stock at the first store visited. Covers travel time and fuel for the extra trip only — the part/fixture/appliance itself is still billed to the client separately at that store's documented cost. Applies once per additional store visited beyond the first; add this line again for each further trip." },
   // v20.33.1 — Shared procurement/delivery fee. Applies once per job when
   // Brothers Group handles pickup/delivery of parts, fixtures, or
   // appliances that are billed to the client at cost. Kept as its own line
   // (rather than bundled into each fixture's rate) so agents can add it
   // only when delivery service is actually being provided.
-  { key: "materials_pickup_delivery", category: "in_house", trade: "appliance_coordination", name: "Materials Pickup & Delivery Fee", unit: "flat", rate: 75, min: 75, seq: 84, instruction: "Pickup and delivery fee for parts, fixtures, or appliances purchased at cost from Home Depot, Lowe's, or a comparable readily-available retailer for this job. Applies once per job when Brothers Group handles procurement and delivery. Custom-ordered, special-order, or non-stock items carry an additional expense beyond the item's retail cost — this fee does not change for those. Materials are always billed to the client at documented cost, no markup on the part/appliance itself." },
-  { key: "appliance_coordinate", category: "in_house", trade: "appliance_coordination", name: "Appliance Installation & Old-Unit Removal (Labor)", unit: "each", rate: 250, min: 250, seq: 85, instruction: "Install/hook up {qty} replacement appliance and haul away the existing unit. Appliance is billed to the client at cost — a reasonably comparable, readily-available make/model from Home Depot, Lowe's, or a comparable retailer, at Brothers Group's discretion, unless the client specifies an exact unit and it is reasonably available (still billed at cost, no markup). Custom-ordered, special-order, or non-stock appliances carry an additional expense beyond retail cost. This fee covers installation/hookup and old-unit removal (labor) only — see the Materials Pickup & Delivery Fee for procurement/delivery service. Water and gas-line hookups are limited to existing, code-compliant connections — pre-existing plumbing/valve/gas-line conditions are inspected but not warranted. Liability is limited to installation/workmanship errors only — product defects and pre-existing hookup conditions (including any resulting water damage) are not Brothers Group's responsibility. Completion photos taken and retained as proof of finished, working installation. Cap 1 appliance per line item — add additional line items for multiple appliances.", notes: "Rate is install/haul-away labor only. Appliance unit is a separate cost pass-through (no markup); add Materials Pickup & Delivery Fee if we're handling delivery." },
+  { key: "materials_pickup_delivery", category: "in_house", trade: "appliance_coordination", name: "Materials Pickup & Delivery Fee", unit: "flat", rate: 75, min: 75, seq: 84, instruction: "Pickup and delivery fee for parts, fixtures, or appliances purchased at cost from Home Depot, Lowe's, or a comparable readily-available retailer for this job. Applies once per job when Brothers Group handles procurement and delivery. Custom-ordered, special-order, or non-stock items carry an additional expense beyond the item's retail cost — this fee does not change for those. If the needed item isn't in stock at the first store, see the Additional Store Trip Fee for the extra trip. Materials are always billed to the client at documented cost, no markup on the part/appliance itself." },
+  { key: "appliance_coordinate", category: "in_house", trade: "appliance_coordination", name: "Appliance Installation & Old-Unit Removal (Labor)", unit: "each", rate: 250, min: 250, seq: 85, instruction: "Install/hook up {qty} replacement appliance and haul away the existing unit. Appliance is billed to the client at cost — a reasonably comparable, readily-available make/model from Home Depot, Lowe's, or a comparable retailer, at Brothers Group's discretion, unless the client specifies an exact unit and it is reasonably available (still billed at cost, no markup). Custom-ordered, special-order, or non-stock appliances carry an additional expense beyond retail cost." + STOCK_CHANGE_ORDER_CLAUSE + " This fee covers installation/hookup and old-unit removal (labor) only — see the Materials Pickup & Delivery Fee for procurement/delivery service, and the Additional Store Trip Fee if the model isn't at the first store. Water and gas-line hookups are limited to existing, code-compliant connections — pre-existing plumbing/valve/gas-line conditions are inspected but not warranted. Liability is limited to installation/workmanship errors only — product defects and pre-existing hookup conditions (including any resulting water damage) are not Brothers Group's responsibility. Completion photos taken and retained as proof of finished, working installation. Cap 1 appliance per line item — add additional line items for multiple appliances.", notes: "Rate is install/haul-away labor only. Appliance unit is a separate cost pass-through (no markup); add Materials Pickup & Delivery Fee if we're handling delivery, and Additional Store Trip Fee if a second store is needed." },
 ];
 
 const VENDOR_TRADES: SeedItem[] = [
@@ -768,17 +794,20 @@ function fillInstruction(template: string, qty: number, unit: string, twoStory: 
 export const IN_HOUSE_TERMS = [
   "Price reflects the scope, quantities, and condition observed at this consultation. Conditions discovered once work begins (rot, mold, structural issues, pest damage, code violations, etc.) are not included and will be presented as a separate change order requiring written approval before we proceed.",
   `Payment: 50% deposit due before work begins, 50% due upon completion. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL}.`,
-  "Color-matched paint is NOT guaranteed to be an exact match. It is matched by visual sample only; sheen/tone variance from the original surface is possible due to substrate age, weathering, lighting, or manufacturer formulation changes, and is not a defect covered by our workmanship warranty. Client approves the color sample before purchase.",
-  "This quote covers in-house labor & materials for the items listed only. It does not include permits, HOA approval, or any item requiring a licensed trade (electrical, plumbing, roofing, HVAC, structural, etc.) — those are quoted separately by our licensed vendor partners and are not performed or warrantied by Brothers Group's in-house crew.",
+  "Color/pattern matching on paint, countertops, tile, and other materials is a best-effort visual match only, NOT guaranteed exact — natural stone and tile can vary lot to lot. This variance is not a workmanship defect. Client approves the sample before purchase.",
+  "Defective products (parts, fixtures, appliances, materials) are the manufacturer's/retailer's responsibility, not ours. We'll try to coordinate a store-approved exchange as a courtesy, but this is not guaranteed. All materials sales are final — no refunds.",
+  "This quote covers in-house labor & materials for the items listed only. It does not include permits, HOA approval, or any item requiring a licensed trade (electrical, plumbing, roofing, HVAC, structural, etc.) — those requests are relayed to our independent, licensed vendor network, who quote and perform that work themselves; it's not performed or warrantied by Brothers Group's in-house crew.",
   "Client provides on-site access, water, and electrical, and secures pets and personal property in work areas. Delays caused by lack of access may incur a rescheduling fee.",
   "Quote valid 14 days from issue date. Deposits are non-refundable once material is purchased or labor is scheduled with less than 48 hours' notice.",
-  "Brothers Group is not a licensed general contractor; in-house work is limited to non-structural, non-permitted cosmetic and maintenance items as listed above.",
+  "Brothers Group is a real estate company offering this as a home service coordination program, not a licensed general contractor; in-house work is limited to non-structural, non-permitted cosmetic and maintenance items as listed above.",
+  "Brothers Group may stop work and terminate this agreement for non-payment, unsafe conditions, lack of access, or unresolved scope growth — if so, the remaining contract balance is still owed as liquidated damages, not a penalty.",
   "By signing below, client authorizes Brothers Group to perform the listed work at the listed price under the terms above.",
   "Every quantity, square footage, and unit count listed on this quote is the maximum included in this price. Work beyond those stated maximums is quoted separately and requires written approval before we proceed.",
+  "By allowing access to the property, you accept the risk that comes with vendors, agents, brokers, buyers, and other authorized parties entering the home, and you agree to hold Brothers Group harmless and indemnify us for claims arising from that access \u2014 except for our own gross negligence or willful misconduct.",
 ] as const;
 
 export const VENDOR_DISPATCH_NOTE =
-  "Items marked Vendor-Quoted are performed by an independent, licensed third-party contractor. Brothers Group facilitates the introduction and quote request only — pricing, licensing, insurance, scheduling, and workmanship are solely between the client and the vendor. Brothers Group assumes no liability for vendor work.";
+  "Items marked Vendor-Quoted are performed by an independent, licensed third-party contractor. As a real estate company, Brothers Group's role is strictly to coordinate — we relay the client's requested scope to a licensed professional in our network, and that vendor communicates directly with the client to provide their own price. Pricing, licensing, insurance, scheduling, and workmanship are solely between the client and the vendor. Brothers Group assumes no liability for vendor work.";
 
 // ─── REPAIR & RENOVATION AGREEMENT — full legal text (v20.9.0) ─────────────
 // Two signing LLCs operating jointly under the internal/marketing name
@@ -797,8 +826,8 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   // v20.32.27 — remaining sections continue below, index-aligned with the
   // buyer variant of Section 1 built in getAgreementSections().
   {
-    heading: "2. Not a Licensed General Contractor — Scope of Work",
-    body: `Neither ${ENTITY_NATE} nor ${ENTITY_ALEX} is a licensed general contractor. The work covered by this Agreement is limited to non-structural, non-permitted cosmetic and maintenance items only — the kind listed in your itemized quote (painting, pressure washing, landscaping, cleaning, junk removal, and minor handyman repairs). Anything requiring a licensed trade — electrical, plumbing, roofing, HVAC, structural work, and similar — is not performed by us. See Section 8.`,
+    heading: "2. Who We Are — A Real Estate Company's Home Service Coordination Program",
+    body: `${ENTITY_NATE} and ${ENTITY_ALEX} are affiliated with a Florida real estate brokerage team, not a licensed general contractor, and this program is offered as a white-glove home service coordination service for our clients — not a construction or contracting business. Neither ${ENTITY_NATE} nor ${ENTITY_ALEX} is a licensed general contractor. For the minor, non-structural, non-permitted cosmetic and maintenance items listed in your itemized quote (painting, pressure washing, landscaping, cleaning, junk removal, and minor handyman-level repairs), our own crew communicates your requested scope and performs that limited work directly, as described in this Agreement. For anything requiring a licensed trade \u2014 electrical, plumbing, roofing, HVAC, structural work, and similar \u2014 our role is strictly to relay your request to an independent, licensed professional in our network, who then communicates directly with you and quotes and performs that work themselves; we do not perform, supervise, price, or warranty licensed-trade work. See Section 8.`,
   },
   {
     heading: "3. Pricing & Payment",
@@ -813,8 +842,8 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
     body: "Your price reflects the scope, quantities, and condition we observed during your walkthrough. Every quantity, square footage, and unit count on your itemized quote is a maximum, not a guarantee of exact usage. If we discover something once work is underway that wasn't part of that original scope — rot, mold, structural issues, pest damage, code violations, and similar — or if the work exceeds the stated maximums, we'll stop and present it to you as a separate change order in writing. We won't perform or charge for any additional work without your approval first.",
   },
   {
-    heading: "6. Color Matching & Material Disclaimers",
-    body: "Paint and material color matches are NOT guaranteed to be an exact match. They are made by visual sample only, and some variance in sheen or tone from the original surface is possible due to substrate age, weathering, lighting conditions, or changes in manufacturer formulation over time. This variance is not a workmanship defect and is not covered by the limited warranty in Section 9. You'll approve your color/material sample before we purchase anything.",
+    heading: "6. Color Matching, Material Disclaimers, Defective Products & Returns",
+    body: "Paint, countertop, tile, and every other material color, pattern, and finish is matched to your approved sample on a best-effort basis only — it is NOT guaranteed to be an exact match. Natural stone, tile, and countertop material in particular can vary lot to lot and slab to slab; some variance in sheen, tone, veining, or pattern from the sample you approved is possible due to substrate age, weathering, lighting conditions, dye-lot/batch differences, or manufacturer formulation changes over time. This variance is not a workmanship defect and is not covered by the limited warranty in Section 9. You approve your color/material sample before we purchase anything. Defective products — any part, fixture, appliance, countertop, or material that arrives damaged or fails on its own — are the responsibility of the manufacturer or retailer, not Brothers Group; we did not manufacture it and cannot warranty it. If a product proves defective, we'll work with a store manager to coordinate a return or exchange, but this is offered as a courtesy only and is not guaranteed — it depends entirely on that store's own return/exchange policy and approval, which is outside our control. All sales of materials, fixtures, and appliances purchased for your job are final — no refunds — once purchased on your behalf, whether or not a store-approved exchange is later available.",
   },
   {
     heading: "7. Your Responsibilities",
@@ -833,8 +862,8 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
     body: "Our liability under this Agreement, for any claim of any kind, is limited to the total amount you paid us for the Scope of Work. We are not liable for indirect, incidental, or consequential damages, including delays to your closing or sale timeline. This Agreement does not guarantee that your home will sell, or sell within any particular timeframe or price.",
   },
   {
-    heading: "11. Cancellation",
-    body: "Either party may cancel this Agreement before work begins by written notice. If you cancel after your deposit has been used to purchase materials or after labor has been scheduled with less than 48 hours' notice, the deposit is non-refundable as described in Section 3.",
+    heading: "11. Cancellation & Our Right to Terminate",
+    body: "Either party may cancel this Agreement before work begins by written notice. If you cancel after your deposit has been used to purchase materials or after labor has been scheduled with less than 48 hours' notice, the deposit is non-refundable as described in Section 3. Brothers Group also reserves the right to stop work and terminate this Agreement at any time — including after work has begun — for reasons such as non-payment, unsafe site conditions, lack of site access, or scope that has grown beyond what was originally quoted and not resolved by change order. If we terminate for any of these reasons, the full remaining contract balance under this Agreement becomes immediately due and is retained/owed to us as liquidated damages for our costs, lost scheduling, and administrative time — not as a penalty — regardless of how much of the work was completed at the time we stop. This is not a substitute for open communication — we'll always try to resolve an issue with you directly before stopping work.",
   },
   {
     heading: "12. Resolving Disagreements",
@@ -845,11 +874,15 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
     body: "Our cleaners, repair crew, and landscapers only work on what's reasonably accessible on the day of service. We are not permitted to move furniture or any personal belongings owned by you or the property owner unless doing so is specifically written into your Scope of Work. If a work area is blocked by furniture, vehicles, stored items, or similar, we'll either work around it or reschedule, and a rescheduling fee may apply as described in Section 7. Where moving or working around personal property is part of the job, additional insurance rates may apply and will be reflected in your quote. We are not responsible for damage to furniture, belongings, or other personal property in or near the work area. By allowing us onto the property to perform this work, you accept us there for that purpose and agree to hold us harmless for any resulting loss, damage, or claim.",
   },
   {
-    heading: "14. Debris & Junk Removal",
+    heading: "14. Third-Party Access, Assumption of Risk & Indemnification",
+    body: "Completing this Scope of Work, and the broader sale or purchase of this property, may require access to the property by more than just our own crew — including affiliated and independent vendors, licensed subcontractors in our network, cooperating real estate agents and brokers, prospective buyers and their representatives, appraisers, inspectors, and other company representatives connected with the listing, sale, purchase, or service of this property (collectively, \u201cAuthorized Parties\u201d). You understand and accept that granting access to any Authorized Party carries inherent risk, including the risk of personal injury, property damage, theft, or loss to that Authorized Party, to you, to other occupants, or to third parties. Brothers Group, its owners, employees, and agents are not liable for any injury, death, property damage, or other loss suffered by you, any occupant, or any Authorized Party in connection with access to the property for a purpose contemplated by this Agreement or your listing or purchase agreement, except to the extent caused by Brothers Group's own gross negligence or willful misconduct. You agree to indemnify, defend, and hold harmless Brothers Group, its owners, employees, and agents from and against any claim, demand, injury, loss, or damage \u2014 including reasonable attorneys' fees \u2014 arising out of or related to any Authorized Party's access to the property, except to the extent caused by Brothers Group's own gross negligence or willful misconduct. Each independent vendor, contractor, and licensed trade professional referenced in this Agreement is separately responsible for maintaining their own liability and workers' compensation insurance while on the property \u2014 Brothers Group does not insure their work or their presence on site. You are encouraged to maintain your own homeowner's or property insurance coverage throughout the period covered by this Agreement.",
+  },
+  {
+    heading: "15. Debris & Junk Removal",
     body: "Where debris, trash, or junk removal is part of your Scope of Work, we first use any existing waste management service already in place at the property (trash cans, dumpster, HOA pickup, and similar) at no extra charge. Anything that doesn't fit within that existing service is hauled to the dump directly by our crew and billed at our prevailing rates, which include both the dump/disposal fee and our own service rate for the haul.",
   },
   {
-    heading: "15. Entire Agreement",
+    heading: "16. Entire Agreement",
     body: "This Agreement, together with your itemized quote, is the entire agreement between you and Brothers Group regarding this Scope of Work, and replaces any prior discussion or understanding on the subject. If any part of this Agreement is found unenforceable, the rest remains in full effect.",
   },
 ];
@@ -1759,7 +1792,7 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   y -= 34;
   p1.drawText(START_MOMENTUM_PDF_LINE, { x: 38, y, size: 8.5, font: fontBold, color: rgb(0, 0.35, 0) });
   y -= 14;
-  p1.drawText("Full Terms & Conditions (Sections 1–13) on the reverse — part of this Agreement by reference.", { x: 38, y, size: 7.5, font: fontItalic, color: gray });
+  p1.drawText("Full Terms & Conditions (Sections 1–16) on the reverse — part of this Agreement by reference.", { x: 38, y, size: 7.5, font: fontItalic, color: gray });
   y -= 22;
 
   // ── Signature block ──
@@ -2711,8 +2744,8 @@ export function registerRepairConsultRoutes(app: Express) {
     const del = rawDb.prepare(`DELETE FROM repair_consult_items WHERE consult_id = ?`);
     const insert = rawDb.prepare(`
       INSERT INTO repair_consult_items
-        (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order, vendor_quote_amount, markup_pct_applied, vendor_scope_note)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order, vendor_quote_amount, markup_pct_applied, vendor_scope_note, needs_electrical_vendor)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const catalogStmt = rawDb.prepare(`SELECT * FROM repair_items WHERE key = ? AND active = 1`);
     // v20.32.17 — Vendor Quote Upload: markup applied to any vendor item that
@@ -2764,11 +2797,14 @@ export function registerRepairConsultRoutes(app: Express) {
         // for a real agent-written "what we need quoted" description, never
         // confusing it with the catalog's generic default instruction text.
         const vendorScopeNote = (cat.category === "vendor" && rawScopeNote) ? rawScopeNote : null;
+        // v20.33.3 — Electrical Vendor Quote Needed: only meaningful on
+        // in-house items (the checkbox never renders for vendor items).
+        const needsElectricalVendor = (cat.category === "in_house" && !!raw.needsElectricalVendor) ? 1 : 0;
         insert.run(
           consultId, cat.key, cat.category, cat.trade, cat.name, cat.unit, qty,
           unitRate, twoStory ? 1 : 0, lineTotal,
           instruction, JSON.stringify(raw.photos || []), raw.measurementNotes || null, cat.sequence_order,
-          vendorQuoteAmount, markupPctApplied, vendorScopeNote
+          vendorQuoteAmount, markupPctApplied, vendorScopeNote, needsElectricalVendor
         );
       }
     });
@@ -2867,6 +2903,13 @@ export function registerRepairConsultRoutes(app: Express) {
       if (!consult) return res.status(404).json({ error: "Consult not found" });
       if (!consult.quote_token) return res.status(409).json({ error: "Generate the quote first." });
       await sendClientQuoteEmail(consultId);
+      // v20.33.4 — Credit the agent 50 points for getting the repair quote
+      // out to the client. Mirrors inspection_request_submitted (send-to-
+      // client is the analogous milestone on this tool).
+      if (consult.agent_id) {
+        try { awardPoints(consult.agent_id, "repair_quote_sent", consult.lead_id ?? undefined, "seller"); }
+        catch (e) { console.error("[repairConsult] awardPoints (quote sent) failed:", e); }
+      }
       res.json({ ok: true });
     } catch (err: any) {
       console.error("send-to-client error:", err);
@@ -3106,11 +3149,19 @@ export function registerRepairConsultRoutes(app: Express) {
   app.patch("/api/repair-consult/:id/work-order-details", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
     const consultId = parseInt(req.params.id);
-    const { toolsNeeded, timeBlockEstimate } = req.body;
+    // v20.33.2 (Work Order admin tab) — added targetCompletionDate here so the
+    // same endpoint the Work Orders board uses can also set the punch-out
+    // deadline consumed by computeTargetCompletionDate() for the Work Order PDF.
+    const { toolsNeeded, timeBlockEstimate, targetCompletionDate } = req.body;
     const consult = getConsultRow(consultId);
     if (!consult) return res.status(404).json({ error: "Consult not found" });
-    rawDb.prepare(`UPDATE repair_consults SET tools_needed = ?, time_block_estimate = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(toolsNeeded ?? consult.tools_needed ?? null, timeBlockEstimate ?? consult.time_block_estimate ?? null, consultId);
+    rawDb.prepare(`UPDATE repair_consults SET tools_needed = ?, time_block_estimate = ?, target_completion_date = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(
+        toolsNeeded ?? consult.tools_needed ?? null,
+        timeBlockEstimate ?? consult.time_block_estimate ?? null,
+        targetCompletionDate ?? consult.target_completion_date ?? null,
+        consultId,
+      );
     res.json({ ok: true });
   });
 
@@ -3259,6 +3310,14 @@ export function registerRepairConsultRoutes(app: Express) {
       } catch (e) { console.error("countersign-needed notify failed:", e); }
     }
 
+    // v20.33.4 — Credit the agent 50 points now that the client has e-signed
+    // the repair agreement. Mirrors inspection_approved (client acceptance
+    // is the analogous milestone on this tool).
+    if (consult.agent_id) {
+      try { awardPoints(consult.agent_id, "repair_quote_accepted", consult.lead_id ?? undefined, "seller"); }
+      catch (e) { console.error("[repairConsult] awardPoints (quote accepted) failed:", e); }
+    }
+
     res.json({ ok: true });
   });
 
@@ -3324,11 +3383,89 @@ export function registerRepairConsultRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  // v20.33.4 — Work Calendar/Scheduler admin tab. Aggregates every dated,
+  // schedulable event across the app into one agenda: active job start/
+  // target-completion dates, project meetings (initial start / punch-out /
+  // final payment), inspection needed-by + contingency-expiration dates,
+  // and upcoming open houses. Deliberately a flat agenda list rather than a
+  // grid calendar — far more reliable to build/QA and matches how Alex/Nate
+  // actually read a day's schedule.
+  app.get("/api/admin/work-calendar", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const lookbackDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const jobStarts = rawDb.prepare(`
+      SELECT rc.start_date AS event_date, 'job_start' AS event_type,
+        rc.property_address, rc.client_name, a.name AS agent_name,
+        rc.id AS source_id, 'repair_consult' AS source_type, rc.start_time AS extra
+      FROM repair_consults rc LEFT JOIN agents a ON a.id = rc.agent_id
+      WHERE rc.start_date IS NOT NULL AND rc.start_date >= ? AND rc.completed_at IS NULL
+        AND rc.status IN ('accepted', 'work_order_sent')
+    `).all(lookbackDate) as any[];
+
+    const jobCompletions = rawDb.prepare(`
+      SELECT rc.target_completion_date AS event_date, 'job_target_completion' AS event_type,
+        rc.property_address, rc.client_name, a.name AS agent_name,
+        rc.id AS source_id, 'repair_consult' AS source_type, NULL AS extra
+      FROM repair_consults rc LEFT JOIN agents a ON a.id = rc.agent_id
+      WHERE rc.target_completion_date IS NOT NULL AND rc.target_completion_date >= ? AND rc.completed_at IS NULL
+        AND rc.status IN ('accepted', 'work_order_sent')
+    `).all(lookbackDate) as any[];
+
+    const meetings = rawDb.prepare(`
+      SELECT substr(m.scheduled_at, 1, 10) AS event_date, ('meeting_' || m.meeting_type) AS event_type,
+        rc.property_address, rc.client_name, a.name AS agent_name,
+        rc.id AS source_id, 'repair_consult' AS source_type, m.notes AS extra
+      FROM repair_project_meetings m
+      JOIN repair_consults rc ON rc.id = m.consult_id
+      LEFT JOIN agents a ON a.id = rc.agent_id
+      WHERE m.scheduled_at IS NOT NULL AND substr(m.scheduled_at, 1, 10) >= ? AND m.completed_at IS NULL
+    `).all(lookbackDate) as any[];
+
+    const inspectionNeeded = rawDb.prepare(`
+      SELECT io.needed_by_date AS event_date, 'inspection_needed_by' AS event_type,
+        io.property_address, io.client_name, a.name AS agent_name,
+        io.id AS source_id, 'inspection_order' AS source_type, NULL AS extra
+      FROM inspection_orders io LEFT JOIN agents a ON a.id = io.agent_id
+      WHERE io.needed_by = 'specific' AND io.needed_by_date IS NOT NULL AND io.needed_by_date >= ?
+        AND io.completed_at IS NULL AND io.status NOT IN ('declined')
+    `).all(lookbackDate) as any[];
+
+    const inspectionContingency = rawDb.prepare(`
+      SELECT io.contingency_expiration_date AS event_date, 'inspection_contingency_expiration' AS event_type,
+        io.property_address, io.client_name, a.name AS agent_name,
+        io.id AS source_id, 'inspection_order' AS source_type, NULL AS extra
+      FROM inspection_orders io LEFT JOIN agents a ON a.id = io.agent_id
+      WHERE io.contingency_expiration_date IS NOT NULL AND io.contingency_expiration_date >= ?
+        AND io.completed_at IS NULL AND io.status NOT IN ('declined')
+    `).all(lookbackDate) as any[];
+
+    const openHouses = rawDb.prepare(`
+      SELECT oh.date AS event_date, 'open_house' AS event_type,
+        oh.address AS property_address, NULL AS client_name, oh.listing_agent AS agent_name,
+        oh.id AS source_id, 'open_house' AS source_type,
+        (oh.time_start || '–' || oh.time_end) AS extra
+      FROM open_houses oh
+      WHERE oh.date >= ? AND oh.status IN ('open', 'booked')
+    `).all(lookbackDate) as any[];
+
+    const events = [...jobStarts, ...jobCompletions, ...meetings, ...inspectionNeeded, ...inspectionContingency, ...openHouses]
+      .filter(e => !!e.event_date)
+      .sort((a, b) => String(a.event_date).localeCompare(String(b.event_date)));
+
+    res.json({ events });
+  });
+
   // ── Admin: consult list ──
   app.get("/api/admin/repair-consults", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    // v20.33.4 — paid_amount joined in (mirrors the inspection_orders admin
+    // list pattern) so the Work Orders tab can show a live paid/balance
+    // progress readout per job without an extra round-trip per card.
     const rows = rawDb.prepare(`
-      SELECT rc.*, a.name AS agent_name FROM repair_consults rc
+      SELECT rc.*, a.name AS agent_name,
+        COALESCE((SELECT SUM(amount) FROM payment_records WHERE source_type = 'repair_consult' AND source_id = rc.id), 0) AS paid_amount
+      FROM repair_consults rc
       LEFT JOIN agents a ON a.id = rc.agent_id
       ORDER BY rc.created_at DESC LIMIT 200
     `).all();

@@ -1093,6 +1093,7 @@ export async function pushIngestToFub(opts: {
       social_post: "Source:Social Post",
       api_ingest: "Source:External API",
       csv_upload: "Source:CSV Upload",
+      website: "Source:Website", // v20.35.0 — per-agent Get In Touch landing page
     };
     if (sourceTagMap[source]) tags.push(sourceTagMap[source]);
 

@@ -162,7 +162,10 @@ export function recomputePointsForAgent(agentId: number, dryRun: boolean, actor:
 }
 
 export function recomputePointsForAll(dryRun: boolean, actor: any): RecomputeResult[] {
-  const agents = rawDb.prepare(`SELECT id FROM agents WHERE deactivated IS NULL OR deactivated = 0`).all() as any[];
+  // Fixed v20.33.3 — agents table has no `deactivated` column (that query threw
+  // "no such column: deactivated" and silently broke the whole ledger-repair tool).
+  // Correct column is `is_active` (see server/db.ts deactivate/reactivate flows).
+  const agents = rawDb.prepare(`SELECT id FROM agents WHERE is_active = 1`).all() as any[];
   const out: RecomputeResult[] = [];
   for (const a of agents) {
     try {
@@ -227,11 +230,16 @@ export interface ReassignResult {
 }
 
 export function reassignLeadsFromDeactivated(dryRun: boolean, actor: any): ReassignResult {
+  // Fixed v20.33.3 — agents table has no `deactivated` column (that query
+  // threw "no such column: deactivated" and made this repair tool 100%
+  // non-functional — same class of bug found in recomputePointsForAll() and
+  // db-audit.ts's leads_owned_by_deactivated_agent check). Correct column is
+  // is_active (0 = deactivated).
   const rows = rawDb.prepare(`
     SELECT l.id AS lead_id, a.name AS agent_name, l.assigned_agent_id
     FROM leads l
     JOIN agents a ON a.id = l.assigned_agent_id
-    WHERE a.deactivated = 1 OR (a.deactivated IS NOT NULL AND a.deactivated != 0)
+    WHERE a.is_active = 0
   `).all() as any[];
 
   let reassigned = 0;

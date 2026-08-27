@@ -82,6 +82,9 @@ import { registerFubContactsRoutes } from "./fubContacts";
 import { registerWriteOfferRoutes } from "./writeOffer";
 import { registerInspectionsRoutes } from "./inspections";
 import { registerPaymentRoutes } from "./payments";
+import { registerBghsPnlRoutes } from "./bghsPnl";
+import { registerBghsPublicRoutes } from "./bghsPublic";
+import { registerPublicAgentLandingRoutes } from "./publicAgentLanding";
 // v15.11.10 — web push module removed; replaced by prime-email-scheduler.
 import { checkPassword } from "../shared/password-rules";
 // v14.46 — BatchLeads auto-pipeline removed. CSV import path is the sole seller intake.
@@ -169,7 +172,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.33.1 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.35.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -398,7 +401,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.33.1 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.35.0 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -457,7 +460,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.33.1 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.35.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -505,7 +508,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.33.1 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.35.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -592,6 +595,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   registerWriteOfferRoutes(app);
   registerInspectionsRoutes(app);
   registerPaymentRoutes(app);
+  registerBghsPnlRoutes(app);
+  registerBghsPublicRoutes(app);
+  registerPublicAgentLandingRoutes(app); // v20.35.0 — per-agent Get In Touch landing pages
 
   // ─── v15.11.11 — Emergency force-reset endpoint (INGEST_SECRET-guarded) ───
   // Reason: reset-password emails weren't reaching some agents; this bypasses email
@@ -1753,7 +1759,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.33.1</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.35.0</p>
             </div>
           `,
         });
@@ -1913,7 +1919,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.33.1 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.35.0 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -5116,6 +5122,45 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   // Each active listing becomes a candidate row on Tuesday's OH Schedule form.
   // Active listings also appear on the team map as muted-gold home pins.
 
+  // v20.33.3 — golden-bubble milestone helper: match a listing's free-text
+  // listing_agent name to a real agent record (case/space-insensitive, first
+  // OR last-name-only fallback) so we can award listing_under_contract points
+  // when a listing flips to 'pending'. Returns null if no confident match.
+  function resolveAgentIdByName(rawName: string | null | undefined): number | null {
+    const name = String(rawName || "").trim().toLowerCase();
+    if (!name) return null;
+    const agents = rawDb.prepare(`SELECT id, name FROM agents WHERE is_active = 1`).all() as any[];
+    for (const a of agents) {
+      if (String(a.name || "").trim().toLowerCase() === name) return a.id;
+    }
+    // fallback: exact match on first token (first name) if unambiguous
+    const firstToken = name.split(/\s+/)[0];
+    const firstNameMatches = agents.filter(a => String(a.name || "").trim().toLowerCase().split(/\s+/)[0] === firstToken);
+    if (firstNameMatches.length === 1) return firstNameMatches[0].id;
+    return null;
+  }
+
+  // v20.33.3 — fires the golden-bubble award exactly on the active/coming_soon/
+  // pocket -> pending EDGE (never on 'sold', never if already pending). Safe to
+  // call from both the single-row PUT and the bulk/workbook upsert path.
+  function maybeAwardListingUnderContract(prevStatus: string | null | undefined, nextStatus: string | null | undefined, listingAgentName: string | null | undefined, address: string) {
+    const prev = String(prevStatus || "").toLowerCase();
+    const next = String(nextStatus || "").toLowerCase();
+    if (next !== "pending" || prev === "pending") return;
+    if (!["active", "coming_soon", "pocket"].includes(prev)) return;
+    const agentId = resolveAgentIdByName(listingAgentName);
+    if (!agentId) {
+      console.warn(`[golden-bubble] listing "${address}" went under contract but listing_agent "${listingAgentName}" didn't match any active agent — no points awarded`);
+      return;
+    }
+    try {
+      awardPoints(agentId, "listing_under_contract", undefined, "seller");
+      console.log(`[golden-bubble] +200 listing_under_contract → agent ${agentId} for "${address}"`);
+    } catch (e) {
+      console.error("[golden-bubble] awardPoints failed", e);
+    }
+  }
+
   app.get("/api/admin/listings", (req: any, res) => {
     if (!requireAdmin(req, res)) return;
     const status = req.query?.status ? String(req.query.status) : null;
@@ -5183,9 +5228,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       UPDATE listings SET city=?, state=?, list_price=?, status=?, listing_agent=?, list_date=?, pending_date=?, sold_date=?, sold_price=?, mls_number=?, notes=?, uploaded_by=?, updated_at=datetime('now')
       WHERE lower(address) = lower(?) AND coalesce(zip,'') = coalesce(?, '')
     `);
-    const findExisting = rawDb.prepare(`SELECT id FROM listings WHERE lower(address) = lower(?) AND coalesce(zip,'') = coalesce(?, '') LIMIT 1`);
+    const findExisting = rawDb.prepare(`SELECT id, status, listing_agent FROM listings WHERE lower(address) = lower(?) AND coalesce(zip,'') = coalesce(?, '') LIMIT 1`);
     let ok = 0, err = 0;
     const errors: string[] = [];
+    // v20.33.3 — golden-bubble milestone: track active/coming_soon/pocket ->
+    // pending transitions discovered during this bulk upsert so we can award
+    // listing_under_contract points AFTER the transaction commits.
+    const underContractAwards: Array<{ prevStatus: string; nextStatus: string; agentName: string | null; addr: string }> = [];
     const tx = rawDb.transaction((rs: any[]) => {
       for (const r of rs) {
         const addr = String(r.address || "").trim();
@@ -5197,6 +5246,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         try {
           const existing = findExisting.get(addr, zip) as any;
           if (existing?.id) {
+            if (existing.status !== status) {
+              underContractAwards.push({ prevStatus: existing.status, nextStatus: status, agentName: r.listing_agent || existing.listing_agent || null, addr });
+            }
             upsert.run(
               r.city || null, r.state || "FL", priceNum(r.list_price),
               status, r.listing_agent || null,
@@ -5221,6 +5273,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       }
     });
     tx(rows);
+    // v20.33.3 — fire golden-bubble awards after the transaction commits.
+    for (const a of underContractAwards) {
+      maybeAwardListingUnderContract(a.prevStatus, a.nextStatus, a.agentName, a.addr);
+    }
     // Fire-and-forget geocode pass so map populates soon after upload.
     setImmediate(() => {
       try { runListingGeocodePass().catch(() => {}); } catch {}
@@ -5233,6 +5289,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     if (!requireAdmin(req, res)) return;
     const id = parseInt(req.params.id);
     const b = req.body || {};
+    // v20.33.3 — capture pre-update state so we can detect the golden-bubble
+    // active/coming_soon/pocket -> pending edge after the write commits.
+    const before = rawDb.prepare(`SELECT status, listing_agent, address FROM listings WHERE id = ?`).get(id) as any;
     const fields: string[] = [], params: any[] = [];
     for (const k of ['address','city','state','zip','listing_agent','list_date','pending_date','sold_date','mls_number','notes']) {
       if (k in b) { fields.push(`${k} = ?`); params.push(b[k]); }
@@ -5249,6 +5308,10 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     params.push(id);
     rawDb.prepare(`UPDATE listings SET ${fields.join(", ")} WHERE id = ?`).run(...params);
     try { broadcast({ type: "listing_updated", id }); } catch {}
+    if (before && 'status' in b) {
+      const nextAgentName = ('listing_agent' in b) ? b.listing_agent : before.listing_agent;
+      maybeAwardListingUnderContract(before.status, b.status, nextAgentName, before.address);
+    }
     res.json({ ok: true });
   });
 
@@ -8490,7 +8553,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.33.1 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.35.0 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8573,7 +8636,7 @@ This template is for informational/outreach purposes only.`;
         const m = String(photoDataUrl).match(/^data:(image\/[^;]+);base64,(.+)$/);
         const attachments = m ? [{ filename: "open-house-selfie.jpg", content: Buffer.from(m[2], "base64") }] : undefined;
         await resend.emails.send({
-          from: "noreply@watsonbrothersgroup.com",
+          from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>", // v20.35.0 — item 28 audit: was missing a display name, showed raw address in Denise's inbox
           to: ["denise@watsonbrothersgroup.com"],
           cc: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
           subject: `Open House Results — ${cleanAddr} — ${submitter?.name || "Agent"}`,
@@ -9610,7 +9673,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.33.1",
+      version: "v20.35.0",
       services: results,
     });
   });
@@ -9689,6 +9752,15 @@ This template is for informational/outreach purposes only.`;
     const distPath = path.resolve(__dirname, "public");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.resolve(distPath, "ecosystem.html"));
+  });
+
+  // v20.35.0 — Item 25: Brothers Group Home Solutions public quote-request
+  // app. No auth. Real form (POST /api/bghs/quote-request, see
+  // bghsPublic.ts) — replaces the old bare mailto link on ecosystem.html.
+  app.get("/home-solutions", (_req, res) => {
+    const distPath = path.resolve(__dirname, "public");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.sendFile(path.resolve(distPath, "home-solutions.html"));
   });
 
   // v20.32.40 — Public Company Cam feed (renamed from "Photo Roll" v20.32.42).
@@ -9817,6 +9889,16 @@ This template is for informational/outreach purposes only.`;
     const distPath = path.resolve(__dirname, "public");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.resolve(distPath, "apply.html"));
+  });
+
+  // v20.35.0 — Per-agent public "Get In Touch" landing page (QR code destination
+  // on yard signs / open house signs). :id is the agent's numeric agents.id.
+  // Client JS parses the id from location.pathname and calls
+  // /api/public/agents/:id + POSTs to /api/public/get-in-touch.
+  app.get("/get-in-touch/:id", (_req, res) => {
+    const distPath = path.resolve(__dirname, "public");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.sendFile(path.resolve(distPath, "get-in-touch.html"));
   });
 
   // ─── v19.6 ONBOARDING ENDPOINTS (candidates lifecycle) ──────────────
@@ -11154,7 +11236,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.33.1</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.35.0</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -11844,7 +11926,7 @@ function scheduleNightlyReconciliation() {
               Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
             },
             body: JSON.stringify({
-              from: "noreply@watsonbrothersgroup.com",
+              from: "Lead Depot <noreply@watsonbrothersgroup.com>", // v20.35.0 — item 28 audit: was missing a display name
               to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
               subject,
               text: bodyLines.join("\n"),
@@ -12088,7 +12170,7 @@ function scheduleDailyLedgerAttestation() {
               Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
             },
             body: JSON.stringify({
-              from: "noreply@watsonbrothersgroup.com",
+              from: "Lead Depot <noreply@watsonbrothersgroup.com>", // v20.35.0 — item 28 audit: was missing a display name
               to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
               subject,
               text: bodyLines.join("\n"),

@@ -10,6 +10,9 @@ import { ListingsPanel } from "../components/ld/ListingsPanel";
 import { FubTagConfigPanel } from "../components/ld/FubTagConfigPanel";
 import { RepairPricingVendorPanel } from "../components/ld/RepairPricingVendorPanel";
 import { InspectionsPricingPanel } from "../components/ld/InspectionsPricingPanel";
+import { AccountsReceivablePanel } from "../components/ld/AccountsReceivablePanel";
+import { WorkCalendarPanel } from "../components/ld/WorkCalendarPanel";
+import { BghsPnlPanel } from "../components/ld/BghsPnlPanel";
 import { OpenHouseSchedulePanel } from "../components/ld/OpenHouseSchedulePanel";
 import { PendingOpenHousesPanel } from "../components/ld/PendingOpenHousesPanel";
 import ProfilePage from "./ProfilePage";
@@ -37,7 +40,7 @@ import {
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
   UserPlus, UserCircle2, KeyRound, RotateCcw,
   Sparkles, Database, Wrench, FileText, PlayCircle, Home, CalendarDays,
-  ClipboardList, ClipboardCheck
+  ClipboardList, ClipboardCheck, DollarSign, CalendarClock, PieChart
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -1898,7 +1901,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.33.1
+              v20.35.0
             </p>
           </div>
         </div>
@@ -2015,6 +2018,9 @@ export default function AdminDashboard({
               { value: "scripts",     icon: ScrollText,  label: "Scripts" },
               { value: "repairs",     icon: Wrench,      label: "Repair Program" },
               { value: "inspections", icon: ClipboardCheck, label: "Inspections+" },
+              { value: "receivables", icon: DollarSign,  label: "Receivables" },
+              { value: "work-calendar", icon: CalendarClock, label: "Calendar" },
+              { value: "bghs-pnl",      icon: PieChart,    label: "BGHS P&L" },
             ].map(tab => (
               <TabsTrigger
                 key={tab.value}
@@ -3096,6 +3102,45 @@ export default function AdminDashboard({
               </p>
             </div>
             <InspectionsPricingPanel />
+          </TabsContent>
+
+          {/* v20.33.4 — Accounts Receivable admin: unified aging ledger across
+              Repair Proposals + Inspection Orders, with in-place payment recording. */}
+          <TabsContent value="receivables" className="mt-5">
+            <div>
+              <h2 style={{
+                fontFamily: "'Cormorant Garamond','Georgia',serif",
+                fontSize: "1.2rem", fontWeight: 300, color: "#fff",
+              }}>
+                Accounts Receivable
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Every outstanding balance across Repair Proposals and Inspection Orders, with aging and one-click payment recording.
+              </p>
+            </div>
+            <AccountsReceivablePanel />
+          </TabsContent>
+
+          {/* v20.33.4 — Work Calendar/Scheduler admin: agenda view of every dated,
+              schedulable event (job starts/completions, project meetings,
+              inspection deadlines, open houses). */}
+          <TabsContent value="bghs-pnl" className="mt-5">
+            <BghsPnlPanel />
+          </TabsContent>
+
+          <TabsContent value="work-calendar" className="mt-5">
+            <div>
+              <h2 style={{
+                fontFamily: "'Cormorant Garamond','Georgia',serif",
+                fontSize: "1.2rem", fontWeight: 300, color: "#fff",
+              }}>
+                Work Calendar
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                One agenda for every scheduled date across the app — job start &amp; completion dates, project meetings, inspection deadlines, and open houses.
+              </p>
+            </div>
+            <WorkCalendarPanel />
           </TabsContent>
 
           {/* v20.4.2 — Old admin Territory Map (MapView.tsx) removed. Team map lives in

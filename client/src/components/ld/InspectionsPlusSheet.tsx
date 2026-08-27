@@ -6,9 +6,10 @@
 // link. Mirrors WriteOfferSheet's dark/gold modal styling and FUB search
 // pattern exactly.
 import { useState, useEffect } from "react";
-import { CheckCircle2, X, Loader2, ClipboardCheck, Eye } from "lucide-react";
+import { CheckCircle2, X, Loader2, ClipboardCheck, Eye, Save } from "lucide-react";
 import { FubAddressChooser, type FubAddress } from "./FubAddressChooser";
 import { ClientPreviewModal } from "./ClientPreviewModal";
+import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./ConsultResumePicker";
 
 const fetchJson = async (url: string, opts: RequestInit = {}) => {
   const r = await fetch(url, { credentials: "include", ...opts });
@@ -65,6 +66,16 @@ export function InspectionsPlusSheet({
   const [sent, setSent] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
+  // v20.33.3 — agent-scoped resume queue + explicit Save, mirroring
+  // RepairConsultSheet/ConsultResumePicker exactly ("same engine" per Alex).
+  // orderId tracks the persisted draft row once one exists; every ensureOrder()
+  // call after that UPDATEs it instead of creating a duplicate.
+  const [orderId, setOrderId] = useState<number | null>(null);
+  const [resumePhase, setResumePhase] = useState<"checking" | "picking" | "ready">("checking");
+  const [resumeList, setResumeList] = useState<ResumeItem[]>([]);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+
   // ── Step 1: client + property ──
   const [clientQuery, setClientQuery] = useState("");
   const [clientResults, setClientResults] = useState<FubContact[]>([]);
@@ -119,6 +130,125 @@ export function InspectionsPlusSheet({
     }
     setClientResults([]);
   };
+
+  // v20.33.3 — on open, check this agent's queue of in-progress
+  // Inspections+ orders before showing the blank wizard (identical pattern
+  // to RepairConsultSheet's Instant Quote resume check).
+  useEffect(() => {
+    fetchJson(`/api/inspection-orders/mine?agentId=${agentId ?? ""}`)
+      .then(d => {
+        const list = d.orders || [];
+        if (list.length > 0) { setResumeList(list); setResumePhase("picking"); }
+        else setResumePhase("ready");
+      })
+      .catch(() => setResumePhase("ready"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // v20.33.3 — hydrates the full wizard from a saved draft/sent order so the
+  // agent picks up exactly where they left off, then drops them on whichever
+  // step already has data (step 2 if inspections were already picked).
+  const resumeOrder = async (id: number) => {
+    setResumePhase("ready"); setError("");
+    try {
+      const d = await fetchJson(`/api/inspection-orders/${id}`);
+      const o = d.order || {};
+      const items: any[] = d.items || [];
+      setOrderId(o.id);
+      setClientName(o.client_name || "");
+      setClientEmail(o.client_email || "");
+      setClientPhone(o.client_phone || "");
+      setPropertyAddress(o.property_address || "");
+      setSubjectAddressOverride("");
+      setNeededBy(o.needed_by === "specific" ? "specific" : "asap");
+      setNeededByDate(o.needed_by_date || "");
+      setContingencyDate(o.contingency_expiration_date || "");
+      setSelectedVendorId(o.vendor_id ? String(o.vendor_id) : "");
+      setSubjectSqft(o.subject_sqft ? String(o.subject_sqft) : "");
+      const keys = new Set<string>(items.filter((i: any) => !i.is_addon).map((i: any) => i.item_key));
+      setSelectedKeys(keys);
+      setStep(keys.size > 0 ? 2 : 1);
+    } catch (e: any) {
+      setError(e.message || "Couldn't load that saved order — starting a new one instead.");
+    }
+  };
+
+  const startNewOrder = () => {
+    setOrderId(null); setStep(1); setError("");
+    setPickedContact(null); setClientQuery(""); setClientName(""); setClientEmail(""); setClientPhone("");
+    setPropertyAddress(""); setSubjectAddressOverride(""); setFubAddressChoices([]);
+    setSelectedKeys(new Set()); setNeededBy("asap"); setNeededByDate(""); setContingencyDate("");
+    setSelectedVendorId(""); setSubjectSqft("");
+    setResumePhase("ready");
+  };
+
+  // v20.33.3 — the shared "Save" primitive: create-or-update the draft row
+  // for whatever's currently on screen (client/property always required;
+  // inspections/timing are optional at save time — only required to Send).
+  // Passing the existing orderId back makes repeat saves idempotent instead
+  // of piling up duplicate rows every time the agent hits Save.
+  const ensureOrder = async (): Promise<number> => {
+    if (!clientName.trim() || !effectiveAddress.trim()) {
+      throw new Error("Enter the client name and property address before saving.");
+    }
+    const body = await fetchJson("/api/inspection-orders", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        orderId: orderId || undefined,
+        agentId,
+        fubContactId: pickedContact?.id ? String(pickedContact.id) : undefined,
+        clientName: clientName.trim(),
+        clientEmail: clientEmail.trim(),
+        clientPhone: clientPhone.trim(),
+        propertyAddress: effectiveAddress.trim(),
+        neededBy, neededByDate: neededBy === "specific" ? neededByDate : undefined,
+        contingencyExpirationDate: contingencyDate || undefined,
+        itemKeys: Array.from(selectedKeys),
+        vendorId: selectedVendorId || undefined,
+        subjectSqft: subjectSqft || undefined,
+        dealSide,
+      }),
+    });
+    setOrderId(body.id);
+    return body.id as number;
+  };
+
+  const handleSaveDraft = async () => {
+    setError(""); setSavingDraft(true); setSavedFlash(false);
+    try {
+      await ensureOrder();
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2400);
+    } catch (e: any) {
+      setError(e.message || "Failed to save this draft.");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  // v20.33.3 — auto-saves the draft on the step 1→2 transition (same as
+  // Instant Quote's ensureConsult()-before-setStep pattern), so a queue row
+  // exists as soon as client+property are entered, before any items are picked.
+  const handleGoStep2 = async () => {
+    if (!canGoStep2) { setError("Enter the client name and property address to continue."); return; }
+    setError("");
+    try { await ensureOrder(); setStep(2); }
+    catch (e: any) { setError(e.message || "Failed to save — check client name and property address."); }
+  };
+
+  const SaveDraftButton = () => (
+    <button type="button" onClick={handleSaveDraft} disabled={savingDraft} style={{
+      width: "100%", padding: "11px 14px", borderRadius: 10, marginTop: 4, marginBottom: 4,
+      background: savedFlash ? "rgba(126,212,154,0.12)" : "transparent",
+      border: `1px solid ${savedFlash ? "#7ed49a" : "rgba(255,255,255,0.18)"}`,
+      color: savedFlash ? "#7ed49a" : "rgba(255,255,255,0.75)", fontSize: 12.5, fontWeight: 700,
+      cursor: savingDraft ? "not-allowed" : "pointer", opacity: savingDraft ? 0.6 : 1,
+      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+    }}>
+      {savingDraft ? <Loader2 size={13} className="animate-spin" /> : savedFlash ? <CheckCircle2 size={13} /> : <Save size={13} />}
+      {savingDraft ? "Saving…" : savedFlash ? "Saved to Your Queue" : "Save Draft"}
+    </button>
+  );
 
   // ── Step 2: inspections + timing ──
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
@@ -216,24 +346,10 @@ export function InspectionsPlusSheet({
     }
     setError(""); setSending(true);
     try {
-      const created = await fetchJson("/api/inspection-orders", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agentId,
-          fubContactId: pickedContact?.id ? String(pickedContact.id) : undefined,
-          clientName: clientName.trim(),
-          clientEmail: clientEmail.trim(),
-          clientPhone: clientPhone.trim(),
-          propertyAddress: effectiveAddress.trim(),
-          neededBy, neededByDate: neededBy === "specific" ? neededByDate : undefined,
-          contingencyExpirationDate: contingencyDate,
-          itemKeys: Array.from(selectedKeys),
-          vendorId: selectedVendorId || undefined,
-          subjectSqft: subjectSqft || undefined,
-          dealSide,
-        }),
-      });
-      await fetchJson(`/api/inspection-orders/${created.id}/send`, { method: "POST" });
+      // v20.33.3 — ensureOrder() reuses the existing draft row (if any Save or
+      // step transition already created one) instead of creating a duplicate.
+      const id = await ensureOrder();
+      await fetchJson(`/api/inspection-orders/${id}/send`, { method: "POST" });
       setSent(true);
     } catch (e: any) {
       setError(e.message || "Failed to send Inspections+ order.");
@@ -303,7 +419,19 @@ export function InspectionsPlusSheet({
           </div>
         )}
 
-        {sent ? (
+        {resumePhase === "checking" && <ResumeCheckingSpinner />}
+
+        {resumePhase === "picking" && (
+          <ConsultResumePicker
+            title="Resume an Inspections+ Order?"
+            subtitle="You have order(s) in progress. Pick up where you left off or start fresh."
+            items={resumeList}
+            onResume={resumeOrder}
+            onStartNew={startNewOrder}
+          />
+        )}
+
+        {resumePhase === "ready" && (sent ? (
           <>
             <div style={{ padding: 12, borderRadius: 10, background: "rgba(126,212,154,0.1)", color: "#7ed49a", fontSize: 12.5, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
               <CheckCircle2 size={16} /> Sent to {clientName} for approval — you'll get a copy once they sign.
@@ -362,7 +490,8 @@ export function InspectionsPlusSheet({
               )}
             </div>
 
-            <button type="button" onClick={() => canGoStep2 ? setStep(2) : setError("Enter the client name and property address to continue.")} style={{
+            <SaveDraftButton />
+            <button type="button" onClick={handleGoStep2} style={{
               width: "100%", padding: "14px 18px", borderRadius: 10, marginTop: 8,
               background: GOLD, border: "none", color: "#0c0b0a", fontSize: 14, fontWeight: 700, cursor: "pointer",
             }}>Next — Choose Inspections</button>
@@ -467,6 +596,8 @@ export function InspectionsPlusSheet({
               </button>
             )}
 
+            <SaveDraftButton />
+
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
               <button type="button" onClick={() => setStep(1)} style={{
                 flex: "0 0 auto", padding: "14px 18px", borderRadius: 10,
@@ -483,7 +614,7 @@ export function InspectionsPlusSheet({
               </button>
             </div>
           </>
-        )}
+        ))}
       </div>
       {showPreview && (
         <ClientPreviewModal

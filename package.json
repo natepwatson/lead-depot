@@ -11,6 +11,7 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@huggingface/transformers": "3.8.1",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@radix-ui/react-dialog": "^1.1.7",
     "@radix-ui/react-label": "^2.1.3",
@@ -33,6 +34,7 @@
     "express": "^5.0.1",
     "express-session": "^1.18.1",
     "heic2any": "^0.0.4",
+    "kokoro-js": "^1.2.1",
     "lucide-react": "^0.453.0",
     "memorystore": "^1.6.7",
     "multer": "^2.2.0",

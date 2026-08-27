@@ -18,7 +18,13 @@ type ProposedAction = { type: string; title?: string; personName?: string; dueDa
 const CONFIRM_WORDS = ["yes", "yeah", "yep", "confirm", "go ahead", "do it", "please do", "sounds good", "sure"];
 const CANCEL_WORDS = ["no", "nope", "cancel", "never mind", "nevermind", "don't", "stop", "skip it"];
 
-function speak(text: string, onDone: () => void) {
+// v20.37.4 — Lexi's voice is now generated server-side by Kokoro (af_heart,
+// faster-than-default cadence) instead of the browser's robotic built-in
+// speechSynthesis. Falls back to speechSynthesis if the server voice is
+// unreachable or errors, so Lexi never goes silent.
+let currentSpeechAudio: HTMLAudioElement | null = null;
+
+function speakBrowserFallback(text: string, onDone: () => void) {
   try {
     if (!("speechSynthesis" in window) || !text.trim()) {
       onDone();
@@ -26,13 +32,43 @@ function speak(text: string, onDone: () => void) {
     }
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 1.02;
+    utter.rate = 1.05;
     utter.pitch = 1.0;
     utter.onend = onDone;
     utter.onerror = onDone;
     window.speechSynthesis.speak(utter);
   } catch {
     onDone();
+  }
+}
+
+async function speak(text: string, onDone: () => void) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    onDone();
+    return;
+  }
+  try {
+    if (currentSpeechAudio) {
+      currentSpeechAudio.pause();
+      currentSpeechAudio = null;
+    }
+    window.speechSynthesis?.cancel();
+    const res = await apiRequest("POST", "/api/assistant/speak", { text: trimmed });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    currentSpeechAudio = audio;
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      if (currentSpeechAudio === audio) currentSpeechAudio = null;
+      onDone();
+    };
+    audio.onended = cleanup;
+    audio.onerror = cleanup;
+    await audio.play();
+  } catch {
+    speakBrowserFallback(trimmed, onDone);
   }
 }
 

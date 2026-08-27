@@ -18,6 +18,7 @@ import type { Express, Request, Response } from "express";
 import { requireAdmin } from "./auth";
 import { fubRequest } from "./fub";
 import { rawDb } from "./db";
+import { synthesizeSpeech } from "./tts";
 
 // ─── Persistent memory tables ──────────────────────────────────────────────
 rawDb.prepare(`
@@ -409,6 +410,30 @@ export function registerAssistantRoutes(app: Express) {
     } catch (err: any) {
       console.error("[Assistant] /chat failed:", err?.message);
       res.status(500).json({ error: err?.message || "Assistant chat failed." });
+    }
+  });
+
+  // POST /api/assistant/speak
+  // Body: { text: string } — the text Lexi is about to speak.
+  // Returns a WAV audio file generated locally by Kokoro (af_heart voice,
+  // faster-than-default cadence). Runs fully offline — the model is
+  // committed to server/kokoro-cache/, no Hugging Face network call at
+  // runtime. Frontend falls back to the browser's built-in speech synthesis
+  // if this endpoint errors or is slow to respond.
+  app.post("/api/assistant/speak", async (req: Request, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const text: string = typeof req.body?.text === "string" ? req.body.text : "";
+      if (!text.trim()) {
+        return res.status(400).json({ error: "Missing text." });
+      }
+      const wav = await synthesizeSpeech(text);
+      res.setHeader("Content-Type", "audio/wav");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(wav);
+    } catch (err: any) {
+      console.error("[Assistant] /speak failed:", err?.message);
+      res.status(500).json({ error: err?.message || "Speech generation failed." });
     }
   });
 

@@ -1,6 +1,6 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile, copyFile, mkdir, readdir } from "node:fs/promises";
+import { rm, readFile, copyFile, mkdir, readdir, cp } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -132,6 +132,16 @@ async function buildAll() {
       await copyFile(path.join(bghsSrc, f), path.join(bghsDst, f));
     }
     console.log(`copied ${files.length} BGHS brand assets → dist/public/bghs/`);
+  }
+
+  // v20.37.4 — Kokoro voice model (server/tts.ts resolves it relative to
+  // __dirname, which at runtime is dist/, not server/). Recursive copy since
+  // it contains a nested onnx/ subfolder.
+  const kokoroSrc = "server/kokoro-cache";
+  const kokoroDst = "dist/kokoro-cache";
+  if (existsSync(kokoroSrc)) {
+    await cp(kokoroSrc, kokoroDst, { recursive: true });
+    console.log("copied Kokoro voice model → dist/kokoro-cache/");
   }
 }
 

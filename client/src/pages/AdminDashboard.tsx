@@ -39,7 +39,7 @@ import {
   AlertTriangle, ChevronRight, X, Layers, ScrollText, Power, Trash, Heart, Map as MapIcon,
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
   UserPlus, UserCircle2, KeyRound, RotateCcw,
-  Sparkles, Database, Wrench, FileText, PlayCircle, Home, CalendarDays,
+  Database, Wrench, FileText, PlayCircle, Home, CalendarDays,
   ClipboardList, ClipboardCheck, DollarSign, CalendarClock, PieChart
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
@@ -1138,7 +1138,6 @@ export default function AdminDashboard({
   onWorkMyLeads,
   onOpenAgentTab,
   onCloseAdmin,
-  onOpenLexi,
 }: {
   onWorkMyLeads?: () => void;
   // v14.51 — admin bottom nav jumps into AgentView on a specific tab.
@@ -1147,8 +1146,6 @@ export default function AdminDashboard({
   // top bar and any Work My Leads / Open Agent Tab actions dismiss the admin
   // takeover instead of navigating internally.
   onCloseAdmin?: () => void;
-  // v20.36.0 — opens the Lexi voice assistant takeover.
-  onOpenLexi?: () => void;
 } = {}) {
   const { user, logout } = useAuth();
   useRealtimeUpdates();
@@ -1904,7 +1901,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.37.8
+              v20.37.9
             </p>
           </div>
         </div>
@@ -1960,18 +1957,6 @@ export default function AdminDashboard({
               >
                 <PhoneCall size={11}/> Who called me?
               </Button>
-              {/* v20.36.0 — Talk to Lexi, the voice assistant. */}
-              {onOpenLexi && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 text-xs"
-                  style={{ borderColor: "rgba(200,170,90,0.3)", color: "#c8aa5a" }}
-                  onClick={() => onOpenLexi()}
-                >
-                  <Sparkles size={11}/> Talk to Lexi
-                </Button>
-              )}
             </>
           )}
           <button

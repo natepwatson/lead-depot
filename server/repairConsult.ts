@@ -393,6 +393,14 @@ export function ensureRepairConsultSchema() {
   if (!rciCols.includes("markup_pct_override")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN markup_pct_override REAL").run();
   if (!rciCols.includes("is_free")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN is_free INTEGER DEFAULT 0").run();
 
+  // v20.39.0 — Fold Into Deposit Schedule: standing rule had always been
+  // "vendor pricing is always separate" from the in-house 50/50 deposit /
+  // final split. Alex now wants a per-item choice — when set, this vendor
+  // item's priced amount is added into subtotal/total/deposit_amount/
+  // final_amount instead of the separately-tracked vendor_quoted_subtotal.
+  // Only meaningful on category='vendor' rows with a vendor_quote_amount.
+  if (!rciCols.includes("include_in_deposit")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN include_in_deposit INTEGER DEFAULT 0").run();
+
   // v20.33.0 — Vendor Quote Request Gate: agents must supply a photo,
   // measurements, AND a description of what's being quoted before a vendor
   // dispatch email can go out (Alex: no more auto-sent, under-specified
@@ -1024,26 +1032,42 @@ function depositSplitHtml(consult: any): string {
 // Items with no quote entered yet still render name-only exactly as before.
 function vendorScopeHtml(vendorItems: any[]): string {
   if (!vendorItems || vendorItems.length === 0) return "";
+  // v20.39.0 — Fold Into Deposit Schedule: an item marked include_in_deposit
+  // already had its dollars added into consult.total/deposit_amount/
+  // final_amount server-side (see the items-save endpoint), so it must NOT
+  // also be summed into quotedSubtotal here — that would double-count real
+  // client dollars in the email. It's still listed for scope visibility,
+  // just tagged as already-included instead of "billed separately".
   let quotedSubtotal = 0;
+  let anyIncluded = false;
   const rows = vendorItems.map((v: any) => {
     // v20.38.0 — was `> 0`, which hid a deliberately-comped ($0) vendor item
     // as "not yet quoted" instead of showing it as a real $0.00 price.
     const priced = v.line_total != null && (Number(v.line_total) > 0 || !!v.is_free);
-    if (priced) quotedSubtotal += Number(v.line_total);
+    const included = !!v.include_in_deposit;
+    if (priced && included) anyIncluded = true;
+    if (priced && !included) quotedSubtotal += Number(v.line_total);
     const priceHtml = priced
-      ? `<span style="float:right;font-weight:700;color:${BRAND.black}">$${Number(v.line_total).toLocaleString(undefined,{minimumFractionDigits:2})}</span>`
+      ? `<span style="float:right;font-weight:700;color:${included ? BRAND.green : BRAND.black}">$${Number(v.line_total).toLocaleString(undefined,{minimumFractionDigits:2})}${included ? " (in total)" : ""}</span>`
       : "";
     return `<li style="margin-bottom:4px;overflow:hidden">${v.name}${priceHtml}</li>`;
   }).join("");
   const subtotalHtml = quotedSubtotal > 0
     ? `<p style="margin:8px 0 0;font-size:12px;color:${BRAND.black};font-weight:700">Vendor-Coordinated Subtotal: $${quotedSubtotal.toLocaleString(undefined,{minimumFractionDigits:2})}</p>`
     : "";
+  const separateNote = quotedSubtotal > 0 || !anyIncluded
+    ? `<p style="margin:8px 0 0;font-size:10.5px;color:${BRAND.gray};font-style:italic">These are quoted and billed separately by our vetted vendor partners — not included in the Happy Home Solutions total above.</p>`
+    : "";
+  const includedNote = anyIncluded
+    ? `<p style="margin:4px 0 0;font-size:10.5px;color:${BRAND.gray};font-style:italic">Items marked "(in total)" are already included in the Happy Home Solutions total and 50/50 payment schedule above.</p>`
+    : "";
   return `
   <div style="margin-top:16px;padding:14px 16px;background:${BRAND.lightGray};border-radius:8px">
     <p style="margin:0 0 6px;font-size:11px;color:${BRAND.gray};text-transform:uppercase;letter-spacing:0.06em;font-weight:700">Also Coordinating For You (Licensed Trade — One Stop Shop)</p>
     <ul style="margin:0;padding-left:18px;font-size:12.5px;color:#333">${rows}</ul>
     ${subtotalHtml}
-    <p style="margin:8px 0 0;font-size:10.5px;color:${BRAND.gray};font-style:italic">These are quoted and billed separately by our vetted vendor partners — not included in the Happy Home Solutions total above.</p>
+    ${separateNote}
+    ${includedNote}
   </div>`;
 }
 
@@ -1600,11 +1624,17 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
     for (const v of vendorItems) {
       if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
       const vendorPriced = v.vendor_quote_amount != null && v.line_total != null;
+      // v20.39.0 — Fold Into Deposit Schedule: an item marked include_in_deposit
+      // already had its dollars added into consult.total/deposit_amount/
+      // final_amount server-side, so label it as "in 50/50 total" here instead
+      // of a bare price — and it must NOT also land in pricedVendorTotal below
+      // (that would double-count it into GRAND TOTAL).
+      const includedInDeposit = !!v.include_in_deposit;
       const priceLabel = vendorPriced
-        ? `$${Number(v.line_total).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+        ? `$${Number(v.line_total).toLocaleString(undefined, { minimumFractionDigits: 2 })}${includedInDeposit ? " (in 50/50 total)" : ""}`
         : "Quote pending";
       page.drawText(`\u2022  ${v.name}`.slice(0, 68), { x: 38, y, size: 8.5, font, color: rgb(0.2, 0.2, 0.2) });
-      page.drawText(priceLabel, { x: 470, y, size: 8.5, font: fontBold, color: vendorPriced ? black : gray });
+      page.drawText(priceLabel, { x: 400, y, size: 8.5, font: fontBold, color: vendorPriced ? (includedInDeposit ? green : black) : gray });
       y -= 12;
       if (v.instruction) {
         for (const line of wrapText(v.instruction, fontItalic, 7, 480).slice(0, 2)) {
@@ -1616,12 +1646,17 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
     }
     y -= 4;
 
-    const pricedVendorTotal = vendorItems.reduce((sum: number, v: any) => {
+    // v20.39.0 — only vendor items still billed SEPARATELY (not folded into
+    // the 50/50 schedule) count toward the "GRAND TOTAL" add-on line below —
+    // folded-in items are already inside consult.total, so including them
+    // here again would double-count real client dollars.
+    const separateVendorItems = vendorItems.filter((v: any) => !v.include_in_deposit);
+    const pricedVendorTotal = separateVendorItems.reduce((sum: number, v: any) => {
       if (v.vendor_quote_amount != null && v.line_total != null) return sum + Number(v.line_total);
       return sum;
     }, 0);
-    const allVendorPriced = vendorItems.every((v: any) => v.vendor_quote_amount != null);
-    if (allVendorPriced) {
+    const allVendorPriced = separateVendorItems.every((v: any) => v.vendor_quote_amount != null);
+    if (separateVendorItems.length > 0 && allVendorPriced) {
       const grandTotal = Number(consult.total) + pricedVendorTotal;
       if (y < MIN_Y + 14) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
       page.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 0.5, color: gray });
@@ -1671,7 +1706,16 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
 }
 
 function wrapText(text: string, font: any, size: number, maxWidth: number): string[] {
-  const words = text.split(" ");
+  // v20.39.0 — FIX "Failed to generate quote" (Charles Ave / Ross Wood):
+  // free-text fields like vendor scope notes come from a multi-line
+  // <textarea>, so `text` can contain literal "\n"/"\r" characters. This
+  // function only ever split on " ", so a line break embedded mid-word
+  // (no surrounding space) survived into a single "word" and got handed
+  // straight to page.drawText() — pdf-lib's WinAnsi encoding can't encode
+  // control characters like \n and throws 'WinAnsi cannot encode "\n"'.
+  // Normalize all line breaks to spaces before wrapping; this is a single
+  // paragraph render, not a preformatted block, so no semantics are lost.
+  const words = text.replace(/\r\n|\r|\n/g, " ").split(" ").filter(Boolean);
   const lines: string[] = [];
   let current = "";
   for (const w of words) {
@@ -2747,8 +2791,8 @@ export function registerRepairConsultRoutes(app: Express) {
     const del = rawDb.prepare(`DELETE FROM repair_consult_items WHERE consult_id = ?`);
     const insert = rawDb.prepare(`
       INSERT INTO repair_consult_items
-        (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order, vendor_quote_amount, markup_pct_applied, vendor_scope_note, needs_electrical_vendor, markup_pct_override, is_free)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order, vendor_quote_amount, markup_pct_applied, vendor_scope_note, needs_electrical_vendor, markup_pct_override, is_free, include_in_deposit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const catalogStmt = rawDb.prepare(`SELECT * FROM repair_items WHERE key = ? AND active = 1`);
     // v20.32.17 — Vendor Quote Upload: markup applied to any vendor item that
@@ -2777,6 +2821,10 @@ export function registerRepairConsultRoutes(app: Express) {
         // client (client price -> $0) while still recording the underlying
         // rate/vendor cost for reference and P&L tracking.
         const isFree = !!raw.isFree;
+        // v20.39.0 — Fold Into Deposit Schedule: only meaningful on vendor
+        // items with a vendor-quoted amount — checked further below once we
+        // know cat.category and that a vendorQuoteAmount was actually given.
+        const includeInDeposit = (cat.category === "vendor" && !!raw.includeInDeposit);
         // v20.38.0 — Adjustable Vendor-Quote Profit %: per-item override of
         // the global vendor_quote_settings.markup_pct. Only meaningful on
         // vendor items; null/undefined/"" means "use the global default".
@@ -2789,14 +2837,19 @@ export function registerRepairConsultRoutes(app: Express) {
           subtotal += lineTotal;
           if (pkg && pkgItemKeys.includes(cat.key)) packageEligibleSubtotal += lineTotal;
         } else if (cat.category === "vendor" && raw.vendorQuoteAmount !== undefined && raw.vendorQuoteAmount !== null && raw.vendorQuoteAmount !== "") {
-          // Vendor-quoted client price is tracked SEPARATELY from
-          // subtotal/total/deposit math (standing rule: vendor pricing is
-          // always separate) — it only feeds vendorQuotedSubtotal below.
+          // v20.39.0 — Fold Into Deposit Schedule: standing rule used to be
+          // "vendor pricing is always separate" from subtotal/total/deposit
+          // math, no exceptions. Alex now wants a per-item choice — when
+          // includeInDeposit is set, this vendor item's client price flows
+          // into subtotal (and therefore total/deposit_amount/final_amount)
+          // just like an in-house item; otherwise it keeps the old separate
+          // vendorQuotedSubtotal treatment.
           vendorQuoteAmount = Number(raw.vendorQuoteAmount) || 0;
           markupPctApplied = markupPctOverride !== null ? markupPctOverride : vqMarkupPct;
           lineTotal = isFree ? 0 : Math.round(vendorQuoteAmount * (1 + markupPctApplied) * 100) / 100;
           unitRate = vendorQuoteAmount;
-          vendorQuotedSubtotal += lineTotal;
+          if (includeInDeposit) subtotal += lineTotal;
+          else vendorQuotedSubtotal += lineTotal;
         }
         // v20.32.38 — optional per-item scope override (e.g. a vendor item
         // narrowed to "patch repair" instead of the catalog's generic default
@@ -2818,7 +2871,7 @@ export function registerRepairConsultRoutes(app: Express) {
           unitRate, twoStory ? 1 : 0, lineTotal,
           instruction, JSON.stringify(raw.photos || []), raw.measurementNotes || null, cat.sequence_order,
           vendorQuoteAmount, markupPctApplied, vendorScopeNote, needsElectricalVendor,
-          markupPctOverride, isFree ? 1 : 0
+          markupPctOverride, isFree ? 1 : 0, includeInDeposit ? 1 : 0
         );
       }
     });

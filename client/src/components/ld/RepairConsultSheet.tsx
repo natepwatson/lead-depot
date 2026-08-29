@@ -49,6 +49,14 @@ type CheckedState = {
   // in-house) to $0 for the client while the real cost/rate is still kept
   // on the record for reference and P&L accuracy.
   isFree: boolean;
+  // v20.39.0 — Fold Into Deposit Schedule: standing rule had always been
+  // "vendor pricing is always separate" (billed outside the 50/50 in-house
+  // schedule). Alex now wants the choice per vendor item: check this to
+  // fold the item's client price into the main subtotal/total so it's
+  // covered by the deposit + final payment split; leave unchecked (default)
+  // to keep today's behavior — billed separately by the vendor. Only
+  // meaningful on vendor items with a vendor quote amount entered.
+  includeInDeposit: boolean;
 };
 
 // v20.33.3 — in-house item keys where "no existing wiring" is a realistic
@@ -735,18 +743,17 @@ export function RepairConsultSheet({
       subtotal += lineTotal;
       if (pkg && pkg.itemKeys.includes(item.key)) packageEligibleSubtotal += lineTotal;
     }
-    const discountPct = pkg ? pkg.discountPct : 0;
-    const discountAmount = Math.round(packageEligibleSubtotal * discountPct * 100) / 100;
-    const total = Math.round((subtotal - discountAmount) * 100) / 100;
-    const threshold = incentiveSettings.active ? incentiveSettings.thresholdAmount || 0 : null;
-    const freeItemHit = threshold !== null && total >= threshold;
-    const remainingToFreeItem = threshold !== null && !freeItemHit ? Math.max(threshold - total, 0) : 0;
-
     // v20.32.17 — Vendor Quote Upload: live client-price preview for any
     // checked vendor item that already has an uploaded vendor quote amount.
-    // Deliberately kept OUT of subtotal/total above (standing rule: vendor
-    // pricing is always separate) — surfaced as its own field.
+    // v20.39.0 — Fold Into Deposit Schedule: standing rule used to be "vendor
+    // pricing is always separate" no matter what. Alex now wants a per-item
+    // choice — an item checked "include in deposit schedule" folds its
+    // priced amount into `subtotal` (so it flows into the 50/50 deposit /
+    // final split) instead of the separately-billed `vendorQuotedSubtotal`.
+    // Computed BEFORE the discount/total math below so folded-in vendor
+    // dollars are covered by the same subtotal→total calc as in-house items.
     let vendorQuotedSubtotal = 0;
+    let includedVendorTotal = 0;
     for (const item of vendorItems) {
       const st = checked[item.key];
       if (!st?.checked || !st.hasVendorQuote) continue;
@@ -756,10 +763,20 @@ export function RepairConsultSheet({
       // default; a comped item previews at $0 regardless of markup.
       const overridePct = st.markupPctOverride !== "" && !isNaN(Number(st.markupPctOverride)) ? Number(st.markupPctOverride) : null;
       const markupPct = overridePct !== null ? overridePct : (vendorQuoteSettings.markupPct || 0);
-      vendorQuotedSubtotal += st.isFree ? 0 : Math.round(amt * (1 + markupPct) * 100) / 100;
+      const priced = st.isFree ? 0 : Math.round(amt * (1 + markupPct) * 100) / 100;
+      if (st.includeInDeposit) includedVendorTotal += priced;
+      else vendorQuotedSubtotal += priced;
     }
+    subtotal += includedVendorTotal;
 
-    return { subtotal, discountAmount, total, threshold, freeItemHit, remainingToFreeItem, vendorQuotedSubtotal };
+    const discountPct = pkg ? pkg.discountPct : 0;
+    const discountAmount = Math.round(packageEligibleSubtotal * discountPct * 100) / 100;
+    const total = Math.round((subtotal - discountAmount) * 100) / 100;
+    const threshold = incentiveSettings.active ? incentiveSettings.thresholdAmount || 0 : null;
+    const freeItemHit = threshold !== null && total >= threshold;
+    const remainingToFreeItem = threshold !== null && !freeItemHit ? Math.max(threshold - total, 0) : 0;
+
+    return { subtotal, discountAmount, total, threshold, freeItemHit, remainingToFreeItem, vendorQuotedSubtotal, includedVendorTotal };
   }, [checked, inHouseItems, vendorItems, selectedPackageKey, packages, incentiveSettings, vendorQuoteSettings]);
 
   const groupedByTrade = (items: RepairItem[]) => {
@@ -771,7 +788,7 @@ export function RepairConsultSheet({
     return [...map.entries()];
   };
 
-  const DEFAULT_ITEM_STATE: CheckedState = { checked: false, quantity: "1", twoStory: false, photos: [], measurementNotes: "", hasVendorQuote: false, vendorQuoteAmount: "", vendorScopeNote: "", needsElectricalVendor: false, markupPctOverride: "", isFree: false };
+  const DEFAULT_ITEM_STATE: CheckedState = { checked: false, quantity: "1", twoStory: false, photos: [], measurementNotes: "", hasVendorQuote: false, vendorQuoteAmount: "", vendorScopeNote: "", needsElectricalVendor: false, markupPctOverride: "", isFree: false, includeInDeposit: false };
   const setItemState = (key: string, patch: Partial<CheckedState>) => {
     setChecked(prev => {
       const base = prev[key] || DEFAULT_ITEM_STATE;
@@ -999,6 +1016,11 @@ export function RepairConsultSheet({
                   </p>
                 )}
                 {/* v20.33.0 — photo upload/list moved above (required, unconditional) so it's no longer duplicated here behind the optional "Already have a vendor quote?" toggle. */}
+                {/* v20.39.0 — Fold Into Deposit Schedule: default OFF keeps today's "billed separately" behavior; check to fold this priced vendor item into the main 50/50 deposit/final split. */}
+                <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12, color: st.includeInDeposit ? "#7ed49a" : "rgba(255,255,255,0.6)", cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!st.includeInDeposit} onChange={e => setItemState(it.key, { includeInDeposit: e.target.checked })} style={{ accentColor: "#7ed49a" }} />
+                  Fold into 50/50 deposit schedule (instead of billing separately)
+                </label>
               </div>
             )}
             {/* v20.38.0 — Free Item Toggle: comp this vendor-quoted line to $0 for the client (real vendor cost still recorded for P&L). */}
@@ -1087,6 +1109,7 @@ export function RepairConsultSheet({
             needsElectricalVendor: !!it.needs_electrical_vendor,
             markupPctOverride: it.markup_pct_override != null ? String(it.markup_pct_override) : "",
             isFree: !!it.is_free,
+            includeInDeposit: !!it.include_in_deposit,
           };
         }
         setChecked(nextChecked);
@@ -1244,6 +1267,10 @@ export function RepairConsultSheet({
         // (either category).
         markupPctOverride: v.markupPctOverride !== "" && !isNaN(Number(v.markupPctOverride)) ? Number(v.markupPctOverride) : undefined,
         isFree: v.isFree || undefined,
+        // v20.39.0 — Fold Into Deposit Schedule (vendor items only — server
+        // ignores it for in_house). Only sent when a vendor quote amount is
+        // actually present; a vendor item with no price can't fold anything.
+        includeInDeposit: v.hasVendorQuote && v.includeInDeposit ? true : undefined,
       }));
     if (items.length === 0) throw new Error("Check off at least one repair item before continuing.");
     const d = await fetchJson(`/api/repair-consult/${id}/items`, {
@@ -1374,16 +1401,20 @@ export function RepairConsultSheet({
   const hasInHouseSelections = Object.entries(checked).some(([k, v]) => v.checked && inHouseItems.some(ii => ii.key === k));
 
   // v20.33.0 — Vendor Quote Request Gate: every checked vendor item must
-  // have at least one photo, measurement notes, AND a written description
-  // of what needs quoting before the agent can send the request. Alex:
-  // no more auto-sent, under-specified quote requests going to vendors.
+  // have measurement notes AND a written description of what needs quoting
+  // before the agent can send the request. Alex: no more auto-sent,
+  // under-specified quote requests going to vendors.
+  // v20.39.0 — Alex: the photo requirement was blocking real jobs (e.g. a
+  // Land Clearing item with no photo taken) — he still wants to be able to
+  // add photos when he has them, but a photo should no longer be mandatory
+  // to send a vendor quote request. Dropped from the gate; measurements +
+  // description remain required.
   const vendorItemsMissingRequirements = useMemo(() => {
     return Object.entries(checked)
       .filter(([k, v]) => v.checked && vendorItems.some(vi => vi.key === k))
       .map(([k, v]) => {
         const item = vendorItems.find(vi => vi.key === k);
         const missing: string[] = [];
-        if (!v.photos || v.photos.length === 0) missing.push("photo");
         if (!v.measurementNotes || !v.measurementNotes.trim()) missing.push("measurements");
         if (!v.vendorScopeNote || !v.vendorScopeNote.trim()) missing.push("description");
         return missing.length > 0 ? { name: item?.name || k, missing } : null;
@@ -1743,7 +1774,7 @@ export function RepairConsultSheet({
                 {liveTotals.subtotal > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                     <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", fontWeight: 600 }}>
-                      In-House Subtotal{!!liveTotals.discountAmount && ` \u2212 $${liveTotals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} discount`}
+                      {liveTotals.includedVendorTotal > 0 ? "Total (In-House + Folded-In Vendor)" : "In-House Subtotal"}{!!liveTotals.discountAmount && ` \u2212 $${liveTotals.discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} discount`}
                     </span>
                     <span style={{ fontSize: 17, fontWeight: 800, color: GOLD }}>
                       ${liveTotals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -2044,6 +2075,11 @@ export function RepairConsultSheet({
                                                 </p>
                                               )}
                                               {/* v20.33.0 — photo upload/list moved above (required, unconditional) so it's no longer duplicated here behind the optional "Already have a vendor quote?" toggle. */}
+                                              {/* v20.39.0 — Fold Into Deposit Schedule: default OFF keeps today's "billed separately" behavior; check to fold this priced vendor item into the main 50/50 deposit/final split. */}
+                                              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12, color: st?.includeInDeposit ? "#7ed49a" : "rgba(255,255,255,0.6)", cursor: "pointer" }}>
+                                                <input type="checkbox" checked={!!st?.includeInDeposit} onChange={e => setItemState(item.key, { includeInDeposit: e.target.checked })} style={{ accentColor: "#7ed49a" }} />
+                                                Fold into 50/50 deposit schedule (instead of billing separately)
+                                              </label>
                                             </div>
                                           )}
                                           <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12, color: st?.isFree ? "#7ed49a" : "rgba(255,255,255,0.6)", cursor: "pointer" }}>
@@ -2100,7 +2136,7 @@ export function RepairConsultSheet({
               <div style={{ ...cardStyle, background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.25)" }}>
                 {liveTotals.subtotal > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 12.5, color: "rgba(255,255,255,0.6)" }}>In-House Subtotal</span>
+                    <span style={{ fontSize: 12.5, color: "rgba(255,255,255,0.6)" }}>{liveTotals.includedVendorTotal > 0 ? "Subtotal (In-House + Folded-In Vendor)" : "In-House Subtotal"}</span>
                     <span style={{ fontSize: 12.5, color: "#fff" }}>${liveTotals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}

@@ -63,20 +63,27 @@ const inputStyle: React.CSSProperties = {
 const labelStyle: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "#94a3b8", letterSpacing: 0.4, textTransform: "uppercase", marginBottom: 4, display: "block" };
 
 export function PaymentRecordModal({
-  sourceType, sourceId, propertyAddress, contractTotal, balanceRemaining, onClose, onRecorded,
+  sourceType, sourceId, propertyAddress, contractTotal, balanceRemaining, depositSuggestion, onClose, onRecorded,
 }: {
   sourceType: "repair_consult" | "inspection_order";
   sourceId: number;
   propertyAddress: string;
   contractTotal: number;
   balanceRemaining: number;
+  // v20.38.4 — Optional suggested deposit (e.g. the calculated 50% figure).
+  // Used ONLY to pre-fill the Amount field as an editable starting point
+  // for the very first payment on a job — never enforced, never blindly
+  // confirmed. Alex: clients pay anywhere from a partial deposit up to
+  // 100% at signing, and the amount recorded must always match what they
+  // actually paid, not an assumed percentage.
+  depositSuggestion?: number;
   onClose: () => void;
   onRecorded: () => void;
 }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [liveBalance, setLiveBalance] = useState(balanceRemaining);
   const [priorPayments, setPriorPayments] = useState<Array<{ id: number; amount: number; method: string; recorded_at: string }>>([]);
-  const [amount, setAmount] = useState(String(balanceRemaining || contractTotal || ""));
+  const [amount, setAmount] = useState(String(depositSuggestion || balanceRemaining || contractTotal || ""));
   const [method, setMethod] = useState("cash");
   const [referenceNote, setReferenceNote] = useState("");
   const [companyRepAgentId, setCompanyRepAgentId] = useState<number | "">("");
@@ -102,9 +109,15 @@ export function PaymentRecordModal({
     fetch(`/api/payments?sourceType=${sourceType}&sourceId=${sourceId}`, { credentials: "include" })
       .then(r => r.json())
       .then(d => {
+        const priorCount = Array.isArray(d.payments) ? d.payments.length : 0;
         if (typeof d.balanceRemaining === "number") {
           setLiveBalance(d.balanceRemaining);
-          setAmount(String(d.balanceRemaining || contractTotal || ""));
+          // v20.38.4 — Before any money has come in, default the Amount field
+          // to the suggested deposit (if provided) rather than the full
+          // remaining balance, since the first payment is usually a partial
+          // deposit. Still fully editable to whatever was actually paid.
+          const smartDefault = priorCount === 0 && depositSuggestion ? depositSuggestion : d.balanceRemaining;
+          setAmount(String(smartDefault || contractTotal || ""));
         }
         if (Array.isArray(d.payments)) setPriorPayments(d.payments);
       }).catch(() => {});
@@ -202,6 +215,11 @@ export function PaymentRecordModal({
           <div>
             <label style={labelStyle}>Amount</label>
             <input style={inputStyle} type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} />
+            {priorPayments.length === 0 && depositSuggestion ? (
+              <p style={{ margin: 0, marginTop: 3, fontSize: 10.5, color: "#64748b" }}>
+                Suggested deposit ${depositSuggestion.toLocaleString(undefined, { minimumFractionDigits: 2 })} (50%) — edit to match what the client actually paid.
+              </p>
+            ) : null}
           </div>
           <div>
             <label style={labelStyle}>Method</label>

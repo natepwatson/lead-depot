@@ -852,17 +852,14 @@ function ConsultsPanel() {
     } finally { setBusy(null); }
   };
 
-  // v20.13.0 — Deposit Required Gate: one-tap mark-received, unlocks scheduling.
-  const markDepositReceived = async (c: Consult) => {
-    if (!confirm(`Mark the 50% deposit ($${c.deposit_amount?.toLocaleString(undefined, { minimumFractionDigits: 2 })}) received for ${c.property_address}?`)) return;
-    setBusy(c.id);
-    try {
-      const r = await fetch(`/api/repair-consult/${c.id}/mark-deposit-received`, { method: "POST", credentials: "include" });
-      const b = await r.json();
-      if (!r.ok) alert(b?.error || "Failed to mark deposit received");
-      load();
-    } finally { setBusy(null); }
-  };
+  // v20.38.4 — Retired the old "Deposit In" one-tap button. It blind-
+  // confirmed a hardcoded 50% figure with no way to enter what the client
+  // actually paid (Alex: client paid $2,000 on a $3,131 job — not 50%, not
+  // 100% — and the button gave no way to reflect that). Deposit and Payment
+  // are now the same flow: "Record Payment" takes any real dollar amount,
+  // and the very first payment recorded auto-flips deposit_received_at
+  // (server/payments.ts POST /api/payments), so there is no separate
+  // manual deposit-confirmation step left to get wrong.
 
   const scheduleStart = async (c: Consult) => {
     const dateStr = prompt(`Start date for ${c.property_address} (YYYY-MM-DD):`, c.start_date || "");
@@ -957,15 +954,22 @@ function ConsultsPanel() {
                   </td>
                   <td style={{ padding: "6px 10px", color: "#94a3b8", fontSize: 11 }}>{signedLabel(c)}</td>
                   <td style={{ padding: "6px 10px", fontSize: 11 }}>
-                    {c.status !== "accepted" ? (
-                      <span style={{ color: "#64748b" }}>Awaiting signature</span>
-                    ) : !c.deposit_received_at ? (
-                      <span style={{ color: "#e8d8a8" }}>Awaiting deposit</span>
-                    ) : !c.start_date && !c.start_window ? (
-                      <span style={{ color: "#5eead4" }}>Deposit in · not scheduled</span>
-                    ) : (
-                      <span style={{ color: "#5eead4" }}>{c.start_date ? `Start ${c.start_date}${c.start_time ? " " + c.start_time : ""}` : c.start_window}</span>
-                    )}
+                    {(() => {
+                      // v20.38.4 — Deposit is now just "has any money come in
+                      // yet", shown as a real dollar amount rather than a
+                      // blind received/not-received flag assuming 50%.
+                      const paidSoFar = c.paid_amount || 0;
+                      const totalDue = c.total || 0;
+                      if (c.status !== "accepted") return <span style={{ color: "#64748b" }}>Awaiting signature</span>;
+                      if (!c.deposit_received_at) return <span style={{ color: "#e8d8a8" }}>Awaiting deposit</span>;
+                      const paidLabel = `$${paidSoFar.toLocaleString(undefined, { minimumFractionDigits: 2 })} paid`;
+                      const fullyPaid = totalDue > 0 && paidSoFar >= totalDue - 0.005;
+                      const depositLine = <span style={{ color: fullyPaid ? "#4ade80" : "#5eead4" }}>{paidLabel}{fullyPaid ? " \u00b7 paid in full" : ""}</span>;
+                      if (!c.start_date && !c.start_window) {
+                        return <>{depositLine}<div style={{ color: "#64748b", fontSize: 10 }}>Not scheduled</div></>;
+                      }
+                      return <>{depositLine}<div style={{ color: "#5eead4", fontSize: 10 }}>{c.start_date ? `Start ${c.start_date}${c.start_time ? " " + c.start_time : ""}` : c.start_window}</div></>;
+                    })()}
                   </td>
                   <td style={{ padding: "6px 10px" }}>
                     <div style={{ display: "flex", gap: 5, justifyContent: "center", flexWrap: "wrap" }}>
@@ -991,10 +995,6 @@ function ConsultsPanel() {
                         <button disabled={!c.quote_token || c.status === "accepted" || busy === c.id} onClick={() => markPrintSigned(c)}
                           title={!c.quote_token ? "Generate the quote first" : c.status === "accepted" ? "Already signed" : "Mark as Print-Signed — upload a photo or PDF of the signed printout"}
                           style={actionBtnStyle}><PenLine size={11} /> Mark Signed</button>
-                      )}
-                      {c.status === "accepted" && !c.deposit_received_at && (
-                        <button disabled={busy === c.id} onClick={() => markDepositReceived(c)} title="Mark Deposit Received"
-                          style={{ ...actionBtnStyle, color: "#e8d8a8", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><DollarSign size={11} /> Deposit In</button>
                       )}
                       {c.status === "accepted" && c.deposit_received_at && (
                         <button disabled={busy === c.id} onClick={() => scheduleStart(c)} title="Schedule Start Date"
@@ -1055,7 +1055,8 @@ function ConsultsPanel() {
           sourceId={paymentFor.id}
           propertyAddress={paymentFor.property_address}
           contractTotal={paymentFor.total}
-          balanceRemaining={paymentFor.total}
+          balanceRemaining={Math.max(0, (paymentFor.total || 0) - (paymentFor.paid_amount || 0))}
+          depositSuggestion={paymentFor.deposit_amount}
           onClose={() => setPaymentFor(null)}
           onRecorded={() => { setPaymentFor(null); load(); }}
         />
@@ -1302,6 +1303,7 @@ function WorkOrdersPanel() {
           propertyAddress={payModalFor.property_address}
           contractTotal={payModalFor.total || 0}
           balanceRemaining={Math.max(0, (payModalFor.total || 0) - (payModalFor.paid_amount || 0))}
+          depositSuggestion={payModalFor.deposit_amount}
           onClose={() => setPayModalFor(null)}
           onRecorded={() => { setPayModalFor(null); load(); }}
         />

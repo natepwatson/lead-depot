@@ -1251,20 +1251,21 @@ export async function dispatchVendorEmails(consultId: number) {
   if (!consult || items.length === 0) return { sent: 0 };
 
   // v20.33.0 — Vendor Quote Request Gate: server-side enforcement so the
-  // requirement (photo + measurements + a written description of what
-  // needs quoting) can never be bypassed by a raw API call even if the
+  // requirement (measurements + a written description of what needs
+  // quoting) can never be bypassed by a raw API call even if the
   // client-side button is disabled. Mirrors the client-side check in
   // RepairConsultSheet.tsx — keep both in sync if this logic changes.
+  // v20.39.0 — photo is no longer required (Alex: "I don't want the vendor
+  // quote upload to be required"). Measurements + scope note stay required
+  // since the vendor still needs enough written detail to price the job.
   const incomplete = items.filter((it: any) => {
-    let photoCount = 0;
-    try { photoCount = JSON.parse(it.photos || "[]").length; } catch { photoCount = 0; }
     const hasMeasurements = !!(it.measurement_notes && String(it.measurement_notes).trim());
     const hasScopeNote = !!(it.vendor_scope_note && String(it.vendor_scope_note).trim());
-    return photoCount === 0 || !hasMeasurements || !hasScopeNote;
+    return !hasMeasurements || !hasScopeNote;
   });
   if (incomplete.length > 0) {
     const names = incomplete.map((it: any) => it.name).join(", ");
-    const err: any = new Error(`Missing photo, measurements, or description for: ${names}. Add these before sending a vendor quote request.`);
+    const err: any = new Error(`Missing measurements or description for: ${names}. Add these before sending a vendor quote request.`);
     err.isValidation = true;
     throw err;
   }

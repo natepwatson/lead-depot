@@ -11,7 +11,7 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 export type QuoteItem = {
   name: string; quantity: number; unit: string; line_total: number | null; two_story: number;
 };
-export type VendorItem = { name: string };
+export type VendorItem = { name: string; lineTotal?: number | null; isFree?: boolean };
 export type AgreementSection = { heading: string; body: string };
 export type QuoteData = {
   consult: {
@@ -102,15 +102,35 @@ export function RepairQuoteBody({
             <p style={{ fontSize: 13.5, color: "#1a1a1a", margin: 0, fontWeight: 600, lineHeight: 1.5 }}>{consult.startMomentum}</p>
           </div>
 
-          {vendorItems && vendorItems.length > 0 && (
-            <div style={{ background: "#f7f6f2", borderRadius: 8, padding: "14px 16px", marginBottom: 20 }}>
-              <p style={{ fontSize: 11.5, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px", fontWeight: 700 }}>Also Coordinating For You (One Stop Shop)</p>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "#333", lineHeight: 1.6 }}>
-                {vendorItems.map((v, i) => <li key={i}>{v.name}</li>)}
-              </ul>
-              <p style={{ fontSize: 11, color: "#888", fontStyle: "italic", margin: "8px 0 0" }}>Licensed-trade work above is quoted and billed separately by our vetted vendor partners — not included in the total above.</p>
-            </div>
-          )}
+          {vendorItems && vendorItems.length > 0 && (() => {
+            // v20.38.3 — show each vendor item's client-facing (marked-up)
+            // price, matching what the email already discloses, so a
+            // vendor-only proposal never looks like an empty $0 job here.
+            const vendorSubtotal = vendorItems.reduce((sum, v) => {
+              const priced = v.lineTotal != null && (Number(v.lineTotal) > 0 || !!v.isFree);
+              return priced ? sum + Number(v.lineTotal) : sum;
+            }, 0);
+            return (
+              <div style={{ background: "#f7f6f2", borderRadius: 8, padding: "14px 16px", marginBottom: 20 }}>
+                <p style={{ fontSize: 11.5, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px", fontWeight: 700 }}>Also Coordinating For You (One Stop Shop)</p>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "#333", lineHeight: 1.6 }}>
+                  {vendorItems.map((v, i) => {
+                    const priced = v.lineTotal != null && (Number(v.lineTotal) > 0 || !!v.isFree);
+                    return (
+                      <li key={i} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                        <span>{v.name}</span>
+                        {priced && <span style={{ fontWeight: 700, color: "#1a1a1a" }}>${Number(v.lineTotal).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+                {vendorSubtotal > 0 && (
+                  <p style={{ fontSize: 12.5, color: "#1a1a1a", fontWeight: 700, margin: "8px 0 0" }}>Vendor-Coordinated Subtotal: ${vendorSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                )}
+                <p style={{ fontSize: 11, color: "#888", fontStyle: "italic", margin: "8px 0 0" }}>Licensed-trade work above is quoted and billed separately by our vetted vendor partners — not included in the total above.</p>
+              </div>
+            );
+          })()}
 
           {agreementUrl && (
             <a href={agreementUrl} target="_blank" rel="noreferrer" style={{ display: "block", textAlign: "center", padding: "12px 16px", borderRadius: 8, border: "1px solid #111", color: "#111", fontSize: 13, fontWeight: 700, marginBottom: 20, textDecoration: "none" }}>

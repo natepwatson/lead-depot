@@ -1901,7 +1901,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.38.2
+              v20.38.3
             </p>
           </div>
         </div>
@@ -3732,29 +3732,40 @@ function ApprovalsPanel() {
               }}>
                 <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
                   {/* Evidence thumbnails. v20.7.20 — social_post can have 1-3 screenshots
-                      (one per platform) in p.photoDataUrls; other kinds use single p.photoDataUrl. */}
+                      (one per platform) in p.photoDataUrls; other kinds use single p.photoDataUrl.
+                      v20.38.3 — open_house_log also carries p.issuePhotoDataUrls (issue photos,
+                      distinct from the selfie) — merged in here with generic labels so admins
+                      can see both the selfie and any issue photos when approving. */}
                   {(() => {
-                    const urls: string[] = Array.isArray(p.photoDataUrls) && p.photoDataUrls.length > 0
+                    const baseUrls: string[] = Array.isArray(p.photoDataUrls) && p.photoDataUrls.length > 0
                       ? p.photoDataUrls
                       : (p.photoDataUrl ? [p.photoDataUrl] : []);
                     const plats: string[] = Array.isArray(p.platforms) ? p.platforms : [];
+                    const issueUrls: string[] = Array.isArray(p.issuePhotoDataUrls) ? p.issuePhotoDataUrls : [];
+                    const urls: string[] = [...baseUrls, ...issueUrls];
+                    const labels: string[] = item.kind === "open_house_log"
+                      ? [
+                          ...baseUrls.map(() => "Selfie"),
+                          ...issueUrls.map((_u, i) => `Issue ${i + 1}`),
+                        ]
+                      : plats;
                     if (urls.length === 0) return null;
                     return (
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0 }}>
                         {urls.map((u, i) => (
                           <div key={i} style={{ position: "relative" }}>
-                            <img src={u} alt={plats[i] ? `${plats[i]} evidence` : "Evidence"} style={{
+                            <img src={u} alt={labels[i] ? `${labels[i]} evidence` : "Evidence"} style={{
                               width: 96, height: 96, objectFit: "cover", borderRadius: 8,
                               border: "1px solid rgba(200,170,90,0.28)",
                             }} />
-                            {plats[i] && (
+                            {labels[i] && (
                               <span style={{
                                 position: "absolute", bottom: 4, left: 4,
                                 padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700,
                                 letterSpacing: "0.08em", textTransform: "uppercase",
                                 background: "rgba(0,0,0,0.7)", color: "#fde047",
                                 border: "1px solid rgba(200,170,90,0.4)",
-                              }}>{plats[i]}</span>
+                              }}>{labels[i]}</span>
                             )}
                           </div>
                         ))}

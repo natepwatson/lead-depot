@@ -172,7 +172,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.38.2 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.38.3 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -401,7 +401,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.38.2 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.38.3 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -460,7 +460,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.38.2 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.38.3 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -508,7 +508,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.38.2 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.38.3 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1759,7 +1759,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.38.2</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.38.3</p>
             </div>
           `,
         });
@@ -1919,7 +1919,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.38.2 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.38.3 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -8553,7 +8553,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.38.2 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.38.3 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8572,7 +8572,7 @@ This template is for informational/outreach purposes only.`;
   // CC'd. This is the pattern for every future evidence-required activity.
   app.post("/api/lead-gen/open-house-log", async (req, res) => {
     const {
-      agentId, address, photoDataUrl, gpsLat, gpsLng, timestamp,
+      agentId, address, photoDataUrl, issuePhotoDataUrls, gpsLat, gpsLng, timestamp,
       attendees, notes, issues, recommendations,
     } = req.body;
     const submitterId = agentId ? parseInt(String(agentId)) : null;
@@ -8589,12 +8589,18 @@ This template is for informational/outreach purposes only.`;
       issues: issues ? String(issues).trim().slice(0, 4000) : "",
       recommendations: recommendations ? String(recommendations).trim().slice(0, 4000) : "",
     };
+    // v20.38.3 — Issue photos are optional and separate from the required OH
+    // selfie. Cap 6 photos, 4MB each, to keep the payload/email sane.
+    const cleanIssuePhotos: string[] = Array.isArray(issuePhotoDataUrls)
+      ? issuePhotoDataUrls.filter((u: any) => typeof u === "string" && u.startsWith("data:image/")).slice(0, 6).map((u: string) => u.slice(0, 4_000_000))
+      : [];
     const payloadObj = {
       address: cleanAddr,
       gpsLat: gpsLat != null ? Number(gpsLat) : null,
       gpsLng: gpsLng != null ? Number(gpsLng) : null,
       capturedAt: timestamp || now,
       photoDataUrl: String(photoDataUrl).slice(0, 4_000_000),
+      issuePhotoDataUrls: cleanIssuePhotos,
       results,
     };
 
@@ -8629,19 +8635,36 @@ This template is for informational/outreach purposes only.`;
             <div style="margin-top:22px;padding-top:14px;border-top:1px solid #eee">
               <img src="cid:oh-selfie" alt="OH Selfie" style="max-width:100%;border-radius:8px" />
             </div>
+            ${cleanIssuePhotos.length > 0 ? `
+            <div style="margin-top:14px">
+              <p style="margin:0 0 8px;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#8a6f2a;font-weight:700">Issue Photos (${cleanIssuePhotos.length})</p>
+              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                ${cleanIssuePhotos.map((_, i) => `<img src="cid:oh-issue-${i}" alt="Issue photo ${i + 1}" style="width:140px;height:140px;object-fit:cover;border-radius:8px" />`).join("")}
+              </div>
+            </div>` : ""}
             <p style="margin-top:22px;font-size:11px;color:#999;line-height:1.5">Sent by Lead Depot on Open House submission. Points pending Nate's approval.</p>
           </div>
         `;
         // Extract base64 payload from the data URL for attachment
         const m = String(photoDataUrl).match(/^data:(image\/[^;]+);base64,(.+)$/);
         const attachments = m ? [{ filename: "open-house-selfie.jpg", content: Buffer.from(m[2], "base64") }] : undefined;
+        // v20.38.3 — attach any issue photos inline (cid-referenced above) so
+        // Denise/Alex/Nate see exactly what the agent flagged.
+        const issuePhotoAttachments = cleanIssuePhotos.map((dataUrl, i) => {
+          const mm = String(dataUrl).match(/^data:(image\/[^;]+);base64,(.+)$/);
+          return mm ? { filename: `open-house-issue-${i + 1}.jpg`, content: Buffer.from(mm[2], "base64") } : null;
+        }).filter(Boolean) as { filename: string; content: Buffer }[];
         await resend.emails.send({
           from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>", // v20.35.1 — item 28 audit: was missing a display name, showed raw address in Denise's inbox
           to: ["denise@watsonbrothersgroup.com"],
           cc: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
           subject: `Open House Results — ${cleanAddr} — ${submitter?.name || "Agent"}`,
           html,
-          attachments,
+          // v20.38.3 — Resend's Node SDK uses `contentId` (not `cid`) as the
+          // attachment field that maps to a `cid:` reference in the HTML body.
+          attachments: [...(attachments || []), ...issuePhotoAttachments].map((a, i) => (
+            a.filename === "open-house-selfie.jpg" ? { ...a, contentId: "oh-selfie" } : { ...a, contentId: `oh-issue-${i - (attachments ? attachments.length : 0)}` }
+          )),
         });
       } catch (err) {
         console.error("[OH Results Email] failed:", err);
@@ -9673,7 +9696,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.38.2",
+      version: "v20.38.3",
       services: results,
     });
   });
@@ -11236,7 +11259,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.38.2</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.38.3</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

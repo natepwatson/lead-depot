@@ -316,6 +316,24 @@ export function registerPaymentRoutes(app: Express) {
       req.currentAgent.id, notes || null
     );
 
+    // v20.38.3 — Alex: "Deposit in/awaiting deposit should trigger as
+    // received when a payment is made so it doesn't show awaiting since
+    // they just paid... those two things should be connected and smart."
+    // Any recorded payment against a repair consult auto-flips
+    // deposit_received_at the first time money comes in — no separate
+    // manual "mark deposit received" tap needed. Idempotent: only fires
+    // once, on whichever payment happens to be the first recorded.
+    if (sourceType === "repair_consult") {
+      const rc = rawDb.prepare(`SELECT deposit_received_at FROM repair_consults WHERE id = ?`).get(sourceId) as any;
+      if (rc && !rc.deposit_received_at) {
+        rawDb.prepare(`
+          UPDATE repair_consults SET deposit_received_at = datetime('now'), deposit_received_by = ?,
+            deposit_method = ?, deposit_reference = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(req.currentAgent.name || req.currentAgent.email || "Admin", method, referenceNote || null, sourceId);
+      }
+    }
+
     const paid = sumPaymentsForSource(sourceType, sourceId);
     const reconciled = paid >= (source.total || 0) && (source.total || 0) > 0;
 

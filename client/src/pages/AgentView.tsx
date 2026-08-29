@@ -6399,7 +6399,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.38.2</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.38.3</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -8012,7 +8012,13 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
   const [ohNotes, setOhNotes] = useState("");
   const [issues, setIssues] = useState("");
   const [recommendations, setRecommendations] = useState("");
+  // v20.38.3 — Issue photos are separate from the required OH selfie. Agents
+  // can attach photos of anything they flagged in "Issues we should know
+  // about" (broken fence, dirty carpet, sign knocked over, etc.) without
+  // those photos being confused with the sign-in-background selfie.
+  const [issuePhotoDataUrls, setIssuePhotoDataUrls] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const issueFileRef = useRef<HTMLInputElement>(null);
 
   // Grab GPS immediately when the form mounts. Silent — no permission spam if
   // the browser denies; we just record null and move on.
@@ -8054,6 +8060,49 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
     reader.readAsDataURL(f);
   };
 
+  // v20.38.3 — Issue photo picker. Multiple photos allowed (cap 6), no
+  // front-camera forcing (capture="environment" so it opens the rear camera
+  // by default but the file picker still lets agents choose from their
+  // library too). Each photo downscaled the same way as the selfie.
+  const MAX_ISSUE_PHOTOS = 6;
+  const onPickIssuePhotos = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    const room = MAX_ISSUE_PHOTOS - issuePhotoDataUrls.length;
+    if (room <= 0) {
+      toast({ title: "Limit reached", description: `Max ${MAX_ISSUE_PHOTOS} issue photos per submission.`, variant: "destructive" });
+      if (issueFileRef.current) issueFileRef.current.value = "";
+      return;
+    }
+    files.slice(0, room).forEach(f => {
+      if (f.size > 25 * 1024 * 1024) {
+        toast({ title: "Photo too large", description: "Try a smaller image (< 25MB).", variant: "destructive" });
+        return;
+      }
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = () => {
+        img.onload = () => {
+          const MAX = 1024;
+          let { width, height } = img;
+          if (width > MAX || height > MAX) {
+            const scale = MAX / Math.max(width, height);
+            width = Math.round(width * scale); height = Math.round(height * scale);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (ctx) { ctx.drawImage(img, 0, 0, width, height); }
+          setIssuePhotoDataUrls(prev => [...prev, canvas.toDataURL("image/jpeg", 0.82)].slice(0, MAX_ISSUE_PHOTOS));
+        };
+        img.src = String(reader.result || "");
+      };
+      reader.readAsDataURL(f);
+    });
+    if (issueFileRef.current) issueFileRef.current.value = "";
+  };
+  const removeIssuePhoto = (idx: number) => setIssuePhotoDataUrls(prev => prev.filter((_, i) => i !== idx));
+
   const submit = async () => {
     if (!address.trim()) { toast({ title: "Address required", variant: "destructive" }); return; }
     if (!photoDataUrl) { toast({ title: "Selfie required", description: "Snap a selfie with the OH sign in the background.", variant: "destructive" }); return; }
@@ -8063,6 +8112,7 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
         agentId: user?.id,
         address: address.trim(),
         photoDataUrl,
+        issuePhotoDataUrls,
         gpsLat: gps?.lat ?? null,
         gpsLng: gps?.lng ?? null,
         timestamp: new Date().toISOString(),
@@ -8173,6 +8223,35 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
             background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.28)",
             color: "#fff", fontSize: 14, boxSizing: "border-box", resize: "none", lineHeight: 1.5, fontFamily: "'Switzer','Inter',sans-serif",
           }} />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Issue photos (optional)</label>
+          <input ref={issueFileRef} type="file" accept="image/*" capture="environment" multiple onChange={onPickIssuePhotos} style={{ display: "none" }} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {issuePhotoDataUrls.map((u, i) => (
+              <div key={i} style={{ position: "relative", width: 84, height: 84, borderRadius: 8, overflow: "hidden", border: "1px solid rgba(200,170,90,0.28)", flexShrink: 0 }}>
+                <img src={u} alt={`Issue photo ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                <button onClick={() => removeIssuePhoto(i)} style={{
+                  position: "absolute", top: 2, right: 2,
+                  background: "rgba(0,0,0,0.65)", border: "1px solid rgba(255,255,255,0.15)",
+                  borderRadius: 6, padding: 3, cursor: "pointer", color: "#fff", display: "flex",
+                }}><X size={10} /></button>
+              </div>
+            ))}
+            {issuePhotoDataUrls.length < MAX_ISSUE_PHOTOS && (
+              <button onClick={() => issueFileRef.current?.click()} style={{
+                width: 84, height: 84, borderRadius: 8, flexShrink: 0,
+                background: "rgba(200,170,90,0.05)", border: "1px dashed rgba(200,170,90,0.4)",
+                cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center",
+                justifyContent: "center", gap: 4, color: "#c8aa5a",
+              }}>
+                <Camera size={18} />
+                <span style={{ fontSize: 10, fontWeight: 600 }}>Add photo</span>
+              </button>
+            )}
+          </div>
+          <p style={{ margin: "6px 0 0", fontSize: 10.5, color: "rgba(255,255,255,0.35)" }}>Snap or upload photos of anything flagged above (up to {MAX_ISSUE_PHOTOS}). Separate from your required sign-in selfie.</p>
         </div>
 
         <div style={{ marginBottom: 6 }}>

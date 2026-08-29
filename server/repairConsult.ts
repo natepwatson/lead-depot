@@ -40,10 +40,10 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 // v20.13.0 — Denise added per Alex's standing instruction: always CC nate, alex,
 // and Denise on all repair-consult emails moving forward by default.
 const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"];
-const FROM = "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>";
+const FROM = "Happy Home Solutions <noreply@watsonbrothersgroup.com>";
 const APP_URL = "https://depot.watsonbrothersgroup.com";
 const BRAND = {
-  companyName: "Brothers Group",
+  companyName: "Happy Home Solutions",
   brokerage: "Momentum Realty",
   contactLine: "Alex & Nate Watson — (904) 867-3984 — www.brothersgroup.realestate",
   black: "#0a0a0a",
@@ -805,38 +805,36 @@ export const IN_HOUSE_TERMS = [
   `Payment: 50% deposit due before work begins, 50% due upon completion. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL}.`,
   "Color/pattern matching on paint, countertops, tile, and other materials is a best-effort visual match only, NOT guaranteed exact — natural stone and tile can vary lot to lot. This variance is not a workmanship defect. Client approves the sample before purchase.",
   "Defective products (parts, fixtures, appliances, materials) are the manufacturer's/retailer's responsibility, not ours. We'll try to coordinate a store-approved exchange as a courtesy, but this is not guaranteed. All materials sales are final — no refunds.",
-  "This quote covers in-house labor & materials for the items listed only. It does not include permits, HOA approval, or any item requiring a licensed trade (electrical, plumbing, roofing, HVAC, structural, etc.) — those requests are relayed to our independent, licensed vendor network, who quote and perform that work themselves; it's not performed or warrantied by Brothers Group's in-house crew.",
+  "This quote covers in-house labor & materials for the items listed only. It does not include permits, HOA approval, or any item requiring a licensed trade (electrical, plumbing, roofing, HVAC, structural, etc.) — those requests are relayed to our independent, licensed vendor network, who quote and perform that work themselves; it's not performed or warrantied by Happy Home Solutions, LLC's in-house crew.",
   "Client provides on-site access, water, and electrical, and secures pets and personal property in work areas. Delays caused by lack of access may incur a rescheduling fee.",
   "Quote valid 14 days from issue date. Deposits are non-refundable once material is purchased or labor is scheduled with less than 48 hours' notice.",
-  "Brothers Group is a real estate company offering this as a home service coordination program, not a licensed general contractor; in-house work is limited to non-structural, non-permitted cosmetic and maintenance items as listed above.",
-  "Brothers Group may stop work and terminate this agreement for non-payment, unsafe conditions, lack of access, or unresolved scope growth — if so, the remaining contract balance is still owed as liquidated damages, not a penalty.",
-  "By signing below, client authorizes Brothers Group to perform the listed work at the listed price under the terms above.",
+  "Happy Home Solutions, LLC is affiliated with a Florida real estate brokerage team and offers this as a home service coordination program, not a licensed general contractor; in-house work is limited to non-structural, non-permitted cosmetic and maintenance items as listed above.",
+  "Happy Home Solutions, LLC may stop work and terminate this agreement for non-payment, unsafe conditions, lack of access, or unresolved scope growth — if so, the remaining contract balance is still owed as liquidated damages, not a penalty.",
+  "By signing below, client authorizes Happy Home Solutions, LLC to perform the listed work at the listed price under the terms above.",
   "Every quantity, square footage, and unit count listed on this quote is the maximum included in this price. Work beyond those stated maximums is quoted separately and requires written approval before we proceed.",
-  "By allowing access to the property, you accept the risk that comes with vendors, agents, brokers, buyers, and other authorized parties entering the home, and you agree to hold Brothers Group harmless and indemnify us for claims arising from that access \u2014 except for our own gross negligence or willful misconduct.",
+  "By allowing access to the property, you accept the risk that comes with vendors, agents, brokers, buyers, and other authorized parties entering the home, and you agree to hold Happy Home Solutions, LLC harmless and indemnify us for claims arising from that access \u2014 except for our own gross negligence or willful misconduct.",
 ] as const;
 
 export const VENDOR_DISPATCH_NOTE =
-  "Items marked Vendor-Quoted are performed by an independent, licensed third-party contractor. As a real estate company, Brothers Group's role is strictly to coordinate — we relay the client's requested scope to a licensed professional in our network, and that vendor communicates directly with the client to provide their own price. Pricing, licensing, insurance, scheduling, and workmanship are solely between the client and the vendor. Brothers Group assumes no liability for vendor work.";
+  "Items marked Vendor-Quoted are performed by an independent, licensed third-party contractor. As a home service coordination program, Happy Home Solutions, LLC's role is strictly to coordinate — we relay the client's requested scope to a licensed professional in our network, and that vendor communicates directly with the client to provide their own price. Pricing, licensing, insurance, scheduling, and workmanship are solely between the client and the vendor. Happy Home Solutions, LLC assumes no liability for vendor work.";
 
-// ─── REPAIR & RENOVATION AGREEMENT — full legal text (v20.9.0) ─────────────
-// Two signing LLCs operating jointly under the internal/marketing name
-// "BGRE Home Touchups and Repairs" (NOT a registered Florida DBA — both LLCs
-// remain the actual legal signing parties on every agreement).
-export const ENTITY_NATE = "Nathaniel Peter Watson LLC";
-export const ENTITY_ALEX = "Alexander Gabriel Watson LLC";
-export const DIVISION_NAME = "BGRE Home Touchups and Repairs";
+// ─── REPAIR & RENOVATION AGREEMENT — full legal text (v20.38.3) ────────────
+// Single signing entity: Happy Home Solutions, LLC. Every agreement is
+// signed by one "Company Representative" on behalf of this entity — there
+// are no longer two separate individual-LLC signers.
+export const DIVISION_NAME = "Happy Home Solutions, LLC";
 
 export interface AgreementSection { heading: string; body: string; }
 export const AGREEMENT_SECTIONS: AgreementSection[] = [
   {
     heading: "1. Full Transparency: Why We're Both Your Agents and Your Repair Team",
-    body: `As your listing agents, Alex and Nate Watson are also the owners of ${ENTITY_ALEX} and ${ENTITY_NATE} — together operating as ${DIVISION_NAME}, the team performing this work. We want to be upfront about that — not because it's a conflict, but because it's the whole reason this program exists. Rather than handing you off to a stranger and hoping it goes well, we put our own name, our own crew, and our own schedule behind the work, because we have just as much riding on a smooth, successful sale as you do. That means no marked-up middleman, one point of contact instead of three, and a team that's motivated to get your home market-ready — right, and on time. Florida law requires us to disclose that we (and our companies) are paid separately for this work, in addition to any real estate commission we earn on your sale. Consider this that disclosure — given openly, because we think it's a better way to do business, not something to bury in the fine print.`,
+    body: `As your listing agents, Alex and Nate Watson are also the owners of ${DIVISION_NAME}, the team performing this work. We want to be upfront about that — not because it's a conflict, but because it's the whole reason this program exists. Rather than handing you off to a stranger and hoping it goes well, we put our own name, our own crew, and our own schedule behind the work, because we have just as much riding on a smooth, successful sale as you do. That means no marked-up middleman, one point of contact instead of three, and a team that's motivated to get your home market-ready — right, and on time. Florida law requires us to disclose that we (and our companies) are paid separately for this work, in addition to any real estate commission we earn on your sale. Consider this that disclosure — given openly, because we think it's a better way to do business, not something to bury in the fine print.`,
   },
   // v20.32.27 — remaining sections continue below, index-aligned with the
   // buyer variant of Section 1 built in getAgreementSections().
   {
     heading: "2. Who We Are — A Real Estate Company's Home Service Coordination Program",
-    body: `${ENTITY_NATE} and ${ENTITY_ALEX} are affiliated with a Florida real estate brokerage team, not a licensed general contractor, and this program is offered as a white-glove home service coordination service for our clients — not a construction or contracting business. Neither ${ENTITY_NATE} nor ${ENTITY_ALEX} is a licensed general contractor. For the minor, non-structural, non-permitted cosmetic and maintenance items listed in your itemized quote (painting, pressure washing, landscaping, cleaning, junk removal, and minor handyman-level repairs), our own crew communicates your requested scope and performs that limited work directly, as described in this Agreement. For anything requiring a licensed trade \u2014 electrical, plumbing, roofing, HVAC, structural work, and similar \u2014 our role is strictly to relay your request to an independent, licensed professional in our network, who then communicates directly with you and quotes and performs that work themselves; we do not perform, supervise, price, or warranty licensed-trade work. See Section 8.`,
+    body: `${DIVISION_NAME} is affiliated with a Florida real estate brokerage team, not a licensed general contractor, and this program is offered as a white-glove home service coordination service for our clients — not a construction or contracting business. ${DIVISION_NAME} is not a licensed general contractor. For the minor, non-structural, non-permitted cosmetic and maintenance items listed in your itemized quote (painting, pressure washing, landscaping, cleaning, junk removal, and minor handyman-level repairs), our own crew communicates your requested scope and performs that limited work directly, as described in this Agreement. For anything requiring a licensed trade \u2014 electrical, plumbing, roofing, HVAC, structural work, and similar \u2014 our role is strictly to relay your request to an independent, licensed professional in our network, who then communicates directly with you and quotes and performs that work themselves; we do not perform, supervise, price, or warranty licensed-trade work. See Section 8.`,
   },
   {
     heading: "3. Pricing & Payment",
@@ -852,7 +850,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "6. Color Matching, Material Disclaimers, Defective Products & Returns",
-    body: "Paint, countertop, tile, and every other material color, pattern, and finish is matched to your approved sample on a best-effort basis only — it is NOT guaranteed to be an exact match. Natural stone, tile, and countertop material in particular can vary lot to lot and slab to slab; some variance in sheen, tone, veining, or pattern from the sample you approved is possible due to substrate age, weathering, lighting conditions, dye-lot/batch differences, or manufacturer formulation changes over time. This variance is not a workmanship defect and is not covered by the limited warranty in Section 9. You approve your color/material sample before we purchase anything. Defective products — any part, fixture, appliance, countertop, or material that arrives damaged or fails on its own — are the responsibility of the manufacturer or retailer, not Brothers Group; we did not manufacture it and cannot warranty it. If a product proves defective, we'll work with a store manager to coordinate a return or exchange, but this is offered as a courtesy only and is not guaranteed — it depends entirely on that store's own return/exchange policy and approval, which is outside our control. All sales of materials, fixtures, and appliances purchased for your job are final — no refunds — once purchased on your behalf, whether or not a store-approved exchange is later available.",
+    body: "Paint, countertop, tile, and every other material color, pattern, and finish is matched to your approved sample on a best-effort basis only — it is NOT guaranteed to be an exact match. Natural stone, tile, and countertop material in particular can vary lot to lot and slab to slab; some variance in sheen, tone, veining, or pattern from the sample you approved is possible due to substrate age, weathering, lighting conditions, dye-lot/batch differences, or manufacturer formulation changes over time. This variance is not a workmanship defect and is not covered by the limited warranty in Section 9. You approve your color/material sample before we purchase anything. Defective products — any part, fixture, appliance, countertop, or material that arrives damaged or fails on its own — are the responsibility of the manufacturer or retailer, not Happy Home Solutions, LLC; we did not manufacture it and cannot warranty it. If a product proves defective, we'll work with a store manager to coordinate a return or exchange, but this is offered as a courtesy only and is not guaranteed — it depends entirely on that store's own return/exchange policy and approval, which is outside our control. All sales of materials, fixtures, and appliances purchased for your job are final — no refunds — once purchased on your behalf, whether or not a store-approved exchange is later available.",
   },
   {
     heading: "7. Your Responsibilities",
@@ -860,7 +858,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "8. Vendor-Quoted (Licensed Trade) Items",
-    body: "Any item in your quote marked \u201cVendor-Quoted\u201d is performed by an independent, licensed, and insured third-party contractor from our preferred vendor network — not by Brothers Group. We facilitate the introduction and quote request only. Pricing, licensing, insurance, scheduling, and workmanship for that work are solely between you and the vendor, under a separate agreement with them. Brothers Group assumes no liability for vendor-performed work. Vendor pricing varies by square footage, site conditions, and other trade-specific criteria — the amount shown at consultation is an estimate, confirmed once the vendor schedules and assesses the job directly.",
+    body: "Any item in your quote marked \u201cVendor-Quoted\u201d is performed by an independent, licensed, and insured third-party contractor from our preferred vendor network — not by Happy Home Solutions, LLC. We facilitate the introduction and quote request only. Pricing, licensing, insurance, scheduling, and workmanship for that work are solely between you and the vendor, under a separate agreement with them. Happy Home Solutions, LLC assumes no liability for vendor-performed work. Vendor pricing varies by square footage, site conditions, and other trade-specific criteria — the amount shown at consultation is an estimate, confirmed once the vendor schedules and assesses the job directly.",
   },
   {
     heading: "9. Our Work — Limited Warranty",
@@ -872,7 +870,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "11. Cancellation & Our Right to Terminate",
-    body: "Either party may cancel this Agreement before work begins by written notice. If you cancel after your deposit has been used to purchase materials or after labor has been scheduled with less than 48 hours' notice, the deposit is non-refundable as described in Section 3. Brothers Group also reserves the right to stop work and terminate this Agreement at any time — including after work has begun — for reasons such as non-payment, unsafe site conditions, lack of site access, or scope that has grown beyond what was originally quoted and not resolved by change order. If we terminate for any of these reasons, the full remaining contract balance under this Agreement becomes immediately due and is retained/owed to us as liquidated damages for our costs, lost scheduling, and administrative time — not as a penalty — regardless of how much of the work was completed at the time we stop. This is not a substitute for open communication — we'll always try to resolve an issue with you directly before stopping work.",
+    body: "Either party may cancel this Agreement before work begins by written notice. If you cancel after your deposit has been used to purchase materials or after labor has been scheduled with less than 48 hours' notice, the deposit is non-refundable as described in Section 3. Happy Home Solutions, LLC also reserves the right to stop work and terminate this Agreement at any time — including after work has begun — for reasons such as non-payment, unsafe site conditions, lack of site access, or scope that has grown beyond what was originally quoted and not resolved by change order. If we terminate for any of these reasons, the full remaining contract balance under this Agreement becomes immediately due and is retained/owed to us as liquidated damages for our costs, lost scheduling, and administrative time — not as a penalty — regardless of how much of the work was completed at the time we stop. This is not a substitute for open communication — we'll always try to resolve an issue with you directly before stopping work.",
   },
   {
     heading: "12. Resolving Disagreements",
@@ -884,7 +882,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "14. Third-Party Access, Assumption of Risk & Indemnification",
-    body: "Completing this Scope of Work, and the broader sale or purchase of this property, may require access to the property by more than just our own crew — including affiliated and independent vendors, licensed subcontractors in our network, cooperating real estate agents and brokers, prospective buyers and their representatives, appraisers, inspectors, and other company representatives connected with the listing, sale, purchase, or service of this property (collectively, \u201cAuthorized Parties\u201d). You understand and accept that granting access to any Authorized Party carries inherent risk, including the risk of personal injury, property damage, theft, or loss to that Authorized Party, to you, to other occupants, or to third parties. Brothers Group, its owners, employees, and agents are not liable for any injury, death, property damage, or other loss suffered by you, any occupant, or any Authorized Party in connection with access to the property for a purpose contemplated by this Agreement or your listing or purchase agreement, except to the extent caused by Brothers Group's own gross negligence or willful misconduct. You agree to indemnify, defend, and hold harmless Brothers Group, its owners, employees, and agents from and against any claim, demand, injury, loss, or damage \u2014 including reasonable attorneys' fees \u2014 arising out of or related to any Authorized Party's access to the property, except to the extent caused by Brothers Group's own gross negligence or willful misconduct. Each independent vendor, contractor, and licensed trade professional referenced in this Agreement is separately responsible for maintaining their own liability and workers' compensation insurance while on the property \u2014 Brothers Group does not insure their work or their presence on site. You are encouraged to maintain your own homeowner's or property insurance coverage throughout the period covered by this Agreement.",
+    body: "Completing this Scope of Work, and the broader sale or purchase of this property, may require access to the property by more than just our own crew — including affiliated and independent vendors, licensed subcontractors in our network, cooperating real estate agents and brokers, prospective buyers and their representatives, appraisers, inspectors, and other company representatives connected with the listing, sale, purchase, or service of this property (collectively, \u201cAuthorized Parties\u201d). You understand and accept that granting access to any Authorized Party carries inherent risk, including the risk of personal injury, property damage, theft, or loss to that Authorized Party, to you, to other occupants, or to third parties. Happy Home Solutions, LLC, its owners, employees, and agents are not liable for any injury, death, property damage, or other loss suffered by you, any occupant, or any Authorized Party in connection with access to the property for a purpose contemplated by this Agreement or your listing or purchase agreement, except to the extent caused by Happy Home Solutions, LLC's own gross negligence or willful misconduct. You agree to indemnify, defend, and hold harmless Happy Home Solutions, LLC, its owners, employees, and agents from and against any claim, demand, injury, loss, or damage \u2014 including reasonable attorneys' fees \u2014 arising out of or related to any Authorized Party's access to the property, except to the extent caused by Happy Home Solutions, LLC's own gross negligence or willful misconduct. Each independent vendor, contractor, and licensed trade professional referenced in this Agreement is separately responsible for maintaining their own liability and workers' compensation insurance while on the property \u2014 Happy Home Solutions, LLC does not insure their work or their presence on site. You are encouraged to maintain your own homeowner's or property insurance coverage throughout the period covered by this Agreement.",
   },
   {
     heading: "15. Debris & Junk Removal",
@@ -892,7 +890,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "16. Entire Agreement",
-    body: "This Agreement, together with your itemized quote, is the entire agreement between you and Brothers Group regarding this Scope of Work, and replaces any prior discussion or understanding on the subject. If any part of this Agreement is found unenforceable, the rest remains in full effect.",
+    body: "This Agreement, together with your itemized quote, is the entire agreement between you and Happy Home Solutions, LLC regarding this Scope of Work, and replaces any prior discussion or understanding on the subject. If any part of this Agreement is found unenforceable, the rest remains in full effect.",
   },
 ];
 
@@ -912,7 +910,7 @@ export function getAgreementSections(dealSide: "buyer" | "seller" = "seller"): A
   if (dealSide !== "buyer") return AGREEMENT_SECTIONS;
   const buyerSection1: AgreementSection = {
     heading: AGREEMENT_SECTIONS[0].heading,
-    body: `As your buyer's agents, Alex and Nate Watson are also the owners of ${ENTITY_ALEX} and ${ENTITY_NATE} — together operating as ${DIVISION_NAME}, the team performing this work. We want to be upfront about that — not because it's a conflict, but because it's the whole reason this program exists. Rather than handing you off to a stranger and hoping it goes well, we put our own name, our own crew, and our own schedule behind the work, because we have just as much riding on a smooth closing as you do. That means no marked-up middleman, one point of contact instead of three, and a team that's motivated to get your new home move-in ready — right, and on time. Florida law requires us to disclose that we (and our companies) are paid separately for this work, in addition to any real estate commission we earn on your purchase. Consider this that disclosure — given openly, because we think it's a better way to do business, not something to bury in the fine print.`,
+    body: `As your buyer's agents, Alex and Nate Watson are also the owners of ${DIVISION_NAME}, the team performing this work. We want to be upfront about that — not because it's a conflict, but because it's the whole reason this program exists. Rather than handing you off to a stranger and hoping it goes well, we put our own name, our own crew, and our own schedule behind the work, because we have just as much riding on a smooth closing as you do. That means no marked-up middleman, one point of contact instead of three, and a team that's motivated to get your new home move-in ready — right, and on time. Florida law requires us to disclose that we (and our companies) are paid separately for this work, in addition to any real estate commission we earn on your purchase. Consider this that disclosure — given openly, because we think it's a better way to do business, not something to bury in the fine print.`,
   };
   return [buyerSection1, ...AGREEMENT_SECTIONS.slice(1)];
 }
@@ -1045,7 +1043,7 @@ function vendorScopeHtml(vendorItems: any[]): string {
     <p style="margin:0 0 6px;font-size:11px;color:${BRAND.gray};text-transform:uppercase;letter-spacing:0.06em;font-weight:700">Also Coordinating For You (Licensed Trade — One Stop Shop)</p>
     <ul style="margin:0;padding-left:18px;font-size:12.5px;color:#333">${rows}</ul>
     ${subtotalHtml}
-    <p style="margin:8px 0 0;font-size:10.5px;color:${BRAND.gray};font-style:italic">These are quoted and billed separately by our vetted vendor partners — not included in the Brothers Group total above.</p>
+    <p style="margin:8px 0 0;font-size:10.5px;color:${BRAND.gray};font-style:italic">These are quoted and billed separately by our vetted vendor partners — not included in the Happy Home Solutions total above.</p>
   </div>`;
 }
 
@@ -1727,7 +1725,7 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   const divW = fontBold.widthOfTextAtSize(divisionLabel, 10.5);
   p1.drawText(divisionLabel, { x: (PAGE_W - divW) / 2, y, size: 10.5, font: fontBold, color: black });
   y -= 14;
-  const subLabel = "an in-house division of Brothers Group at Momentum Realty";
+  const subLabel = "a Brothers Group company";
   const subW = font.widthOfTextAtSize(subLabel, 8);
   p1.drawText(subLabel, { x: (PAGE_W - subW) / 2, y, size: 8, font, color: gray });
   y -= 18;
@@ -1824,20 +1822,12 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     y -= 24;
   }
 
-  p1.drawText(ENTITY_NATE, { x: 38, y, size: 8.5, font: fontBold, color: black });
+  p1.drawText(DIVISION_NAME, { x: 38, y, size: 8.5, font: fontBold, color: black });
   y -= 12;
-  p1.drawText("Representative Signature:", { x: 38, y, size: 8, font, color: gray });
-  p1.drawLine({ start: { x: 165, y: y - 2 }, end: { x: 400, y: y - 2 }, thickness: 0.75, color: black });
-  p1.drawText("Date:", { x: 410, y, size: 8, font, color: gray });
-  p1.drawLine({ start: { x: 440, y: y - 2 }, end: { x: 574, y: y - 2 }, thickness: 0.75, color: black });
-  y -= 20;
-
-  p1.drawText(ENTITY_ALEX, { x: 38, y, size: 8.5, font: fontBold, color: black });
-  y -= 12;
-  p1.drawText("Representative Signature:", { x: 38, y, size: 8, font, color: gray });
-  p1.drawLine({ start: { x: 165, y: y - 2 }, end: { x: 400, y: y - 2 }, thickness: 0.75, color: black });
-  p1.drawText("Date:", { x: 410, y, size: 8, font, color: gray });
-  p1.drawLine({ start: { x: 440, y: y - 2 }, end: { x: 574, y: y - 2 }, thickness: 0.75, color: black });
+  p1.drawText("Company Representative Signature:", { x: 38, y, size: 8, font, color: gray });
+  p1.drawLine({ start: { x: 195, y: y - 2 }, end: { x: 430, y: y - 2 }, thickness: 0.75, color: black });
+  p1.drawText("Date:", { x: 440, y, size: 8, font, color: gray });
+  p1.drawLine({ start: { x: 470, y: y - 2 }, end: { x: 574, y: y - 2 }, thickness: 0.75, color: black });
 
   // ── PAGE 2 — BACK: Full Terms & Conditions (two-column) ──────────────────
   const p2 = pdfDoc.addPage([PAGE_W, PAGE_H]);
@@ -1887,7 +1877,7 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   }
 
   // Footer disclosure line
-  const footerNote = `This Agreement, together with the attached itemized quote, is between the Client and ${ENTITY_NATE} and ${ENTITY_ALEX}, jointly operating as ${DIVISION_NAME}.`;
+  const footerNote = `This Agreement, together with the attached itemized quote, is between the Client and ${DIVISION_NAME}.`;
   const footerLines = wrapText(footerNote, fontItalic, 6.5, 536);
   let fy = 40;
   for (const line of footerLines) {
@@ -2992,7 +2982,11 @@ export function registerRepairConsultRoutes(app: Express) {
       const allItems = getConsultItems(consultId);
       const items = allItems.filter((i: any) => i.category === "in_house");
       const vendorItemsFull = allItems.filter((i: any) => i.category === "vendor");
-      const vendorItems = vendorItemsFull.map((v: any) => ({ name: v.name }));
+      // v20.38.3 — include the CLIENT-facing marked-up price (line_total /
+      // is_free) so the Approval Page matches what the email already
+      // discloses ("Vendor-Coordinated Subtotal"). Never the raw vendor
+      // quote amount or vendor quote photo — those stay admin-only.
+      const vendorItems = vendorItemsFull.map((v: any) => ({ name: v.name, lineTotal: v.line_total, isFree: !!v.is_free }));
       const agreementPdfUrl = await generateAgreementPdf(consultId, { blank: true });
       const emailHtml = buildClientQuoteEmailHtml(consult, items, vendorItemsFull, { preview: true });
       res.json({
@@ -3277,7 +3271,10 @@ export function registerRepairConsultRoutes(app: Express) {
     if (!consult) return res.status(404).json({ error: "Quote not found" });
     const allItems = getConsultItems(consult.id);
     const items = allItems.filter((i: any) => i.category === "in_house");
-    const vendorItems = allItems.filter((i: any) => i.category === "vendor").map((v: any) => ({ name: v.name }));
+    // v20.38.3 — same client-facing marked-up price included here as in
+    // the /preview endpoint above, so the real approval page a client
+    // signs isn't missing pricing that the accompanying email discloses.
+    const vendorItems = allItems.filter((i: any) => i.category === "vendor").map((v: any) => ({ name: v.name, lineTotal: v.line_total, isFree: !!v.is_free }));
     res.json({
       consult: {
         propertyAddress: consult.property_address,
@@ -3689,7 +3686,7 @@ export function registerRepairConsultRoutes(app: Express) {
     if (co.status === "signed") return res.status(409).json({ error: "This change order has already been signed." });
     if (co.status !== "office_approved") return res.status(409).json({ error: "This change order is not ready to sign." });
     if (co.sign_token_expires_at && new Date(co.sign_token_expires_at) < new Date()) {
-      return res.status(410).json({ error: "This sign link has expired \u2014 ask your Brothers Group contact to resend it." });
+      return res.status(410).json({ error: "This sign link has expired \u2014 ask your Happy Home Solutions contact to resend it." });
     }
     const { signatureName } = req.body || {};
     if (!signatureName || String(signatureName).trim().length < 2) return res.status(400).json({ error: "Full name required to sign" });

@@ -1403,9 +1403,14 @@ export function RepairConsultSheet({
   // now has to explicitly tap "Send Vendor Quote Request(s)" below, and only
   // once every checked vendor item has a photo, measurements, and a written
   // description of what needs quoting (see vendorItemsMissingRequirements).
+  // v20.38.3 — a vendor-only consult (no in-house items at all, e.g. Charles
+  // Ave / Land Clearing) still needs a real quote token + client email so
+  // the client can see and sign the vendor-coordinated proposal. Broadened
+  // from hasInHouseSelections-only so vendor-only consults aren't stuck with
+  // no way to ever reach Generate Quote / Send for Signature.
   useEffect(() => {
     if (step !== "review" || !consultId || !reviewConfirmed) return;
-    if (hasInHouseSelections && !quoteResult && !generatingQuote) handleGenerateQuote();
+    if ((hasInHouseSelections || hasVendorSelections) && !quoteResult && !generatingQuote) handleGenerateQuote();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, consultId, reviewConfirmed, reviewVersion]);
 
@@ -2144,11 +2149,11 @@ export function RepairConsultSheet({
               </div>
             )}
 
-            {reviewConfirmed && hasInHouseSelections && (
+            {reviewConfirmed && (hasInHouseSelections || hasVendorSelections) && (
               <div style={{ marginBottom: 14 }}>
                 {!quoteResult ? (
                   <div style={{ padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.6)", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
-                    <Loader2 size={15} className="animate-spin" style={{ color: GOLD }} /> Generating in-house quote…
+                    <Loader2 size={15} className="animate-spin" style={{ color: GOLD }} /> Generating quote…
                   </div>
                 ) : (
                   <>

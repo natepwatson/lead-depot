@@ -2,7 +2,13 @@
 // Alex, Nate, and Denise. Manual/person-to-person rails only — no processor.
 // Captures amount + method + evidence photo (cash/check photo or digital
 // confirmation screenshot) + two typed signatures (Company Rep + Client) on
-// the Payment Received line, then a photo of that signed line as the receipt.
+// the Payment Received line.
+// v20.38.0 — Removed the separate "photo of the signed Payment Received
+// line" requirement entirely (Alex: pointless — the typed signatures above
+// already capture that). Also removed the forced camera-only `capture`
+// attribute on the evidence-photo input so an existing screenshot (e.g. a
+// Zelle/Venmo confirmation already sitting in Photos) can be uploaded
+// instead of only being able to take a brand-new live photo.
 import { useEffect, useRef, useState } from "react";
 
 const GOLD = "#c8aa5a";
@@ -77,7 +83,6 @@ export function PaymentRecordModal({
   const [companyRepSignatureName, setCompanyRepSignatureName] = useState("");
   const [clientSignatureName, setClientSignatureName] = useState("");
   const [evidencePhotoUrl, setEvidencePhotoUrl] = useState<string | null>(null);
-  const [receiptPhotoUrl, setReceiptPhotoUrl] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [uploadingKind, setUploadingKind] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -87,7 +92,6 @@ export function PaymentRecordModal({
   // via the emailed receipt) both have a durable reference number.
   const [successInfo, setSuccessInfo] = useState<{ confirmationNumber: string; amount: number } | null>(null);
   const evidenceInputRef = useRef<HTMLInputElement>(null);
-  const receiptInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/agents", { credentials: "include" }).then(r => r.json()).then((all: Agent[]) => {
@@ -106,7 +110,7 @@ export function PaymentRecordModal({
       }).catch(() => {});
   }, []);
 
-  async function handleUpload(file: File, kind: "evidence" | "receipt") {
+  async function handleUpload(file: File, kind: "evidence") {
     setUploadingKind(kind);
     setError("");
     try {
@@ -118,7 +122,7 @@ export function PaymentRecordModal({
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "Upload failed");
-      if (kind === "evidence") setEvidencePhotoUrl(data.url); else setReceiptPhotoUrl(data.url);
+      setEvidencePhotoUrl(data.url);
     } catch (e: any) {
       setError(e.message || "Photo upload failed");
     } finally {
@@ -134,14 +138,13 @@ export function PaymentRecordModal({
     if (!companyRepSignatureName.trim()) return setError("Company Representative signature is required.");
     if (!clientSignatureName.trim()) return setError("Client signature is required.");
     if (!evidencePhotoUrl) return setError(`Upload evidence: ${method === "cash" ? "a photo of the cash" : method === "check" ? "a photo of the check" : method === "money_order" ? "a photo of the money order" : "a screenshot of the confirmation"}.`);
-    if (!receiptPhotoUrl) return setError("Upload a photo of the fully-signed Payment Received line.");
     setSaving(true);
     try {
       const r = await fetch("/api/payments", {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceType, sourceId, amount: amt, method, referenceNote: referenceNote || null,
-          evidencePhotoUrl, receiptPhotoUrl, companyRepAgentId, companyRepSignatureName, clientSignatureName,
+          evidencePhotoUrl, companyRepAgentId, companyRepSignatureName, clientSignatureName,
           notes: notes || null,
         }),
       });
@@ -235,25 +238,14 @@ export function PaymentRecordModal({
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-          <div>
-            <label style={labelStyle}>{evidenceLabel}</label>
-            <input ref={evidenceInputRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
-              onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], "evidence")} />
-            <button type="button" onClick={() => evidenceInputRef.current?.click()} disabled={uploadingKind === "evidence"}
-              style={{ ...inputStyle, textAlign: "left", cursor: "pointer", color: evidencePhotoUrl ? "#4ade80" : "#94a3b8" }}>
-              {uploadingKind === "evidence" ? "Uploading..." : evidencePhotoUrl ? "✓ Photo attached" : "Tap to add photo"}
-            </button>
-          </div>
-          <div>
-            <label style={labelStyle}>Photo of signed Payment Received line</label>
-            <input ref={receiptInputRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
-              onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], "receipt")} />
-            <button type="button" onClick={() => receiptInputRef.current?.click()} disabled={uploadingKind === "receipt"}
-              style={{ ...inputStyle, textAlign: "left", cursor: "pointer", color: receiptPhotoUrl ? "#4ade80" : "#94a3b8" }}>
-              {uploadingKind === "receipt" ? "Uploading..." : receiptPhotoUrl ? "✓ Photo attached" : "Tap to add photo"}
-            </button>
-          </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={labelStyle}>{evidenceLabel}</label>
+          <input ref={evidenceInputRef} type="file" accept="image/*" style={{ display: "none" }}
+            onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], "evidence")} />
+          <button type="button" onClick={() => evidenceInputRef.current?.click()} disabled={uploadingKind === "evidence"}
+            style={{ ...inputStyle, textAlign: "left", cursor: "pointer", color: evidencePhotoUrl ? "#4ade80" : "#94a3b8" }}>
+            {uploadingKind === "evidence" ? "Uploading..." : evidencePhotoUrl ? "✓ Photo attached" : "Tap to upload photo"}
+          </button>
         </div>
 
         <div style={{ marginBottom: 14 }}>

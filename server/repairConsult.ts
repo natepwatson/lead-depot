@@ -383,6 +383,15 @@ export function ensureRepairConsultSchema() {
   // accurate even if the admin retunes markup_pct later).
   if (!rciCols.includes("vendor_quote_amount")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN vendor_quote_amount REAL").run();
   if (!rciCols.includes("markup_pct_applied"))  rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN markup_pct_applied REAL").run();
+  // v20.38.0 — Adjustable Vendor-Quote Profit % + Free Item Toggle. Alex/Nate
+  // need to override the global vendor-quote markup % on a specific quoted
+  // item (some vendors quote thin, some jobs need a bigger buffer), and to
+  // comp a specific vendor-quoted OR in-house line item to $0 for the client
+  // without losing the real vendor cost (bghsPnl.ts sums vendor_quote_amount
+  // directly, independent of line_total, so a comped vendor item still shows
+  // its true cost on the P&L — only the client-facing price zeroes out).
+  if (!rciCols.includes("markup_pct_override")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN markup_pct_override REAL").run();
+  if (!rciCols.includes("is_free")) rawDb.prepare("ALTER TABLE repair_consult_items ADD COLUMN is_free INTEGER DEFAULT 0").run();
 
   // v20.33.0 — Vendor Quote Request Gate: agents must supply a photo,
   // measurements, AND a description of what's being quoted before a vendor
@@ -1019,7 +1028,9 @@ function vendorScopeHtml(vendorItems: any[]): string {
   if (!vendorItems || vendorItems.length === 0) return "";
   let quotedSubtotal = 0;
   const rows = vendorItems.map((v: any) => {
-    const priced = v.line_total != null && Number(v.line_total) > 0;
+    // v20.38.0 — was `> 0`, which hid a deliberately-comped ($0) vendor item
+    // as "not yet quoted" instead of showing it as a real $0.00 price.
+    const priced = v.line_total != null && (Number(v.line_total) > 0 || !!v.is_free);
     if (priced) quotedSubtotal += Number(v.line_total);
     const priceHtml = priced
       ? `<span style="float:right;font-weight:700;color:${BRAND.black}">$${Number(v.line_total).toLocaleString(undefined,{minimumFractionDigits:2})}</span>`
@@ -2034,7 +2045,9 @@ export async function generateWorkOrderPdf(consultId: number): Promise<string> {
       // v20.32.17 — internal work order still shows a computed client price
       // when a vendor quote has already been uploaded, so the team has it
       // on hand without digging back into the app.
-      const priced = v.line_total != null && Number(v.line_total) > 0;
+      // v20.38.0 — same fix as line ~1033: a comped ($0, is_free) vendor
+      // item is a legitimate $0 price, not a missing one.
+      const priced = v.line_total != null && (Number(v.line_total) > 0 || !!v.is_free);
       const label = priced ? `\u2022 ${v.name} — $${Number(v.line_total).toLocaleString(undefined,{minimumFractionDigits:2})}` : `\u2022 ${v.name}`;
       page.drawText(label, { x: 46, y, size: 8, font: fontItalic, color: gray });
       y -= 11;
@@ -2744,8 +2757,8 @@ export function registerRepairConsultRoutes(app: Express) {
     const del = rawDb.prepare(`DELETE FROM repair_consult_items WHERE consult_id = ?`);
     const insert = rawDb.prepare(`
       INSERT INTO repair_consult_items
-        (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order, vendor_quote_amount, markup_pct_applied, vendor_scope_note, needs_electrical_vendor)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (consult_id, item_key, category, trade, name, unit, quantity, unit_rate, two_story, line_total, instruction, photos, measurement_notes, sequence_order, vendor_quote_amount, markup_pct_applied, vendor_scope_note, needs_electrical_vendor, markup_pct_override, is_free)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const catalogStmt = rawDb.prepare(`SELECT * FROM repair_items WHERE key = ? AND active = 1`);
     // v20.32.17 — Vendor Quote Upload: markup applied to any vendor item that
@@ -2770,8 +2783,18 @@ export function registerRepairConsultRoutes(app: Express) {
         let unitRate: number | null = null;
         let vendorQuoteAmount: number | null = null;
         let markupPctApplied: number | null = null;
+        // v20.38.0 — Free Item Toggle: comp this specific line item to the
+        // client (client price -> $0) while still recording the underlying
+        // rate/vendor cost for reference and P&L tracking.
+        const isFree = !!raw.isFree;
+        // v20.38.0 — Adjustable Vendor-Quote Profit %: per-item override of
+        // the global vendor_quote_settings.markup_pct. Only meaningful on
+        // vendor items; null/undefined/"" means "use the global default".
+        const markupPctOverride = (cat.category === "vendor" && raw.markupPctOverride !== undefined && raw.markupPctOverride !== null && raw.markupPctOverride !== "" && !isNaN(Number(raw.markupPctOverride)))
+          ? Number(raw.markupPctOverride)
+          : null;
         if (cat.category === "in_house") {
-          lineTotal = computeLineTotal(cat.default_rate || 0, qty, cat.min_charge || 0, twoStory, !!cat.two_story_eligible);
+          lineTotal = isFree ? 0 : computeLineTotal(cat.default_rate || 0, qty, cat.min_charge || 0, twoStory, !!cat.two_story_eligible);
           unitRate = cat.default_rate;
           subtotal += lineTotal;
           if (pkg && pkgItemKeys.includes(cat.key)) packageEligibleSubtotal += lineTotal;
@@ -2780,8 +2803,8 @@ export function registerRepairConsultRoutes(app: Express) {
           // subtotal/total/deposit math (standing rule: vendor pricing is
           // always separate) — it only feeds vendorQuotedSubtotal below.
           vendorQuoteAmount = Number(raw.vendorQuoteAmount) || 0;
-          markupPctApplied = vqMarkupPct;
-          lineTotal = Math.round(vendorQuoteAmount * (1 + markupPctApplied) * 100) / 100;
+          markupPctApplied = markupPctOverride !== null ? markupPctOverride : vqMarkupPct;
+          lineTotal = isFree ? 0 : Math.round(vendorQuoteAmount * (1 + markupPctApplied) * 100) / 100;
           unitRate = vendorQuoteAmount;
           vendorQuotedSubtotal += lineTotal;
         }
@@ -2804,7 +2827,8 @@ export function registerRepairConsultRoutes(app: Express) {
           consultId, cat.key, cat.category, cat.trade, cat.name, cat.unit, qty,
           unitRate, twoStory ? 1 : 0, lineTotal,
           instruction, JSON.stringify(raw.photos || []), raw.measurementNotes || null, cat.sequence_order,
-          vendorQuoteAmount, markupPctApplied, vendorScopeNote, needsElectricalVendor
+          vendorQuoteAmount, markupPctApplied, vendorScopeNote, needsElectricalVendor,
+          markupPctOverride, isFree ? 1 : 0
         );
       }
     });

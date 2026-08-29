@@ -41,6 +41,14 @@ type CheckedState = {
   // rendered on a small set of electrical-adjacent in-house item keys —
   // see ELECTRICAL_VENDOR_TRIGGER_KEYS below.
   needsElectricalVendor: boolean;
+  // v20.38.0 — Adjustable Vendor-Quote Profit %: per-item override of the
+  // global vendor_quote_settings markup (empty string = use the global
+  // default). Only meaningful on vendor items.
+  markupPctOverride: string;
+  // v20.38.0 — Free Item Toggle: comp this specific line item (vendor OR
+  // in-house) to $0 for the client while the real cost/rate is still kept
+  // on the record for reference and P&L accuracy.
+  isFree: boolean;
 };
 
 // v20.33.3 — in-house item keys where "no existing wiring" is a realistic
@@ -715,7 +723,9 @@ export function RepairConsultSheet({
       if (!st?.checked) continue;
       const qty = Number(st.quantity) || 0;
       const twoStory = !!st.twoStory && !!item.two_story_eligible;
-      const lineTotal = computeLineTotalClient(item.default_rate || 0, qty, item.min_charge || 0, twoStory, !!item.two_story_eligible);
+      // v20.38.0 — a comped ("Make this item free") in-house item previews at
+      // $0 client-side too, so the live running total matches what gets saved.
+      const lineTotal = st.isFree ? 0 : computeLineTotalClient(item.default_rate || 0, qty, item.min_charge || 0, twoStory, !!item.two_story_eligible);
       subtotal += lineTotal;
       if (pkg && pkg.itemKeys.includes(item.key)) packageEligibleSubtotal += lineTotal;
     }
@@ -735,7 +745,12 @@ export function RepairConsultSheet({
       const st = checked[item.key];
       if (!st?.checked || !st.hasVendorQuote) continue;
       const amt = Number(st.vendorQuoteAmount) || 0;
-      if (amt > 0) vendorQuotedSubtotal += Math.round(amt * (1 + (vendorQuoteSettings.markupPct || 0)) * 100) / 100;
+      if (amt <= 0) continue;
+      // v20.38.0 — per-item profit-% override falls back to the global
+      // default; a comped item previews at $0 regardless of markup.
+      const overridePct = st.markupPctOverride !== "" && !isNaN(Number(st.markupPctOverride)) ? Number(st.markupPctOverride) : null;
+      const markupPct = overridePct !== null ? overridePct : (vendorQuoteSettings.markupPct || 0);
+      vendorQuotedSubtotal += st.isFree ? 0 : Math.round(amt * (1 + markupPct) * 100) / 100;
     }
 
     return { subtotal, discountAmount, total, threshold, freeItemHit, remainingToFreeItem, vendorQuotedSubtotal };
@@ -750,7 +765,7 @@ export function RepairConsultSheet({
     return [...map.entries()];
   };
 
-  const DEFAULT_ITEM_STATE: CheckedState = { checked: false, quantity: "1", twoStory: false, photos: [], measurementNotes: "", hasVendorQuote: false, vendorQuoteAmount: "", vendorScopeNote: "", needsElectricalVendor: false };
+  const DEFAULT_ITEM_STATE: CheckedState = { checked: false, quantity: "1", twoStory: false, photos: [], measurementNotes: "", hasVendorQuote: false, vendorQuoteAmount: "", vendorScopeNote: "", needsElectricalVendor: false, markupPctOverride: "", isFree: false };
   const setItemState = (key: string, patch: Partial<CheckedState>) => {
     setChecked(prev => {
       const base = prev[key] || DEFAULT_ITEM_STATE;
@@ -887,6 +902,11 @@ export function RepairConsultSheet({
                 <span>No existing wiring — needs an electrician quote before this can be completed</span>
               </label>
             )}
+            {/* v20.38.0 — Free Item Toggle: comp this in-house line to $0 for the client. */}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12, color: st.isFree ? "#7ed49a" : "rgba(255,255,255,0.6)", cursor: "pointer" }}>
+              <input type="checkbox" checked={!!st.isFree} onChange={e => setItemState(it.key, { isFree: e.target.checked })} style={{ accentColor: "#7ed49a" }} />
+              Make this item free ($0 to client)
+            </label>
           </div>
         )}
       </div>
@@ -899,8 +919,13 @@ export function RepairConsultSheet({
     // quoted amount + admin-set markup. Mirrors the exact same formula the
     // server persists on save (server/repairConsult.ts computeLineTotal
     // path for category === "vendor").
+    // v20.38.0 — a per-item profit-% override (st.markupPctOverride) takes
+    // precedence over the global vendor_quote_settings default, and a
+    // comped item (st.isFree) always previews at $0 regardless of markup.
     const quoteAmt = Number(st?.vendorQuoteAmount) || 0;
-    const clientPrice = quoteAmt > 0 ? quoteAmt * (1 + (vendorQuoteSettings.markupPct || 0)) : 0;
+    const overridePct = st?.markupPctOverride !== "" && st?.markupPctOverride !== undefined && !isNaN(Number(st?.markupPctOverride)) ? Number(st?.markupPctOverride) : null;
+    const effectiveMarkupPct = overridePct !== null ? overridePct : (vendorQuoteSettings.markupPct || 0);
+    const clientPrice = st?.isFree ? 0 : (quoteAmt > 0 ? quoteAmt * (1 + effectiveMarkupPct) : 0);
     return (
       <div key={it.key} style={cardStyle}>
         <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
@@ -954,15 +979,27 @@ export function RepairConsultSheet({
                     onChange={e => setItemState(it.key, { vendorQuoteAmount: e.target.value })}
                     style={{ ...inputStyle, fontSize: 12.5, width: 150 }} />
                 </div>
-                {clientPrice > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                  <input type="number" min={0} step="1" placeholder={String(Math.round((vendorQuoteSettings.markupPct || 0) * 100))} value={st.markupPctOverride !== "" ? String(Math.round(Number(st.markupPctOverride) * 100)) : ""}
+                    onChange={e => setItemState(it.key, { markupPctOverride: e.target.value === "" ? "" : String(Number(e.target.value) / 100) })}
+                    disabled={!!st.isFree}
+                    style={{ ...inputStyle, fontSize: 12.5, width: 90, opacity: st.isFree ? 0.5 : 1 }} />
+                  <span style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)" }}>% profit override (blank = default {Math.round((vendorQuoteSettings.markupPct || 0) * 100)}%)</span>
+                </div>
+                {clientPrice > 0 && !st.isFree && (
                   <p style={{ fontSize: 12, color: "#7ed49a", fontWeight: 700, margin: "8px 0 0" }}>
                     Client price: ${clientPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{Math.round((vendorQuoteSettings.markupPct || 0) * 100)}% our fee)</span>
+                    <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{Math.round(effectiveMarkupPct * 100)}% our fee)</span>
                   </p>
                 )}
                 {/* v20.33.0 — photo upload/list moved above (required, unconditional) so it's no longer duplicated here behind the optional "Already have a vendor quote?" toggle. */}
               </div>
             )}
+            {/* v20.38.0 — Free Item Toggle: comp this vendor-quoted line to $0 for the client (real vendor cost still recorded for P&L). */}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12, color: st.isFree ? "#7ed49a" : "rgba(255,255,255,0.6)", cursor: "pointer" }}>
+              <input type="checkbox" checked={!!st.isFree} onChange={e => setItemState(it.key, { isFree: e.target.checked })} style={{ accentColor: "#7ed49a" }} />
+              Make this item free ($0 to client)
+            </label>
           </div>
         )}
       </div>
@@ -1042,6 +1079,8 @@ export function RepairConsultSheet({
             vendorQuoteAmount: it.vendor_quote_amount != null ? String(it.vendor_quote_amount) : "",
             vendorScopeNote: it.vendor_scope_note || "",
             needsElectricalVendor: !!it.needs_electrical_vendor,
+            markupPctOverride: it.markup_pct_override != null ? String(it.markup_pct_override) : "",
+            isFree: !!it.is_free,
           };
         }
         setChecked(nextChecked);
@@ -1194,6 +1233,11 @@ export function RepairConsultSheet({
         // v20.33.3 — Electrical Vendor Quote Needed flag (in-house items only:
         // GFCI/bath exhaust fan/ceiling fan with no existing wiring).
         needsElectricalVendor: v.needsElectricalVendor || undefined,
+        // v20.38.0 — per-item vendor-quote profit-% override (vendor items
+        // only — server ignores it for in_house) and the free/$0 toggle
+        // (either category).
+        markupPctOverride: v.markupPctOverride !== "" && !isNaN(Number(v.markupPctOverride)) ? Number(v.markupPctOverride) : undefined,
+        isFree: v.isFree || undefined,
       }));
     if (items.length === 0) throw new Error("Check off at least one repair item before continuing.");
     const d = await fetchJson(`/api/repair-consult/${id}/items`, {
@@ -1847,8 +1891,14 @@ export function RepairConsultSheet({
                             // min_charge). Vendor items show the marked-up client price only once
                             // a vendor quote amount has been entered; otherwise "Quote pending".
                             const vendorAmt = Number(st?.vendorQuoteAmount) || 0;
-                            const itemPrice = item.category === "vendor"
-                              ? (st?.hasVendorQuote && vendorAmt > 0 ? vendorAmt * (1 + (vendorQuoteSettings.markupPct || 0)) : null)
+                            // v20.38.0 — per-item profit-% override + free/$0 toggle apply here too,
+                            // so the review-step price mirrors what actually gets saved.
+                            const reviewOverridePct = st?.markupPctOverride !== "" && st?.markupPctOverride !== undefined && !isNaN(Number(st?.markupPctOverride)) ? Number(st?.markupPctOverride) : null;
+                            const reviewMarkupPct = reviewOverridePct !== null ? reviewOverridePct : (vendorQuoteSettings.markupPct || 0);
+                            const itemPrice = st?.isFree
+                              ? 0
+                              : item.category === "vendor"
+                              ? (st?.hasVendorQuote && vendorAmt > 0 ? vendorAmt * (1 + reviewMarkupPct) : null)
                               : computeLineTotalClient(item.default_rate || 0, Number(st?.quantity) || 0, item.min_charge || 0, !!st?.twoStory && !!item.two_story_eligible, !!item.two_story_eligible);
                             return (
                               <div key={item.key} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
@@ -1907,6 +1957,12 @@ export function RepairConsultSheet({
                                     )}
                                     <input placeholder={item.category === "vendor" ? "Measurements (required to send a vendor quote request)" : "Measurement notes (optional)"} value={st?.measurementNotes ?? ""} onChange={e => setItemState(item.key, { measurementNotes: e.target.value })}
                                       style={{ ...inputStyle, fontSize: 12.5, ...(item.category === "vendor" && !(st?.measurementNotes ?? "").trim() ? { border: "1px solid rgba(255,159,10,0.5)" } : {}) }} />
+                                    {item.category !== "vendor" && (
+                                      <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12, color: st?.isFree ? "#7ed49a" : "rgba(255,255,255,0.6)", cursor: "pointer" }}>
+                                        <input type="checkbox" checked={!!st?.isFree} onChange={e => setItemState(item.key, { isFree: e.target.checked })} style={{ accentColor: "#7ed49a" }} />
+                                        Make this item free ($0 to client)
+                                      </label>
+                                    )}
                                     {ELECTRICAL_VENDOR_TRIGGER_KEYS.includes(item.key) && (
                                       <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10, fontSize: 12, color: "rgba(255,159,10,0.9)", cursor: "pointer" }}>
                                         <input type="checkbox" checked={!!st?.needsElectricalVendor} onChange={e => handleElectricalVendorToggle(item, e.target.checked)}
@@ -1946,7 +2002,9 @@ export function RepairConsultSheet({
                                     )}
                                     {item.category === "vendor" && (() => {
                                       const quoteAmt = Number(st?.vendorQuoteAmount) || 0;
-                                      const clientPrice = quoteAmt > 0 ? quoteAmt * (1 + (vendorQuoteSettings.markupPct || 0)) : 0;
+                                      const overridePctReview = st?.markupPctOverride !== "" && st?.markupPctOverride !== undefined && !isNaN(Number(st?.markupPctOverride)) ? Number(st?.markupPctOverride) : null;
+                                      const effectiveMarkupPctReview = overridePctReview !== null ? overridePctReview : (vendorQuoteSettings.markupPct || 0);
+                                      const clientPrice = st?.isFree ? 0 : (quoteAmt > 0 ? quoteAmt * (1 + effectiveMarkupPctReview) : 0);
                                       return (
                                         <div style={{ marginTop: 10 }}>
                                           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "rgba(255,255,255,0.6)", cursor: "pointer" }}>
@@ -1961,15 +2019,26 @@ export function RepairConsultSheet({
                                                   onChange={e => setItemState(item.key, { vendorQuoteAmount: e.target.value })}
                                                   style={{ ...inputStyle, fontSize: 12.5, width: 150 }} />
                                               </div>
-                                              {clientPrice > 0 && (
+                                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                                                <input type="number" min={0} step="1" placeholder={String(Math.round((vendorQuoteSettings.markupPct || 0) * 100))} value={st?.markupPctOverride !== "" && st?.markupPctOverride !== undefined ? String(Math.round(Number(st?.markupPctOverride) * 100)) : ""}
+                                                  onChange={e => setItemState(item.key, { markupPctOverride: e.target.value === "" ? "" : String(Number(e.target.value) / 100) })}
+                                                  disabled={!!st?.isFree}
+                                                  style={{ ...inputStyle, fontSize: 12.5, width: 90, opacity: st?.isFree ? 0.5 : 1 }} />
+                                                <span style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)" }}>% profit override (blank = default {Math.round((vendorQuoteSettings.markupPct || 0) * 100)}%)</span>
+                                              </div>
+                                              {clientPrice > 0 && !st?.isFree && (
                                                 <p style={{ fontSize: 12, color: "#7ed49a", fontWeight: 700, margin: "8px 0 0" }}>
                                                   Client price: ${clientPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                                  <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{Math.round((vendorQuoteSettings.markupPct || 0) * 100)}% our fee)</span>
+                                                  <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{Math.round(effectiveMarkupPctReview * 100)}% our fee)</span>
                                                 </p>
                                               )}
                                               {/* v20.33.0 — photo upload/list moved above (required, unconditional) so it's no longer duplicated here behind the optional "Already have a vendor quote?" toggle. */}
                                             </div>
                                           )}
+                                          <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12, color: st?.isFree ? "#7ed49a" : "rgba(255,255,255,0.6)", cursor: "pointer" }}>
+                                            <input type="checkbox" checked={!!st?.isFree} onChange={e => setItemState(item.key, { isFree: e.target.checked })} style={{ accentColor: "#7ed49a" }} />
+                                            Make this item free ($0 to client)
+                                          </label>
                                         </div>
                                       );
                                     })()}

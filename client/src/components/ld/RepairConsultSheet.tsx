@@ -281,6 +281,12 @@ const TRADE_LABELS: Record<string, string> = {
 };
 
 const GOLD = "#c8aa5a";
+// v20.39.0 — profit-override % fields support up to 3 decimal places (e.g. 6.125%).
+// fmtPct3 converts a fraction (0.06125) to its cleanest percent string ("6.125"),
+// rounding to 3 decimals and stripping any trailing zeros.
+function fmtPct3(frac: number): string {
+  return String(Math.round((frac || 0) * 100000) / 1000);
+}
 const cardStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
   borderRadius: 12, padding: 14, marginBottom: 10,
@@ -980,16 +986,16 @@ export function RepairConsultSheet({
                     style={{ ...inputStyle, fontSize: 12.5, width: 150 }} />
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                  <input type="number" min={0} step="1" placeholder={String(Math.round((vendorQuoteSettings.markupPct || 0) * 100))} value={st.markupPctOverride !== "" ? String(Math.round(Number(st.markupPctOverride) * 100)) : ""}
+                  <input type="number" min={0} step="0.001" placeholder={fmtPct3(vendorQuoteSettings.markupPct || 0)} value={st.markupPctOverride !== "" ? fmtPct3(Number(st.markupPctOverride)) : ""}
                     onChange={e => setItemState(it.key, { markupPctOverride: e.target.value === "" ? "" : String(Number(e.target.value) / 100) })}
                     disabled={!!st.isFree}
                     style={{ ...inputStyle, fontSize: 12.5, width: 90, opacity: st.isFree ? 0.5 : 1 }} />
-                  <span style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)" }}>% profit override (blank = default {Math.round((vendorQuoteSettings.markupPct || 0) * 100)}%)</span>
+                  <span style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)" }}>% profit override (blank = default {fmtPct3(vendorQuoteSettings.markupPct || 0)}%)</span>
                 </div>
                 {clientPrice > 0 && !st.isFree && (
                   <p style={{ fontSize: 12, color: "#7ed49a", fontWeight: 700, margin: "8px 0 0" }}>
                     Client price: ${clientPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{Math.round(effectiveMarkupPct * 100)}% our fee)</span>
+                    <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{fmtPct3(effectiveMarkupPct)}% our fee)</span>
                   </p>
                 )}
                 {/* v20.33.0 — photo upload/list moved above (required, unconditional) so it's no longer duplicated here behind the optional "Already have a vendor quote?" toggle. */}
@@ -2020,16 +2026,16 @@ export function RepairConsultSheet({
                                                   style={{ ...inputStyle, fontSize: 12.5, width: 150 }} />
                                               </div>
                                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                                                <input type="number" min={0} step="1" placeholder={String(Math.round((vendorQuoteSettings.markupPct || 0) * 100))} value={st?.markupPctOverride !== "" && st?.markupPctOverride !== undefined ? String(Math.round(Number(st?.markupPctOverride) * 100)) : ""}
+                                                <input type="number" min={0} step="0.001" placeholder={fmtPct3(vendorQuoteSettings.markupPct || 0)} value={st?.markupPctOverride !== "" && st?.markupPctOverride !== undefined ? fmtPct3(Number(st?.markupPctOverride)) : ""}
                                                   onChange={e => setItemState(item.key, { markupPctOverride: e.target.value === "" ? "" : String(Number(e.target.value) / 100) })}
                                                   disabled={!!st?.isFree}
                                                   style={{ ...inputStyle, fontSize: 12.5, width: 90, opacity: st?.isFree ? 0.5 : 1 }} />
-                                                <span style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)" }}>% profit override (blank = default {Math.round((vendorQuoteSettings.markupPct || 0) * 100)}%)</span>
+                                                <span style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)" }}>% profit override (blank = default {fmtPct3(vendorQuoteSettings.markupPct || 0)}%)</span>
                                               </div>
                                               {clientPrice > 0 && !st?.isFree && (
                                                 <p style={{ fontSize: 12, color: "#7ed49a", fontWeight: 700, margin: "8px 0 0" }}>
                                                   Client price: ${clientPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                                  <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{Math.round(effectiveMarkupPctReview * 100)}% our fee)</span>
+                                                  <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 400 }}> (+{fmtPct3(effectiveMarkupPctReview)}% our fee)</span>
                                                 </p>
                                               )}
                                               {/* v20.33.0 — photo upload/list moved above (required, unconditional) so it's no longer duplicated here behind the optional "Already have a vendor quote?" toggle. */}

@@ -17,7 +17,7 @@ import { Resend } from "resend";
 import { requireAdmin } from "./auth";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-const FROM = "Brothers Group Home Solutions <noreply@watsonbrothersgroup.com>";
+const FROM = "Happy Home Solutions <noreply@watsonbrothersgroup.com>";
 const NOTIFY_TO = ["nate@watsonbrothersgroup.com", "alex@watsonbrothersgroup.com"];
 
 rawDb.prepare(`
@@ -110,7 +110,7 @@ export function registerBghsPublicRoutes(app: Express) {
           subject: `New Home Solutions Quote Request — ${name} (${categoryLabel})`,
           html: `
             <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
-              <h2 style="color:#080808;">New Quote Request — Brothers Group Home Solutions</h2>
+              <h2 style="color:#080808;">New Quote Request — Happy Home Solutions</h2>
               <table style="width:100%;border-collapse:collapse;font-size:14px;">
                 <tr><td style="padding:6px 0;color:#666;width:140px;">Name</td><td style="padding:6px 0;"><strong>${escapeHtml(name)}</strong></td></tr>
                 <tr><td style="padding:6px 0;color:#666;">Phone</td><td style="padding:6px 0;">${escapeHtml(phone)}</td></tr>
@@ -128,13 +128,13 @@ export function registerBghsPublicRoutes(app: Express) {
           resend.emails.send({
             from: FROM,
             to: email,
-            subject: "We got your request — Brothers Group Home Solutions",
+            subject: "We got your request — Happy Home Solutions",
             html: `
               <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
                 <h2 style="color:#080808;">Thanks, ${escapeHtml(name)} — we've got your request.</h2>
                 <p style="color:#333;line-height:1.6;">We received your ${escapeHtml(categoryLabel).toLowerCase()} request for <strong>${escapeHtml(serviceAddress)}</strong>. Nate or Alex will call you at ${escapeHtml(phone)} within one business day to talk through the job and get you a quote.</p>
                 <p style="color:#333;line-height:1.6;">Need us sooner? Call <a href="tel:19048673984" style="color:#a8893a;">(904) 867-3984</a>.</p>
-                <p style="margin-top:24px;color:#999;font-size:12px;">Brothers Group Home Solutions, LLC</p>
+                <p style="margin-top:24px;color:#999;font-size:12px;">Happy Home Solutions, LLC</p>
               </div>
             `,
           }).catch((err) => console.error("[BGHS] confirmation email error:", err));

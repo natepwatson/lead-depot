@@ -1901,7 +1901,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.38.1
+              v20.38.2
             </p>
           </div>
         </div>
@@ -2020,7 +2020,7 @@ export default function AdminDashboard({
               { value: "inspections", icon: ClipboardCheck, label: "Inspections+" },
               { value: "receivables", icon: DollarSign,  label: "Receivables" },
               { value: "work-calendar", icon: CalendarClock, label: "Calendar" },
-              { value: "bghs-pnl",      icon: PieChart,    label: "BGHS P&L" },
+              { value: "bghs-pnl",      icon: PieChart,    label: "HHS P&L" },
             ].map(tab => (
               <TabsTrigger
                 key={tab.value}

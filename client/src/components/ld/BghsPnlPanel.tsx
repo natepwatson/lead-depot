@@ -133,7 +133,7 @@ export function BghsPnlPanel() {
       const jobsData = await jobsRes.json();
       setJobs(jobsData.jobs || []);
     } catch (e: any) {
-      setError(e?.message || "Failed to load BGHS P&L");
+      setError(e?.message || "Failed to load HHS P&L");
     } finally {
       setLoading(false);
     }
@@ -198,12 +198,12 @@ export function BghsPnlPanel() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
         <h3 style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb", display: "flex", alignItems: "center", gap: 6 }}>
-          <DollarSign size={13} color={GOLD} /> BGHS Profit &amp; Loss
+          <DollarSign size={13} color={GOLD} /> HHS Profit & Loss
         </h3>
         <button onClick={load} style={actionBtnStyle}><RefreshCw size={11} /> Refresh</button>
       </div>
       <p className="text-xs text-muted-foreground mb-3">
-        Brothers Group Home Solutions (repair/touch-up program) only — Inspections+ is a separate line and isn't
+        Happy Home Solutions (repair/touch-up program) only — Inspections+ is a separate line and isn't
         included here. Revenue Collected is cash actually received; Vendor Cost pulls automatically from vendor-quoted
         line items. Logged Expenses are whatever's added below (materials, in-house labor, overhead, etc.) — Gross
         Profit will overstate margin on jobs where in-house labor time was never logged as an expense.

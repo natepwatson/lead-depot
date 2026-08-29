@@ -72,7 +72,7 @@ export function registerBghsPnlRoutes(app: Express) {
   app.post("/api/admin/bghs/expenses", (req: any, res: Response) => {
     if (!req.currentAgent) return res.status(401).json({ error: "Not authenticated" });
     if (!isPaymentAuthorizedAgent(req.currentAgent)) {
-      return res.status(403).json({ error: "Only Alex, Nate, or Denise may log BGHS expenses." });
+      return res.status(403).json({ error: "Only Alex, Nate, or Denise may log HHS expenses." });
     }
     const { consultId, category, description, amount, vendorName, expenseDate, notes } = req.body || {};
     if (!BGHS_EXPENSE_CATEGORIES.includes(category)) {
@@ -99,7 +99,7 @@ export function registerBghsPnlRoutes(app: Express) {
   app.delete("/api/admin/bghs/expenses/:id", (req: any, res: Response) => {
     if (!req.currentAgent) return res.status(401).json({ error: "Not authenticated" });
     if (!isPaymentAuthorizedAgent(req.currentAgent)) {
-      return res.status(403).json({ error: "Only Alex, Nate, or Denise may remove BGHS expenses." });
+      return res.status(403).json({ error: "Only Alex, Nate, or Denise may remove HHS expenses." });
     }
     const id = parseInt(req.params.id);
     const row = rawDb.prepare(`SELECT id FROM bghs_expenses WHERE id = ?`).get(id);

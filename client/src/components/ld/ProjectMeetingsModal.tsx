@@ -12,6 +12,7 @@
 // opens this single page for both start date and all 3 meetings — replaces
 // the separate Schedule + Meetings buttons everywhere this modal is used.
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 const GOLD = "#c8aa5a";
 
@@ -134,8 +135,15 @@ export function ProjectMeetingsModal({
     }
   }
 
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+  // v20.39.3 — render via a portal straight to document.body. The inline
+  // (non-portal) version was getting trapped inside an ancestor stacking
+  // context and rendering BEHIND the app's sticky top header (z-index 20)
+  // even with zIndex:500 set here — found during live verification of the
+  // v20.39.2 Schedule consolidation, where the modal title and property
+  // address were completely hidden on open. A portal escapes any ancestor
+  // stacking context entirely, which fixes this regardless of root cause.
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 560, maxHeight: "90vh", overflowY: "auto", background: "#141414", border: "1px solid rgba(200,170,90,0.3)", borderRadius: 12, padding: 20 }}>
         <h3 style={{ margin: 0, marginBottom: 4, fontSize: 16, fontWeight: 700, color: GOLD }}>Schedule</h3>
         <p style={{ margin: 0, marginBottom: 14, fontSize: 12, color: "#94a3b8" }}>{propertyAddress}</p>
@@ -211,6 +219,7 @@ export function ProjectMeetingsModal({
           <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "#94a3b8", cursor: "pointer" }}>Close</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

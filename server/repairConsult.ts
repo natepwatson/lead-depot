@@ -3169,6 +3169,21 @@ export function registerRepairConsultRoutes(app: Express) {
       const del = rawDb.transaction(() => {
         rawDb.prepare("DELETE FROM repair_change_orders WHERE consult_id = ?").run(consultId);
         rawDb.prepare("DELETE FROM repair_vendor_dispatches WHERE consult_id = ?").run(consultId);
+        // v20.43.0 — labor_orders.consult_id has a FK to repair_consults(id) and
+        // foreign_keys=ON is enforced (server/db.ts). Any consult that ever
+        // opened the Labor Calculator (even just viewing it lazily creates a
+        // draft labor_orders row) would otherwise fail this delete with a FK
+        // constraint error. Clean up the labor-order tree first, children
+        // before parents, same as everything else in this transaction.
+        const laborOrder = rawDb.prepare("SELECT id FROM labor_orders WHERE consult_id = ?").get(consultId) as any;
+        if (laborOrder) {
+          rawDb.prepare(`
+            DELETE FROM labor_order_assignments
+            WHERE labor_order_trade_id IN (SELECT id FROM labor_order_trades WHERE labor_order_id = ?)
+          `).run(laborOrder.id);
+          rawDb.prepare("DELETE FROM labor_order_trades WHERE labor_order_id = ?").run(laborOrder.id);
+          rawDb.prepare("DELETE FROM labor_orders WHERE id = ?").run(laborOrder.id);
+        }
         rawDb.prepare("DELETE FROM repair_consult_items WHERE consult_id = ?").run(consultId);
         rawDb.prepare("DELETE FROM repair_consults WHERE id = ?").run(consultId);
       });

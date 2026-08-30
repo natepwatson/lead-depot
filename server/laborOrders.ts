@@ -199,6 +199,34 @@ export function registerLaborOrdersRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  // ── Delete ALL saved trade tabs for this job's labor order in one shot —
+  // same safety gate as the per-trade delete (blocked once approved; undo
+  // approval first). Leaves the labor_orders row itself in place (still
+  // 'draft'), just wipes every trade_id + its assignments, so the next GET
+  // shows a completely fresh set of unsaved tabs. ──
+  app.delete("/api/admin/repair-consult/:id/labor-order/trades", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = Number(req.params.id);
+    const consult = rawDb.prepare(`SELECT id FROM repair_consults WHERE id = ?`).get(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+
+    const order = getOrCreateLaborOrder(consultId);
+    if (order.status === "approved") return res.status(400).json({ error: "Labor order is approved — undo the approval before deleting labor." });
+
+    const tradeRows = rawDb.prepare(`SELECT id FROM labor_order_trades WHERE labor_order_id = ?`).all(order.id) as any[];
+    if (tradeRows.length === 0) return res.status(404).json({ error: "No saved trade tabs on this labor order — nothing to delete." });
+
+    const tx = rawDb.transaction(() => {
+      for (const t of tradeRows) {
+        rawDb.prepare(`DELETE FROM labor_order_assignments WHERE labor_order_trade_id = ?`).run(t.id);
+      }
+      rawDb.prepare(`DELETE FROM labor_order_trades WHERE labor_order_id = ?`).run(order.id);
+      rawDb.prepare(`UPDATE labor_orders SET updated_at = datetime('now') WHERE id = ?`).run(order.id);
+    });
+    tx();
+    res.json({ ok: true, deletedTrades: tradeRows.length });
+  });
+
   // ── Undo approval — reverts an approved order back to draft so trades can
   // be edited/deleted again. Does not touch the saved trade data itself. ──
   app.post("/api/admin/repair-consult/:id/labor-order/unapprove", (req: any, res: Response) => {

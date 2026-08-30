@@ -39,6 +39,7 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
   const [approving, setApproving] = useState(false);
   const [deletingTrade, setDeletingTrade] = useState<string | null>(null);
   const [unapproving, setUnapproving] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -115,6 +116,26 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
       setError(e.message || "Failed to delete");
     } finally {
       setDeletingTrade(null);
+    }
+  }
+
+  async function deleteAllTrades() {
+    const savedCount = trades.filter(t => t.saved).length;
+    if (savedCount === 0) return;
+    if (!window.confirm(`Delete ALL ${savedCount} saved trade tab(s) on this labor order? This clears every laborer assignment on this job and cannot be undone.`)) return;
+    setDeletingAll(true);
+    setError("");
+    try {
+      const r = await fetch(`/api/admin/repair-consult/${consultId}/labor-order/trades`, {
+        method: "DELETE", credentials: "include",
+      });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || "Failed to delete all trades");
+      load();
+    } catch (e: any) {
+      setError(e.message || "Failed to delete all trades");
+    } finally {
+      setDeletingAll(false);
     }
   }
 
@@ -286,6 +307,12 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
           {!isApproved && !loading && scopeTrades.length > 0 && !allTabsSaved && (
             <span style={{ fontSize: 10.5, color: "#facc15" }}>Save every trade tab before approving.</span>
+          )}
+          {!isApproved && !loading && trades.some(t => t.saved) && (
+            <button onClick={deleteAllTrades} disabled={deletingAll}
+              style={{ padding: "8px 16px", borderRadius: 6, fontSize: 12.5, fontWeight: 700, background: "transparent", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", cursor: deletingAll ? "default" : "pointer", opacity: deletingAll ? 0.6 : 1 }}>
+              {deletingAll ? "Deleting All..." : "Delete All Labor"}
+            </button>
           )}
           <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: "transparent", border: "1px solid rgba(255,255,255,0.15)", color: "#94a3b8", cursor: "pointer" }}>Close</button>
           {!isApproved && scopeTrades.length > 0 && (

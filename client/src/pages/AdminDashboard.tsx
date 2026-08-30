@@ -12,6 +12,7 @@ import { RepairPricingVendorPanel } from "../components/ld/RepairPricingVendorPa
 import { InspectionsPricingPanel } from "../components/ld/InspectionsPricingPanel";
 import { AccountsReceivablePanel } from "../components/ld/AccountsReceivablePanel";
 import { WorkCalendarPanel } from "../components/ld/WorkCalendarPanel";
+import { LaborCrewsPanel } from "../components/ld/LaborCrewsPanel";
 import { BghsPnlPanel } from "../components/ld/BghsPnlPanel";
 import { OpenHouseSchedulePanel } from "../components/ld/OpenHouseSchedulePanel";
 import { PendingOpenHousesPanel } from "../components/ld/PendingOpenHousesPanel";
@@ -40,7 +41,7 @@ import {
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
   UserPlus, UserCircle2, KeyRound, RotateCcw,
   Database, Wrench, FileText, PlayCircle, Home, CalendarDays,
-  ClipboardList, ClipboardCheck, DollarSign, CalendarClock, PieChart
+  ClipboardList, ClipboardCheck, DollarSign, CalendarClock, PieChart, HardHat
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -1901,7 +1902,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.39.3
+              v20.40.0
             </p>
           </div>
         </div>
@@ -2020,6 +2021,7 @@ export default function AdminDashboard({
               { value: "inspections", icon: ClipboardCheck, label: "Inspections+" },
               { value: "receivables", icon: DollarSign,  label: "Receivables" },
               { value: "work-calendar", icon: CalendarClock, label: "Calendar" },
+              { value: "labor-crews",   icon: HardHat,     label: "Labor & Crews" },
               { value: "bghs-pnl",      icon: PieChart,    label: "HHS P&L" },
             ].map(tab => (
               <TabsTrigger
@@ -3141,6 +3143,10 @@ export default function AdminDashboard({
               </p>
             </div>
             <WorkCalendarPanel />
+          </TabsContent>
+
+          <TabsContent value="labor-crews" className="mt-5">
+            <LaborCrewsPanel />
           </TabsContent>
 
           {/* v20.4.2 — Old admin Territory Map (MapView.tsx) removed. Team map lives in

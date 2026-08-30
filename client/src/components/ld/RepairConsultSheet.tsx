@@ -14,6 +14,7 @@ import { ConsultResumePicker, ResumeCheckingSpinner, type ResumeItem } from "./C
 import { PdfViewerModal } from "./PdfViewerModal";
 import { SmartDataPanel } from "./SmartDataPanel";
 import { FubAddressChooser, type FubAddress } from "./FubAddressChooser";
+import { TRADE_LABELS } from "../../lib/tradeLabels";
 
 type RepairItem = {
   id: number; key: string; category: "in_house" | "vendor"; trade: string; name: string;
@@ -270,23 +271,9 @@ const fetchJson = async (url: string, opts: RequestInit = {}) => {
   return body;
 };
 
-const TRADE_LABELS: Record<string, string> = {
-  junk_removal: "Junk Removal", handyman: "Handyman", pressure_washing: "Pressure Washing",
-  painting_exterior: "Exterior Painting", landscaping: "Landscaping", painting_interior: "Interior Painting",
-  cleaning: "Cleaning",
-  tile_install: "Tile Installation", cabinet_install: "Cabinet Installation", cabinetry_painting: "Cabinetry Painting",
-  roofing: "Roofing", electrical: "Electrical", plumbing: "Plumbing", hvac: "HVAC",
-  stucco_masonry: "Stucco & Masonry", carpentry: "Carpentry", wdo: "WDO / Termite",
-  windows: "Windows", backflow: "Backflow Prevention", flooring_wood_refinish: "Wood Floor Refinishing",
-  flooring_lvp: "LVP Flooring", flooring_carpet: "Carpet Installation", flooring_epoxy: "Epoxy Flooring", appliances: "Appliances",
-  countertops: "Countertops", retexture: "Re-Texturing", shower_doors: "Frameless Shower Doors",
-  irrigation: "Irrigation", fencing: "Fencing", pool_equipment: "Pool Equipment", septic: "Septic",
-  water_heater: "Water Heater", tree_removal_large: "Large Tree Removal", structural: "Structural / Foundation",
-  mold_remediation: "Mold Remediation", chimney: "Chimney", solar: "Solar", water_damage: "Water Damage Restoration",
-  garage_door: "Garage Door", hardscape: "Hardscape / Pavers", land_clearing: "Land Clearing",
-  bathroom_repair: "Bathroom Repairs", kitchen_repair: "Kitchen Repairs", laundry_repair: "Laundry Room",
-  appliance_coordination: "Materials, Appliance Purchase & Delivery",
-};
+// v20.41.0 — moved to client/src/lib/tradeLabels.ts (shared with Phase 2's
+// LaborCalculatorModal) and imported below; kept out of this file to avoid
+// two copies drifting apart.
 
 const GOLD = "#c8aa5a";
 // v20.39.0 — profit-override % fields support up to 3 decimal places (e.g. 6.125%).

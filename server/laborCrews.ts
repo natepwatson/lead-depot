@@ -101,9 +101,14 @@ export function registerLaborCrewsRoutes(app: Express) {
     res.json({ ok: true });
   });
 
-  // ── Remove laborer (hard delete — only safe pre-Phase-2 since nothing references laborer_id yet) ──
+  // ── Remove laborer. v20.41.0 — Phase 2 now references laborer_id from
+  // labor_order_assignments, so a hard delete of an assigned laborer would
+  // orphan job-level labor plans. Block delete once assigned; deactivating
+  // (active=0) is the correct move for a laborer with job history. ──
   app.delete("/api/admin/laborers/:id", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const used = (rawDb.prepare(`SELECT COUNT(*) AS n FROM labor_order_assignments WHERE laborer_id = ?`).get(req.params.id) as any).n;
+    if (used > 0) return res.status(400).json({ error: "This laborer has job assignments on file — deactivate them instead of deleting." });
     rawDb.prepare(`DELETE FROM laborers WHERE id = ?`).run(req.params.id);
     res.json({ ok: true });
   });

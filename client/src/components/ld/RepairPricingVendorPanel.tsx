@@ -14,6 +14,7 @@ import { PdfViewerModal } from "./PdfViewerModal";
 import { PaymentRecordModal } from "./PaymentRecordModal";
 import { ProjectMeetingsModal } from "./ProjectMeetingsModal";
 import { ClientPreviewModal } from "./ClientPreviewModal";
+import { LaborCalculatorModal } from "./LaborCalculatorModal";
 
 type PricingItem = {
   id: number;
@@ -1075,6 +1076,9 @@ function WorkOrdersPanel() {
   // Consults tab required, so the crew's on-site progress and the client's
   // running balance stay confirmed together.
   const [payModalFor, setPayModalFor] = useState<Consult | null>(null);
+  // v20.41.0 — Phase 2 Labor Calculator: per-job trade-tab labor planning,
+  // opened the same way as Schedule/Payments above.
+  const [laborModalFor, setLaborModalFor] = useState<Consult | null>(null);
   // Inline-editable draft values keyed by consult id, so typing in one row's
   // date/tools/time fields doesn't require a round-trip per keystroke.
   const [drafts, setDrafts] = useState<Record<number, { targetCompletionDate: string; toolsNeeded: string; timeBlockEstimate: string }>>({});
@@ -1251,6 +1255,10 @@ function WorkOrdersPanel() {
                     style={{ ...actionBtnStyle, color: "#c4b5fd", borderColor: "rgba(196,181,253,0.4)", background: "rgba(196,181,253,0.08)" }}>
                     Schedule
                   </button>
+                  <button disabled={busy === c.id} onClick={() => setLaborModalFor(c)} title="Labor Calculator — assign laborers and hours per trade, then approve"
+                    style={{ ...actionBtnStyle, color: "#fdba74", borderColor: "rgba(253,186,116,0.4)", background: "rgba(253,186,116,0.08)" }}>
+                    Labor
+                  </button>
                   {c.work_order_pdf_url ? (
                     <button disabled={busy === c.id} onClick={() => setPdfModal({ url: c.work_order_pdf_url!, title: `${c.property_address} — Work Order` })}
                       style={actionBtnStyle}><Download size={11} /> Work Order PDF</button>
@@ -1297,6 +1305,13 @@ function WorkOrdersPanel() {
           depositSuggestion={payModalFor.deposit_amount}
           onClose={() => setPayModalFor(null)}
           onRecorded={() => { setPayModalFor(null); load(); }}
+        />
+      )}
+      {laborModalFor && (
+        <LaborCalculatorModal
+          consultId={laborModalFor.id}
+          propertyAddress={laborModalFor.property_address}
+          onClose={() => setLaborModalFor(null)}
         />
       )}
     </div>

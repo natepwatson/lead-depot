@@ -861,22 +861,10 @@ function ConsultsPanel() {
   // (server/payments.ts POST /api/payments), so there is no separate
   // manual deposit-confirmation step left to get wrong.
 
-  const scheduleStart = async (c: Consult) => {
-    const dateStr = prompt(`Start date for ${c.property_address} (YYYY-MM-DD):`, c.start_date || "");
-    if (dateStr === null) return;
-    const timeStr = dateStr.trim() ? (prompt(`Start time (optional, e.g. 9:00 AM):`, c.start_time || "") || "") : "";
-    setBusy(c.id);
-    try {
-      const r = await fetch(`/api/repair-consult/${c.id}/start-window`, {
-        method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ startWindow: dateStr.trim() ? "specific" : null, startDate: dateStr.trim() || null, startTime: timeStr.trim() || null }),
-      });
-      const b = await r.json();
-      if (!r.ok) alert(b?.error || "Failed to schedule start date");
-      load();
-    } finally { setBusy(null); }
-  };
+  // v20.39.2 — the old prompt()-based scheduleStart() flow was removed;
+  // Start Date now lives inside ProjectMeetingsModal ("Schedule" button)
+  // alongside the 3 project meetings, per Alex: "start date, project work
+  // days, and the project manager meetings should all be on the same page."
 
   const statusColor = (status: string) =>
     status === "accepted" ? "#5eead4"
@@ -996,21 +984,17 @@ function ConsultsPanel() {
                           title={!c.quote_token ? "Generate the quote first" : c.status === "accepted" ? "Already signed" : "Mark as Print-Signed — upload a photo or PDF of the signed printout"}
                           style={actionBtnStyle}><PenLine size={11} /> Mark Signed</button>
                       )}
-                      {c.status === "accepted" && c.deposit_received_at && (
-                        <button disabled={busy === c.id} onClick={() => scheduleStart(c)} title="Schedule Start Date"
-                          style={{ ...actionBtnStyle, color: "#5eead4", borderColor: "rgba(94,234,212,0.4)", background: "rgba(94,234,212,0.08)" }}>Schedule</button>
-                      )}
                       {c.status === "accepted" && (
                         <button disabled={busy === c.id} onClick={() => setChangeOrderFor(c)} title="Request a Change Order — additional work found once work began"
                           style={{ ...actionBtnStyle, color: "#c8aa5a", borderColor: "rgba(200,170,90,0.45)", background: "rgba(200,170,90,0.10)" }}><FilePlus2 size={11} /> Change Order</button>
                       )}
                       {(c.status === "accepted" || c.status === "work_order_sent") && (
-                        <button disabled={busy === c.id} onClick={() => setPaymentFor(c)} title="Record Payment — Alex, Nate, or Denise only"
-                          style={{ ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)" }}><DollarSign size={11} /> Record Payment</button>
+                        <button disabled={busy === c.id} onClick={() => setPaymentFor(c)} title="Payments — balance, history, and record a new payment (Alex, Nate, or Denise only)"
+                          style={{ ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)" }}><DollarSign size={11} /> Payments</button>
                       )}
                       {(c.status === "accepted" || c.status === "work_order_sent") && (
-                        <button disabled={busy === c.id} onClick={() => setMeetingsFor(c)} title="View/schedule the 3 project meetings — Initial Start, Punch-Out, Final Payment"
-                          style={{ ...actionBtnStyle, color: "#93c5fd", borderColor: "rgba(147,197,253,0.4)", background: "rgba(147,197,253,0.08)" }}>Meetings</button>
+                        <button disabled={busy === c.id} onClick={() => setMeetingsFor(c)} title="Schedule — start date and the 3 project meetings (Initial Start, Punch-Out, Final Payment) on one page"
+                          style={{ ...actionBtnStyle, color: "#93c5fd", borderColor: "rgba(147,197,253,0.4)", background: "rgba(147,197,253,0.08)" }}>Schedule</button>
                       )}
                       {c.status === "declined" ? (
                         <button disabled={busy === c.id} onClick={() => reopenConsult(c)} title="Owner changed their mind — reopen this consult"
@@ -1065,6 +1049,9 @@ function ConsultsPanel() {
         <ProjectMeetingsModal
           consultId={meetingsFor.id}
           propertyAddress={meetingsFor.property_address}
+          startDate={meetingsFor.start_date}
+          startTime={meetingsFor.start_time}
+          onScheduleSaved={load}
           onClose={() => setMeetingsFor(null)}
         />
       )}
@@ -1260,9 +1247,9 @@ function WorkOrdersPanel() {
                     style={{ ...actionBtnStyle, color: "#93c5fd", borderColor: "rgba(147,197,253,0.4)", background: "rgba(147,197,253,0.08)" }}>
                     <Pencil size={11} /> Save Details
                   </button>
-                  <button disabled={busy === c.id} onClick={() => setMeetingsFor(c)}
+                  <button disabled={busy === c.id} onClick={() => setMeetingsFor(c)} title="Schedule — start date and the 3 project meetings on one page"
                     style={{ ...actionBtnStyle, color: "#c4b5fd", borderColor: "rgba(196,181,253,0.4)", background: "rgba(196,181,253,0.08)" }}>
-                    Meetings
+                    Schedule
                   </button>
                   {c.work_order_pdf_url ? (
                     <button disabled={busy === c.id} onClick={() => setPdfModal({ url: c.work_order_pdf_url!, title: `${c.property_address} — Work Order` })}
@@ -1270,12 +1257,13 @@ function WorkOrdersPanel() {
                   ) : (
                     <span style={{ fontSize: 10.5, color: "#64748b", alignSelf: "center" }}>Work order PDF generates automatically once signed</span>
                   )}
-                  {((c.total || 0) - (c.paid_amount || 0)) > 0.005 && (
-                    <button disabled={busy === c.id} onClick={() => setPayModalFor(c)}
-                      style={{ ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)" }}>
-                      <DollarSign size={11} /> Record Payment
-                    </button>
-                  )}
+                  <button disabled={busy === c.id} onClick={() => setPayModalFor(c)} title="Payments — balance, history, and record a new payment"
+                    style={{ ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)" }}>
+                    <DollarSign size={11} /> Payments
+                  </button>
+                  {/* Payments button above is always shown (was previously gated on balance > 0);
+                      the modal itself shows "Paid in full" once settled, so hiding the entry
+                      point removed the only way to view payment history after full payment. */}
                   <button disabled={busy === c.id} onClick={() => markComplete(c)}
                     style={{ ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)" }}>
                     <CheckCircle2 size={11} /> Mark Complete
@@ -1290,6 +1278,9 @@ function WorkOrdersPanel() {
         <ProjectMeetingsModal
           consultId={meetingsFor.id}
           propertyAddress={meetingsFor.property_address}
+          startDate={meetingsFor.start_date}
+          startTime={meetingsFor.start_time}
+          onScheduleSaved={load}
           onClose={() => setMeetingsFor(null)}
         />
       )}

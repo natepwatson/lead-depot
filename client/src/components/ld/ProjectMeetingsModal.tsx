@@ -4,6 +4,13 @@
 // fireMilestoneTasks) already existed since v20.32.13 — this modal was the
 // missing admin visibility layer so Alex/Nate can actually see and adjust
 // the 3 meeting dates instead of only having them fire silently into FUB.
+// v20.39.2 — Alex: "The start date, project work days, and the project
+// manager meetings should all be on the same page." Folded the old
+// prompt()-based "Schedule Start Date" flow (a standalone button that
+// called POST /api/repair-consult/:id/start-window) into this modal as a
+// proper Start Date & Time section at the top. One "Schedule" button now
+// opens this single page for both start date and all 3 meetings — replaces
+// the separate Schedule + Meetings buttons everywhere this modal is used.
 import { useEffect, useState } from "react";
 
 const GOLD = "#c8aa5a";
@@ -34,11 +41,48 @@ function toDateTimeLocal(iso: string | null): string {
 
 export function ProjectMeetingsModal({
   consultId, propertyAddress, onClose,
+  startDate, startTime, onScheduleSaved,
 }: {
   consultId: number;
   propertyAddress: string;
   onClose: () => void;
+  // v20.39.2 — initial Start Date/Time values from the parent's consult
+  // row, so this modal doesn't need its own extra fetch just to seed the
+  // Start Date fields. Optional so existing call sites that haven't been
+  // updated yet still compile and render (fields just start blank).
+  startDate?: string | null;
+  startTime?: string | null;
+  // Called after a successful Start Date save so the parent list/board can
+  // refresh (mirrors the old scheduleStart()'s post-save load()).
+  onScheduleSaved?: () => void;
 }) {
+  const [startDateVal, setStartDateVal] = useState(startDate || "");
+  const [startTimeVal, setStartTimeVal] = useState(startTime || "");
+  const [savingStart, setSavingStart] = useState(false);
+  const [startError, setStartError] = useState("");
+
+  async function saveStart() {
+    setSavingStart(true);
+    setStartError("");
+    try {
+      const r = await fetch(`/api/repair-consult/${consultId}/start-window`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startWindow: startDateVal.trim() ? "specific" : null,
+          startDate: startDateVal.trim() || null,
+          startTime: startTimeVal.trim() || null,
+        }),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(b?.error || "Failed to save start date");
+      onScheduleSaved?.();
+    } catch (e: any) {
+      setStartError(e.message || "Failed to save start date");
+    } finally {
+      setSavingStart(false);
+    }
+  }
+
   const [rows, setRows] = useState<Record<MeetingType, MeetingRow | null>>({ initial_start: null, punch_out: null, final_payment: null });
   const [drafts, setDrafts] = useState<Record<MeetingType, { scheduledAt: string; completedAt: string; notes: string }>>({
     initial_start: { scheduledAt: "", completedAt: "", notes: "" },
@@ -93,8 +137,31 @@ export function ProjectMeetingsModal({
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 560, maxHeight: "90vh", overflowY: "auto", background: "#141414", border: "1px solid rgba(200,170,90,0.3)", borderRadius: 12, padding: 20 }}>
-        <h3 style={{ margin: 0, marginBottom: 4, fontSize: 16, fontWeight: 700, color: GOLD }}>Project Meetings</h3>
+        <h3 style={{ margin: 0, marginBottom: 4, fontSize: 16, fontWeight: 700, color: GOLD }}>Schedule</h3>
         <p style={{ margin: 0, marginBottom: 14, fontSize: 12, color: "#94a3b8" }}>{propertyAddress}</p>
+
+        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 12, marginBottom: 12, background: "rgba(255,255,255,0.02)" }}>
+          <p style={{ margin: 0, marginBottom: 8, fontSize: 12.5, fontWeight: 700, color: "#e5e7eb" }}>Start Date</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+            <div>
+              <label style={labelStyle}>Date</label>
+              <input style={inputStyle} type="date" value={startDateVal} onChange={e => setStartDateVal(e.target.value)} />
+            </div>
+            <div>
+              <label style={labelStyle}>Time (optional)</label>
+              <input style={inputStyle} type="text" placeholder="e.g. 9:00 AM" value={startTimeVal} onChange={e => setStartTimeVal(e.target.value)} />
+            </div>
+          </div>
+          {startError && <p style={{ color: "#f87171", fontSize: 12, marginBottom: 8 }}>{startError}</p>}
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={saveStart} disabled={savingStart}
+              style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11.5, fontWeight: 700, background: GOLD, border: "none", color: "#141414", cursor: savingStart ? "default" : "pointer", opacity: savingStart ? 0.6 : 1 }}>
+              {savingStart ? "Saving..." : "Save Start Date"}
+            </button>
+          </div>
+        </div>
+
+        <p style={{ margin: 0, marginBottom: 10, fontSize: 12.5, fontWeight: 700, color: "#e5e7eb" }}>Project Meetings</p>
 
         {loading ? (
           <p style={{ fontSize: 12, color: "#94a3b8" }}>Loading...</p>

@@ -10,10 +10,43 @@
 // Rate handling: `hourly_rate_snapshot` on each assignment captures the
 // laborer's rate at the moment the tab was saved, so editing a laborer's
 // rate later (roster maintenance) never silently changes an already-typed
-// job estimate. Phase 3 will add its own `approved_cost` snapshot at the
-// order level for P&L — this file only owns the draft/approve mechanics.
+// job estimate.
+//
+// v20.44.0 — Phase 3: P&L integration. `actual_hours` on each assignment
+// (nullable, separate from `estimated_hours`) lets an admin true-up real
+// hours worked after the job wraps; approved cost = estimated_hours × rate,
+// actual cost = (actual_hours ?? estimated_hours) × rate. `getApprovedLaborOrderCost`
+// is consumed by server/bghsPnl.ts to auto-pull labor cost into the P&L
+// without a manual "labor" category bghs_expenses entry. Approving an order
+// also fires one consolidated work-order email per assigned laborer (hours
+// and scope only — no dollar figures).
 import type { Express, Response } from "express";
+import { Resend } from "resend";
 import { rawDb } from "./db";
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const FROM = "Happy Home Solutions <noreply@watsonbrothersgroup.com>";
+const ADMIN_EMAILS = ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com", "denise@watsonbrothersgroup.com"];
+
+// Kept in sync with client/src/lib/tradeLabels.ts — duplicated here because
+// the server bundle never imports from client/src.
+const TRADE_LABELS: Record<string, string> = {
+  junk_removal: "Junk Removal", handyman: "Handyman", pressure_washing: "Pressure Washing",
+  painting_exterior: "Exterior Painting", landscaping: "Landscaping", painting_interior: "Interior Painting",
+  cleaning: "Cleaning",
+  tile_install: "Tile Installation", cabinet_install: "Cabinet Installation", cabinetry_painting: "Cabinetry Painting",
+  roofing: "Roofing", electrical: "Electrical", plumbing: "Plumbing", hvac: "HVAC",
+  stucco_masonry: "Stucco & Masonry", carpentry: "Carpentry", wdo: "WDO / Termite",
+  windows: "Windows", backflow: "Backflow Prevention", flooring_wood_refinish: "Wood Floor Refinishing",
+  flooring_lvp: "LVP Flooring", flooring_carpet: "Carpet Installation", flooring_epoxy: "Epoxy Flooring", appliances: "Appliances",
+  countertops: "Countertops", retexture: "Re-Texturing", shower_doors: "Frameless Shower Doors",
+  irrigation: "Irrigation", fencing: "Fencing", pool_equipment: "Pool Equipment", septic: "Septic",
+  water_heater: "Water Heater", tree_removal_large: "Large Tree Removal", structural: "Structural / Foundation",
+  mold_remediation: "Mold Remediation", chimney: "Chimney", solar: "Solar", water_damage: "Water Damage Restoration",
+  garage_door: "Garage Door", hardscape: "Hardscape / Pavers", land_clearing: "Land Clearing",
+  bathroom_repair: "Bathroom Repairs", kitchen_repair: "Kitchen Repairs", laundry_repair: "Laundry Room",
+  appliance_coordination: "Materials, Appliance Purchase & Delivery",
+};
 
 export function ensureLaborOrdersSchema() {
   rawDb.exec(`
@@ -51,6 +84,41 @@ export function ensureLaborOrdersSchema() {
     CREATE INDEX IF NOT EXISTS idx_labor_order_assignments_trade ON labor_order_assignments(labor_order_trade_id);
     CREATE INDEX IF NOT EXISTS idx_labor_order_assignments_laborer ON labor_order_assignments(laborer_id);
   `);
+
+  // ALTER TABLE is safe to run repeatedly — SQLite ignores "duplicate column" errors
+  const assignmentCols = (rawDb.prepare(`PRAGMA table_info(labor_order_assignments)`).all() as any[]).map(c => c.name);
+  if (!assignmentCols.includes("actual_hours")) rawDb.prepare(`ALTER TABLE labor_order_assignments ADD COLUMN actual_hours REAL`).run();
+}
+
+// Cost totals for one labor order, regardless of status. Actual cost falls
+// back to estimated hours per-assignment until an admin enters a real
+// actual_hours value for that assignment.
+function computeOrderTotals(orderId: number): { approvedCost: number; actualCost: number; hasActuals: boolean } {
+  const rows = rawDb.prepare(`
+    SELECT loa.estimated_hours, loa.actual_hours, loa.hourly_rate_snapshot
+    FROM labor_order_assignments loa
+    JOIN labor_order_trades lot ON lot.id = loa.labor_order_trade_id
+    WHERE lot.labor_order_id = ?
+  `).all(orderId) as any[];
+  let approvedCost = 0, actualCost = 0, hasActuals = false;
+  for (const r of rows) {
+    const rate = r.hourly_rate_snapshot || 0;
+    approvedCost += (r.estimated_hours || 0) * rate;
+    const actualHours = r.actual_hours != null ? r.actual_hours : (r.estimated_hours || 0);
+    if (r.actual_hours != null) hasActuals = true;
+    actualCost += actualHours * rate;
+  }
+  return { approvedCost, actualCost, hasActuals };
+}
+
+// Consumed by server/bghsPnl.ts. Returns null unless the labor order for
+// this job has actually been approved — a draft plan is not a committed
+// cost and should never be pulled into the P&L.
+export function getApprovedLaborOrderCost(consultId: number): { approvedCost: number; actualCost: number; overage: number; hasActuals: boolean } | null {
+  const order = rawDb.prepare(`SELECT id, status FROM labor_orders WHERE consult_id = ?`).get(consultId) as any;
+  if (!order || order.status !== "approved") return null;
+  const totals = computeOrderTotals(order.id);
+  return { ...totals, overage: totals.actualCost - totals.approvedCost };
 }
 
 function getOrCreateLaborOrder(consultId: number): { id: number; status: string; approved_at: string | null; approved_by: string | null } {
@@ -98,7 +166,7 @@ export function registerLaborOrdersRoutes(app: Express) {
       const row = savedByTrade.get(trade);
       const assignments = row
         ? (rawDb.prepare(`
-            SELECT loa.id, loa.laborer_id, loa.estimated_hours, loa.hourly_rate_snapshot,
+            SELECT loa.id, loa.laborer_id, loa.estimated_hours, loa.actual_hours, loa.hourly_rate_snapshot,
                    l.name AS laborer_name, l.tier AS laborer_tier, l.active AS laborer_active
             FROM labor_order_assignments loa
             JOIN laborers l ON l.id = loa.laborer_id
@@ -121,13 +189,57 @@ export function registerLaborOrdersRoutes(app: Express) {
     // Eligible laborers for the assignment dropdown — approved + active only.
     const laborers = rawDb.prepare(`SELECT id, name, tier, hourly_rate, trades FROM laborers WHERE approved = 1 AND active = 1 ORDER BY name ASC`).all();
 
+    const totals = computeOrderTotals(order.id);
+
     res.json({
       laborOrder: { id: order.id, status: order.status, approvedAt: order.approved_at, approvedBy: order.approved_by },
       propertyAddress: consult.property_address,
       trades,
       allTabsSaved,
       laborers,
+      laborCost: { ...totals, overage: totals.actualCost - totals.approvedCost },
     });
+  });
+
+  // — Enter/edit actual hours worked per assignment, after the job wraps.
+  // Only allowed once the order is approved — actual hours are a true-up
+  // against the committed approved plan, not a draft-editing shortcut. —
+  app.post("/api/admin/repair-consult/:id/labor-order/actuals", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = Number(req.params.id);
+    const consult = rawDb.prepare(`SELECT id FROM repair_consults WHERE id = ?`).get(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+
+    const order = getOrCreateLaborOrder(consultId);
+    if (order.status !== "approved") return res.status(400).json({ error: "Approve the labor order before entering actual hours worked." });
+
+    const actuals: Array<{ assignmentId: number; actualHours: number | null }> = Array.isArray(req.body?.actuals) ? req.body.actuals : [];
+    if (actuals.length === 0) return res.status(400).json({ error: "No actual-hours entries provided." });
+    for (const a of actuals) {
+      if (!a.assignmentId || (a.actualHours != null && (typeof a.actualHours !== "number" || a.actualHours < 0))) {
+        return res.status(400).json({ error: "Each entry needs a valid assignmentId and a non-negative actualHours (or null to clear it)." });
+      }
+    }
+
+    // Every assignmentId must belong to THIS order — no cross-job writes.
+    const validIds = new Set((rawDb.prepare(`
+      SELECT loa.id FROM labor_order_assignments loa
+      JOIN labor_order_trades lot ON lot.id = loa.labor_order_trade_id
+      WHERE lot.labor_order_id = ?
+    `).all(order.id) as any[]).map(r => r.id));
+    for (const a of actuals) {
+      if (!validIds.has(a.assignmentId)) return res.status(400).json({ error: `Assignment ${a.assignmentId} does not belong to this labor order.` });
+    }
+
+    const tx = rawDb.transaction(() => {
+      const update = rawDb.prepare(`UPDATE labor_order_assignments SET actual_hours = ? WHERE id = ?`);
+      for (const a of actuals) update.run(a.actualHours, a.assignmentId);
+      rawDb.prepare(`UPDATE labor_orders SET updated_at = datetime('now') WHERE id = ?`).run(order.id);
+    });
+    tx();
+
+    const totals = computeOrderTotals(order.id);
+    res.json({ ok: true, laborCost: { ...totals, overage: totals.actualCost - totals.approvedCost } });
   });
 
   // ── Save one trade tab (replaces its assignment list wholesale) ──
@@ -244,10 +356,10 @@ export function registerLaborOrdersRoutes(app: Express) {
   });
 
   // ── Approve the whole labor order — gated on every in-scope trade being saved ──
-  app.post("/api/admin/repair-consult/:id/labor-order/approve", (req: any, res: Response) => {
+  app.post("/api/admin/repair-consult/:id/labor-order/approve", async (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
     const consultId = Number(req.params.id);
-    const consult = rawDb.prepare(`SELECT id FROM repair_consults WHERE id = ?`).get(consultId);
+    const consult = rawDb.prepare(`SELECT id, property_address FROM repair_consults WHERE id = ?`).get(consultId) as any;
     if (!consult) return res.status(404).json({ error: "Consult not found" });
 
     const order = getOrCreateLaborOrder(consultId);
@@ -269,6 +381,57 @@ export function registerLaborOrdersRoutes(app: Express) {
 
     rawDb.prepare(`UPDATE labor_orders SET status = 'approved', approved_at = datetime('now'), approved_by = ?, updated_at = datetime('now') WHERE id = ?`)
       .run(req.currentAgent.name || req.currentAgent.email || "admin", order.id);
-    res.json({ ok: true });
+
+    // ── Consolidated work-order email, one per assigned laborer, grouped
+    // across every trade on this job. Hours and scope only — no dollar
+    // figures anywhere in this template, per standing rule. Best-effort:
+    // a laborer with no email on file is skipped (not an error), and a
+    // send failure for one laborer never blocks the approval itself. ──
+    const assignmentRows = rawDb.prepare(`
+      SELECT lot.trade, loa.estimated_hours, l.id AS laborer_id, l.name AS laborer_name, l.email AS laborer_email
+      FROM labor_order_assignments loa
+      JOIN labor_order_trades lot ON lot.id = loa.labor_order_trade_id
+      JOIN laborers l ON l.id = loa.laborer_id
+      WHERE lot.labor_order_id = ?
+      ORDER BY l.name ASC, lot.trade ASC
+    `).all(order.id) as any[];
+
+    const byLaborer = new Map<number, { name: string; email: string | null; lines: Array<{ trade: string; hours: number }> }>();
+    for (const r of assignmentRows) {
+      if (!byLaborer.has(r.laborer_id)) byLaborer.set(r.laborer_id, { name: r.laborer_name, email: r.laborer_email || null, lines: [] });
+      byLaborer.get(r.laborer_id)!.lines.push({ trade: r.trade, hours: r.estimated_hours });
+    }
+
+    const sent: string[] = [];
+    const skipped: string[] = [];
+    for (const [, laborer] of byLaborer) {
+      if (!laborer.email) { skipped.push(laborer.name); continue; }
+      if (!resend) { skipped.push(laborer.name); continue; }
+      const rowsHtml = laborer.lines.map(l => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee;">${TRADE_LABELS[l.trade] || l.trade}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${l.hours} hrs</td></tr>`).join("");
+      const html = `
+        <div style="font-family:Arial,sans-serif;color:#222;">
+          <h2 style="margin:0 0 6px;">Work Order</h2>
+          <p style="margin:0 0 14px;color:#555;">${consult.property_address}</p>
+          <table style="border-collapse:collapse;width:100%;max-width:480px;">
+            <thead><tr><th style="text-align:left;padding:6px 10px;border-bottom:2px solid #333;">Trade</th><th style="text-align:left;padding:6px 10px;border-bottom:2px solid #333;">Hours</th></tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+          <p style="margin-top:16px;color:#777;font-size:12.5px;">Reach out if you have any questions about the scope for this job.</p>
+        </div>`;
+      try {
+        await resend.emails.send({
+          from: FROM,
+          to: laborer.email,
+          bcc: ADMIN_EMAILS,
+          subject: `Work Order — ${consult.property_address}`,
+          html,
+        });
+        sent.push(laborer.name);
+      } catch {
+        skipped.push(laborer.name);
+      }
+    }
+
+    res.json({ ok: true, workOrdersSent: sent, workOrdersSkipped: skipped });
   });
 }

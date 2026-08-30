@@ -15,6 +15,7 @@
 import type { Express, Response } from "express";
 import { rawDb } from "./db";
 import { isPaymentAuthorizedAgent } from "./payments";
+import { getApprovedLaborOrderCost } from "./laborOrders";
 
 export const BGHS_EXPENSE_CATEGORIES = [
   "materials", "labor", "equipment", "fuel", "insurance",
@@ -184,27 +185,49 @@ export function registerBghsPnlRoutes(app: Express) {
     const expenses = rawDb.prepare(`SELECT * FROM bghs_expenses ${expWhere}`).all(...expParams) as any[];
     const expensesByCategory: Record<string, number> = {};
     const expensesByJob: Record<number, number> = {};
+    const manualLaborByJob: Record<number, number> = {};
     let expensesTotal = 0;
     for (const e of expenses) {
       expensesTotal += e.amount || 0;
       expensesByCategory[e.category] = (expensesByCategory[e.category] || 0) + (e.amount || 0);
       if (e.consult_id) expensesByJob[e.consult_id] = (expensesByJob[e.consult_id] || 0) + (e.amount || 0);
+      if (e.consult_id && e.category === "labor") manualLaborByJob[e.consult_id] = (manualLaborByJob[e.consult_id] || 0) + (e.amount || 0);
     }
+
+    // v20.44.0 — Phase 3: auto-pull in-house labor cost from each job's
+    // APPROVED Labor Calculator order (server/laborOrders.ts) instead of
+    // requiring a manual "labor" category bghs_expenses entry. Uses actual
+    // cost once an admin has entered actual hours; falls back to the
+    // approved/estimated cost until then. Draft (unapproved) labor plans
+    // never count — they aren't a committed cost yet.
+    let laborOrderCostTotal = 0;
+    const laborOrderCostByJob: Record<number, { approvedCost: number; actualCost: number; overage: number; hasActuals: boolean }> = {};
+    for (const jobId of jobIds) {
+      const laborCost = getApprovedLaborOrderCost(jobId);
+      if (laborCost) {
+        laborOrderCostByJob[jobId] = laborCost;
+        laborOrderCostTotal += laborCost.actualCost;
+      }
+    }
+    // Flag (never silently drop) any job that has BOTH an approved labor
+    // order AND an old manual "labor" category expense — that combination
+    // double-counts labor cost and Alex should go remove the manual entry.
+    const laborDoubleCountJobIds = jobIds.filter(id => laborOrderCostByJob[id] && manualLaborByJob[id] > 0);
 
     // Cash-basis gross profit is the headline number: what actually came in,
     // minus known hard costs (vendor invoices + logged materials/labor/
-    // overhead). It does NOT subtract an imputed cost for in-house crew time
-    // beyond what's logged in bghs_expenses — if labor hours aren't logged
-    // there, this overstates margin on in-house-labor-heavy jobs. Flagged in
-    // the UI, not hidden.
-    const grossProfit = revenueCollected - vendorCostTotal - expensesTotal;
+    // overhead + auto-pulled labor-order cost). Flagged in the UI if a job
+    // has a double-count risk (see laborDoubleCountJobIds above).
+    const grossProfit = revenueCollected - vendorCostTotal - expensesTotal - laborOrderCostTotal;
     const grossMarginPct = revenueCollected > 0 ? (grossProfit / revenueCollected) * 100 : null;
 
     const perJob = jobs.map(j => {
       const collected = (rawDb.prepare(`SELECT COALESCE(SUM(amount),0) AS s FROM payment_records WHERE source_type='repair_consult' AND source_id = ?`).get(j.id) as any).s || 0;
       const vCost = vendorCostByJob[j.id] || 0;
       const exp = expensesByJob[j.id] || 0;
-      const profit = collected - vCost - exp;
+      const laborCost = laborOrderCostByJob[j.id] || null;
+      const laborOrderActualCost = laborCost?.actualCost || 0;
+      const profit = collected - vCost - exp - laborOrderActualCost;
       return {
         consultId: j.id,
         propertyAddress: j.property_address,
@@ -215,6 +238,11 @@ export function registerBghsPnlRoutes(app: Express) {
         collected,
         vendorCost: vCost,
         expenses: exp,
+        laborOrderApprovedCost: laborCost?.approvedCost || 0,
+        laborOrderActualCost,
+        laborOrderOverage: laborCost?.overage || 0,
+        laborOrderHasActuals: !!laborCost?.hasActuals,
+        hasManualLaborConflict: laborDoubleCountJobIds.includes(j.id),
         profit,
         marginPct: collected > 0 ? (profit / collected) * 100 : null,
       };
@@ -227,6 +255,8 @@ export function registerBghsPnlRoutes(app: Express) {
       vendorCostTotal,
       expensesTotal,
       expensesByCategory,
+      laborOrderCostTotal,
+      laborDoubleCountJobIds,
       grossProfit,
       grossMarginPct,
       jobCount: jobs.length,

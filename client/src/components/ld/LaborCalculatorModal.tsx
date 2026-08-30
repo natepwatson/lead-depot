@@ -21,8 +21,9 @@ const inputStyle: React.CSSProperties = {
 const labelStyle: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "#94a3b8", letterSpacing: 0.4, textTransform: "uppercase", marginBottom: 4, display: "block" };
 
 type Laborer = { id: number; name: string; tier: string; hourly_rate: number; trades: string | null };
-type Assignment = { id?: number; laborer_id: number; estimated_hours: number; hourly_rate_snapshot?: number; laborer_name?: string; laborer_tier?: string; laborer_active?: number };
+type Assignment = { id?: number; laborer_id: number; estimated_hours: number; actual_hours?: number | null; hourly_rate_snapshot?: number; laborer_name?: string; laborer_tier?: string; laborer_active?: number };
 type TradeTab = { trade: string; inScope: boolean; saved: boolean; notes: string | null; laborOrderTradeId: number | null; assignments: Assignment[] };
+type LaborCost = { approvedCost: number; actualCost: number; overage: number; hasActuals: boolean };
 
 const TIER_LABELS: Record<string, string> = { tier_1: "Tier 1 ($16/hr)", tier_2: "Tier 2 ($20/hr)", tier_3: "Tier 3 ($25/hr)" };
 
@@ -34,12 +35,14 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
   const [allTabsSaved, setAllTabsSaved] = useState(false);
   const [laborers, setLaborers] = useState<Laborer[]>([]);
   const [activeTrade, setActiveTrade] = useState<string | null>(null);
-  const [draftRows, setDraftRows] = useState<Record<string, Array<{ laborerId: string; hours: string }>>>({});
+  const [draftRows, setDraftRows] = useState<Record<string, Array<{ laborerId: string; hours: string; actualHours: string; assignmentId?: number }>>>({});
   const [savingTrade, setSavingTrade] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
   const [deletingTrade, setDeletingTrade] = useState<string | null>(null);
   const [unapproving, setUnapproving] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
+  const [laborCost, setLaborCost] = useState<LaborCost | null>(null);
+  const [savingActuals, setSavingActuals] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -50,11 +53,17 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
         setTrades(d.trades || []);
         setAllTabsSaved(!!d.allTabsSaved);
         setLaborers(d.laborers || []);
+        setLaborCost(d.laborCost || null);
         const nextDrafts: typeof draftRows = {};
         for (const t of (d.trades || []) as TradeTab[]) {
           nextDrafts[t.trade] = t.assignments.length > 0
-            ? t.assignments.map(a => ({ laborerId: String(a.laborer_id), hours: String(a.estimated_hours) }))
-            : [{ laborerId: "", hours: "" }];
+            ? t.assignments.map(a => ({
+                laborerId: String(a.laborer_id),
+                hours: String(a.estimated_hours),
+                actualHours: a.actual_hours != null ? String(a.actual_hours) : "",
+                assignmentId: a.id,
+              }))
+            : [{ laborerId: "", hours: "", actualHours: "" }];
         }
         setDraftRows(nextDrafts);
         if (!activeTrade && (d.trades || []).length > 0) setActiveTrade(d.trades[0].trade);
@@ -68,16 +77,40 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
   const isApproved = orderStatus.status === "approved";
 
   function addRow(trade: string) {
-    setDraftRows(prev => ({ ...prev, [trade]: [...(prev[trade] || []), { laborerId: "", hours: "" }] }));
+    setDraftRows(prev => ({ ...prev, [trade]: [...(prev[trade] || []), { laborerId: "", hours: "", actualHours: "" }] }));
   }
   function removeRow(trade: string, idx: number) {
     setDraftRows(prev => ({ ...prev, [trade]: (prev[trade] || []).filter((_, i) => i !== idx) }));
   }
-  function updateRow(trade: string, idx: number, field: "laborerId" | "hours", value: string) {
+  function updateRow(trade: string, idx: number, field: "laborerId" | "hours" | "actualHours", value: string) {
     setDraftRows(prev => ({
       ...prev,
       [trade]: (prev[trade] || []).map((r, i) => (i === idx ? { ...r, [field]: value } : r)),
     }));
+  }
+
+  async function saveActuals(trade: string) {
+    setSavingActuals(true);
+    setError("");
+    try {
+      const rows = (draftRows[trade] || []).filter(r => r.assignmentId);
+      const actuals = rows.map(r => ({
+        assignmentId: r.assignmentId,
+        actualHours: r.actualHours.trim() === "" ? null : Number(r.actualHours),
+      }));
+      if (actuals.length === 0) throw new Error("No assignments to save actual hours for.");
+      const r = await fetch(`/api/admin/repair-consult/${consultId}/labor-order/actuals`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actuals }),
+      });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || "Failed to save actual hours");
+      load();
+    } catch (e: any) {
+      setError(e.message || "Failed to save actual hours");
+    } finally {
+      setSavingActuals(false);
+    }
   }
 
   async function saveTrade(trade: string) {
@@ -176,7 +209,7 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
   function rowCost(trade: string): number {
     return (draftRows[trade] || []).reduce((sum, r) => {
       const laborer = laborers.find(l => String(l.id) === r.laborerId);
-      const hours = Number(r.hours) || 0;
+      const hours = Number(isApproved ? (r.actualHours || r.hours) : r.hours) || 0;
       return sum + (laborer ? laborer.hourly_rate * hours : 0);
     }, 0);
   }
@@ -202,14 +235,24 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
           </span>
         </div>
         {isApproved && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, margin: "6px 0 14px" }}>
-            <p style={{ margin: 0, fontSize: 11.5, color: "#4ade80" }}>
-              Approved by {orderStatus.approvedBy} on {orderStatus.approvedAt ? new Date(orderStatus.approvedAt).toLocaleString() : ""}. Trade assignments are locked.
-            </p>
-            <button onClick={unapproveOrder} disabled={unapproving}
-              style={{ flexShrink: 0, padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: "transparent", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", cursor: unapproving ? "default" : "pointer", opacity: unapproving ? 0.6 : 1 }}>
-              {unapproving ? "Undoing..." : "Undo Approval"}
-            </button>
+          <div style={{ margin: "6px 0 14px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <p style={{ margin: 0, fontSize: 11.5, color: "#4ade80" }}>
+                Approved by {orderStatus.approvedBy} on {orderStatus.approvedAt ? new Date(orderStatus.approvedAt).toLocaleString() : ""}. Trade assignments are locked — enter actual hours below once the job wraps.
+              </p>
+              <button onClick={unapproveOrder} disabled={unapproving}
+                style={{ flexShrink: 0, padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: "transparent", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", cursor: unapproving ? "default" : "pointer", opacity: unapproving ? 0.6 : 1 }}>
+                {unapproving ? "Undoing..." : "Undo Approval"}
+              </button>
+            </div>
+            {laborCost && (
+              <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "#94a3b8" }}>
+                Approved cost: <span style={{ color: GOLD, fontWeight: 700 }}>${laborCost.approvedCost.toFixed(2)}</span>
+                {laborCost.hasActuals ? (
+                  <> · Actual cost: <span style={{ color: "#93c5fd", fontWeight: 700 }}>${laborCost.actualCost.toFixed(2)}</span> · {laborCost.overage >= 0 ? "Overage" : "Savings"}: <span style={{ color: laborCost.overage > 0 ? "#f87171" : "#4ade80", fontWeight: 700 }}>${Math.abs(laborCost.overage).toFixed(2)}</span></>
+                ) : " · Actual hours not entered yet"}
+              </p>
+            )}
           </div>
         )}
 
@@ -244,7 +287,7 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
                 {(draftRows[activeTrade] || []).map((row, idx) => {
                   const laborer = laborers.find(l => String(l.id) === row.laborerId);
                   return (
-                    <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 110px 90px 28px", gap: 8, marginBottom: 8, alignItems: "end" }}>
+                    <div key={idx} style={{ display: "grid", gridTemplateColumns: isApproved ? "1fr 90px 110px 90px" : "1fr 110px 90px 28px", gap: 8, marginBottom: 8, alignItems: "end" }}>
                       <div>
                         {idx === 0 && <label style={labelStyle}>Laborer</label>}
                         <select disabled={isApproved} style={inputStyle} value={row.laborerId} onChange={e => updateRow(activeTrade, idx, "laborerId", e.target.value)}>
@@ -256,11 +299,22 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
                         {idx === 0 && <label style={labelStyle}>Est. Hours</label>}
                         <input disabled={isApproved} style={inputStyle} type="number" min="0" step="0.25" placeholder="0" value={row.hours} onChange={e => updateRow(activeTrade, idx, "hours", e.target.value)} />
                       </div>
-                      <div style={{ fontSize: 11.5, color: "#94a3b8", paddingBottom: 8 }}>
-                        {laborer && row.hours ? `$${(laborer.hourly_rate * Number(row.hours || 0)).toFixed(2)}` : ""}
-                      </div>
+                      {isApproved ? (
+                        <div>
+                          {idx === 0 && <label style={labelStyle}>Actual Hours</label>}
+                          <input style={inputStyle} type="number" min="0" step="0.25" placeholder="—" value={row.actualHours} onChange={e => updateRow(activeTrade, idx, "actualHours", e.target.value)} />
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 11.5, color: "#94a3b8", paddingBottom: 8 }}>
+                          {laborer && row.hours ? `$${(laborer.hourly_rate * Number(row.hours || 0)).toFixed(2)}` : ""}
+                        </div>
+                      )}
                       <div>
-                        {!isApproved && (draftRows[activeTrade] || []).length > 1 && (
+                        {isApproved ? (
+                          <div style={{ fontSize: 11.5, color: "#94a3b8", paddingBottom: 8 }}>
+                            {laborer ? `$${(laborer.hourly_rate * Number((row.actualHours || row.hours) || 0)).toFixed(2)}` : ""}
+                          </div>
+                        ) : (draftRows[activeTrade] || []).length > 1 && (
                           <button onClick={() => removeRow(activeTrade, idx)} style={{ background: "transparent", border: "none", color: "#f87171", cursor: "pointer", padding: 6 }}><X size={14} /></button>
                         )}
                       </div>
@@ -275,8 +329,8 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
                 )}
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8" }}>Estimated cost: <span style={{ color: GOLD }}>${rowCost(activeTrade).toFixed(2)}</span></span>
-                  {!isApproved && (
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8" }}>{isApproved ? "Cost (actual if entered)" : "Estimated cost"}: <span style={{ color: GOLD }}>${rowCost(activeTrade).toFixed(2)}</span></span>
+                  {!isApproved ? (
                     <div style={{ display: "flex", gap: 8 }}>
                       {scopeTrades.find(t => t.trade === activeTrade)?.saved && (
                         <button onClick={() => deleteTrade(activeTrade)} disabled={deletingTrade === activeTrade}
@@ -289,6 +343,11 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
                         {savingTrade === activeTrade ? "Saving..." : "Save Trade"}
                       </button>
                     </div>
+                  ) : (
+                    <button onClick={() => saveActuals(activeTrade)} disabled={savingActuals}
+                      style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11.5, fontWeight: 700, background: "#60a5fa", border: "none", color: "#0a0a0a", cursor: savingActuals ? "default" : "pointer", opacity: savingActuals ? 0.6 : 1 }}>
+                      {savingActuals ? "Saving..." : "Save Actuals"}
+                    </button>
                   )}
                 </div>
               </div>

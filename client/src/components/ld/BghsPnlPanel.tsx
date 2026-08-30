@@ -24,6 +24,11 @@ type PerJobRow = {
   collected: number;
   vendorCost: number;
   expenses: number;
+  laborOrderApprovedCost: number;
+  laborOrderActualCost: number;
+  laborOrderOverage: number;
+  laborOrderHasActuals: boolean;
+  hasManualLaborConflict: boolean;
   profit: number;
   marginPct: number | null;
 };
@@ -35,6 +40,8 @@ type PnlResponse = {
   vendorCostTotal: number;
   expensesTotal: number;
   expensesByCategory: Record<string, number>;
+  laborOrderCostTotal: number;
+  laborDoubleCountJobIds: number[];
   grossProfit: number;
   grossMarginPct: number | null;
   jobCount: number;
@@ -205,8 +212,9 @@ export function BghsPnlPanel() {
       <p className="text-xs text-muted-foreground mb-3">
         Happy Home Solutions (repair/touch-up program) only — Inspections+ is a separate line and isn't
         included here. Revenue Collected is cash actually received; Vendor Cost pulls automatically from vendor-quoted
-        line items. Logged Expenses are whatever's added below (materials, in-house labor, overhead, etc.) — Gross
-        Profit will overstate margin on jobs where in-house labor time was never logged as an expense.
+        line items. Labor Cost pulls automatically from approved Labor Calculator orders (actual hours once entered,
+        estimated cost otherwise) — do not also log a manual "Labor" expense for the same job, or it will be double-counted.
+        Logged Expenses are whatever's added below (materials, overhead, etc.).
       </p>
 
       {/* Range selector */}
@@ -236,6 +244,11 @@ export function BghsPnlPanel() {
         <div style={{ fontSize: 12, color: "#94a3b8" }}>Loading P&amp;L…</div>
       ) : (
         <>
+          {pnl.laborDoubleCountJobIds.length > 0 && (
+            <div style={{ ...cardStyle, borderColor: "rgba(250,204,21,0.4)", background: "rgba(250,204,21,0.06)", color: "#facc15", fontSize: 12, marginBottom: 10, display: "flex", gap: 6, alignItems: "center" }}>
+              <AlertTriangle size={13} /> {pnl.laborDoubleCountJobIds.length} job{pnl.laborDoubleCountJobIds.length === 1 ? "" : "s"} {pnl.laborDoubleCountJobIds.length === 1 ? "has" : "have"} both an approved Labor Calculator order AND a manual "Labor" expense logged — Gross Profit may be double-counting labor cost. See flagged jobs in the Per-Job Breakdown below.
+            </div>
+          )}
           {/* Summary cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
             <div style={{ ...cardStyle, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.05)" }}>
@@ -253,6 +266,10 @@ export function BghsPnlPanel() {
             <div style={{ ...cardStyle, border: "1px solid rgba(248,113,113,0.3)", background: "rgba(248,113,113,0.05)" }}>
               <div style={{ fontSize: 10.5, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>Logged Expenses</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "#f87171" }}>{money(pnl.expensesTotal)}</div>
+            </div>
+            <div style={{ ...cardStyle, border: "1px solid rgba(96,165,250,0.3)", background: "rgba(96,165,250,0.05)" }}>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>Labor Cost (auto)</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#60a5fa" }}>{money(pnl.laborOrderCostTotal)}</div>
             </div>
             <div style={{ ...cardStyle, border: `1px solid ${pnl.grossProfit >= 0 ? "rgba(200,170,90,0.4)" : "rgba(248,113,113,0.4)"}`, background: pnl.grossProfit >= 0 ? "rgba(200,170,90,0.06)" : "rgba(248,113,113,0.06)" }}>
               <div style={{ fontSize: 10.5, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
@@ -354,9 +371,20 @@ export function BghsPnlPanel() {
                       <div><div style={{ fontSize: 9.5, color: "#94a3b8", textTransform: "uppercase" }}>Collected</div><div style={{ fontSize: 12, fontWeight: 600, color: "#4ade80" }}>{money(r.collected)}</div></div>
                       <div><div style={{ fontSize: 9.5, color: "#94a3b8", textTransform: "uppercase" }}>Vendor Cost</div><div style={{ fontSize: 12, fontWeight: 600, color: "#fb923c" }}>{money(r.vendorCost)}</div></div>
                       <div><div style={{ fontSize: 9.5, color: "#94a3b8", textTransform: "uppercase" }}>Expenses</div><div style={{ fontSize: 12, fontWeight: 600, color: "#f87171" }}>{money(r.expenses)}</div></div>
+                      <div><div style={{ fontSize: 9.5, color: "#94a3b8", textTransform: "uppercase" }}>Labor Cost</div><div style={{ fontSize: 12, fontWeight: 600, color: "#60a5fa" }}>{money(r.laborOrderActualCost)}</div></div>
                       <div><div style={{ fontSize: 9.5, color: "#94a3b8", textTransform: "uppercase" }}>Profit</div><div style={{ fontSize: 12, fontWeight: 700, color: r.profit >= 0 ? GOLD : "#f87171" }}>{money(r.profit)}</div></div>
                       <div><div style={{ fontSize: 9.5, color: "#94a3b8", textTransform: "uppercase" }}>Margin</div><div style={{ fontSize: 12, fontWeight: 600, color: "#c7d1dd" }}>{pct(r.marginPct)}</div></div>
                     </div>
+                    {r.laborOrderApprovedCost > 0 && (
+                      <div style={{ fontSize: 10, color: r.laborOrderOverage > 0 ? "#f87171" : "#94a3b8", marginTop: 6 }}>
+                        Labor: {money(r.laborOrderApprovedCost)} approved{r.laborOrderHasActuals ? ` · ${money(r.laborOrderActualCost)} actual · ${r.laborOrderOverage >= 0 ? "overage" : "savings"} ${money(Math.abs(r.laborOrderOverage))}` : " · actual hours not entered yet"}
+                      </div>
+                    )}
+                    {r.hasManualLaborConflict && (
+                      <div style={{ fontSize: 10, color: "#facc15", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                        <AlertTriangle size={10} /> Has both an approved Labor Calculator order AND a manual Labor expense — remove the manual entry to avoid double-counting.
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

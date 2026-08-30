@@ -173,6 +173,48 @@ export function registerLaborOrdersRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  // ── Delete a saved trade tab — clears its assignments and removes the
+  // labor_order_trades row entirely, returning that tab to a fresh/unsaved
+  // state (same as if it had never been saved). Blocked once the order is
+  // approved — undo the approval first. ──
+  app.delete("/api/admin/repair-consult/:id/labor-order/trades/:trade", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = Number(req.params.id);
+    const trade = String(req.params.trade);
+    const consult = rawDb.prepare(`SELECT id FROM repair_consults WHERE id = ?`).get(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+
+    const order = getOrCreateLaborOrder(consultId);
+    if (order.status === "approved") return res.status(400).json({ error: "Labor order is approved — undo the approval before deleting a trade tab." });
+
+    const tradeRow = rawDb.prepare(`SELECT id FROM labor_order_trades WHERE labor_order_id = ? AND trade = ?`).get(order.id, trade) as any;
+    if (!tradeRow) return res.status(404).json({ error: "That trade tab has not been saved yet — nothing to delete." });
+
+    const tx = rawDb.transaction(() => {
+      rawDb.prepare(`DELETE FROM labor_order_assignments WHERE labor_order_trade_id = ?`).run(tradeRow.id);
+      rawDb.prepare(`DELETE FROM labor_order_trades WHERE id = ?`).run(tradeRow.id);
+      rawDb.prepare(`UPDATE labor_orders SET updated_at = datetime('now') WHERE id = ?`).run(order.id);
+    });
+    tx();
+    res.json({ ok: true });
+  });
+
+  // ── Undo approval — reverts an approved order back to draft so trades can
+  // be edited/deleted again. Does not touch the saved trade data itself. ──
+  app.post("/api/admin/repair-consult/:id/labor-order/unapprove", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = Number(req.params.id);
+    const consult = rawDb.prepare(`SELECT id FROM repair_consults WHERE id = ?`).get(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+
+    const order = getOrCreateLaborOrder(consultId);
+    if (order.status !== "approved") return res.status(400).json({ error: "This labor order is not approved — nothing to undo." });
+
+    rawDb.prepare(`UPDATE labor_orders SET status = 'draft', approved_at = NULL, approved_by = NULL, updated_at = datetime('now') WHERE id = ?`)
+      .run(order.id);
+    res.json({ ok: true });
+  });
+
   // ── Approve the whole labor order — gated on every in-scope trade being saved ──
   app.post("/api/admin/repair-consult/:id/labor-order/approve", (req: any, res: Response) => {
     if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });

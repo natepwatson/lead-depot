@@ -37,6 +37,8 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
   const [draftRows, setDraftRows] = useState<Record<string, Array<{ laborerId: string; hours: string }>>>({});
   const [savingTrade, setSavingTrade] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
+  const [deletingTrade, setDeletingTrade] = useState<string | null>(null);
+  const [unapproving, setUnapproving] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -98,6 +100,40 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
     }
   }
 
+  async function deleteTrade(trade: string) {
+    if (!window.confirm(`Delete the saved "${TRADE_LABELS[trade] || trade}" trade tab? This clears its laborer assignments and cannot be undone.`)) return;
+    setDeletingTrade(trade);
+    setError("");
+    try {
+      const r = await fetch(`/api/admin/repair-consult/${consultId}/labor-order/trades/${trade}`, {
+        method: "DELETE", credentials: "include",
+      });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || "Failed to delete");
+      load();
+    } catch (e: any) {
+      setError(e.message || "Failed to delete");
+    } finally {
+      setDeletingTrade(null);
+    }
+  }
+
+  async function unapproveOrder() {
+    if (!window.confirm("Undo approval on this labor order? It will go back to Draft so trades can be edited or deleted again.")) return;
+    setUnapproving(true);
+    setError("");
+    try {
+      const r = await fetch(`/api/admin/repair-consult/${consultId}/labor-order/unapprove`, { method: "POST", credentials: "include" });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || "Failed to undo approval");
+      load();
+    } catch (e: any) {
+      setError(e.message || "Failed to undo approval");
+    } finally {
+      setUnapproving(false);
+    }
+  }
+
   async function approveOrder() {
     setApproving(true);
     setError("");
@@ -145,9 +181,15 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
           </span>
         </div>
         {isApproved && (
-          <p style={{ margin: "6px 0 14px", fontSize: 11.5, color: "#4ade80" }}>
-            Approved by {orderStatus.approvedBy} on {orderStatus.approvedAt ? new Date(orderStatus.approvedAt).toLocaleString() : ""}. Trade assignments are locked.
-          </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, margin: "6px 0 14px" }}>
+            <p style={{ margin: 0, fontSize: 11.5, color: "#4ade80" }}>
+              Approved by {orderStatus.approvedBy} on {orderStatus.approvedAt ? new Date(orderStatus.approvedAt).toLocaleString() : ""}. Trade assignments are locked.
+            </p>
+            <button onClick={unapproveOrder} disabled={unapproving}
+              style={{ flexShrink: 0, padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: "transparent", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", cursor: unapproving ? "default" : "pointer", opacity: unapproving ? 0.6 : 1 }}>
+              {unapproving ? "Undoing..." : "Undo Approval"}
+            </button>
+          </div>
         )}
 
         {loading ? (
@@ -214,10 +256,18 @@ export function LaborCalculatorModal({ consultId, propertyAddress, onClose }: { 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: "#94a3b8" }}>Estimated cost: <span style={{ color: GOLD }}>${rowCost(activeTrade).toFixed(2)}</span></span>
                   {!isApproved && (
-                    <button onClick={() => saveTrade(activeTrade)} disabled={savingTrade === activeTrade}
-                      style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11.5, fontWeight: 700, background: GOLD, border: "none", color: "#141414", cursor: savingTrade === activeTrade ? "default" : "pointer", opacity: savingTrade === activeTrade ? 0.6 : 1 }}>
-                      {savingTrade === activeTrade ? "Saving..." : "Save Trade"}
-                    </button>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {scopeTrades.find(t => t.trade === activeTrade)?.saved && (
+                        <button onClick={() => deleteTrade(activeTrade)} disabled={deletingTrade === activeTrade}
+                          style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11.5, fontWeight: 700, background: "transparent", border: "1px solid rgba(248,113,113,0.4)", color: "#f87171", cursor: deletingTrade === activeTrade ? "default" : "pointer", opacity: deletingTrade === activeTrade ? 0.6 : 1 }}>
+                          {deletingTrade === activeTrade ? "Deleting..." : "Delete Trade"}
+                        </button>
+                      )}
+                      <button onClick={() => saveTrade(activeTrade)} disabled={savingTrade === activeTrade}
+                        style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11.5, fontWeight: 700, background: GOLD, border: "none", color: "#141414", cursor: savingTrade === activeTrade ? "default" : "pointer", opacity: savingTrade === activeTrade ? 0.6 : 1 }}>
+                        {savingTrade === activeTrade ? "Saving..." : "Save Trade"}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

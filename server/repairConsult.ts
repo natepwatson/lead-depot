@@ -1637,8 +1637,17 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
       page.drawText(`\u2022  ${v.name}`.slice(0, 68), { x: 38, y, size: 8.5, font, color: rgb(0.2, 0.2, 0.2) });
       page.drawText(priceLabel, { x: 400, y, size: 8.5, font: fontBold, color: vendorPriced ? (includedInDeposit ? green : black) : gray });
       y -= 12;
-      if (v.instruction) {
-        for (const line of wrapText(v.instruction, fontItalic, 7, 480).slice(0, 2)) {
+      // v20.49.0 — FIX: was capped at .slice(0, 2), silently cutting off the
+      // rest of the agent-written vendor scope note (Alex: "do you see all
+      // the details explaining what the vendor is going to do? ... otherwise
+      // it just looks like it says land clearing and then the price"). This
+      // page already pages forward (addPage above) so there's no reason to
+      // truncate — show the FULL scope note the agent wrote (vendor_scope_note,
+      // falling back to instruction for older items saved before that field
+      // existed), wrapped to as many lines as it needs.
+      const scopeText = (v.vendor_scope_note && String(v.vendor_scope_note).trim()) || v.instruction || "";
+      if (scopeText) {
+        for (const line of wrapText(scopeText, fontItalic, 7, 480)) {
           if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
           page.drawText(line, { x: 46, y, size: 7, font: fontItalic, color: gray });
           y -= 9;
@@ -1824,10 +1833,30 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   y -= 13;
 
   let rowIdx = 0;
+  // v20.49.0 — precompute each vendor item's wrapped scope-note lines up
+  // front so rowFloor can reserve the EXACT space the vendor block will
+  // need below (previously only reserved 13pt/item — enough for the name +
+  // price row, but zero room for the description text added in v20.49.0,
+  // which would have run this fixed single page straight into the deposit
+  // box / signature block). Capped at 5 lines/item as a hard safety limit
+  // since page 1 here has no page-break/overflow handling, unlike the
+  // Quote PDF's vendor block.
+  const VENDOR_DESC_MAX_LINES = 5;
+  const vendorLineData = vendorItems.map((v: any) => {
+    const scopeText = (v.vendor_scope_note && String(v.vendor_scope_note).trim()) || v.instruction || "";
+    let lines = scopeText ? wrapText(scopeText, fontItalic, 7, 480) : [];
+    if (lines.length > VENDOR_DESC_MAX_LINES) {
+      lines = lines.slice(0, VENDOR_DESC_MAX_LINES);
+      lines[lines.length - 1] = lines[lines.length - 1].replace(/\s+$/, "") + "\u2026";
+    }
+    return { v, lines };
+  });
   // v20.48.0 — leave extra headroom when vendor-coordinated items exist so
   // the vendor block below always has room to draw (was a fixed 248, which
   // assumed only in-house rows would ever need space here).
-  const rowFloor = 248 + (vendorItems.length > 0 ? 18 + vendorItems.length * 13 : 0);
+  const rowFloor = 248 + (vendorItems.length > 0
+    ? 18 + vendorLineData.reduce((sum: number, d: any) => sum + 13 + d.lines.length * 9 + 3, 0)
+    : 0);
   for (const it of items) {
     if (y < rowFloor) break;
     if (rowIdx % 2 === 1) p1.drawRectangle({ x: 38, y: y - 3, width: 536, height: 14, color: lightGray });
@@ -1856,7 +1885,14 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     y -= 4;
     p1.drawText("Also Coordinating (licensed trade — quoted separately by our vendor partners):", { x: colLabelX, y, size: 8, font: fontBold, color: gray });
     y -= 12;
-    for (const v of vendorItems) {
+    // v20.49.0 — FIX: this bullet only ever showed the vendor item name +
+    // price, with none of the agent-written scope-of-work text (Alex: "do
+    // you see all the details explaining what the vendor is going to do?
+    // ... otherwise it just looks like it says land clearing and then the
+    // price"). Now prints the same vendor_scope_note (falling back to
+    // instruction for older items) shown on the Review & Send screen and
+    // on the Quote PDF, wrapped beneath each bullet.
+    for (const { v, lines } of vendorLineData) {
       const vendorPriced = v.vendor_quote_amount != null && v.line_total != null;
       const priceLabel = vendorPriced
         ? `$${Number(v.line_total).toLocaleString(undefined, { minimumFractionDigits: 2 })}${v.include_in_deposit ? " (included in Total above)" : ""}`
@@ -1864,6 +1900,11 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
       p1.drawText(`\u2022  ${v.name}`.slice(0, 60), { x: colLabelX, y, size: 8.5, font, color: black });
       p1.drawText(priceLabel, { x: colAmtX - 40, y, size: 8.5, font: fontBold, color: vendorPriced ? (v.include_in_deposit ? green : black) : gray });
       y -= 13;
+      for (const line of lines) {
+        p1.drawText(line, { x: 46, y, size: 7, font: fontItalic, color: gray });
+        y -= 9;
+      }
+      y -= 3;
     }
   }
 

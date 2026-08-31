@@ -18,9 +18,12 @@ const GOLD = "#c8aa5a";
 // Money Order was missing entirely — swapped to match exactly.
 const METHOD_LABELS: Record<string, string> = {
   check: "Check", wire: "Wire", zelle: "Zelle", money_order: "Money Order",
-  apple_pay: "Apple Pay", venmo: "Venmo", cash: "Cash",
+  apple_pay: "Apple Pay", venmo: "Venmo", cash: "Cash", credit_card: "Credit Card",
 };
 const METHODS = Object.keys(METHOD_LABELS);
+// v20.48.0 — Must match CC_FEE_PCT in server/payments.ts. Client-side is
+// display-only; the server independently computes and enforces the real fee.
+const CC_FEE_PCT = 0.03;
 
 type Agent = { id: number; name: string; email: string };
 
@@ -85,6 +88,7 @@ export function PaymentRecordModal({
   const [priorPayments, setPriorPayments] = useState<Array<{ id: number; amount: number; method: string; recorded_at: string }>>([]);
   const [amount, setAmount] = useState(String(depositSuggestion || balanceRemaining || contractTotal || ""));
   const [method, setMethod] = useState("cash");
+  const [ccFeeApplied, setCcFeeApplied] = useState(true);
   const [referenceNote, setReferenceNote] = useState("");
   const [companyRepAgentId, setCompanyRepAgentId] = useState<number | "">("");
   const [companyRepSignatureName, setCompanyRepSignatureName] = useState("");
@@ -97,7 +101,7 @@ export function PaymentRecordModal({
   // v20.33.3 — Part 7: show the confirmation # before closing instead of
   // silently vanishing, so the person recording the payment (and the client,
   // via the emailed receipt) both have a durable reference number.
-  const [successInfo, setSuccessInfo] = useState<{ confirmationNumber: string; amount: number } | null>(null);
+  const [successInfo, setSuccessInfo] = useState<{ confirmationNumber: string; amount: number; ccFeeAmount?: number } | null>(null);
   const evidenceInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -158,13 +162,13 @@ export function PaymentRecordModal({
         body: JSON.stringify({
           sourceType, sourceId, amount: amt, method, referenceNote: referenceNote || null,
           evidencePhotoUrl, companyRepAgentId, companyRepSignatureName, clientSignatureName,
-          notes: notes || null,
+          notes: notes || null, ccFeeApplied: method === "credit_card" ? ccFeeApplied : false,
         }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "Failed to record payment");
       onRecorded();
-      setSuccessInfo({ confirmationNumber: data.confirmationNumber || "", amount: amt });
+      setSuccessInfo({ confirmationNumber: data.confirmationNumber || "", amount: data.totalCollected ?? amt, ccFeeAmount: data.ccFeeAmount || 0 });
     } catch (e: any) {
       setError(e.message || "Failed to record payment");
     } finally {
@@ -172,7 +176,10 @@ export function PaymentRecordModal({
     }
   }
 
-  const evidenceLabel = method === "cash" ? "Photo of the cash" : method === "check" ? "Photo of the check" : method === "money_order" ? "Photo of the money order" : "Screenshot of the confirmation";
+  const evidenceLabel = method === "cash" ? "Photo of the cash" : method === "check" ? "Photo of the check" : method === "money_order" ? "Photo of the money order" : method === "credit_card" ? "Screenshot of the card charge confirmation" : "Screenshot of the confirmation";
+  const parsedAmt = parseFloat(amount) || 0;
+  const feeAmt = method === "credit_card" && ccFeeApplied ? Math.round(parsedAmt * CC_FEE_PCT * 100) / 100 : 0;
+  const totalWithFee = Math.round((parsedAmt + feeAmt) * 100) / 100;
 
   if (successInfo) {
     return (
@@ -185,6 +192,9 @@ export function PaymentRecordModal({
             <p style={{ margin: 0, marginBottom: 4, fontSize: 10.5, fontWeight: 700, color: "#94a3b8", letterSpacing: 0.3, textTransform: "uppercase" }}>Confirmation Number</p>
             <p style={{ margin: 0, marginBottom: 10, fontSize: 20, fontWeight: 800, color: GOLD, fontFamily: "monospace" }}>{successInfo.confirmationNumber || "—"}</p>
             <p style={{ margin: 0, fontSize: 13, color: "#c7d1dd" }}>Amount recorded: <strong style={{ color: "#4ade80" }}>${successInfo.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></p>
+            {!!successInfo.ccFeeAmount && (
+              <p style={{ margin: 0, marginTop: 3, fontSize: 11, color: "#94a3b8" }}>Includes ${successInfo.ccFeeAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} 3% card fee.</p>
+            )}
           </div>
           <p style={{ margin: 0, marginBottom: 16, fontSize: 11.5, color: "#94a3b8" }}>A receipt with this confirmation number has been emailed to the client and CC'd to the team.</p>
           <button onClick={onClose} style={{ width: "100%", padding: "10px 16px", borderRadius: 6, fontSize: 13, fontWeight: 700, background: GOLD, border: "none", color: "#141414", cursor: "pointer" }}>Done</button>
@@ -228,6 +238,20 @@ export function PaymentRecordModal({
             </select>
           </div>
         </div>
+
+        {method === "credit_card" && (
+          <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 6, background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.2)" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#c7d1dd", cursor: "pointer" }}>
+              <input type="checkbox" checked={ccFeeApplied} onChange={e => setCcFeeApplied(e.target.checked)} />
+              Add 3% credit card processing fee
+            </label>
+            {ccFeeApplied && parsedAmt > 0 && (
+              <p style={{ margin: 0, marginTop: 6, fontSize: 11.5, color: "#94a3b8" }}>
+                ${parsedAmt.toLocaleString(undefined, { minimumFractionDigits: 2 })} + ${feeAmt.toLocaleString(undefined, { minimumFractionDigits: 2 })} fee = <strong style={{ color: GOLD }}>${totalWithFee.toLocaleString(undefined, { minimumFractionDigits: 2 })} total charged</strong>
+              </p>
+            )}
+          </div>
+        )}
 
         <div style={{ marginBottom: 10 }}>
           <label style={labelStyle}>Reference Note (check #, confirmation #, txn ID — optional)</label>

@@ -846,7 +846,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "3. Pricing & Payment",
-    body: `Total price for the Scope of Work is set out in your itemized quote and is part of this Agreement. 50% deposit is due before work begins. The remaining 50% is due upon completion, before the job is considered closed out. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL} — no other payment processor is used. Deposits are non-refundable once materials have been purchased or labor has been scheduled with less than 48 hours' notice. Your quote is valid for 14 days from the date it's issued.`,
+    body: `Total price for the Scope of Work is set out in your itemized quote and is part of this Agreement. 50% deposit is due before work begins. The remaining 50% is due upon completion, before the job is considered closed out. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL}. Deposits are non-refundable once materials have been purchased or labor has been scheduled with less than 48 hours' notice. Your quote is valid for 14 days from the date it's issued.`,
   },
   {
     heading: "4. If Payment Isn't Made",
@@ -1632,7 +1632,7 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
       // (that would double-count it into GRAND TOTAL).
       const includedInDeposit = !!v.include_in_deposit;
       const priceLabel = vendorPriced
-        ? `$${Number(v.line_total).toLocaleString(undefined, { minimumFractionDigits: 2 })}${includedInDeposit ? " (in 50/50 total)" : ""}`
+        ? `$${Number(v.line_total).toLocaleString(undefined, { minimumFractionDigits: 2 })}${includedInDeposit ? " (included in Total above)" : ""}`
         : "Quote pending";
       page.drawText(`\u2022  ${v.name}`.slice(0, 68), { x: 38, y, size: 8.5, font, color: rgb(0.2, 0.2, 0.2) });
       page.drawText(priceLabel, { x: 400, y, size: 8.5, font: fontBold, color: vendorPriced ? (includedInDeposit ? green : black) : gray });
@@ -1740,7 +1740,9 @@ function wrapText(text: string, font: any, size: number, maxWidth: number): stri
 // line shows the captured e-signature name/timestamp/IP instead of a blank line.
 export async function generateAgreementPdf(consultId: number, opts: { blank?: boolean } = {}): Promise<string> {
   const consult = getConsultRow(consultId);
-  const items = getConsultItems(consultId).filter((i: any) => i.category === "in_house");
+  const allItems = getConsultItems(consultId);
+  const items = allItems.filter((i: any) => i.category === "in_house");
+  const vendorItems = allItems.filter((i: any) => i.category === "vendor");
   if (!consult) throw new Error("Consult not found");
 
   const pdfDoc = await PDFDocument.create();
@@ -1822,7 +1824,10 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   y -= 13;
 
   let rowIdx = 0;
-  const rowFloor = 248; // leave room for totals + signature block below (grew slightly in v20.20.0 for the boxed 50/50 line)
+  // v20.48.0 — leave extra headroom when vendor-coordinated items exist so
+  // the vendor block below always has room to draw (was a fixed 248, which
+  // assumed only in-house rows would ever need space here).
+  const rowFloor = 248 + (vendorItems.length > 0 ? 18 + vendorItems.length * 13 : 0);
   for (const it of items) {
     if (y < rowFloor) break;
     if (rowIdx % 2 === 1) p1.drawRectangle({ x: 38, y: y - 3, width: 536, height: 14, color: lightGray });
@@ -1833,17 +1838,63 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     rowIdx++;
   }
 
+  // v20.48.0 — FIX: vendor-coordinated items (e.g. a Land Clearing item with
+  // a vendor quote entered) never appeared anywhere on this Agreement PDF —
+  // the item table only ever looked at in_house rows, so a consult made up
+  // entirely of vendor items rendered a completely empty table and $0.00
+  // everywhere, even though the app's Review & Send screen showed a real
+  // priced item. Mirror the vendor-block + Grand Total treatment
+  // generateQuotePdf already has (v20.32.38 / v20.39.0) so this signature-
+  // ready Agreement always reflects the real price the client sees.
+  const separateVendorItems = vendorItems.filter((v: any) => !v.include_in_deposit);
+  const pricedVendorTotal = separateVendorItems.reduce((sum: number, v: any) => {
+    if (v.vendor_quote_amount != null && v.line_total != null) return sum + Number(v.line_total);
+    return sum;
+  }, 0);
+  const allSeparateVendorPriced = separateVendorItems.length > 0 && separateVendorItems.every((v: any) => v.vendor_quote_amount != null);
+  if (vendorItems.length > 0) {
+    y -= 4;
+    p1.drawText("Also Coordinating (licensed trade — quoted separately by our vendor partners):", { x: colLabelX, y, size: 8, font: fontBold, color: gray });
+    y -= 12;
+    for (const v of vendorItems) {
+      const vendorPriced = v.vendor_quote_amount != null && v.line_total != null;
+      const priceLabel = vendorPriced
+        ? `$${Number(v.line_total).toLocaleString(undefined, { minimumFractionDigits: 2 })}${v.include_in_deposit ? " (included in Total above)" : ""}`
+        : "Quote pending";
+      p1.drawText(`\u2022  ${v.name}`.slice(0, 60), { x: colLabelX, y, size: 8.5, font, color: black });
+      p1.drawText(priceLabel, { x: colAmtX - 40, y, size: 8.5, font: fontBold, color: vendorPriced ? (v.include_in_deposit ? green : black) : gray });
+      y -= 13;
+    }
+  }
+
   y -= 8;
   p1.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 0.5, color: gray });
   y -= 16;
-  p1.drawText("Total", { x: colAmtX - 70, y, size: 12, font: fontBold, color: black });
-  p1.drawText(`$${consult.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 12, font: fontBold, color: black });
+  const showGrandTotal = allSeparateVendorPriced && pricedVendorTotal > 0;
+  const grandTotal = Number(consult.total) + (showGrandTotal ? pricedVendorTotal : 0);
+  const totalLabel = showGrandTotal ? "Grand Total (In-House + Vendor)" : "Total";
+  const totalLabelW = fontBold.widthOfTextAtSize(totalLabel, 12);
+  p1.drawText(totalLabel, { x: colAmtX - totalLabelW - 14, y, size: 12, font: fontBold, color: black });
+  p1.drawText(`$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, { x: colAmtX, y, size: 12, font: fontBold, color: black });
   y -= 14;
-  // v20.20.0 — 50/50 terms enlarged + boxed to match the client quote PDF (was tiny gray text).
-  p1.drawRectangle({ x: 38, y: y - 24, width: 536, height: 24, color: rgb(0.94, 0.98, 0.94) });
-  p1.drawText(`50% DEPOSIT TO START: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 46, y: y - 16, size: 10, font: fontBold, color: green });
-  p1.drawText(`50% ON COMPLETION: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 320, y: y - 16, size: 10, font: fontBold, color: green });
-  y -= 34;
+  if (showGrandTotal) {
+    p1.drawText("Vendor-coordinated trades are billed separately by the vendor and are not part of the 50/50 schedule below.", { x: 38, y, size: 7, font: fontItalic, color: gray });
+    y -= 14;
+  }
+  // v20.48.0 — the 50/50 box only ever reflected Brothers Group's own
+  // in-house schedule. When a consult is 100% vendor-coordinated (no
+  // in-house items at all), consult.total is genuinely $0 — showing a bold
+  // green "$0.00 / $0.00" deposit box in that case reads as a bug, not as
+  // "no in-house deposit due". Skip the box entirely in that scenario.
+  if (Number(consult.total) > 0) {
+    // v20.20.0 — 50/50 terms enlarged + boxed to match the client quote PDF (was tiny gray text).
+    p1.drawRectangle({ x: 38, y: y - 24, width: 536, height: 24, color: rgb(0.94, 0.98, 0.94) });
+    p1.drawText(`50% DEPOSIT TO START: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 46, y: y - 16, size: 10, font: fontBold, color: green });
+    p1.drawText(`50% ON COMPLETION: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 320, y: y - 16, size: 10, font: fontBold, color: green });
+    y -= 34;
+  } else {
+    y -= 6;
+  }
   p1.drawText(START_MOMENTUM_PDF_LINE, { x: 38, y, size: 8.5, font: fontBold, color: rgb(0, 0.35, 0) });
   y -= 14;
   p1.drawText("Full Terms & Conditions (Sections 1–16) on the reverse — part of this Agreement by reference.", { x: 38, y, size: 7.5, font: fontItalic, color: gray });

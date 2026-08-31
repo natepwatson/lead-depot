@@ -85,13 +85,23 @@ function paymentPhotosDir(): string {
   return dir;
 }
 
-export const PAYMENT_METHODS = ["check", "wire", "zelle", "money_order", "apple_pay", "venmo", "cash"] as const;
+export const PAYMENT_METHODS = ["check", "wire", "zelle", "money_order", "apple_pay", "venmo", "cash", "credit_card"] as const;
 export type PaymentMethod = typeof PAYMENT_METHODS[number];
+
+// v20.47.1 — Credit Card added as an accepted rail alongside the existing
+// manual/person-to-person methods (Alex, 8/31/26). Unlike the other methods,
+// CC carries a processing-cost pass-through: a flat 3% fee that can be
+// toggled on at the moment of recording ANY payment — this is the exact
+// "client said cash, changed their mind to CC right before paying" case
+// Alex described, so the fee must be quick to add regardless of what method
+// was originally quoted/expected, not something that requires re-quoting the
+// job. See CC_FEE_PCT and the cc_fee_amount column below.
+export const CC_FEE_PCT = 0.03;
 
 // v20.32.16 — single source of truth for the client-facing accepted-forms
 // sentence, used in repair/inspection quote emails, agreements, and terms so
 // the wording never drifts across files.
-export const ACCEPTED_PAYMENT_METHODS_LABEL = "Cash, Wire, Check, Money Order, Venmo, Zelle, or Apple Pay";
+export const ACCEPTED_PAYMENT_METHODS_LABEL = "Cash, Wire, Check, Money Order, Venmo, Zelle, Apple Pay, or Credit Card (a 3% card processing fee applies)";
 
 export const PAYMENT_SOURCE_TYPES = ["repair_consult", "inspection_order"] as const;
 export type PaymentSourceType = typeof PAYMENT_SOURCE_TYPES[number];
@@ -131,6 +141,16 @@ export function ensurePaymentRecordsSchema() {
     );
   `);
   rawDb.exec(`CREATE INDEX IF NOT EXISTS idx_payment_records_source ON payment_records(source_type, source_id);`);
+
+  // v20.47.1 — CC fee breakdown columns (ALTER TABLE guarded by PRAGMA
+  // table_info check, same pattern used throughout this codebase). amount
+  // stays the true total collected (base + fee, if any) so reconciliation
+  // math elsewhere never needs to know about fees; these two columns are
+  // purely for transparency/audit/receipt breakdown.
+  const prCols = (rawDb.prepare(`PRAGMA table_info(payment_records)`).all() as any[]).map((c: any) => c.name);
+  if (!prCols.includes("cc_fee_applied")) rawDb.prepare("ALTER TABLE payment_records ADD COLUMN cc_fee_applied INTEGER NOT NULL DEFAULT 0").run();
+  if (!prCols.includes("cc_fee_amount")) rawDb.prepare("ALTER TABLE payment_records ADD COLUMN cc_fee_amount REAL DEFAULT 0").run();
+  if (!prCols.includes("base_amount")) rawDb.prepare("ALTER TABLE payment_records ADD COLUMN base_amount REAL").run();
 }
 
 // Minimal shared lookup across the two source tables — just the fields the
@@ -149,7 +169,7 @@ function sumPaymentsForSource(sourceType: PaymentSourceType, sourceId: number): 
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   check: "Check", wire: "Wire Transfer", zelle: "Zelle", money_order: "Money Order",
-  apple_pay: "Apple Pay", venmo: "Venmo", cash: "Cash",
+  apple_pay: "Apple Pay", venmo: "Venmo", cash: "Cash", credit_card: "Credit Card",
 };
 
 // v20.33.3 — client-facing payment confirmation receipt. Fire-and-forget,
@@ -172,12 +192,14 @@ async function sendPaymentConfirmationEmail(opts: {
   contractTotal: number;
   balanceRemaining: number;
   reconciled: boolean;
+  ccFeeAmount?: number;
 }) {
   if (!resend || !opts.source?.client_email) return;
   const confNum = paymentConfirmationNumber(opts.paymentId);
   const methodLabel = PAYMENT_METHOD_LABELS[opts.method] || opts.method;
   const jobLabel = opts.sourceType === "inspection_order" ? "Inspection Order" : "Repair Proposal";
   const firstName = (opts.source.client_name || "").split(" ")[0] || "there";
+  const feeAmt = opts.ccFeeAmount || 0;
 
   const html = `
   <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
@@ -190,6 +212,7 @@ async function sendPaymentConfirmationEmail(opts: {
         <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Property</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">${opts.source.property_address}</td></tr>
         <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Job</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">${jobLabel}</td></tr>
         <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Amount Received</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-weight:700;font-size:14px;text-align:right;color:${BRAND.green}">$${opts.amount.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
+        ${feeAmt > 0 ? `<tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Includes 3% Card Processing Fee</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">$${feeAmt.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>` : ""}
         <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Method</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">${methodLabel}</td></tr>
         ${opts.referenceNote ? `<tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Reference #</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">${opts.referenceNote}</td></tr>` : ""}
         <tr><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.gray};font-size:12.5px">Total Paid to Date</td><td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};font-size:13px;text-align:right">$${opts.totalPaid.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
@@ -276,6 +299,7 @@ export function registerPaymentRoutes(app: Express) {
       sourceType, sourceId, amount, method, referenceNote,
       evidencePhotoUrl, receiptPhotoUrl, companyRepAgentId,
       companyRepSignatureName, clientSignatureName, notes,
+      ccFeeApplied,
     } = req.body || {};
 
     if (!PAYMENT_SOURCE_TYPES.includes(sourceType)) return res.status(400).json({ error: "Invalid sourceType" });
@@ -285,6 +309,19 @@ export function registerPaymentRoutes(app: Express) {
     if (!companyRepSignatureName || !clientSignatureName) {
       return res.status(400).json({ error: "Both Company Representative and Client signatures are required." });
     }
+
+    // v20.47.1 — 3% CC fee, quick to apply at the moment of collecting ANY
+    // payment (Alex: a client can say cash then switch to card right when
+    // it's time to pay). `amount` from the client is always the base job
+    // amount being collected for; the fee (if any) is computed server-side
+    // and added on top — the stored `amount` column becomes the true total
+    // collected so every downstream balance/reconciliation calc (which reads
+    // that column) automatically reflects what actually came in, with no
+    // separate code path to keep in sync.
+    const baseAmount = Number(amount);
+    const feeApplied = !!ccFeeApplied && method === "credit_card";
+    const ccFeeAmount = feeApplied ? Math.round(baseAmount * CC_FEE_PCT * 100) / 100 : 0;
+    const totalCollected = Math.round((baseAmount + ccFeeAmount) * 100) / 100;
 
     const source = getSourceRow(sourceType, sourceId);
     if (!source) return res.status(404).json({ error: "Source record not found" });
@@ -306,14 +343,15 @@ export function registerPaymentRoutes(app: Express) {
         source_type, source_id, amount, method, reference_note,
         evidence_photo_url, receipt_photo_url, company_rep_agent_id,
         company_rep_signature_name, client_signature_name, signed_at,
-        recorded_by_agent_id, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
+        recorded_by_agent_id, notes, cc_fee_applied, cc_fee_amount, base_amount
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?)
     `);
     const result = insert.run(
-      sourceType, sourceId, amount, method, referenceNote || null,
+      sourceType, sourceId, totalCollected, method, referenceNote || null,
       evidencePhotoUrl || null, receiptPhotoUrl || null, companyRepAgentId || null,
       companyRepSignatureName, clientSignatureName,
-      req.currentAgent.id, notes || null
+      req.currentAgent.id, notes || null,
+      feeApplied ? 1 : 0, ccFeeAmount, baseAmount
     );
 
     // v20.38.3 — Alex: "Deposit in/awaiting deposit should trigger as
@@ -349,7 +387,7 @@ export function registerPaymentRoutes(app: Express) {
         if (personId) {
           await fubRequest("POST", "/notes", {
             personId,
-            subject: `Payment received — $${Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} via ${method}`,
+            subject: `Payment received — $${totalCollected.toLocaleString(undefined, { minimumFractionDigits: 2 })} via ${method}${feeApplied ? ` (incl. $${ccFeeAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })} 3% card fee)` : ""}`,
             body: `Recorded by ${req.currentAgent.name || req.currentAgent.email} for ${source.property_address}.${reconciled ? " Job paid in full." : ` Balance remaining: $${((source.total || 0) - paid).toLocaleString(undefined, { minimumFractionDigits: 2 })}.`}`,
           });
         }
@@ -373,9 +411,10 @@ export function registerPaymentRoutes(app: Express) {
     // fire-and-forget/non-fatal treatment as the FUB tie-in above.
     sendPaymentConfirmationEmail({
       paymentId: Number(result.lastInsertRowid),
-      sourceType, source, amount: Number(amount), method, referenceNote,
+      sourceType, source, amount: totalCollected, method, referenceNote,
       totalPaid: paid, contractTotal: source.total || 0,
       balanceRemaining: Math.max(0, (source.total || 0) - paid), reconciled,
+      ccFeeAmount,
     }).catch((err) => console.warn("[Payments] confirmation email failed:", err?.message || err));
 
     res.json({
@@ -386,6 +425,9 @@ export function registerPaymentRoutes(app: Express) {
       contractTotal: source.total || 0,
       balanceRemaining: Math.max(0, (source.total || 0) - paid),
       reconciled,
+      baseAmount,
+      ccFeeAmount,
+      totalCollected,
     });
   });
 

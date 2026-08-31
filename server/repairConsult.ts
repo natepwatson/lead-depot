@@ -2806,9 +2806,37 @@ export function registerRepairConsultRoutes(app: Express) {
     let packageEligibleSubtotal = 0;
     let anyTwoStory = 0;
     let vendorQuotedSubtotal = 0;
+    let customSeq = 100000;
     const tx = rawDb.transaction(() => {
       del.run(consultId);
       for (const raw of items) {
+        // v20.45.0 — Custom Scope Item: agent-typed line item (free-text
+        // description + agent-set price) for anything the client asks for
+        // that isn't in the fixed repair_items catalog. Bypasses the
+        // catalog lookup entirely (never dropped by `if (!cat) continue`)
+        // and is stored as category="in_house" / trade="handyman" so it
+        // flows through every existing in-house rendering path (client
+        // quote email, admin quote email, quote PDF, agreement PDF, work
+        // order PDF, subtotal/total/deposit math, Labor Calculator) with
+        // zero changes to those paths. Never package-discount-eligible
+        // (no real catalog key to match against pkgItemKeys).
+        if (raw.isCustom) {
+          const desc = (typeof raw.customDescription === "string" ? raw.customDescription.trim() : "") || "Custom Item";
+          const rate = Number(raw.unitRate) || 0;
+          const isFree = !!raw.isFree;
+          const lineTotal = isFree ? 0 : rate;
+          const itemKey = (typeof raw.itemKey === "string" && raw.itemKey.startsWith("custom-")) ? raw.itemKey : `custom-${consultId}-${customSeq}`;
+          subtotal += lineTotal;
+          insert.run(
+            consultId, itemKey, "in_house", "handyman", desc, "flat", 1,
+            rate, 0, lineTotal,
+            desc, JSON.stringify(raw.photos || []), raw.measurementNotes || null, customSeq,
+            null, null, null, 0,
+            null, isFree ? 1 : 0, 0
+          );
+          customSeq++;
+          continue;
+        }
         const cat = catalogStmt.get(raw.itemKey) as any;
         if (!cat) continue;
         const qty = Number(raw.quantity) || 0;

@@ -60,6 +60,15 @@ type CheckedState = {
   includeInDeposit: boolean;
 };
 
+// v20.45.0 — Custom Scope Item: a free-text description + agent-set price for
+// anything the client asks for that isn't in the fixed repair_items catalog
+// (e.g. "Homeowner also wants the shed door rehung"). Stored server-side as
+// category="in_house"/trade="handyman" so it rides along through every
+// existing in-house rendering path (quote email, quote PDF, agreement PDF,
+// work order, totals) with no changes to those paths. Not eligible for
+// package discounts (no catalog key to match against a package's itemKeys).
+type CustomItem = { id: string; description: string; price: string };
+
 // v20.33.3 — in-house item keys where "no existing wiring" is a realistic
 // scenario the agent needs to flag on the spot. Keep narrow and specific —
 // this is NOT a general electrical-trade flag, just these three.
@@ -493,6 +502,11 @@ export function RepairConsultSheet({
   const [catalog, setCatalog] = useState<RepairItem[]>([]);
   const [checked, setChecked] = useState<Record<string, CheckedState>>({});
   const [catalogLoading, setCatalogLoading] = useState(true);
+  // v20.45.0 — Custom Scope Items: agent-typed description + price rows,
+  // separate from the catalog-driven `checked` map since they carry no
+  // catalog itemKey. Kept alongside checklist state so they hydrate on
+  // resume and persist through the same submitCurrentItems() save.
+  const [customItems, setCustomItems] = useState<CustomItem[]>([]);
   // v20.19.0 — bundled packages (discount ladder) + free-service incentive.
   const [packages, setPackages] = useState<RepairPackage[]>([]);
   const [selectedPackageKey, setSelectedPackageKey] = useState<string | null>(null);
@@ -756,6 +770,16 @@ export function RepairConsultSheet({
     }
     subtotal += includedVendorTotal;
 
+    // v20.45.0 — Custom Scope Items: flat agent-set price per row, added
+    // straight to subtotal (never package-discount-eligible, matching the
+    // server's insert which bypasses pkgItemKeys entirely).
+    let customSubtotal = 0;
+    for (const ci of customItems) {
+      const price = Number(ci.price) || 0;
+      customSubtotal += price;
+    }
+    subtotal += customSubtotal;
+
     const discountPct = pkg ? pkg.discountPct : 0;
     const discountAmount = Math.round(packageEligibleSubtotal * discountPct * 100) / 100;
     const total = Math.round((subtotal - discountAmount) * 100) / 100;
@@ -764,7 +788,7 @@ export function RepairConsultSheet({
     const remainingToFreeItem = threshold !== null && !freeItemHit ? Math.max(threshold - total, 0) : 0;
 
     return { subtotal, discountAmount, total, threshold, freeItemHit, remainingToFreeItem, vendorQuotedSubtotal, includedVendorTotal };
-  }, [checked, inHouseItems, vendorItems, selectedPackageKey, packages, incentiveSettings, vendorQuoteSettings]);
+  }, [checked, inHouseItems, vendorItems, selectedPackageKey, packages, incentiveSettings, vendorQuoteSettings, customItems]);
 
   const groupedByTrade = (items: RepairItem[]) => {
     const map = new Map<string, RepairItem[]>();
@@ -1081,7 +1105,15 @@ export function RepairConsultSheet({
       const items: any[] = d.items || [];
       if (items.length > 0) {
         const nextChecked: Record<string, CheckedState> = {};
+        // v20.45.0 — Custom Scope Items carry a synthetic "custom-" item_key
+        // (no catalog match) — hydrate those into `customItems` instead of
+        // the catalog-driven `checked` map.
+        const nextCustomItems: CustomItem[] = [];
         for (const it of items) {
+          if (typeof it.item_key === "string" && it.item_key.startsWith("custom-")) {
+            nextCustomItems.push({ id: it.item_key, description: it.name || "", price: it.unit_rate != null ? String(it.unit_rate) : "" });
+            continue;
+          }
           let photos: string[] = [];
           try { photos = it.photos ? JSON.parse(it.photos) : []; } catch { photos = []; }
           nextChecked[it.item_key] = {
@@ -1100,6 +1132,7 @@ export function RepairConsultSheet({
           };
         }
         setChecked(nextChecked);
+        setCustomItems(nextCustomItems);
       }
 
       if (d.subtotal || d.total) setTotals({ subtotal: d.subtotal || 0, total: d.total || 0, vendorQuotedSubtotal: d.vendor_quoted_subtotal || 0 });
@@ -1222,7 +1255,12 @@ export function RepairConsultSheet({
     } catch { setGalleryUrls(prev => prev.map(p => p.url === url ? { ...p, tag: current.tag } : p)); }
   };
 
-  const selectedCount = Object.values(checked).filter(c => c.checked).length;
+  // v20.45.0 — count valid custom rows (non-empty description, a numeric
+  // price is not required to count it as "selected" so an agent can jot the
+  // description first and fill the price in a moment later without losing
+  // their place / getting blocked from continuing).
+  const validCustomItems = customItems.filter(ci => ci.description.trim().length > 0);
+  const selectedCount = Object.values(checked).filter(c => c.checked).length + validCustomItems.length;
 
   // v20.13.0 — Deposit Required Gate: scheduling is no longer discussed here.
   // Sequence is now signed -> deposit received -> THEN start date is scheduled
@@ -1259,9 +1297,21 @@ export function RepairConsultSheet({
         // actually present; a vendor item with no price can't fold anything.
         includeInDeposit: v.hasVendorQuote && v.includeInDeposit ? true : undefined,
       }));
-    if (items.length === 0) throw new Error("Check off at least one repair item before continuing.");
+    // v20.45.0 — Custom Scope Items: agent-typed description + price, kept
+    // separate from the catalog `checked` map. A row with no price yet is
+    // still sent as a $0 placeholder rather than silently dropped, so the
+    // agent's typed description never vanishes on save if they haven't
+    // filled in the price yet.
+    const customPayloadItems = customItems
+      .filter(ci => ci.description.trim().length > 0)
+      .map(ci => ({
+        isCustom: true, itemKey: ci.id, customDescription: ci.description.trim(),
+        unitRate: Number(ci.price) || 0,
+      }));
+    const allItems = [...items, ...customPayloadItems];
+    if (allItems.length === 0) throw new Error("Check off at least one repair item before continuing.");
     const d = await fetchJson(`/api/repair-consult/${id}/items`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: allItems }),
     });
     setTotals({ subtotal: d.subtotal, total: d.total, discountAmount: d.discountAmount, freeItemKey: d.freeItemKey, vendorQuotedSubtotal: d.vendorQuotedSubtotal });
     return d;
@@ -1279,7 +1329,7 @@ export function RepairConsultSheet({
     setError(""); setSavingDraft(true); setSavedFlash(false);
     try {
       await ensureConsult();
-      if (Object.values(checked).some(v => v.checked)) await submitCurrentItems();
+      if (Object.values(checked).some(v => v.checked) || validCustomItems.length > 0) await submitCurrentItems();
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 2400);
     } catch (e: any) {
@@ -1750,6 +1800,51 @@ export function RepairConsultSheet({
                     {isTradeExpanded(trade) && items.map(renderVendorCard)}
                   </div>
                 ))}
+
+                {/* v20.45.0 — Custom Scope Items: free-text description +
+                    agent-set price for anything the client asks for that
+                    isn't in the fixed catalog above. Saved as an in-house
+                    line item so it rides the same quote/agreement/total
+                    math as everything else. */}
+                <p style={{ fontSize: 11, fontWeight: 700, color: GOLD, letterSpacing: "0.08em", textTransform: "uppercase", margin: "16px 0 6px" }}>Custom Scope Items</p>
+                <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", margin: "0 0 10px" }}>
+                  Not in the list above? Write exactly what the client asked for and set your own price.
+                </p>
+                {customItems.map((ci, idx) => (
+                  <div key={ci.id} style={{
+                    display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 8,
+                    background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 10,
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      <input
+                        placeholder="Describe exactly what the client asked for"
+                        value={ci.description}
+                        onChange={e => setCustomItems(prev => prev.map((p, i) => i === idx ? { ...p, description: e.target.value } : p))}
+                        style={{ ...inputStyle, fontSize: 12.5, marginBottom: 6 }}
+                      />
+                      <input
+                        type="number" min={0} step="any" placeholder="Price ($)"
+                        value={ci.price}
+                        onChange={e => setCustomItems(prev => prev.map((p, i) => i === idx ? { ...p, price: e.target.value } : p))}
+                        style={{ ...inputStyle, fontSize: 12.5, width: 140 }}
+                      />
+                    </div>
+                    <button type="button" onClick={() => setCustomItems(prev => prev.filter((_, i) => i !== idx))}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.4)", padding: 4, marginTop: 2 }}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+                <button type="button"
+                  onClick={() => setCustomItems(prev => [...prev, { id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, description: "", price: "" }])}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%",
+                    padding: "10px 14px", borderRadius: 10, marginBottom: 4,
+                    background: "transparent", border: `1px dashed rgba(200,170,90,0.4)`, color: GOLD,
+                    fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                  }}>
+                  <Plus size={14} /> Add Custom Item
+                </button>
               </>
             )}
             {(liveTotals.subtotal > 0 || liveTotals.vendorQuotedSubtotal > 0) && (

@@ -711,16 +711,31 @@ function ConsultsPanel() {
   // v20.32.25 — "see exactly what the client will get" preview modal.
   const [previewFor, setPreviewFor] = useState<Consult | null>(null);
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const r = await fetch("/api/admin/repair-consults", { credentials: "include" });
       const d = await r.json();
       setConsults(d.consults || []);
-    } finally { setLoading(false); }
+    } finally { if (!silent) setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  // v20.47.0 — Alex reported seeing "Countersign" available on a consult
+  // while Nate, looking at the same consult, did not. Root cause: this panel
+  // only fetched once on mount with no live refresh, so whichever admin had
+  // the tab open longest was working off a stale snapshot even though the
+  // backend (/api/admin/repair-consults) has zero per-agent filtering —
+  // every admin already queries the exact same rows. Poll quietly every 20s
+  // (no spinner flicker) so all admin sessions converge on the same status
+  // without anyone needing to remember to hit Refresh. Also refresh the
+  // instant the tab regains focus, for the fastest possible resync.
+  useEffect(() => {
+    load();
+    const interval = setInterval(() => load(true), 20_000);
+    const onFocus = () => load(true);
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(interval); window.removeEventListener("focus", onFocus); };
+  }, []);
 
   const sendToClient = async (c: Consult) => {
     setBusy(c.id);
@@ -896,7 +911,7 @@ function ConsultsPanel() {
         <h3 style={{ fontFamily: "'Cormorant Garamond','Georgia',serif", fontSize: "1.15rem", fontWeight: 300, color: "#fff" }}>
           Instant Quotes &amp; Agreements
         </h3>
-        <button onClick={load} style={{
+        <button onClick={() => load()} style={{
           display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6,
           background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.10)",
           color: "#94a3b8", fontSize: 11, cursor: "pointer",

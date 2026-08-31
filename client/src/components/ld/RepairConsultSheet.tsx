@@ -2001,7 +2001,7 @@ export function RepairConsultSheet({
                     .sort((a, b) => a.sequence_order - b.sequence_order);
                   return (
                     <>
-                      {checkedItems.length === 0 ? (
+                      {checkedItems.length === 0 && customItems.length === 0 ? (
                         <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 12 }}>Nothing selected yet.</p>
                       ) : (
                         <div style={{ marginBottom: 12 }}>
@@ -2176,8 +2176,54 @@ export function RepairConsultSheet({
                               </div>
                             );
                           })}
+                          {/* v20.45.0 — Custom Scope Items: agent-typed description +
+                              agent-set price, shown alongside catalog items so the
+                              client sees the full scope in one list before it's
+                              locked in. Always editable inline (no separate edit
+                              mode needed for a two-field row). */}
+                          {customItems.map((ci, idx) => (
+                            <div key={ci.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", padding: "8px 0" }}>
+                              <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                                <div style={{ flex: 1 }}>
+                                  <input
+                                    placeholder="Describe exactly what the client asked for"
+                                    value={ci.description}
+                                    onChange={e => setCustomItems(prev => prev.map((p, i) => i === idx ? { ...p, description: e.target.value } : p))}
+                                    style={{ ...inputStyle, fontSize: 12.5, marginBottom: 6 }}
+                                  />
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>$</span>
+                                    <input
+                                      type="number" min={0} step="any" placeholder="Price"
+                                      value={ci.price}
+                                      onChange={e => setCustomItems(prev => prev.map((p, i) => i === idx ? { ...p, price: e.target.value } : p))}
+                                      style={{ ...inputStyle, fontSize: 12.5, width: 120 }}
+                                    />
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => setCustomItems(prev => prev.filter((_, i) => i !== idx))}
+                                  aria-label="Remove custom item"
+                                  style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid rgba(255,90,90,0.35)", background: "rgba(255,90,90,0.1)", color: "#ff7a7a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => setCustomItems(prev => [...prev, { id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, description: "", price: "" }])}
+                        style={{
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%",
+                          padding: "9px 12px", borderRadius: 8, marginBottom: 8,
+                          background: "transparent", border: `1px dashed rgba(200,170,90,0.4)`, color: GOLD,
+                          fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                        }}>
+                        <Plus size={14} /> Add Custom Item (not in catalog)
+                      </button>
                       <input
                         value={addItemQuery}
                         onChange={e => setAddItemQuery(e.target.value)}

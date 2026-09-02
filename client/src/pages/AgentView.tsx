@@ -6011,6 +6011,230 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
 }
 
 
+// v20.50.0 — "Past Client Appt" gold bubble form. A past client calls an
+// agent directly (not pulled from the dial pool) to set a listing/buyer
+// consult. Agent scores the same 60-pt Appt Set points (tiered call-heat
+// multiplier applies), gated to 1 per FUB contact per 60 days server-side.
+// FUB typeahead resolves the exact contact ID so the note/task/stage writes
+// land on the right person — free-text name alone isn't enough for parity.
+function PastClientApptForm(props: { user: any; toast: any; onDone: () => void }) {
+  const { user, toast, onDone } = props;
+  const qc = useQueryClient();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Array<{ id: number; name: string; phone: string; email: string }>>([]);
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState<{ id: number; name: string; phone: string; email: string } | null>(null);
+  const [propertyAddress, setPropertyAddress] = useState("");
+  const [apptType, setApptType] = useState<"Listing Consult" | "Buyer Consult" | "Follow-up Meeting">("Listing Consult");
+  // Smart default: today at 4:00 PM local, formatted for <input type="datetime-local">.
+  const [apptDatetime, setApptDatetime] = useState(() => {
+    const d = new Date();
+    d.setHours(16, 0, 0, 0);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  });
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (selected) return; // don't re-search once a contact is picked
+    const q = query.trim();
+    if (q.length < 2) { setResults([]); return; }
+    let cancelled = false;
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const r = await apiRequest("GET", `/api/fub/search-contacts?q=${encodeURIComponent(q)}`);
+        if (cancelled) return;
+        const data = await r.json();
+        setResults(data.contacts || []);
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [query, selected]);
+
+  const pickContact = (c: { id: number; name: string; phone: string; email: string }) => {
+    setSelected(c);
+    setQuery(c.name);
+    setResults([]);
+  };
+
+  const clearContact = () => {
+    setSelected(null);
+    setQuery("");
+    setResults([]);
+  };
+
+  const canSubmit = Boolean(selected && apptType && apptDatetime) && !submitting;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selected) {
+      toast({ title: "Pick a client from Follow Up Boss", description: "Search and select the matching FUB contact first.", variant: "destructive" });
+      return;
+    }
+    if (!apptDatetime) {
+      toast({ title: "Appointment date/time required", variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const r = await apiRequest("POST", "/api/past-client-appt", {
+        agentId: user?.id,
+        fubPersonId: selected.id,
+        clientName: selected.name,
+        clientPhone: selected.phone,
+        clientEmail: selected.email,
+        propertyAddress: propertyAddress.trim(),
+        apptType,
+        apptDatetime: new Date(apptDatetime).toISOString(),
+        notes: notes.trim(),
+      });
+      const data = await r.json();
+      if (r.ok && data.success) {
+        toast({ title: "Appointment scored", description: `+${data.pointsAwarded} points — ${selected.name}` });
+        qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
+        onDone();
+      } else if (r.status === 409) {
+        toast({ title: "Already scored", description: data.error || "This client already had a Past Client Appt scored within 60 days.", variant: "destructive" });
+      } else {
+        toast({ title: "Failed to submit", description: data.error || undefined, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Failed to submit", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{
+      padding: "22px 20px",
+      background: "linear-gradient(135deg, rgba(200,170,90,0.08) 0%, rgba(200,170,90,0.03) 100%)",
+      border: "1px solid rgba(200,170,90,0.28)", borderRadius: 14,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: "50%",
+          background: "rgba(200,170,90,0.15)", border: "1px solid rgba(200,170,90,0.3)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <Calendar size={14} style={{ color: "#c8aa5a" }} />
+        </div>
+        <p style={{ fontSize: 13, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700, margin: 0 }}>
+          Past Client Appt
+        </p>
+      </div>
+      <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 18, lineHeight: 1.55 }}>
+        A past client called you directly and you set a listing or buyer consult. Search Follow Up Boss to pull them in — same points as a normal Appt Set.
+      </p>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div>
+          <label style={labelStyle}>Client Name *</label>
+          {selected ? (
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "11px 14px", borderRadius: 8,
+              background: "rgba(200,170,90,0.12)", border: "1px solid rgba(200,170,90,0.35)",
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 14, color: "#fff", fontWeight: 600 }}>{selected.name}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+                  {selected.phone || "No phone"}{selected.email ? ` · ${selected.email}` : ""}
+                </p>
+              </div>
+              <button type="button" onClick={clearContact} style={{
+                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)",
+                borderRadius: 6, padding: "5px 8px", cursor: "pointer", color: "rgba(255,255,255,0.7)", fontSize: 11,
+              }}>Change</button>
+            </div>
+          ) : (
+            <>
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Start typing a FUB contact name…"
+                style={inputStyle}
+                autoComplete="off"
+              />
+              {searching && (
+                <p style={{ fontSize: 10, color: "rgba(200,170,90,0.55)", marginTop: 6, letterSpacing: "0.08em" }}>Searching Follow Up Boss…</p>
+              )}
+              {results.length > 0 && (
+                <div style={{
+                  marginTop: 6, borderRadius: 8, overflow: "hidden",
+                  border: "1px solid rgba(200,170,90,0.25)",
+                }}>
+                  {results.map(c => (
+                    <button key={c.id} type="button" onClick={() => pickContact(c)} style={{
+                      display: "block", width: "100%", textAlign: "left",
+                      padding: "10px 12px", background: "rgba(255,255,255,0.03)",
+                      border: "none", borderBottom: "1px solid rgba(255,255,255,0.06)", cursor: "pointer",
+                    }}>
+                      <p style={{ margin: 0, fontSize: 13, color: "#fff", fontWeight: 600 }}>{c.name}</p>
+                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+                        {c.phone || "No phone"}{c.email ? ` · ${c.email}` : ""}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!searching && query.trim().length >= 2 && results.length === 0 && (
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 6 }}>No matching FUB contacts found.</p>
+              )}
+            </>
+          )}
+        </div>
+        <div>
+          <label style={labelStyle}>Property Address</label>
+          <input value={propertyAddress} onChange={e => setPropertyAddress(e.target.value)} placeholder="123 Oak St, Fernandina Beach, FL" style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Appointment Type *</label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            {(["Listing Consult", "Buyer Consult", "Follow-up Meeting"] as const).map(opt => {
+              const active = apptType === opt;
+              return (
+                <button key={opt} type="button" onClick={() => setApptType(opt)} style={{
+                  padding: "9px 8px", borderRadius: 8, cursor: "pointer",
+                  fontSize: 10.5, fontWeight: 600, letterSpacing: "0.02em", textAlign: "center",
+                  background: active ? "rgba(200,170,90,0.18)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${active ? "rgba(200,170,90,0.5)" : "rgba(255,255,255,0.10)"}`,
+                  color: active ? "#c8aa5a" : "rgba(255,255,255,0.7)",
+                }}>{opt}</button>
+              );
+            })}
+          </div>
+        </div>
+        <div>
+          <label style={labelStyle}>Appointment Date & Time *</label>
+          <input type="datetime-local" value={apptDatetime} onChange={e => setApptDatetime(e.target.value)} style={{ ...inputStyle, colorScheme: "dark" }} />
+        </div>
+        <div>
+          <label style={labelStyle}>Notes</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional context" rows={2}
+            style={{ ...inputStyle, resize: "none", lineHeight: 1.5 }} />
+        </div>
+        <button type="submit" disabled={!canSubmit} style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          padding: "14px 20px", marginTop: 4,
+          background: !canSubmit ? "rgba(200,170,90,0.3)" : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+          border: "none", borderRadius: 8, cursor: !canSubmit ? "not-allowed" : "pointer",
+          fontSize: 13, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
+          color: "#080808",
+        }}>
+          <Calendar size={14} /> {submitting ? "Scoring…" : "Score Appointment"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+
 // v20.7.32 — ReferralTab (POST /api/referrals) DELETED. Superseded by
 // ReferAnAgentForm (POST /api/candidates/invite), which is the one
 // canonical Agent Invite → candidate → hire flow (Alex approves = +100 pts).
@@ -6121,7 +6345,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   const [leadGenView, setLeadGenView] = useState<
     "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral"
     | "door-knock" | "door-knock-lead" | "direct-mail" | "direct-mail-lead"
-    | "oh-knock-route" | "social" | "refer-agent"
+    | "oh-knock-route" | "social" | "refer-agent" | "past-client-appt"
   >("root");
   // v20.14.0 — Listing Consult edge bubble. When the agent launches Repair
   // Consult FROM WITHIN a Listing Consult (repair-scoping step), we swap to
@@ -6399,7 +6623,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.49.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.50.0</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -7260,7 +7484,7 @@ function LeadGenSheet(props: {
   view: "root" | "open-house" | "oh-log" | "oh-lead" | "network-referral"
     | "oh-knock-route" | "social"
     | "door-knock" | "door-knock-lead" | "direct-mail" | "direct-mail-lead"
-    | "refer-agent";
+    | "refer-agent" | "past-client-appt";
   setView: (v: any) => void;
   close: () => void;
   goToDial: () => void;
@@ -7443,6 +7667,11 @@ function LeadGenSheet(props: {
       // overlap with Open House / Direct Mail labels in the same Y band.
       { key: "network", label: "Add Lead",     icon: <Users size={18} />, onClick: () => setView("network-referral") },
       { key: "refer",   label: "Agent Invite", icon: <Send size={18} />,  onClick: () => setView("refer-agent" as any) },
+      // v20.50.0 — "Past Client Appt" gold bubble. Alex: a past client calls
+      // directly (not pulled from pool) to set a listing/buyer consult — agent
+      // should be able to score the same Appt Set points for it. Third shelf
+      // bubble, same treatment as Add Lead / Agent Invite.
+      { key: "past-client-appt", label: "Past Client Appt", icon: <Calendar size={18} />, onClick: () => setView("past-client-appt" as any) },
     ];
     // FAB is centered horizontally in the nav; nav sits at bottom + safe-area.
     // Anchor the arc's origin over the FAB center.
@@ -7688,7 +7917,14 @@ function LeadGenSheet(props: {
             // from the screen edge on narrow iPhones. Also increases the visual
             // gap between shelf and the outer arc bubbles above them.
             const SHELF_RADIUS = ARC_RADIUS * 0.48;
-            const shelfAngle = idx === 0 ? 130 : 50;
+            // v20.50.0 — generalized for a 3rd shelf bubble (Past Client Appt).
+            // 2 items keep the original ±40° offset (130°/50°). 3 items widen
+            // to ±55° with a centered middle bubble (145°/90°/35°) so labels
+            // don't collide at the smaller radius.
+            const shelfOffset = shelfBubbles.length >= 3 ? 55 : 40;
+            const shelfAngle = shelfBubbles.length >= 3
+              ? (idx === 0 ? 90 + shelfOffset : idx === 1 ? 90 : 90 - shelfOffset)
+              : (idx === 0 ? 90 + shelfOffset : 90 - shelfOffset);
             const rad = (shelfAngle * Math.PI) / 180;
             const dx = Math.cos(rad) * SHELF_RADIUS;
             const dy = -Math.sin(rad) * SHELF_RADIUS;
@@ -7855,6 +8091,13 @@ function LeadGenSheet(props: {
           <>
             {header("Agent Invite", () => setView("root"))}
             <ReferAnAgentForm user={props.user} toast={props.toast} onDone={close} />
+          </>
+        )}
+
+        {view === "past-client-appt" && (
+          <>
+            {header("Past Client Appt", () => setView("root"))}
+            <PastClientApptForm user={props.user} toast={props.toast} onDone={close} />
           </>
         )}
 

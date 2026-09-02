@@ -225,6 +225,31 @@ rawDb.exec(`
   )
 `);
 
+// v20.50.0 — past_client_appts: audit trail + 60-day anti-farm gate for the
+// "Past Client Appt" gold bubble (any agent scores an Appt Set when a past
+// client calls them directly — not pulled from the lead pool). fub_person_id
+// is the resolved FUB contact; one scored appt per fub_person_id per 60 days.
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS past_client_appts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    agent_name TEXT,
+    fub_person_id TEXT NOT NULL,
+    client_name TEXT NOT NULL,
+    client_phone TEXT,
+    client_email TEXT,
+    property_address TEXT,
+    appt_type TEXT NOT NULL,
+    appt_datetime TEXT NOT NULL,
+    notes TEXT,
+    points_awarded INTEGER NOT NULL DEFAULT 0,
+    fub_task_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT ''
+  )
+`);
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_past_client_appts_person
+  ON past_client_appts(fub_person_id, created_at)`).run();
+
 // v20.7.4 — Active-challenge slots are managed via the existing
 // `challenge_accepts` table (created in ensureChallengeSchema in challenges.ts).
 // Slot caps (3 daily + 2 weekly) are enforced in the accept endpoint. No new

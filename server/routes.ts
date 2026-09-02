@@ -7,7 +7,7 @@ import { awardPoints } from "./points";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, pushColdOutcomeToFub, pushIngestToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD, fubListTags, ensureFubMilestoneSchema, fireMilestoneTasks, FUB_MILESTONE_TRIGGER_EVENTS } from "./fub";
+import { pushOutcomeToFub, pushColdOutcomeToFub, pushIngestToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD, fubListTags, ensureFubMilestoneSchema, fireMilestoneTasks, FUB_MILESTONE_TRIGGER_EVENTS, fubRequest, resolveFubUserIdByName } from "./fub";
 import { runFubInventorySweep } from "./fubSweep";
 import { parseWeeklyWorkbook } from "./workbookParser";
 import { enrichAddress, lookupCityState } from "./zipToCity";
@@ -174,7 +174,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.49.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.50.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -403,7 +403,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.49.0 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.50.0 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -462,7 +462,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.49.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.50.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -510,7 +510,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.49.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.50.0 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1763,7 +1763,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.49.0</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.50.0</p>
             </div>
           `,
         });
@@ -1923,7 +1923,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.49.0 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.50.0 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -8557,13 +8557,162 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.49.0 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.50.0 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
     }
 
     res.json({ created: true, leadId: created.id });
+  });
+
+  // ─── v20.50.0 PAST CLIENT APPT — FUB contact typeahead ────────────────────
+  // Used by the gold "Past Client Appt" bubble's name field. Mirrors the
+  // /people?query= search pattern used elsewhere in fub.ts.
+  app.get("/api/fub/search-contacts", async (req, res) => {
+    const q = String(req.query.q || "").trim();
+    if (q.length < 2) return res.json({ contacts: [] });
+    try {
+      const r = await fubRequest("GET", `/people?query=${encodeURIComponent(q)}&limit=8`);
+      const people: any[] = r.data?.people || [];
+      const contacts = people.map((p: any) => ({
+        id: p.id,
+        name: `${p.firstName || ""} ${p.lastName || ""}`.trim() || p.name || "Unknown",
+        phone: p.phones?.[0]?.value || "",
+        email: p.emails?.[0]?.value || "",
+      }));
+      res.json({ contacts });
+    } catch (err: any) {
+      console.error("[fub/search-contacts]", err?.message || err);
+      res.json({ contacts: [] });
+    }
+  });
+
+  // ─── v20.50.0 PAST CLIENT APPT — score an Appt Set from a direct past-client
+  // call (not pulled from the lead pool). Any agent may use this. Awards the
+  // same 60-pt base / tiered call-heat multiplier as a normal Appt Set outcome,
+  // gated to 1 per FUB contact per 60 days via the past_client_appts table.
+  // FUB writes (note + task + stage/assign) are best-effort — never block the
+  // app-side success on a FUB failure, matching the rest of the codebase.
+  app.post("/api/past-client-appt", async (req, res) => {
+    const {
+      agentId, fubPersonId, clientName, clientPhone, clientEmail,
+      propertyAddress, apptType, apptDatetime, notes,
+    } = req.body;
+
+    const submitterId = agentId ? parseInt(String(agentId)) : null;
+    if (!submitterId) return res.status(400).json({ error: "agentId required" });
+    if (!fubPersonId || !String(fubPersonId).trim()) return res.status(400).json({ error: "A Follow Up Boss contact must be selected" });
+    if (!clientName || !String(clientName).trim()) return res.status(400).json({ error: "Client name required" });
+    if (!apptType || !String(apptType).trim()) return res.status(400).json({ error: "Appointment type required" });
+    if (!apptDatetime || !String(apptDatetime).trim()) return res.status(400).json({ error: "Appointment date/time required" });
+
+    const personId = String(fubPersonId).trim();
+
+    // 60-day anti-farm gate — 1 scored past-client appt per FUB contact.
+    const recent = rawDb.prepare(`
+      SELECT id, created_at FROM past_client_appts
+      WHERE fub_person_id = ? AND created_at >= datetime('now', '-60 days')
+      ORDER BY created_at DESC LIMIT 1
+    `).get(personId) as any;
+    if (recent) {
+      return res.status(409).json({
+        error: "This client already had a Past Client Appt scored within the last 60 days.",
+        lastScoredAt: recent.created_at,
+      });
+    }
+
+    const agent = storage.getAgentById(submitterId);
+    const now = new Date().toISOString();
+
+    // Award points FIRST (60 base, tiered call-heat multiplier, scope=seller),
+    // tagged "past_client" in the ledger for reporting/audit purposes only —
+    // existing leaderboard queries use `reason LIKE 'contacted_appointment%'`
+    // so this stays fully compatible with leaderboard/team-pot rollups.
+    let pointsAwarded = 0;
+    try {
+      const before = (rawDb.prepare(`SELECT COALESCE(SUM(points),0) as total FROM agent_points WHERE agent_id = ?`).get(submitterId) as any)?.total || 0;
+      awardPoints(submitterId, "contacted_appointment", undefined, "seller", "past_client");
+      const after = (rawDb.prepare(`SELECT COALESCE(SUM(points),0) as total FROM agent_points WHERE agent_id = ?`).get(submitterId) as any)?.total || 0;
+      pointsAwarded = after - before;
+    } catch (err: any) {
+      console.error("[past-client-appt] awardPoints failed:", err?.message || err);
+    }
+
+    // Audit trail insert (source of truth for the 60-day gate).
+    let insertedId: number | null = null;
+    try {
+      const info = rawDb.prepare(`
+        INSERT INTO past_client_appts (
+          agent_id, agent_name, fub_person_id, client_name, client_phone, client_email,
+          property_address, appt_type, appt_datetime, notes, points_awarded, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        submitterId, agent?.name || null, personId, String(clientName).trim(),
+        clientPhone || null, clientEmail || null, propertyAddress || null,
+        String(apptType).trim(), String(apptDatetime).trim(), notes || null,
+        pointsAwarded, now,
+      );
+      insertedId = Number(info.lastInsertRowid);
+    } catch (err: any) {
+      console.error("[past-client-appt] audit insert failed:", err?.message || err);
+    }
+
+    // Activity feed broadcast (matches the pattern used by the network-referral endpoint).
+    broadcast({ type: "activity_event", event: {
+      type: "past_client_appt_set", agentId: submitterId, agentName: agent?.name || "Agent",
+      agentHeadshot: (agent as any)?.headshotUrl || null, address: propertyAddress || null,
+      ts: now,
+    } });
+
+    // ── Best-effort FUB writes (never block on failure) ────────────────────
+    let fubTaskId: number | null = null;
+    (async () => {
+      try {
+        const numericPersonId = parseInt(personId);
+        if (!numericPersonId || isNaN(numericPersonId)) return;
+
+        const apptWhen = new Date(String(apptDatetime));
+        const whenLabel = isNaN(apptWhen.getTime())
+          ? String(apptDatetime)
+          : apptWhen.toLocaleString("en-US", { timeZone: "America/New_York", timeZoneName: "short" });
+
+        // 1) Note.
+        const noteBody = `Appointment set by ${agent?.name || "an agent"} on ${new Date(now).toLocaleDateString("en-US", { timeZone: "America/New_York" })} — ${apptType} at ${whenLabel}${propertyAddress ? ` (${propertyAddress})` : ""}.${notes ? `\n\nNotes: ${notes}` : ""}`;
+        await fubRequest("POST", "/notes", { personId: numericPersonId, body: noteBody, isHtml: false });
+
+        // 2) Task.
+        const assignedUserId = agent?.name ? await resolveFubUserIdByName(agent.name) : null;
+        const dueDate = isNaN(apptWhen.getTime()) ? new Date(now).toISOString().slice(0, 10) : apptWhen.toISOString().slice(0, 10);
+        const taskPayload: any = {
+          personId: numericPersonId,
+          name: `Past Client Appt — ${apptType}`,
+          type: "To-Do",
+          dueDate,
+        };
+        if (assignedUserId) taskPayload.assignedUserId = assignedUserId;
+        if (notes) taskPayload.description = notes;
+        const taskRes = await fubRequest("POST", "/tasks", taskPayload);
+        if (taskRes.ok) fubTaskId = taskRes.data?.id ?? null;
+
+        // 3) Stage + assign — parity with contacted_appointment's outcomeToFubStage
+        // (stageId 3 = "Hot Prospect", the same stage every Appt Set outcome uses;
+        // FUB has no separate literal "Appointment Set" stage).
+        await fubRequest("PUT", `/people/${numericPersonId}`, {
+          stageId: 3,
+          assignedTo: agent?.name || undefined,
+        });
+
+        if (fubTaskId && insertedId) {
+          try { rawDb.prepare(`UPDATE past_client_appts SET fub_task_id = ? WHERE id = ?`).run(fubTaskId, insertedId); } catch {}
+        }
+        console.log(`[past-client-appt] FUB writes complete for person ${numericPersonId} (agent=${agent?.name})`);
+      } catch (err: any) {
+        console.error("[past-client-appt] FUB write failed (non-fatal):", err?.message || err);
+      }
+    })();
+
+    res.json({ success: true, pointsAwarded, id: insertedId });
   });
 
   // ─── v17.0 OPEN HOUSE LOG → APPROVAL QUEUE ─────────────────────────────
@@ -9700,7 +9849,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.49.0",
+      version: "v20.50.0",
       services: results,
     });
   });
@@ -11263,7 +11412,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.49.0</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.50.0</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

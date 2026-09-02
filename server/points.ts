@@ -17,6 +17,13 @@ export function awardPoints(
   outcome: string,
   leadId?: number,
   scope: "seller" | "recruiting" = "seller",
+  // v20.50.0 — optional audit suffix appended to the stored `reason` (e.g.
+  // "past_client" for the Past Client Appt gold bubble). Point lookup and the
+  // FLAT_OUTCOMES check still use the bare `outcome`, so behavior/pricing is
+  // unchanged — this only tags the ledger row for reporting. Every leaderboard
+  // query filters with `reason LIKE 'contacted_appointment%'`, so the suffix
+  // stays compatible with existing rollups.
+  sourceTag?: string,
 ) {
   if (!agentId) return;
   // v15.11.26 — REBALANCED point system.
@@ -90,9 +97,10 @@ export function awardPoints(
   ]);
   if (FLAT_OUTCOMES.has(outcome)) {
     if (basePoints === 0) return;
+    const flatReason = sourceTag ? `${outcome}_${sourceTag}` : outcome;
     rawDb.prepare(
       `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(agentId, basePoints, outcome, leadId ?? null, scope, new Date().toISOString());
+    ).run(agentId, basePoints, flatReason, leadId ?? null, scope, new Date().toISOString());
     // v19.5 — Instant broadcast so leaderboard/team-pot/agent-stats refresh with no poll delay.
     try { broadcast({ type: "points_awarded", agentId, delta: basePoints, outcome, scope, ts: new Date().toISOString() }); } catch {}
     return;
@@ -120,7 +128,8 @@ export function awardPoints(
   // If the base points are 0 (emails, voicemail), no multiplier can save them.
   if (basePoints === 0) return;
   const points = Math.round(basePoints * multiplier);
-  const reason = multiplier > 1 ? `${outcome}_${tier}_${multiplier}x` : outcome;
+  const outcomeLabel = sourceTag ? `${outcome}_${sourceTag}` : outcome;
+  const reason = multiplier > 1 ? `${outcomeLabel}_${tier}_${multiplier}x` : outcomeLabel;
   rawDb.prepare(
     `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?)`
   ).run(agentId, points, reason, leadId ?? null, scope, new Date().toISOString());

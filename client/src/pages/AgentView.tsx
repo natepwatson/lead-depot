@@ -6100,7 +6100,7 @@ function PastClientApptForm(props: { user: any; toast: any; onDone: () => void }
         qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
         onDone();
       } else if (r.status === 409) {
-        toast({ title: "Already scored", description: data.error || "This client already had a Past Client Appt scored within 60 days.", variant: "destructive" });
+        toast({ title: "Already scored", description: data.error || "This client already had a Past Client Appt scored within 30 days.", variant: "destructive" });
       } else {
         toast({ title: "Failed to submit", description: data.error || undefined, variant: "destructive" });
       }
@@ -6623,7 +6623,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.50.1</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.50.2</span>
             </div>
           </div>
           {onBackToAdmin && (

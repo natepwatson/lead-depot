@@ -6011,7 +6011,7 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
 }
 
 
-// v20.50.0 — "Past Client Appt" gold bubble form. A past client calls an
+// v20.50.1 — "Past Client Appt" gold bubble form. A past client calls an
 // agent directly (not pulled from the dial pool) to set a listing/buyer
 // consult. Agent scores the same 60-pt Appt Set points (tiered call-heat
 // multiplier applies), gated to 1 per FUB contact per 60 days server-side.
@@ -6623,7 +6623,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.50.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.50.1</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -7667,7 +7667,7 @@ function LeadGenSheet(props: {
       // overlap with Open House / Direct Mail labels in the same Y band.
       { key: "network", label: "Add Lead",     icon: <Users size={18} />, onClick: () => setView("network-referral") },
       { key: "refer",   label: "Agent Invite", icon: <Send size={18} />,  onClick: () => setView("refer-agent" as any) },
-      // v20.50.0 — "Past Client Appt" gold bubble. Alex: a past client calls
+      // v20.50.1 — "Past Client Appt" gold bubble. Alex: a past client calls
       // directly (not pulled from pool) to set a listing/buyer consult — agent
       // should be able to score the same Appt Set points for it. Third shelf
       // bubble, same treatment as Add Lead / Agent Invite.
@@ -7917,7 +7917,7 @@ function LeadGenSheet(props: {
             // from the screen edge on narrow iPhones. Also increases the visual
             // gap between shelf and the outer arc bubbles above them.
             const SHELF_RADIUS = ARC_RADIUS * 0.48;
-            // v20.50.0 — generalized for a 3rd shelf bubble (Past Client Appt).
+            // v20.50.1 — generalized for a 3rd shelf bubble (Past Client Appt).
             // 2 items keep the original ±40° offset (130°/50°). 3 items widen
             // to ±55° with a centered middle bubble (145°/90°/35°) so labels
             // don't collide at the smaller radius.

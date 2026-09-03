@@ -37,7 +37,7 @@ export function awardPoints(
     open_house_lead:           20,   // v16.7 — OH captured lead. Same value as network referral (real capture, revenue-direct).
     open_house_log:            50,   // v17.6 — OH physical presence log, bumped 20→50 (evidence bar higher, encourages field work).
     oh_knock_route:            40,   // v17.6 — OH knock route piggyback, bumped 15→40 (SetRep evidence, real effort during OH).
-    direct_mail:                1,   // v20.4.4 — Direct Mail: 1 point per mailer approved (was 3).
+    direct_mail:                1,   // v20.4.4 / v20.50.9 — Direct Mail: 1 pt per mailer (auto-bank with proof; anomalies pending).
     door_knock:                 2,   // v17.6 / v20.50.8 — Base per-door value. Session points = doors × 2 (min 10 with proof; anomalies pending).
     social_post:               10,   // v20.7.20 — BASE per-platform. Actual points_potential = 10 × platforms.length (1-3). 2/day cap enforced upstream.
     contacted_not_interested:   5,   // Real contact, worth something.

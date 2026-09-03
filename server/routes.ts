@@ -7356,14 +7356,22 @@ This template is for informational/outreach purposes only.`;
     // reason and the 'approval:<reason>' variant so historical + current rows both
     // count. Symptom Alex reported: his social post approved (+15 pts) but the
     // FB/IG column on the leaderboard stayed at 0.
+    // v20.50.9 — also match `<reason>_log` / `approval:<reason>_log` so DM/DK
+    // session rows written as approval:direct_mail_log / approval:door_knock_log
+    // (approve handler + auto-award) land in the leaderboard buckets that still
+    // query the plain `direct_mail` / `door_knock` keys.
     const bucketByReason = (reason: string, floorISO: string | null): Record<number, number> => {
-      const approvalReason = `approval:${reason}`;
+      const variants = [reason, `approval:${reason}`];
+      if (!reason.endsWith("_log")) {
+        variants.push(`${reason}_log`, `approval:${reason}_log`);
+      }
+      const ph = variants.map(() => "?").join(", ");
       const sql = floorISO
-        ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason IN (?, ?) AND created_at >= ? GROUP BY agent_id`
-        : `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason IN (?, ?) GROUP BY agent_id`;
+        ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason IN (${ph}) AND created_at >= ? GROUP BY agent_id`
+        : `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason IN (${ph}) GROUP BY agent_id`;
       const rows: any[] = floorISO
-        ? rawDb.prepare(sql).all(reason, approvalReason, floorISO)
-        : rawDb.prepare(sql).all(reason, approvalReason);
+        ? rawDb.prepare(sql).all(...variants, floorISO)
+        : rawDb.prepare(sql).all(...variants);
       const m: Record<number, number> = {};
       for (const r of rows) m[r.agent_id] = r.cnt;
       return m;
@@ -7851,14 +7859,19 @@ This template is for informational/outreach purposes only.`;
     // `reason=approval:<X>`) so OH / DM / DK / social show up on the AGENT
     // leaderboard too. Prior version omitted these entirely; every agent's
     // FB/IG, OH, DM, DK columns silently rendered 0.
+    // v20.50.9 — mirror admin bucketByReason (_log + approval:_log variants).
     const bucketByReasonAg = (reason: string, floorISO: string | null): Record<number, number> => {
-      const approvalReason = `approval:${reason}`;
+      const variants = [reason, `approval:${reason}`];
+      if (!reason.endsWith("_log")) {
+        variants.push(`${reason}_log`, `approval:${reason}_log`);
+      }
+      const ph = variants.map(() => "?").join(", ");
       const sql = floorISO
-        ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason IN (?, ?) AND created_at >= ? GROUP BY agent_id`
-        : `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason IN (?, ?) GROUP BY agent_id`;
+        ? `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason IN (${ph}) AND created_at >= ? GROUP BY agent_id`
+        : `SELECT agent_id, COUNT(*) as cnt FROM agent_points WHERE reason IN (${ph}) GROUP BY agent_id`;
       const rows: any[] = floorISO
-        ? rawDb.prepare(sql).all(reason, approvalReason, floorISO)
-        : rawDb.prepare(sql).all(reason, approvalReason);
+        ? rawDb.prepare(sql).all(...variants, floorISO)
+        : rawDb.prepare(sql).all(...variants);
       const m: Record<number, number> = {};
       for (const r of rows) m[r.agent_id] = r.cnt;
       return m;
@@ -9011,42 +9024,110 @@ This template is for informational/outreach purposes only.`;
     }
   });
 
-  // ─── v17.6 DIRECT MAIL LOG → APPROVAL QUEUE ───────────────────────
-  // Log a mailer campaign for admin approval. Agent submits audience description,
-  // count of addresses mailed, mailer photo, notes. Row goes into approval_requests
-  // status='pending'. points_potential = mailedCount (1 pt per address, capped
-  // at 500 for a single submission). Awarded on Nate's approval.
+  // ─── v20.50.9 DIRECT MAIL DROP → AUTO-AWARD (flag anomalies) ─────
+  // Drop model: neighborhood/farm + mailer count + optional notes + required
+  // proof photo. Soft prefer min 10 pieces (not a brick wall — API still accepts
+  // count >= 1). Auto-approve and bank 1 pt/mailer when proof is present and
+  // count looks sane. Flag/pending only for anomalies (mailedCount > 500, or
+  // mailedCount > 200 without notes). Reuses the same ledger write as the admin
+  // approve handler (approval:direct_mail_log + points_awarded broadcast).
   app.post("/api/lead-gen/direct-mail-log", (req, res) => {
     const { agentId, audience, mailedCount, photoDataUrl, notes, timestamp } = req.body;
     const submitterId = agentId ? parseInt(String(agentId)) : null;
     if (!submitterId) return res.status(400).json({ error: "agentId required" });
-    if (!audience || !String(audience).trim()) return res.status(400).json({ error: "Audience required" });
-    const count = mailedCount != null ? parseInt(String(mailedCount)) : 0;
-    if (!count || count < 1) return res.status(400).json({ error: "Mailed count must be > 0" });
-    if (!photoDataUrl) return res.status(400).json({ error: "Mailer photo required" });
+    if (!audience || !String(audience).trim()) {
+      return res.status(400).json({ error: "Neighborhood / farm name required" });
+    }
+    const count = mailedCount != null ? Math.max(0, parseInt(String(mailedCount)) || 0) : 0;
+    if (!count || count < 1) return res.status(400).json({ error: "Mailer / piece count must be > 0" });
+    if (!photoDataUrl || typeof photoDataUrl !== "string" || !String(photoDataUrl).startsWith("data:image/")) {
+      return res.status(400).json({ error: "Proof photo required" });
+    }
 
     const now = new Date().toISOString();
     const submitter = storage.getAgentById(submitterId);
     const cleanAudience = String(audience).trim();
-    const capped = Math.min(count, 500);
+    const cleanNotes = notes ? String(notes).trim().slice(0, 4000) : "";
+    // Cap for points_potential / ledger — but anomaly >500 still flags (see below).
+    const capped = Math.min(count, 2000);
+    const points = Math.min(count, 500); // 1 pt per mailer, sane per-submission award cap
+    // Anomaly flags — soft judgment mirroring door-knock thresholds for mail volume.
+    const flagReasons: string[] = [];
+    if (count > 500) flagReasons.push("mailed_over_500");
+    if (count > 200 && !cleanNotes) flagReasons.push("mailed_over_200_no_notes");
+    const flagged = flagReasons.length > 0;
+    const status = flagged ? "pending" : "approved";
+
     const payloadObj = {
       audience: cleanAudience,
       mailedCount: capped,
-      notes: notes ? String(notes).trim().slice(0, 4000) : "",
+      notes: cleanNotes,
       capturedAt: timestamp || now,
       photoDataUrl: String(photoDataUrl).slice(0, 4_000_000),
+      flagReasons: flagged ? flagReasons : [],
+      autoAwarded: !flagged,
     };
-    const info = rawDb.prepare(`
-      INSERT INTO approval_requests
-        (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
-      VALUES ('direct_mail_log', ?, ?, 'pending', ?, ?, ?)
-    `).run(submitterId, submitter?.name || "Agent", capped, JSON.stringify(payloadObj), now);
-    const requestId = Number(info.lastInsertRowid);
+
+    let requestId: number;
+    let activityId: number | null = null;
+    let pointsAwarded = 0;
+
+    if (flagged) {
+      const info = rawDb.prepare(`
+        INSERT INTO approval_requests
+          (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
+        VALUES ('direct_mail_log', ?, ?, 'pending', ?, ?, ?)
+      `).run(submitterId, submitter?.name || "Agent", points, JSON.stringify(payloadObj), now);
+      requestId = Number(info.lastInsertRowid);
+    } else {
+      // Auto path — mirror approve handler: durable approval row + lead_activity
+      // + agent_points (approval:direct_mail_log) + points_awarded broadcast.
+      const activityInfo = rawDb.prepare(`
+        INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at,
+                                    lead_address_snapshot, lead_phone_snapshot, lead_owner_snapshot)
+        VALUES (NULL, ?, 'direct_mail_log', ?, NULL, ?, ?, NULL, NULL)
+      `).run(submitterId, JSON.stringify(payloadObj), now, cleanAudience);
+      activityId = Number(activityInfo.lastInsertRowid);
+
+      pointsAwarded = points;
+      if (pointsAwarded > 0) {
+        rawDb.prepare(
+          `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, NULL, 'seller', ?)`
+        ).run(submitterId, pointsAwarded, "approval:direct_mail_log", now);
+        try {
+          broadcast({
+            type: "points_awarded",
+            agentId: submitterId,
+            delta: pointsAwarded,
+            outcome: "approval:direct_mail_log",
+            scope: "seller",
+            ts: now,
+          });
+        } catch {}
+      }
+
+      const info = rawDb.prepare(`
+        INSERT INTO approval_requests
+          (kind, agent_id, agent_name, status, points_awarded, points_potential, payload_json,
+           submitted_at, decided_at, decided_by, decision_notes, activity_id)
+        VALUES ('direct_mail_log', ?, ?, 'approved', ?, ?, ?, ?, ?, NULL, 'auto-approved with proof', ?)
+      `).run(
+        submitterId,
+        submitter?.name || "Agent",
+        pointsAwarded,
+        points,
+        JSON.stringify(payloadObj),
+        now,
+        now,
+        activityId,
+      );
+      requestId = Number(info.lastInsertRowid);
+    }
 
     broadcast({
       type: "approval_event",
       event: {
-        type: "approval_submitted",
+        type: flagged ? "approval_submitted" : "approval_decided",
         kind: "direct_mail_log",
         requestId,
         agentId: submitterId,
@@ -9054,25 +9135,54 @@ This template is for informational/outreach purposes only.`;
         agentHeadshot: (submitter as any)?.headshotUrl || null,
         audience: cleanAudience,
         mailedCount: capped,
+        status,
+        pointsAwarded: flagged ? 0 : pointsAwarded,
         ts: now,
       },
     });
 
-    // v19.6 — admin email on every direct-mail log
+    // v19.6 / v20.50.9 — admin email on every direct-mail log (auto + flagged)
     const _tdL2 = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px;vertical-align:top";
     const _tdR2 = "padding:8px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
+    const statusLabel = flagged
+      ? `PENDING REVIEW (${flagReasons.join(", ")})`
+      : `AUTO-APPROVED · +${pointsAwarded} pts`;
     notifyLeadGenActivity({
       kind: "direct_mail_log",
       agentName: submitter?.name || "Agent",
-      headline: `✉️ Direct Mail Log — ${capped} mailers — ${submitter?.name || "Agent"}`,
+      headline: `✉️ Direct Mail Drop — ${capped} mailers — ${submitter?.name || "Agent"} — ${flagged ? "PENDING" : "BANKED"}`,
       detailsHtml: `
-        <tr><td style="${_tdL2}">Audience</td><td style="${_tdR2}">${cleanAudience}</td></tr>
+        <tr><td style="${_tdL2}">Neighborhood / Farm</td><td style="${_tdR2}">${cleanAudience}</td></tr>
         <tr><td style="${_tdL2}">Count</td><td style="${_tdR2}"><strong>${capped}</strong></td></tr>
-        <tr><td style="${_tdL2}">Notes</td><td style="${_tdR2}">${(payloadObj.notes || "—").replace(/\n/g,"<br>")}</td></tr>
+        <tr><td style="${_tdL2}">Status</td><td style="${_tdR2}">${statusLabel}</td></tr>
+        <tr><td style="${_tdL2}">Points</td><td style="${_tdR2}">${points}</td></tr>
+        <tr><td style="${_tdL2}">Proof</td><td style="${_tdR2}">photo attached</td></tr>
+        <tr><td style="${_tdL2}">Notes</td><td style="${_tdR2}">${(cleanNotes || "—").replace(/\n/g,"<br>")}</td></tr>
       `,
     });
 
-    res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: capped });
+    if (flagged) {
+      res.json({
+        submitted: true,
+        requestId,
+        pendingApproval: true,
+        flagged: true,
+        flagReasons,
+        pointsPotential: points,
+        mailedCount: capped,
+      });
+    } else {
+      res.json({
+        submitted: true,
+        requestId,
+        pendingApproval: false,
+        flagged: false,
+        pointsAwarded,
+        pointsPotential: points,
+        mailedCount: capped,
+        activityId,
+      });
+    }
   });
 
   // ─── v17.6 SOCIAL POST → APPROVAL QUEUE ─────────────────────

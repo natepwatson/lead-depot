@@ -3102,6 +3102,30 @@ export function registerRepairConsultRoutes(app: Express) {
     res.json({ ok: true, restored: true });
   });
 
+  // v20.51.1 — Sync Deposit To Paid: admin-only safety valve. If deposit_amount
+  // on file doesn't match what payment_records actually shows as collected
+  // (e.g. it was stuck at a stale 50/50 preview split from before a real
+  // payment was backfilled — exactly what happened on Laura Dodson's Sept
+  // 2026 invoice), this recomputes deposit_amount = total actually paid and
+  // final_amount = total - amount paid (clamped to >= 0), using the SAME
+  // payment_records SUM query the items-recompute endpoint already trusts.
+  // Only runs on locked (accepted/work_order_sent) consults — never touches
+  // a pre-signature quote's 50/50 preview split.
+  app.post("/api/repair-consult/:id/sync-deposit-to-paid", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    const consult = getConsultRow(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+    if (consult.status !== "accepted" && consult.status !== "work_order_sent") {
+      return res.status(409).json({ error: "Consult isn't signed/accepted yet — nothing to sync." });
+    }
+    const alreadyPaid = Number((rawDb.prepare(`SELECT COALESCE(SUM(amount), 0) AS s FROM payment_records WHERE source_type = 'repair_consult' AND source_id = ?`).get(consultId) as any)?.s) || 0;
+    const total = Number(consult.total) || 0;
+    const finalAmount = Math.max(0, Math.round((total - alreadyPaid) * 100) / 100);
+    rawDb.prepare(`UPDATE repair_consults SET deposit_amount = ?, final_amount = ?, updated_at = datetime('now') WHERE id = ?`).run(alreadyPaid, finalAmount, consultId);
+    res.json({ ok: true, depositAmount: alreadyPaid, finalAmount, total });
+  });
+
   // ── Generate quote: builds PDF, mints accept token, emails internal notice ──
   app.post("/api/repair-consult/:id/generate-quote", async (req: any, res: Response) => {
     const consultId = parseInt(req.params.id);

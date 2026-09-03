@@ -156,8 +156,8 @@ export default function JoinPage() {
               Bleed Culture. Earn Real.
             </h1>
             <p style={{ fontSize: 15, color: "rgba(255,255,255,0.45)", maxWidth: 420, margin: "0 auto 28px", lineHeight: 1.65 }}>
-              We&apos;re Brothers Group at Momentum Realty. Strong commission structure with low caps —
-              and we hand you live leads plus Lead Depot so you can actually make money. Train. Shadow. Show up.
+              We&apos;re Brothers Group at Momentum Realty. Team split is 50/50 with no team cap; Momentum’s brokerage caps are low and clear —
+              plus live leads and Lead Depot so you can actually make money. Train. Shadow. Show up.
             </p>
 
             <div style={{
@@ -165,7 +165,7 @@ export default function JoinPage() {
               gap: 10, marginBottom: 28, maxWidth: 520,
             }}>
               {[
-                ["Momentum Realty", "Strong splits + low caps"],
+                ["Momentum Realty", "Low brokerage caps — clear math"],
                 ["Lead Depot", "Leads, points, real income"],
                 ["Live Lead Flow", "Real opportunities in your hands"],
                 ["Train & Shadow", "Culture you can feel day one"],
@@ -196,7 +196,7 @@ export default function JoinPage() {
               </p>
               {[
                 "Culture first — we train, shadow, and hold the standard together.",
-                "Momentum’s commission plan is strong, with low caps — know the math before you join.",
+                "Brothers Group: no team cap. Momentum: low brokerage caps — know the math before you join.",
                 "Lead Depot + live lead flow so you’re not left hunting alone.",
                 "7 territories across NE Florida & SE Georgia — pick where you’ll grind.",
               ].map((line) => (

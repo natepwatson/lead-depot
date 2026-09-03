@@ -153,11 +153,11 @@ export default function JoinPage() {
               fontSize: "clamp(2.1rem, 8vw, 3.1rem)",
               fontWeight: 300, color: "#fff", margin: "0 0 12px", lineHeight: 1.1,
             }}>
-              Bleed Culture. Earn Real.
+              We Bleed Culture.
             </h1>
             <p style={{ fontSize: 15, color: "rgba(255,255,255,0.45)", maxWidth: 420, margin: "0 auto 28px", lineHeight: 1.65 }}>
-              We&apos;re Brothers Group at Momentum Realty. Team split is 50/50 with no team cap; Momentum’s brokerage caps are low and clear —
-              plus live leads and Lead Depot so you can actually make money. Train. Shadow. Show up.
+              Brothers Group at Momentum Realty — a professional boutique team built to be the best. We bleed culture: train, shadow, hold the standard.
+              Team 50/50 with no team cap; Momentum’s brokerage caps are low and clear. Live leads + Lead Depot.
             </p>
 
             <div style={{
@@ -195,7 +195,7 @@ export default function JoinPage() {
                 How we run
               </p>
               {[
-                "Culture first — we train, shadow, and hold the standard together.",
+                "We bleed culture — train, shadow, and hold the boutique standard together.",
                 "Brothers Group: no team cap. Momentum: low brokerage caps — know the math before you join.",
                 "Lead Depot + live lead flow so you’re not left hunting alone.",
                 "7 territories across NE Florida & SE Georgia — pick where you’ll grind.",

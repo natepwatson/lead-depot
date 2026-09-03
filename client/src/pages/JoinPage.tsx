@@ -150,10 +150,10 @@ export default function JoinPage() {
           fontSize: "clamp(2rem, 8vw, 3rem)",
           fontWeight: 300, color: "#fff", margin: "0 0 10px", lineHeight: 1.1,
         }}>
-          Your Split Just Got Better.
+          Bleed Culture. Earn Real.
         </h1>
-        <p style={{ fontSize: 15, color: "rgba(255,255,255,0.45)", maxWidth: 360, margin: "0 auto 24px", lineHeight: 1.6 }}>
-          50/50 split. 7 open territories. Real lead flow. Join the Brothers Group Real Estate Team at Momentum Realty.
+        <p style={{ fontSize: 15, color: "rgba(255,255,255,0.45)", maxWidth: 400, margin: "0 auto 24px", lineHeight: 1.6 }}>
+          Brothers Group at Momentum Realty — strong commission structure with low caps, plus live leads and Lead Depot so you can actually make money. Train. Shadow. Show up.
         </p>
 
         {/* Trust strip */}
@@ -162,10 +162,10 @@ export default function JoinPage() {
           gap: 10, marginBottom: 32, maxWidth: 500,
         }}>
           {[
-            ["50 / 50", "Flat split, no cap games"],
-            ["Momentum Realty", "Established brand & infrastructure"],
-            ["Live Lead Flow", "Real leads handed to you"],
-            ["Training & Shadow", "Hands-on from day one"],
+            ["Momentum Realty", "Strong splits + low caps"],
+            ["Lead Depot", "Leads, points, real income"],
+            ["Live Lead Flow", "Real opportunities in your hands"],
+            ["Train & Shadow", "Culture you can feel day one"],
           ].map(([title, sub]) => (
             <div key={title} style={{
               background: "rgba(200,170,90,0.06)",

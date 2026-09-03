@@ -5819,6 +5819,10 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
   const { toast } = useToast();
   const qc = useQueryClient();
   const source: WarmLeadSource = props.source || "network";
+  // v20.52.1 — Add Lead (network) is contact capture, not a field session:
+  // name+phone+intent required; email/notes/address optional. Other warm-lead
+  // sources (OH / Door Knock / Direct Mail) keep their fuller required set.
+  const isAddLead = source === "network";
   const [netName, setNetName]   = useState("");
   const [netPhone, setNetPhone] = useState("");
   const [netEmail, setNetEmail] = useState("");
@@ -5856,15 +5860,23 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
     if (!netName.trim() || !netPhone.trim()) {
       toast({ title: "Name and phone required", variant: "destructive" }); return;
     }
-    if (!netEmail.trim()) {
-      toast({ title: "Email required", description: "Warm leads need an email for follow-up.", variant: "destructive" }); return;
-    }
-    if (!netNotes.trim()) {
-      toast({ title: "Notes required", description: "How did you meet? What's their situation?", variant: "destructive" }); return;
-    }
-    if (!intent) {
-      const proceed = window.confirm("No client intent selected — the Work-the-Lead card won't show a script tab. Submit anyway?");
-      if (!proceed) return;
+    if (isAddLead) {
+      // Add Lead happy path — email/notes optional; intent required (no confirm).
+      if (!intent) {
+        toast({ title: "Pick Seller, Buyer, or Both", description: "Intent is required so Work-the-Lead opens with the right script.", variant: "destructive" });
+        return;
+      }
+    } else {
+      if (!netEmail.trim()) {
+        toast({ title: "Email required", description: "Warm leads need an email for follow-up.", variant: "destructive" }); return;
+      }
+      if (!netNotes.trim()) {
+        toast({ title: "Notes required", description: "How did you meet? What's their situation?", variant: "destructive" }); return;
+      }
+      if (!intent) {
+        const proceed = window.confirm("No client intent selected — the Work-the-Lead card won't show a script tab. Submit anyway?");
+        if (!proceed) return;
+      }
     }
     if (dupeStatus?.existing) {
       const owner = dupeStatus.existing.assignedAgentName || "another agent";
@@ -5875,15 +5887,16 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
     try {
       const r = await apiRequest("POST", "/api/leads/network", {
         ownerName: netName.trim(), phone: netPhone.trim(),
-        email: netEmail.trim(), address: netAddr.trim(),
-        notes: netNotes.trim(),
+        email: netEmail.trim() || undefined,
+        address: netAddr.trim() || undefined,
+        notes: netNotes.trim() || undefined,
         submittedBy: user?.id, submittedByName: user?.name,
         warmLeadIntent: intent || null,
         warmLeadSource: source,
       });
       const data = await r.json();
       if (r.ok && data.leadId) {
-        toast({ title: "Warm lead captured", description: "Opening Work-the-Lead card…" });
+        toast({ title: isAddLead ? "Lead captured" : "Warm lead captured", description: "Opening Work-the-Lead card…" });
         setNetName(""); setNetPhone(""); setNetEmail(""); setNetAddr(""); setNetNotes(""); setIntent("");
         try { sessionStorage.setItem("pending_lead_jump", String(data.leadId)); } catch {}
         window.dispatchEvent(new Event("pending_lead_jump_changed"));
@@ -5900,6 +5913,11 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
   };
 
   const sourcePill = WARM_LEAD_SOURCE_PILLS[source];
+  // Add Lead: Seller / Buyer / Both only — fewest taps. Other sources keep full grid.
+  const intentOptions = isAddLead
+    ? WARM_LEAD_INTENTS.filter(o => o.key === "seller" || o.key === "buyer" || o.key === "seller_and_buyer")
+    : WARM_LEAD_INTENTS;
+  const canSubmit = Boolean(netName.trim() && netPhone.trim() && (!isAddLead || intent) && !netSending);
 
   return (
     <div style={{
@@ -5917,30 +5935,32 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
         </div>
         <div style={{ flex: 1 }}>
           <p style={{ fontSize: 13, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700, margin: 0 }}>
-            Warm Lead Capture
+            {isAddLead ? "Add Lead" : "Warm Lead Capture"}
           </p>
           <p style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(200,170,90,0.45)", fontWeight: 500, marginTop: 2 }}>
-            You'll be dropped straight into their Work-the-Lead card
+            {isAddLead ? "Name + phone + intent → Depot + FUB + Work-the-Lead" : "You'll be dropped straight into their Work-the-Lead card"}
           </p>
         </div>
         <span style={{
           fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700,
           color: sourcePill.fg, background: sourcePill.bg, border: `1px solid ${sourcePill.border}`,
           borderRadius: 999, padding: "4px 10px",
-        }}>{sourcePill.label}</span>
+        }}>{isAddLead ? "Add Lead" : sourcePill.label}</span>
       </div>
       <p style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginBottom: 18, lineHeight: 1.55 }}>
-        Know someone thinking about selling, buying, or renting? Drop their info here — the lead is auto-assigned to you and opens instantly.
+        {isAddLead
+          ? "Warm person from your network? Capture them fast — auto-assigned to you, pushed to FUB, opens Work-the-Lead."
+          : "Know someone thinking about selling, buying, or renting? Drop their info here — the lead is auto-assigned to you and opens instantly."}
       </p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div>
             <label style={labelStyle}>Name *</label>
-            <input value={netName} onChange={e => setNetName(e.target.value)} placeholder="John Smith" style={inputStyle} />
+            <input value={netName} onChange={e => setNetName(e.target.value)} placeholder="John Smith" style={inputStyle} autoComplete="name" />
           </div>
           <div>
             <label style={labelStyle}>Phone *</label>
-            <input value={netPhone} onChange={e => setNetPhone(e.target.value)} placeholder="(904) 555-0100" type="tel" style={inputStyle} />
+            <input value={netPhone} onChange={e => setNetPhone(e.target.value)} placeholder="(904) 555-0100" type="tel" style={inputStyle} autoComplete="tel" />
           </div>
         </div>
         {dupeStatus?.existing && (
@@ -5957,53 +5977,67 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
           <div style={{ fontSize: 10, color: "rgba(200,170,90,0.55)", letterSpacing: "0.08em" }}>Checking Depot for duplicates…</div>
         )}
         <div>
-          <label style={labelStyle}>Email *</label>
-          <input value={netEmail} onChange={e => setNetEmail(e.target.value)} placeholder="john@email.com" type="email" style={inputStyle} />
+          <label style={labelStyle}>{isAddLead ? "Email" : "Email *"}{isAddLead && <span style={{ opacity: 0.55, fontWeight: 500, letterSpacing: "0.06em" }}> · encouraged</span>}</label>
+          <input value={netEmail} onChange={e => setNetEmail(e.target.value)} placeholder="john@email.com" type="email" style={inputStyle} autoComplete="email" />
         </div>
         <div>
           <label style={labelStyle}>Property Address</label>
           <input value={netAddr} onChange={e => setNetAddr(e.target.value)} placeholder="123 Oak St, Fernandina Beach, FL" style={inputStyle} />
         </div>
         <div>
-          <label style={labelStyle}>Notes *</label>
-          <textarea value={netNotes} onChange={e => setNetNotes(e.target.value)} placeholder="How you met + situation + timeline" rows={2}
-            style={{ ...inputStyle, resize: "none", lineHeight: 1.5 }} />
-        </div>
-        <div>
-          <label style={labelStyle}>Client Intent</label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-            {WARM_LEAD_INTENTS.map(opt => {
+          <label style={labelStyle}>{isAddLead ? "Client Intent *" : "Client Intent"}</label>
+          <div style={{ display: "grid", gridTemplateColumns: isAddLead ? "1fr 1fr 1fr" : "1fr 1fr", gap: 6 }}>
+            {intentOptions.map(opt => {
               const active = intent === opt.key;
+              const label = isAddLead && opt.key === "seller_and_buyer" ? "Both" : opt.label;
               return (
                 <button key={opt.key} type="button" onClick={() => setIntent(opt.key)} style={{
-                  padding: "9px 10px", borderRadius: 8, cursor: "pointer",
-                  fontSize: 11, fontWeight: 600, letterSpacing: "0.04em",
-                  textAlign: "left",
+                  padding: isAddLead ? "12px 10px" : "9px 10px", borderRadius: 8, cursor: "pointer",
+                  fontSize: isAddLead ? 12 : 11, fontWeight: 700, letterSpacing: "0.06em",
+                  textAlign: isAddLead ? "center" : "left",
+                  textTransform: isAddLead ? "uppercase" as const : undefined,
                   background: active ? opt.bg : "rgba(255,255,255,0.03)",
                   border: `1px solid ${active ? opt.border : "rgba(255,255,255,0.10)"}`,
                   color: active ? opt.fg : "rgba(255,255,255,0.7)",
+                  boxShadow: active ? `0 0 0 1px ${opt.border}` : "none",
                 }}>
-                  {opt.future && <span style={{ opacity: 0.6, fontSize: 9, marginRight: 4 }}>FUTURE</span>}
-                  {opt.label}
+                  {!isAddLead && opt.future && <span style={{ opacity: 0.6, fontSize: 9, marginRight: 4 }}>FUTURE</span>}
+                  {label}
                 </button>
               );
             })}
           </div>
+          {isAddLead && !intent && (
+            <p style={{ fontSize: 10, color: "rgba(239,68,68,0.75)", marginTop: 6, letterSpacing: "0.04em" }}>
+              Pick Seller, Buyer, or Both to enable submit.
+            </p>
+          )}
           {intent && (
             <p style={{ fontSize: 10, color: "rgba(200,170,90,0.55)", marginTop: 6, letterSpacing: "0.04em" }}>
               Work-the-Lead will open with the {WARM_LEAD_INTENTS.find(o => o.key === intent)?.script} script tab.
             </p>
           )}
         </div>
-        <button type="submit" disabled={netSending} style={{
+        <div>
+          <label style={labelStyle}>{isAddLead ? "Notes" : "Notes *"}</label>
+          <textarea
+            value={netNotes}
+            onChange={e => setNetNotes(e.target.value)}
+            placeholder={isAddLead ? "How you met / their situation / timeline (optional)" : "How you met + situation + timeline"}
+            rows={2}
+            style={{ ...inputStyle, resize: "none", lineHeight: 1.5 }}
+          />
+        </div>
+        <button type="submit" disabled={!canSubmit} style={{
           display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
           padding: "14px 20px", marginTop: 4,
-          background: netSending ? "rgba(200,170,90,0.3)" : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
-          border: "none", borderRadius: 8, cursor: netSending ? "not-allowed" : "pointer",
+          background: !canSubmit ? "rgba(200,170,90,0.3)" : "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+          border: "none", borderRadius: 8, cursor: !canSubmit ? "not-allowed" : "pointer",
           fontSize: 13, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
           color: "#080808",
+          opacity: !canSubmit && !netSending ? 0.7 : 1,
         }}>
-          <Send size={14} /> {netSending ? "Submitting…" : "Submit & Open Lead"}
+          <Send size={14} /> {netSending ? "Submitting…" : (isAddLead ? "Add Lead & Open" : "Submit & Open Lead")}
         </button>
       </form>
     </div>
@@ -6266,7 +6300,7 @@ export type WarmLeadIntent =
   | "future_seller_and_buyer" | "future_seller_and_renter";
 
 export const WARM_LEAD_SOURCE_PILLS: Record<WarmLeadSource, { label: string; bg: string; fg: string; border: string }> = {
-  network:     { label: "Network",    bg: "rgba(200,170,90,0.14)", fg: "#c8aa5a", border: "rgba(200,170,90,0.4)" },
+  network:     { label: "Add Lead",   bg: "rgba(200,170,90,0.14)", fg: "#c8aa5a", border: "rgba(200,170,90,0.4)" },
   open_house:  { label: "Open House", bg: "rgba(147,197,253,0.14)", fg: "#93c5fd", border: "rgba(59,130,246,0.4)" },
   door_knock:  { label: "Door Knock", bg: "rgba(74,222,128,0.14)",  fg: "#4ade80", border: "rgba(34,197,94,0.4)" },
   direct_mail: { label: "Direct Mail",bg: "rgba(251,146,60,0.14)",  fg: "#fb923c", border: "rgba(249,115,22,0.4)" },
@@ -6623,7 +6657,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.52.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.52.1</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -8153,7 +8187,7 @@ function LeadGenSheet(props: {
 
         {view === "network-referral" && (
           <>
-            {header("Network Referral", () => setView("root"))}
+            {header("Add Lead", () => setView("root"))}
             <ClientReferralForm source="network" onSubmitted={() => close()} />
           </>
         )}

@@ -8852,70 +8852,163 @@ This template is for informational/outreach purposes only.`;
     res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: 50 });
   });
 
-  // ─── v17.6 DOOR KNOCK LOG → APPROVAL QUEUE ────────────────────────
-  // Standalone door-knock session (not OH piggyback). Minimum 25 doors per
-  // session — planned ahead, real route. 2 pts per door. Evidence is the
-  // rep-card app export/reconciliation on Nate's side. Fakers caught by low
-  // leads-per-1000-doors ratio over time.
+  // ─── v20.50.8 DOOR KNOCK SESSION → AUTO-AWARD (flag anomalies) ─────
+  // Session model: neighborhood/block + door count + optional notes + optional
+  // GPS + required proof photo. Soft min 10 doors (with proof). Auto-approve
+  // and bank 2 pts/door when proof is present and doors look sane. Flag/pending
+  // only for anomalies (doors > 250, or doors > 150 without notes). Reuses the
+  // same ledger write as the admin approve handler (approval:door_knock_log +
+  // points_awarded broadcast) so pending + auto paths stay consistent.
   app.post("/api/lead-gen/door-knock-log", (req, res) => {
-    const { agentId, address, doorsCount, notes, gpsLat, gpsLng, timestamp } = req.body;
+    const { agentId, address, doorsCount, notes, photoDataUrl, gpsLat, gpsLng, timestamp } = req.body;
     const submitterId = agentId ? parseInt(String(agentId)) : null;
     if (!submitterId) return res.status(400).json({ error: "agentId required" });
-    if (!address || !String(address).trim()) return res.status(400).json({ error: "Address / block required" });
+    if (!address || !String(address).trim()) return res.status(400).json({ error: "Neighborhood / block required" });
     const doors = doorsCount != null ? Math.max(0, parseInt(String(doorsCount)) || 0) : 0;
-    if (doors < 25) return res.status(400).json({ error: "Door knock session requires 25 or more doors" });
+    if (doors < 10) return res.status(400).json({ error: "Door knock session requires 10 or more doors" });
+    if (!photoDataUrl || typeof photoDataUrl !== "string" || !String(photoDataUrl).startsWith("data:image/")) {
+      return res.status(400).json({ error: "Proof photo required" });
+    }
 
     const now = new Date().toISOString();
     const submitter = storage.getAgentById(submitterId);
     const cleanAddr = String(address).trim();
+    const cleanNotes = notes ? String(notes).trim().slice(0, 4000) : "";
     const cappedDoors = Math.min(doors, 500); // sane per-submission cap
-    const points = cappedDoors * 2; // v17.6 — 2 pts per door
+    const points = cappedDoors * 2; // 2 pts per door
+    // Anomaly flags — soft judgment, not a brick wall for real short sessions.
+    const flagReasons: string[] = [];
+    if (cappedDoors > 250) flagReasons.push("doors_over_250");
+    if (cappedDoors > 150 && !cleanNotes) flagReasons.push("doors_over_150_no_notes");
+    const flagged = flagReasons.length > 0;
+    const status = flagged ? "pending" : "approved";
+
     const payloadObj = {
       address: cleanAddr,
       doorsCount: cappedDoors,
-      notes: notes ? String(notes).trim().slice(0, 4000) : "",
+      notes: cleanNotes,
       gpsLat: gpsLat != null ? Number(gpsLat) : null,
       gpsLng: gpsLng != null ? Number(gpsLng) : null,
       capturedAt: timestamp || now,
-      // no photoDataUrl — evidence is the rep-card app export/reconciliation
+      photoDataUrl: String(photoDataUrl).slice(0, 4_000_000),
+      flagReasons: flagged ? flagReasons : [],
+      autoAwarded: !flagged,
     };
-    const info = rawDb.prepare(`
-      INSERT INTO approval_requests
-        (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
-      VALUES ('door_knock_log', ?, ?, 'pending', ?, ?, ?)
-    `).run(submitterId, submitter?.name || "Agent", points, JSON.stringify(payloadObj), now);
-    const requestId = Number(info.lastInsertRowid);
+
+    let requestId: number;
+    let activityId: number | null = null;
+    let pointsAwarded = 0;
+
+    if (flagged) {
+      const info = rawDb.prepare(`
+        INSERT INTO approval_requests
+          (kind, agent_id, agent_name, status, points_potential, payload_json, submitted_at)
+        VALUES ('door_knock_log', ?, ?, 'pending', ?, ?, ?)
+      `).run(submitterId, submitter?.name || "Agent", points, JSON.stringify(payloadObj), now);
+      requestId = Number(info.lastInsertRowid);
+    } else {
+      // Auto path — mirror approve handler: durable approval row + lead_activity
+      // + agent_points (approval:door_knock_log) + points_awarded broadcast.
+      const activityInfo = rawDb.prepare(`
+        INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at,
+                                    lead_address_snapshot, lead_phone_snapshot, lead_owner_snapshot)
+        VALUES (NULL, ?, 'door_knock_log', ?, NULL, ?, ?, NULL, NULL)
+      `).run(submitterId, JSON.stringify(payloadObj), now, cleanAddr);
+      activityId = Number(activityInfo.lastInsertRowid);
+
+      pointsAwarded = points;
+      if (pointsAwarded > 0) {
+        rawDb.prepare(
+          `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, ?, NULL, 'seller', ?)`
+        ).run(submitterId, pointsAwarded, "approval:door_knock_log", now);
+        try {
+          broadcast({
+            type: "points_awarded",
+            agentId: submitterId,
+            delta: pointsAwarded,
+            outcome: "approval:door_knock_log",
+            scope: "seller",
+            ts: now,
+          });
+        } catch {}
+      }
+
+      const info = rawDb.prepare(`
+        INSERT INTO approval_requests
+          (kind, agent_id, agent_name, status, points_awarded, points_potential, payload_json,
+           submitted_at, decided_at, decided_by, decision_notes, activity_id)
+        VALUES ('door_knock_log', ?, ?, 'approved', ?, ?, ?, ?, ?, NULL, 'auto-approved with proof', ?)
+      `).run(
+        submitterId,
+        submitter?.name || "Agent",
+        pointsAwarded,
+        points,
+        JSON.stringify(payloadObj),
+        now,
+        now,
+        activityId,
+      );
+      requestId = Number(info.lastInsertRowid);
+    }
 
     broadcast({
       type: "approval_event",
       event: {
-        type: "approval_submitted",
+        type: flagged ? "approval_submitted" : "approval_decided",
         kind: "door_knock_log",
         requestId,
         agentId: submitterId,
         agentName: submitter?.name || "Agent",
         agentHeadshot: (submitter as any)?.headshotUrl || null,
         address: cleanAddr,
+        status,
+        pointsAwarded: flagged ? 0 : pointsAwarded,
         ts: now,
       },
     });
 
-    // v19.6 — admin email on every door-knock log
+    // v19.6 — admin email on every door-knock log (auto + flagged)
     const _tdL = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:140px;vertical-align:top";
     const _tdR = "padding:8px 0;font-size:14px;color:#f0f0f0;vertical-align:top";
+    const statusLabel = flagged
+      ? `PENDING REVIEW (${flagReasons.join(", ")})`
+      : `AUTO-APPROVED · +${pointsAwarded} pts`;
     notifyLeadGenActivity({
       kind: "door_knock_log",
       agentName: submitter?.name || "Agent",
-      headline: `🚪 Door Knock Log — ${cappedDoors} doors — ${submitter?.name || "Agent"}`,
+      headline: `🚪 Door Knock Session — ${cappedDoors} doors — ${submitter?.name || "Agent"} — ${flagged ? "PENDING" : "BANKED"}`,
       detailsHtml: `
-        <tr><td style="${_tdL}">Address / Block</td><td style="${_tdR}">${cleanAddr}</td></tr>
+        <tr><td style="${_tdL}">Neighborhood / Block</td><td style="${_tdR}">${cleanAddr}</td></tr>
         <tr><td style="${_tdL}">Doors</td><td style="${_tdR}"><strong>${cappedDoors}</strong></td></tr>
-        <tr><td style="${_tdL}">Points at stake</td><td style="${_tdR}">${points}</td></tr>
-        <tr><td style="${_tdL}">Notes</td><td style="${_tdR}">${(payloadObj.notes || "—").replace(/\n/g,"<br>")}</td></tr>
+        <tr><td style="${_tdL}">Status</td><td style="${_tdR}">${statusLabel}</td></tr>
+        <tr><td style="${_tdL}">Points</td><td style="${_tdR}">${points}</td></tr>
+        <tr><td style="${_tdL}">Proof</td><td style="${_tdR}">photo attached</td></tr>
+        <tr><td style="${_tdL}">Notes</td><td style="${_tdR}">${(cleanNotes || "—").replace(/\n/g,"<br>")}</td></tr>
       `,
     });
 
-    res.json({ submitted: true, requestId, pendingApproval: true, pointsPotential: points, doorsCount: cappedDoors });
+    if (flagged) {
+      res.json({
+        submitted: true,
+        requestId,
+        pendingApproval: true,
+        flagged: true,
+        flagReasons,
+        pointsPotential: points,
+        doorsCount: cappedDoors,
+      });
+    } else {
+      res.json({
+        submitted: true,
+        requestId,
+        pendingApproval: false,
+        flagged: false,
+        pointsAwarded,
+        pointsPotential: points,
+        doorsCount: cappedDoors,
+        activityId,
+      });
+    }
   });
 
   // ─── v17.6 DIRECT MAIL LOG → APPROVAL QUEUE ───────────────────────

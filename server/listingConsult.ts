@@ -66,19 +66,30 @@ function resolveListingPhotoPath(url: string | null | undefined): string | null 
 }
 
 // Draws an image into a fixed box without distorting its aspect ratio,
-// centering it and filling any letterbox margin with black — matches the
-// same technique used on Repair Consult PDFs.
+// centering it. v20.54.1 — was filling the letterbox margin with solid
+// black, which produced large ugly black bars around portrait/square
+// photos in wide boxes. Fill with white instead (blends into the page
+// background so it reads as clean whitespace, not an error) and add a
+// thin light-gray border around the actual photo for a polished card look.
 function drawContainedImage(
   page: any,
   img: any,
   box: { x: number; y: number; width: number; height: number },
-  background = rgb(0, 0, 0)
+  background = rgb(1, 1, 1)
 ) {
   page.drawRectangle({ x: box.x, y: box.y - box.height, width: box.width, height: box.height, color: background });
   const { width: drawW, height: drawH } = img.scaleToFit(box.width, box.height);
   const drawX = box.x + (box.width - drawW) / 2;
   const drawY = box.y - box.height + (box.height - drawH) / 2;
   page.drawImage(img, { x: drawX, y: drawY, width: drawW, height: drawH });
+  page.drawRectangle({
+    x: drawX,
+    y: drawY,
+    width: drawW,
+    height: drawH,
+    borderColor: rgb(0.82, 0.82, 0.82),
+    borderWidth: 1,
+  });
 }
 
 // v20.54.0 — some summary helpers (accessSummary etc.) bake in literal HTML

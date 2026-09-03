@@ -1499,12 +1499,29 @@ async function addScopePhotosPages(
 }
 
 // ─── PDF QUOTE (pdf-lib, matches Brothers Group letterhead) ────────────────
-export async function generateQuotePdf(consultId: number): Promise<string> {
+// v20.52.0 — With Scope vs Summary Only: `mode` picks whether the itemized
+// scope of work (item names/qty, vendor bullets, scope photos) is drawn at
+// all. "with_scope" (default) preserves every prior behavior byte-for-byte.
+// "summary" strips all scope detail and shows only Total/payment figures —
+// for the client who just wants a clean invoice, not the full punch list.
+export async function generateQuotePdf(consultId: number, opts: { mode?: "with_scope" | "summary" } = {}): Promise<string> {
+  const mode = opts.mode === "summary" ? "summary" : "with_scope";
+  const showScope = mode !== "summary";
   const consult = getConsultRow(consultId);
   const allItems = getConsultItems(consultId);
   const items = allItems.filter((i: any) => i.category === "in_house");
   const vendorItems = allItems.filter((i: any) => i.category === "vendor");
   if (!consult) throw new Error("Consult not found");
+
+  // v20.52.0 — Never Forget Approval/Deposit language: once the client has
+  // actually signed AND a deposit has been recorded against this consult,
+  // this is no longer a proposal — it's the executed job's Final Invoice,
+  // and the payment box below must show what's actually been collected
+  // (deposit_amount) and what's actually still owed (final_amount), not a
+  // hypothetical 50/50 split. Before that point (still quoting, or signed
+  // but deposit not yet taken) the 50/50 proposal framing is still literally
+  // accurate and unchanged.
+  const isFinalInvoice = (consult.status === "accepted" || consult.status === "work_order_sent") && !!consult.deposit_received_at;
 
   const pdfDoc = await PDFDocument.create();
   let page = pdfDoc.addPage([612, 792]);
@@ -1527,7 +1544,7 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
     y -= h + 24;
   } catch { y -= 10; }
 
-  const title = "Repair Proposal";
+  const title = isFinalInvoice ? "Final Invoice" : "Repair Proposal";
   const titleWidth = fontBold.widthOfTextAtSize(title, 20);
   page.drawText(title, { x: (612 - titleWidth) / 2, y, size: 20, font: fontBold, color: black });
   y -= 26;
@@ -1551,28 +1568,50 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
     } catch { /* non-fatal — skip hero image if unreadable */ }
   }
 
+  // v20.32.38 — page-break guard: never draw content lower than MIN_Y so it
+  // can't collide with the gray footer band (top edge at footerY=70). Moved
+  // up (was declared after the items loop) so the items loop below can also
+  // page-break against it instead of silently dropping rows.
+  const MIN_Y = 95;
+
   // Items table
   // v20.24.0 — Alex: keep the total, drop the itemized $ breakdown. Item +
   // Qty columns only; no per-line Amount, no Subtotal line.
   const colLabelX = 38, colQtyX = 480, colAmtX = 480;
-  page.drawText("Item", { x: colLabelX, y, size: 9, font: fontBold, color: gray });
-  page.drawText("Qty", { x: colQtyX, y, size: 9, font: fontBold, color: gray });
-  y -= 6;
-  page.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 1, color: black });
-  y -= 14;
+  const drawItemsHeader = () => {
+    page.drawText("Item", { x: colLabelX, y, size: 9, font: fontBold, color: gray });
+    page.drawText("Qty", { x: colQtyX, y, size: 9, font: fontBold, color: gray });
+    y -= 6;
+    page.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 1, color: black });
+    y -= 14;
+  };
 
-  let rowIdx = 0;
-  for (const it of items) {
-    if (y < 195) { break; } // guard against overflow on very long scopes (v20.20.0 — raised to fit the boxed 50/50 + vendor callout)
-    if (rowIdx % 2 === 1) page.drawRectangle({ x: 38, y: y - 4, width: 536, height: 16, color: lightGray });
-    const label = it.two_story ? `${it.name} (2-story)` : it.name;
-    page.drawText(label.slice(0, 60), { x: colLabelX, y: y, size: 9, font, color: black });
-    page.drawText(`${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`, { x: colQtyX, y, size: 9, font, color: black });
-    y -= 16;
-    rowIdx++;
+  if (showScope) {
+    drawItemsHeader();
+    let rowIdx = 0;
+    for (const it of items) {
+      // v20.52.0 — FIX dropped line items: this used to be `if (y < 195) { break; }`,
+      // which silently stopped rendering the rest of the scope once the page
+      // ran low on room (exactly what happened on Laura Dodson's quote-41.pdf —
+      // items like "Replace porch light bulb", "Install paver stones", and
+      // signed Change Orders never showed up). The vendor-items loop further
+      // below already paginates correctly via addPage(); this loop now does
+      // the same instead of truncating.
+      if (y < MIN_Y + 30) {
+        page = pdfDoc.addPage([612, 792]);
+        y = 792 - 50;
+        drawItemsHeader();
+        rowIdx = 0;
+      }
+      if (rowIdx % 2 === 1) page.drawRectangle({ x: 38, y: y - 4, width: 536, height: 16, color: lightGray });
+      const label = it.two_story ? `${it.name} (2-story)` : it.name;
+      page.drawText(label.slice(0, 60), { x: colLabelX, y: y, size: 9, font, color: black });
+      page.drawText(`${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`, { x: colQtyX, y, size: 9, font, color: black });
+      y -= 16;
+      rowIdx++;
+    }
+    y -= 10;
   }
-
-  y -= 10;
   page.drawLine({ start: { x: 38, y }, end: { x: 574, y }, thickness: 0.5, color: gray });
   y -= 18;
   // v20.18.0 — show package discount (if any) as its own line before the total.
@@ -1594,19 +1633,28 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
     page.drawText(`FREE: ${freeItem?.name || consult.free_item_applied_key} (sign-today incentive)`, { x: 38, y, size: 9.5, font: fontBold, color: green });
     y -= 16;
   }
-  // v20.20.0 — 50/50 payment terms made large, bold, and boxed so it reads as
-  // the headline affordability message, not fine print.
+  // v20.20.0 / v20.52.0 — payment box made large, bold, and boxed so it reads
+  // as the headline affordability message, not fine print. Labels + figures
+  // now reflect real state: still-quoting or signed-but-no-deposit-yet shows
+  // the 50/50 proposal split (unchanged); once signed AND deposit actually
+  // received, this becomes the Final Invoice box — Deposit Received (what
+  // was actually collected) / Balance Due Now (what's actually still owed),
+  // clamped to "PAID IN FULL" once the balance hits zero.
   y -= 4;
+  if (y < MIN_Y + 30) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
   page.drawRectangle({ x: 38, y: y - 30, width: 536, height: 30, color: rgb(0.94, 0.98, 0.94) });
-  page.drawText("50% DEPOSIT TO START", { x: 48, y: y - 12, size: 10, font: fontBold, color: green });
-  page.drawText(`$${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 48, y: y - 25, size: 13, font: fontBold, color: black });
-  page.drawText("50% ON COMPLETION", { x: 320, y: y - 12, size: 10, font: fontBold, color: green });
-  page.drawText(`$${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 320, y: y - 25, size: 13, font: fontBold, color: black });
+  const balanceIsZero = Number(consult.final_amount) <= 0.004;
+  const boxLeftLabel = isFinalInvoice ? "DEPOSIT RECEIVED" : "50% DEPOSIT TO START";
+  const boxRightLabel = isFinalInvoice ? "BALANCE DUE NOW" : "50% ON COMPLETION";
+  const boxRightValue = isFinalInvoice && balanceIsZero
+    ? "PAID IN FULL"
+    : `$${Number(consult.final_amount).toLocaleString(undefined,{minimumFractionDigits:2})}`;
+  page.drawText(boxLeftLabel, { x: 48, y: y - 12, size: 10, font: fontBold, color: green });
+  page.drawText(`$${Number(consult.deposit_amount).toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 48, y: y - 25, size: 13, font: fontBold, color: black });
+  page.drawText(boxRightLabel, { x: 320, y: y - 12, size: 10, font: fontBold, color: green });
+  page.drawText(boxRightValue, { x: 320, y: y - 25, size: 13, font: fontBold, color: black });
   y -= 42;
 
-  // v20.32.38 — page-break guard: never draw content lower than MIN_Y so it
-  // can't collide with the gray footer band (top edge at footerY=70).
-  const MIN_Y = 95;
   if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
   page.drawText(START_MOMENTUM_PDF_LINE, { x: 38, y, size: 9.5, font: fontBold, color: rgb(0, 0.35, 0) });
   y -= 16;
@@ -1619,42 +1667,48 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   // (or "Quote pending" if not yet entered) and its scope/instruction text —
   // and pages forward instead of vanishing when space runs out.
   if (vendorItems.length > 0) {
-    if (y < MIN_Y + 13) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
-    page.drawText("ALSO COORDINATING (licensed trade — quoted separately by our vendor partners):", { x: 38, y, size: 8.5, font: fontBold, color: gray });
-    y -= 14;
-    for (const v of vendorItems) {
-      if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
-      const vendorPriced = v.vendor_quote_amount != null && v.line_total != null;
-      // v20.39.0 — Fold Into Deposit Schedule: an item marked include_in_deposit
-      // already had its dollars added into consult.total/deposit_amount/
-      // final_amount server-side, so label it as "in 50/50 total" here instead
-      // of a bare price — and it must NOT also land in pricedVendorTotal below
-      // (that would double-count it into GRAND TOTAL).
-      const includedInDeposit = !!v.include_in_deposit;
-      const priceLabel = vendorPriced
-        ? `$${Number(v.line_total).toLocaleString(undefined, { minimumFractionDigits: 2 })}${includedInDeposit ? " (included in Total above)" : ""}`
-        : "Quote pending";
-      page.drawText(`\u2022  ${v.name}`.slice(0, 68), { x: 38, y, size: 8.5, font, color: rgb(0.2, 0.2, 0.2) });
-      page.drawText(priceLabel, { x: 400, y, size: 8.5, font: fontBold, color: vendorPriced ? (includedInDeposit ? green : black) : gray });
-      y -= 12;
-      // v20.49.0 — FIX: was capped at .slice(0, 2), silently cutting off the
-      // rest of the agent-written vendor scope note (Alex: "do you see all
-      // the details explaining what the vendor is going to do? ... otherwise
-      // it just looks like it says land clearing and then the price"). This
-      // page already pages forward (addPage above) so there's no reason to
-      // truncate — show the FULL scope note the agent wrote (vendor_scope_note,
-      // falling back to instruction for older items saved before that field
-      // existed), wrapped to as many lines as it needs.
-      const scopeText = (v.vendor_scope_note && String(v.vendor_scope_note).trim()) || v.instruction || "";
-      if (scopeText) {
-        for (const line of wrapText(scopeText, fontItalic, 7, 480)) {
-          if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
-          page.drawText(line, { x: 46, y, size: 7, font: fontItalic, color: gray });
-          y -= 9;
+    // v20.52.0 — Summary Only skips the itemized vendor scope bullets (that's
+    // scope detail, not a payment total) but still needs the totals math
+    // below (separateVendorItems / pricedVendorTotal / GRAND TOTAL), so only
+    // the drawing loop itself is gated on showScope.
+    if (showScope) {
+      if (y < MIN_Y + 13) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
+      page.drawText("ALSO COORDINATING (licensed trade — quoted separately by our vendor partners):", { x: 38, y, size: 8.5, font: fontBold, color: gray });
+      y -= 14;
+      for (const v of vendorItems) {
+        if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
+        const vendorPriced = v.vendor_quote_amount != null && v.line_total != null;
+        // v20.39.0 — Fold Into Deposit Schedule: an item marked include_in_deposit
+        // already had its dollars added into consult.total/deposit_amount/
+        // final_amount server-side, so label it as "in 50/50 total" here instead
+        // of a bare price — and it must NOT also land in pricedVendorTotal below
+        // (that would double-count it into GRAND TOTAL).
+        const includedInDeposit = !!v.include_in_deposit;
+        const priceLabel = vendorPriced
+          ? `$${Number(v.line_total).toLocaleString(undefined, { minimumFractionDigits: 2 })}${includedInDeposit ? " (included in Total above)" : ""}`
+          : "Quote pending";
+        page.drawText(`\u2022  ${v.name}`.slice(0, 68), { x: 38, y, size: 8.5, font, color: rgb(0.2, 0.2, 0.2) });
+        page.drawText(priceLabel, { x: 400, y, size: 8.5, font: fontBold, color: vendorPriced ? (includedInDeposit ? green : black) : gray });
+        y -= 12;
+        // v20.49.0 — FIX: was capped at .slice(0, 2), silently cutting off the
+        // rest of the agent-written vendor scope note (Alex: "do you see all
+        // the details explaining what the vendor is going to do? ... otherwise
+        // it just looks like it says land clearing and then the price"). This
+        // page already pages forward (addPage above) so there's no reason to
+        // truncate — show the FULL scope note the agent wrote (vendor_scope_note,
+        // falling back to instruction for older items saved before that field
+        // existed), wrapped to as many lines as it needs.
+        const scopeText = (v.vendor_scope_note && String(v.vendor_scope_note).trim()) || v.instruction || "";
+        if (scopeText) {
+          for (const line of wrapText(scopeText, fontItalic, 7, 480)) {
+            if (y < MIN_Y) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
+            page.drawText(line, { x: 46, y, size: 7, font: fontItalic, color: gray });
+            y -= 9;
+          }
         }
       }
+      y -= 4;
     }
-    y -= 4;
 
     // v20.39.0 — only vendor items still billed SEPARATELY (not folded into
     // the 50/50 schedule) count toward the "GRAND TOTAL" add-on line below —
@@ -1698,7 +1752,10 @@ export async function generateQuotePdf(consultId: number): Promise<string> {
   // v20.30.0 — Alex: show the other scope/gallery photos on the quote too,
   // not just the front-of-house hero — gives the client more confidence the
   // proposal reflects the actual property. Dedupe against the hero photo.
-  const scopePhotos = (consult.property_photos || []).filter((p: any) => p?.url && p.url !== consult.hero_photo_url);
+  // v20.52.0 — Summary Only skips extra scope/gallery photos too (those
+  // document scope, not payment totals); hero photo above stays in both
+  // modes since it's just property identification, not scope detail.
+  const scopePhotos = showScope ? (consult.property_photos || []).filter((p: any) => p?.url && p.url !== consult.hero_photo_url) : [];
   if (scopePhotos.length > 0) {
     await addScopePhotosPages(pdfDoc, fontBold, font, fontItalic, scopePhotos, consult.property_address);
   }
@@ -1929,9 +1986,20 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   // "no in-house deposit due". Skip the box entirely in that scenario.
   if (Number(consult.total) > 0) {
     // v20.20.0 — 50/50 terms enlarged + boxed to match the client quote PDF (was tiny gray text).
+    // v20.52.0 — FIX stale language: once the client has signed AND a deposit
+    // has actually been recorded, this box kept saying "50% DEPOSIT TO START"
+    // even though the deposit was already paid and the job already approved.
+    // Mirrors the same isFinalInvoice check in generateQuotePdf.
+    const agreementIsFinalInvoice = (consult.status === "accepted" || consult.status === "work_order_sent") && !!consult.deposit_received_at;
+    const agreementBalanceIsZero = Number(consult.final_amount) <= 0.004;
+    const leftLabel = agreementIsFinalInvoice ? "DEPOSIT RECEIVED" : "50% DEPOSIT TO START";
+    const rightLabel = agreementIsFinalInvoice ? "BALANCE DUE NOW" : "50% ON COMPLETION";
+    const rightValue = agreementIsFinalInvoice && agreementBalanceIsZero
+      ? "PAID IN FULL"
+      : `$${Number(consult.final_amount).toLocaleString(undefined,{minimumFractionDigits:2})}`;
     p1.drawRectangle({ x: 38, y: y - 24, width: 536, height: 24, color: rgb(0.94, 0.98, 0.94) });
-    p1.drawText(`50% DEPOSIT TO START: $${consult.deposit_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 46, y: y - 16, size: 10, font: fontBold, color: green });
-    p1.drawText(`50% ON COMPLETION: $${consult.final_amount.toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 320, y: y - 16, size: 10, font: fontBold, color: green });
+    p1.drawText(`${leftLabel}: $${Number(consult.deposit_amount).toLocaleString(undefined,{minimumFractionDigits:2})}`, { x: 46, y: y - 16, size: 10, font: fontBold, color: green });
+    p1.drawText(`${rightLabel}: ${rightValue}`, { x: 320, y: y - 16, size: 10, font: fontBold, color: green });
     y -= 34;
   } else {
     y -= 6;
@@ -3221,7 +3289,11 @@ export function registerRepairConsultRoutes(app: Express) {
       const consult = getConsultRow(consultId);
       if (!consult) return res.status(404).json({ error: "Consult not found" });
       if (!consult.quote_token) return res.status(409).json({ error: "Generate the quote first." });
-      const url = await generateQuotePdf(consultId);
+      // v20.52.0 — With Scope vs Summary Only: optional ?mode= query param.
+      // Defaults to "with_scope" so every existing caller (the consult wizard's
+      // View button, resend links, etc.) keeps its current behavior untouched.
+      const mode = req.query.mode === "summary" ? "summary" : "with_scope";
+      const url = await generateQuotePdf(consultId, { mode });
       res.redirect(url);
     } catch (err: any) {
       console.error("quote-pdf error:", err);

@@ -5,8 +5,9 @@
 // directly against them via the existing generic PaymentRecordModal.
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { RefreshCw, DollarSign, Wrench, ClipboardCheck, CreditCard } from "lucide-react";
+import { RefreshCw, DollarSign, Wrench, ClipboardCheck, CreditCard, FileText, ListChecks, Receipt } from "lucide-react";
 import { PaymentRecordModal } from "./PaymentRecordModal";
+import { PdfViewerModal } from "./PdfViewerModal";
 
 const GOLD = "#c8aa5a";
 
@@ -56,6 +57,21 @@ export function AccountsReceivablePanel() {
   const [loading, setLoading] = useState(true);
   const [showPaidInFull, setShowPaidInFull] = useState(false);
   const [payModalFor, setPayModalFor] = useState<ArRow | null>(null);
+  // v20.52.0 — Generate Invoice: pick With Scope (full itemized punch list,
+  // no per-line pricing) vs Summary Only (just the payment totals) before
+  // opening the PDF. invoiceChoiceFor drives the small chooser dialog;
+  // invoicePdfUrl/invoicePdfTitle drive the actual PdfViewerModal once a
+  // mode is picked.
+  const [invoiceChoiceFor, setInvoiceChoiceFor] = useState<ArRow | null>(null);
+  const [invoicePdf, setInvoicePdf] = useState<{ url: string; title: string } | null>(null);
+
+  const openInvoice = (row: ArRow, mode: "with_scope" | "summary") => {
+    setInvoiceChoiceFor(null);
+    setInvoicePdf({
+      url: `/api/repair-consult/${row.source_id}/quote-pdf?mode=${mode}`,
+      title: `${row.property_address} — ${mode === "summary" ? "Invoice (Summary)" : "Invoice (With Scope)"}`,
+    });
+  };
 
   const load = async () => {
     setLoading(true);
@@ -178,11 +194,18 @@ export function AccountsReceivablePanel() {
                   </div>
                 </div>
 
-                {r.balance > 0 && (
-                  <button onClick={() => setPayModalFor(r)} style={{
-                    ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)",
-                  }}><CreditCard size={11} /> Record Payment</button>
-                )}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {r.source_type === "repair_consult" && (
+                    <button onClick={() => setInvoiceChoiceFor(r)} style={actionBtnStyle}>
+                      <FileText size={11} /> Generate Invoice
+                    </button>
+                  )}
+                  {r.balance > 0 && (
+                    <button onClick={() => setPayModalFor(r)} style={{
+                      ...actionBtnStyle, color: "#4ade80", borderColor: "rgba(74,222,128,0.4)", background: "rgba(74,222,128,0.08)",
+                    }}><CreditCard size={11} /> Record Payment</button>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -199,6 +222,55 @@ export function AccountsReceivablePanel() {
           onClose={() => setPayModalFor(null)}
           onRecorded={() => { setPayModalFor(null); load(); }}
         />
+      )}
+
+      {/* v20.52.0 — With Scope vs Summary Only chooser, shown before the PDF
+          is generated so we never need two separate buttons on this row. */}
+      {invoiceChoiceFor && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setInvoiceChoiceFor(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "#171512", border: "1px solid rgba(200,170,90,0.3)", borderRadius: 10, padding: 20, maxWidth: 380, width: "100%" }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#e5e7eb", marginBottom: 4 }}>Generate Invoice</div>
+            <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 16 }}>{invoiceChoiceFor.property_address}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                onClick={() => openInvoice(invoiceChoiceFor, "with_scope")}
+                style={{ ...actionBtnStyle, justifyContent: "flex-start", padding: "10px 12px", width: "100%" }}
+              >
+                <ListChecks size={13} color={GOLD} />
+                <span>
+                  <div style={{ fontWeight: 700 }}>With Scope</div>
+                  <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 400 }}>Full itemized work scope + payment totals</div>
+                </span>
+              </button>
+              <button
+                onClick={() => openInvoice(invoiceChoiceFor, "summary")}
+                style={{ ...actionBtnStyle, justifyContent: "flex-start", padding: "10px 12px", width: "100%" }}
+              >
+                <Receipt size={13} color={GOLD} />
+                <span>
+                  <div style={{ fontWeight: 700 }}>Summary Only</div>
+                  <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 400 }}>Just the payment totals — no itemized scope</div>
+                </span>
+              </button>
+            </div>
+            <button
+              onClick={() => setInvoiceChoiceFor(null)}
+              style={{ marginTop: 14, fontSize: 11, color: "#94a3b8", background: "none", border: "none", cursor: "pointer", width: "100%" }}
+            >Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {invoicePdf && (
+        <PdfViewerModal url={invoicePdf.url} title={invoicePdf.title} onClose={() => setInvoicePdf(null)} />
       )}
     </div>
   );

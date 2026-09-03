@@ -11,9 +11,11 @@ import { FubTagConfigPanel } from "../components/ld/FubTagConfigPanel";
 import { RepairPricingVendorPanel } from "../components/ld/RepairPricingVendorPanel";
 import { InspectionsPricingPanel } from "../components/ld/InspectionsPricingPanel";
 import { AccountsReceivablePanel } from "../components/ld/AccountsReceivablePanel";
+import { ListingConsultsPanel } from "../components/ld/ListingConsultsPanel";
 import { WorkCalendarPanel } from "../components/ld/WorkCalendarPanel";
 import { LaborCrewsPanel } from "../components/ld/LaborCrewsPanel";
 import { BghsPnlPanel } from "../components/ld/BghsPnlPanel";
+import { JobProfitabilityPanel } from "../components/ld/JobProfitabilityPanel";
 import { OpenHouseSchedulePanel } from "../components/ld/OpenHouseSchedulePanel";
 import { PendingOpenHousesPanel } from "../components/ld/PendingOpenHousesPanel";
 import ProfilePage from "./ProfilePage";
@@ -41,7 +43,7 @@ import {
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
   UserPlus, UserCircle2, KeyRound, RotateCcw,
   Database, Wrench, FileText, PlayCircle, Home, CalendarDays,
-  ClipboardList, ClipboardCheck, DollarSign, CalendarClock, PieChart, HardHat
+  ClipboardList, ClipboardCheck, DollarSign, CalendarClock, PieChart, HardHat, Calculator
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -1902,7 +1904,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.52.1
+              v20.55.1
             </p>
           </div>
         </div>
@@ -2020,9 +2022,11 @@ export default function AdminDashboard({
               { value: "repairs",     icon: Wrench,      label: "Repair Program" },
               { value: "inspections", icon: ClipboardCheck, label: "Inspections+" },
               { value: "receivables", icon: DollarSign,  label: "Receivables" },
+              { value: "listing-consults", icon: ClipboardList, label: "Listing Consults" },
               { value: "work-calendar", icon: CalendarClock, label: "Calendar" },
               { value: "labor-crews",   icon: HardHat,     label: "Labor & Crews" },
               { value: "bghs-pnl",      icon: PieChart,    label: "HHS P&L" },
+              { value: "job-profit",    icon: Calculator,  label: "Job Profitability" },
             ].map(tab => (
               <TabsTrigger
                 key={tab.value}
@@ -3123,9 +3127,30 @@ export default function AdminDashboard({
             <AccountsReceivablePanel />
           </TabsContent>
 
+          {/* v20.53.0 — Listing Consults admin: every consult across all agents
+              and statuses, full walkthrough detail + photos, printable report. */}
+          <TabsContent value="listing-consults" className="mt-5">
+            <div>
+              <h2 style={{
+                fontFamily: "'Cormorant Garamond','Georgia',serif",
+                fontSize: "1.2rem", fontWeight: 300, color: "#fff",
+              }}>
+                Listing Consults
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Every Listing Consult across all agents and statuses — full walkthrough details, photos, and a printable branded report.
+              </p>
+            </div>
+            <ListingConsultsPanel />
+          </TabsContent>
+
           {/* v20.33.4 — Work Calendar/Scheduler admin: agenda view of every dated,
               schedulable event (job starts/completions, project meetings,
               inspection deadlines, open houses). */}
+          <TabsContent value="job-profit" className="mt-5">
+            <JobProfitabilityPanel />
+          </TabsContent>
+
           <TabsContent value="bghs-pnl" className="mt-5">
             <BghsPnlPanel />
           </TabsContent>

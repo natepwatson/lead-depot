@@ -1432,13 +1432,22 @@ function drawContainedImage(
   page: any,
   img: any,
   box: { x: number; y: number; width: number; height: number },
-  background = rgb(0, 0, 0)
+  background = rgb(1, 1, 1)
 ) {
+  // v20.55.0 — was solid black background, which produced ugly black
+  // pillarbox/letterbox bars around any photo that didn't exactly match the
+  // box's aspect ratio (same defect fixed in listingConsult.ts's version of
+  // this helper). White fill blends with the page instead, with a thin gray
+  // border traced around the actual photo bounds for a clean card look.
   page.drawRectangle({ x: box.x, y: box.y - box.height, width: box.width, height: box.height, color: background });
   const { width: drawW, height: drawH } = img.scaleToFit(box.width, box.height);
   const drawX = box.x + (box.width - drawW) / 2;
   const drawY = box.y - box.height + (box.height - drawH) / 2;
   page.drawImage(img, { x: drawX, y: drawY, width: drawW, height: drawH });
+  page.drawRectangle({
+    x: drawX, y: drawY, width: drawW, height: drawH,
+    borderColor: rgb(0.82, 0.82, 0.82), borderWidth: 1,
+  });
 }
 
 // v20.30.0 — Alex: the other scope/gallery photos (front-of-house hero is
@@ -1597,17 +1606,29 @@ export async function generateQuotePdf(consultId: number, opts: { mode?: "with_s
       // signed Change Orders never showed up). The vendor-items loop further
       // below already paginates correctly via addPage(); this loop now does
       // the same instead of truncating.
-      if (y < MIN_Y + 30) {
+      // v20.55.0 — FIX truncated item names: label.slice(0, 60) was cutting
+      // long item/change-order descriptions off mid-word (e.g. "...appliances, f").
+      // Wrap the label across as many lines as it needs instead of truncating,
+      // and size the row (and its zebra-stripe shading) to match. Compute the
+      // wrap BEFORE the page-break check so a multi-line row that won't fit
+      // triggers a fresh page instead of getting clipped by the footer.
+      const label = it.two_story ? `${it.name} (2-story)` : it.name;
+      const labelLines = wrapText(label, font, 9, colQtyX - colLabelX - 12);
+      const rowHeight = Math.max(16, labelLines.length * 12 + 4);
+      if (y < MIN_Y + rowHeight + 14) {
         page = pdfDoc.addPage([612, 792]);
         y = 792 - 50;
         drawItemsHeader();
         rowIdx = 0;
       }
-      if (rowIdx % 2 === 1) page.drawRectangle({ x: 38, y: y - 4, width: 536, height: 16, color: lightGray });
-      const label = it.two_story ? `${it.name} (2-story)` : it.name;
-      page.drawText(label.slice(0, 60), { x: colLabelX, y: y, size: 9, font, color: black });
+      if (rowIdx % 2 === 1) page.drawRectangle({ x: 38, y: y - (rowHeight - 12), width: 536, height: rowHeight, color: lightGray });
+      let lineY = y;
+      for (const line of labelLines) {
+        page.drawText(line, { x: colLabelX, y: lineY, size: 9, font, color: black });
+        lineY -= 12;
+      }
       page.drawText(`${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`, { x: colQtyX, y, size: 9, font, color: black });
-      y -= 16;
+      y -= rowHeight;
       rowIdx++;
     }
     y -= 10;

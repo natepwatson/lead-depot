@@ -102,6 +102,16 @@ export function serveStatic(app: Express) {
     res.redirect(301, "/join.html");
   });
 
+  // Bare join host (/) must serve join.html, not the SPA index (agent login).
+  // Host check here works even with stale client JS / missing JoinHostRedirect.
+  app.get("/", (req, res, next) => {
+    const host = String(req.hostname || req.headers.host || "").toLowerCase().split(":")[0];
+    const isJoinHost = host === "join.watsonbrothersgroup.com" || host.startsWith("join.");
+    if (!isJoinHost) return next();
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.sendFile(path.resolve(distPath, "join.html"));
+  });
+
   // ── SPA fallback ──────────────────────────────────────────────────────────
   app.use("/{*path}", (_req, res) => {
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");

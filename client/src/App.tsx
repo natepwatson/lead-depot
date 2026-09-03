@@ -153,15 +153,17 @@ function AppRoutes() {
 
 function JoinHostRedirect() {
   // join.watsonbrothersgroup.com should land on recruiting, not agent login.
-  const [loc, navigate] = useLocation();
+  // Hard-nav to static join.html (real recruiting landing). Hash-route /join
+  // only reaches React JoinPage, which is not the shipped recruiting site.
+  const [loc] = useLocation();
   useEffect(() => {
     const host = window.location.hostname.toLowerCase();
     const isJoinHost = host === "join.watsonbrothersgroup.com" || host.startsWith("join.");
     if (!isJoinHost) return;
     if (loc === "/" || loc === "") {
-      navigate("/join", { replace: true });
+      window.location.replace("/join.html");
     }
-  }, [loc, navigate]);
+  }, [loc]);
   return null;
 }
 

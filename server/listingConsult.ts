@@ -81,8 +81,21 @@ function drawContainedImage(
   page.drawImage(img, { x: drawX, y: drawY, width: drawW, height: drawH });
 }
 
+// v20.54.0 — some summary helpers (accessSummary etc.) bake in literal HTML
+// entities (e.g. "&amp;") because they're shared with HTML email rendering.
+// The PDF draws raw text, not HTML, so decode entities before wrapping —
+// otherwise "&amp;" prints literally instead of "&".
+function decodeHtmlEntities(str: string): string {
+  return String(str || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+}
+
 function wrapReportText(text: string, font: any, size: number, maxWidth: number): string[] {
-  const words = String(text || "").replace(/\r\n|\r|\n/g, " ").split(" ").filter(Boolean);
+  const words = decodeHtmlEntities(String(text || "")).replace(/\r\n|\r|\n/g, " ").split(" ").filter(Boolean);
   const lines: string[] = [];
   let current = "";
   for (const w of words) {

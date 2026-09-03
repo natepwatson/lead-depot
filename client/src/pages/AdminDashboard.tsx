@@ -11,6 +11,7 @@ import { FubTagConfigPanel } from "../components/ld/FubTagConfigPanel";
 import { RepairPricingVendorPanel } from "../components/ld/RepairPricingVendorPanel";
 import { InspectionsPricingPanel } from "../components/ld/InspectionsPricingPanel";
 import { AccountsReceivablePanel } from "../components/ld/AccountsReceivablePanel";
+import { ListingConsultsPanel } from "../components/ld/ListingConsultsPanel";
 import { WorkCalendarPanel } from "../components/ld/WorkCalendarPanel";
 import { LaborCrewsPanel } from "../components/ld/LaborCrewsPanel";
 import { BghsPnlPanel } from "../components/ld/BghsPnlPanel";
@@ -1902,7 +1903,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.52.0
+              v20.53.0
             </p>
           </div>
         </div>
@@ -2020,6 +2021,7 @@ export default function AdminDashboard({
               { value: "repairs",     icon: Wrench,      label: "Repair Program" },
               { value: "inspections", icon: ClipboardCheck, label: "Inspections+" },
               { value: "receivables", icon: DollarSign,  label: "Receivables" },
+              { value: "listing-consults", icon: ClipboardList, label: "Listing Consults" },
               { value: "work-calendar", icon: CalendarClock, label: "Calendar" },
               { value: "labor-crews",   icon: HardHat,     label: "Labor & Crews" },
               { value: "bghs-pnl",      icon: PieChart,    label: "HHS P&L" },
@@ -3121,6 +3123,23 @@ export default function AdminDashboard({
               </p>
             </div>
             <AccountsReceivablePanel />
+          </TabsContent>
+
+          {/* v20.53.0 — Listing Consults admin: every consult across all agents
+              and statuses, full walkthrough detail + photos, printable report. */}
+          <TabsContent value="listing-consults" className="mt-5">
+            <div>
+              <h2 style={{
+                fontFamily: "'Cormorant Garamond','Georgia',serif",
+                fontSize: "1.2rem", fontWeight: 300, color: "#fff",
+              }}>
+                Listing Consults
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Every Listing Consult across all agents and statuses — full walkthrough details, photos, and a printable branded report.
+              </p>
+            </div>
+            <ListingConsultsPanel />
           </TabsContent>
 
           {/* v20.33.4 — Work Calendar/Scheduler admin: agenda view of every dated,

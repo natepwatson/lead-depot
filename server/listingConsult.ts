@@ -31,6 +31,7 @@ import { storage } from "./storage";
 import { awardPoints } from "./points";
 import { fubRequest } from "./fub";
 import { Resend } from "resend";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -39,6 +40,76 @@ function listingPhotosDir(): string {
   const dir = IS_PROD ? "/app/data/listing-photos" : path.resolve(__dirname, "public", "listing-photos");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+// v20.53.0 — Admin "Listing Consults" report PDF. Self-contained pdf-lib
+// helpers (deliberately NOT importing from repairConsult.ts to avoid coupling
+// two unrelated features) mirroring the same Brothers Group black/white
+// letterhead styling already used on Repair Consult quotes/agreements.
+function listingReportsDir(): string {
+  const dir = IS_PROD ? "/app/data/listing-reports" : path.resolve(__dirname, "public", "listing-reports");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function brandLogoPath(): string {
+  const prodPath = "/app/dist/public/brand-logo.jpg";
+  const devPath = path.resolve(__dirname, "public", "brand-logo.jpg");
+  return IS_PROD && fs.existsSync(prodPath) ? prodPath : devPath;
+}
+
+// Listing Consult photos only ever live under /listing-photos (no cross-tool
+// hand-off ambiguity like Repair Consult has), so this resolver is simpler.
+function resolveListingPhotoPath(url: string | null | undefined): string | null {
+  if (!url || !url.startsWith("/listing-photos/")) return null;
+  return path.join(listingPhotosDir(), path.basename(url));
+}
+
+// Draws an image into a fixed box without distorting its aspect ratio,
+// centering it and filling any letterbox margin with black — matches the
+// same technique used on Repair Consult PDFs.
+function drawContainedImage(
+  page: any,
+  img: any,
+  box: { x: number; y: number; width: number; height: number },
+  background = rgb(0, 0, 0)
+) {
+  page.drawRectangle({ x: box.x, y: box.y - box.height, width: box.width, height: box.height, color: background });
+  const { width: drawW, height: drawH } = img.scaleToFit(box.width, box.height);
+  const drawX = box.x + (box.width - drawW) / 2;
+  const drawY = box.y - box.height + (box.height - drawH) / 2;
+  page.drawImage(img, { x: drawX, y: drawY, width: drawW, height: drawH });
+}
+
+function wrapReportText(text: string, font: any, size: number, maxWidth: number): string[] {
+  const words = String(text || "").replace(/\r\n|\r|\n/g, " ").split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const w of words) {
+    const test = current ? current + " " + w : w;
+    if (font.widthOfTextAtSize(test, size) > maxWidth && current) {
+      lines.push(current);
+      current = w;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+const PILLAR_LABELS: Record<string, string> = {
+  pressure_wash: "Pressure / Soft Washing",
+  lawn: "Lawn & Landscaping",
+  paint: "Touch-Up / Painting",
+  deep_clean: "Deep Cleaning",
+  junk_out: "Junk Out",
+  flooring: "Flooring",
+};
+const TIER_LABELS: Record<string, string> = { small: "Small", medium: "Medium", large: "Large" };
+
+function humanize(key: string): string {
+  return String(key || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -474,6 +545,237 @@ function createSignedLeadFromConsult(r: any, data: any): number {
   return lead.id;
 }
 
+// v20.53.0 — Admin "Listing Consult Report" PDF. Property/client/agent info,
+// every walkthrough answer by section, lock-in details, final price, signed
+// date, and every photo (hero + gallery + scope) — styled like the existing
+// Brothers Group black-and-white letterhead used on Repair Consult PDFs.
+export async function generateListingConsultReportPdf(consultId: number): Promise<string> {
+  const r = getRow(consultId);
+  if (!r) throw new Error("Listing consult not found");
+  const d = parseData(r);
+  const prep = d.prep || {};
+  const walkthrough = d.walkthrough || {};
+  const close = d.close || {};
+  const lockin = d.lockin || {};
+  const pillarFlags: Record<string, any> = walkthrough.pillars || {};
+
+  const PAGE_W = 612, PAGE_H = 792;
+  const marginX = 38;
+  const black = rgb(0, 0, 0);
+  const white = rgb(1, 1, 1);
+  const gray = rgb(0.45, 0.45, 0.45);
+  const lightGray = rgb(0.95, 0.95, 0.95);
+  const gold = rgb(0.55, 0.45, 0.24);
+
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+
+  let page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+  let y = PAGE_H - 40;
+
+  function newPage() {
+    page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    y = PAGE_H - 40;
+  }
+  function ensureSpace(needed: number) {
+    if (y - needed < 50) newPage();
+  }
+  function sectionHeader(title: string) {
+    ensureSpace(30);
+    y -= 4;
+    page.drawRectangle({ x: marginX, y: y - 18, width: PAGE_W - marginX * 2, height: 18, color: black });
+    page.drawText(title.toUpperCase(), { x: marginX + 6, y: y - 13, size: 10, font: fontBold, color: white });
+    y -= 30;
+  }
+  function fieldRow(label: string, value: string) {
+    const val = value && String(value).trim() ? String(value) : "—";
+    const lines = wrapReportText(val, font, 10, PAGE_W - marginX * 2 - 160);
+    ensureSpace(14 * Math.max(1, lines.length));
+    page.drawText(label, { x: marginX, y, size: 9.5, font: fontBold, color: gray });
+    lines.forEach((line, i) => {
+      page.drawText(line, { x: marginX + 155, y: y - i * 13, size: 10, font, color: black });
+    });
+    y -= 13 * Math.max(1, lines.length) + 4;
+  }
+  function paragraph(text: string) {
+    const val = text && String(text).trim() ? String(text) : "—";
+    const lines = wrapReportText(val, font, 10, PAGE_W - marginX * 2);
+    ensureSpace(13 * lines.length + 6);
+    lines.forEach((line) => {
+      page.drawText(line, { x: marginX, y, size: 10, font, color: black });
+      y -= 13;
+    });
+    y -= 6;
+  }
+
+  // ── Logo ──
+  try {
+    const logoBytes = fs.readFileSync(brandLogoPath());
+    const logoImg = await pdfDoc.embedJpg(logoBytes);
+    const w = 200;
+    const h = w * (logoImg.height / logoImg.width);
+    page.drawImage(logoImg, { x: (PAGE_W - w) / 2, y: y - h, width: w, height: h });
+    y -= h + 18;
+  } catch { y -= 10; }
+
+  const title = "Listing Consult Report";
+  const titleWidth = fontBold.widthOfTextAtSize(title, 18);
+  page.drawText(title, { x: (PAGE_W - titleWidth) / 2, y, size: 18, font: fontBold, color: black });
+  y -= 24;
+
+  // ── Property address bar ──
+  page.drawRectangle({ x: marginX, y: y - 22, width: PAGE_W - marginX * 2, height: 22, color: black });
+  page.drawText(r.property_address || "—", { x: marginX + 5, y: y - 15, size: 10.5, font: fontBold, color: white });
+  const statusLabel = humanize(r.status);
+  const statusW = fontBold.widthOfTextAtSize(statusLabel, 9);
+  page.drawText(statusLabel, { x: PAGE_W - marginX - statusW - 6, y: y - 15, size: 9, font: fontBold, color: rgb(0.85, 0.75, 0.45) });
+  y -= 40;
+
+  // ── Hero photo ──
+  if (r.hero_photo_url) {
+    try {
+      const p = resolveListingPhotoPath(r.hero_photo_url);
+      if (p && fs.existsSync(p)) {
+        const bytes = fs.readFileSync(p);
+        const img = r.hero_photo_url.endsWith(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        const boxH = 190;
+        drawContainedImage(page, img, { x: marginX, y, width: PAGE_W - marginX * 2, height: boxH });
+        y -= boxH + 14;
+      }
+    } catch { /* skip if unreadable */ }
+  }
+
+  // ── Overview ──
+  sectionHeader("Overview");
+  fieldRow("Agent", getAgentName(r.agent_id));
+  fieldRow("Client", r.client_name || "—");
+  fieldRow("Client Contact", [r.client_email, r.client_phone].filter(Boolean).join(" \u00b7 ") || "—");
+  fieldRow("Created", r.created_at ? String(r.created_at).slice(0, 10) : "—");
+  if (r.status === "signed") fieldRow("Signed Date", r.debrief_sent_at ? String(r.debrief_sent_at).slice(0, 10) : "—");
+
+  // ── Prep ──
+  sectionHeader("Prep — Before-You-Arrive Checklist");
+  const checklist = prep.checklist || {};
+  const checked = Object.keys(checklist).filter((k) => checklist[k]);
+  paragraph(checked.length ? checked.join(", ") : "None checked");
+
+  // ── Walkthrough & Intel ──
+  sectionHeader("Walkthrough & Intel");
+  fieldRow("Interior / Exterior Notes", walkthrough.notes || "—");
+  fieldRow("Needs Repairs", walkthrough.needsRepairs === true ? "Yes" : walkthrough.needsRepairs === false ? "No" : "—");
+  fieldRow("Mortgage Balance", walkthrough.mortgageBalance || "—");
+  fieldRow("Buying Too", walkthrough.buyingToo || "—");
+  if (walkthrough.buyingNotes) fieldRow("Buying Notes", walkthrough.buyingNotes);
+  fieldRow("Timeline", walkthrough.timeline || "—");
+
+  const flaggedKeys = Object.keys(pillarFlags).filter((k) => pillarFlags[k]?.checked);
+  if (flaggedKeys.length) {
+    y -= 2;
+    ensureSpace(16);
+    page.drawText("Condition Check — Flagged Needs", { x: marginX, y, size: 9.5, font: fontBold, color: gray });
+    y -= 15;
+    for (const key of flaggedKeys) {
+      const st = pillarFlags[key];
+      const label = PILLAR_LABELS[key] || humanize(key);
+      const tier = TIER_LABELS[st.tier] || st.tier || "—";
+      const details = (st.details || []).map((dt: string) => humanize(dt)).join(", ");
+      let line = `• ${label} — ${tier}`;
+      if (details) line += ` (${details})`;
+      paragraph(line);
+      if (st.notes) paragraph(`   Notes: ${st.notes}`);
+    }
+  } else {
+    paragraph("No repair/condition needs flagged.");
+  }
+
+  // ── Close ──
+  sectionHeader("Close");
+  const pathLabel = close.whereAreWe === "ready_now" ? "Ready — start now"
+    : close.whereAreWe === "ready_repairs" ? "Ready — repairs first"
+    : close.whereAreWe === "not_moving" ? "Not moving forward" : "—";
+  fieldRow("Path", pathLabel);
+  if (close.whereAreWe === "not_moving") {
+    fieldRow("Consult Result", NOT_MOVING_LABELS[close.notMovingReason] || close.notMovingReason || "—");
+    if (close.notMovingNotes) fieldRow("Notes", close.notMovingNotes);
+  } else {
+    fieldRow("Recommended List Price", close.recommendedPrice || "—");
+    fieldRow("Final Listing Price", close.finalListingPrice || "—");
+    fieldRow("Commission", `${close.listingAgentCommission || "3.0"}% listing / ${close.buyerAgentCommission || "2.5"}% buyer's`);
+    if (close.additionalTerms) fieldRow("Additional Terms", close.additionalTerms);
+    const addenda = addendaSummary(close);
+    if (addenda) fieldRow("Addenda", addenda);
+  }
+
+  // ── Lock In (only reached on a signed/ready path) ──
+  if (close.whereAreWe === "ready_now" || close.whereAreWe === "ready_repairs") {
+    sectionHeader("Lock In");
+    fieldRow("Owner(s)", [lockin.ownerNames, lockin.ownerNames2].filter(Boolean).join(" & ") || r.client_name || "—");
+    fieldRow("Home Occupied", lockin.homeOccupied === "yes" ? "Yes" : lockin.homeOccupied === "no" ? "No" : "—");
+    fieldRow("Pets", petsSummary(lockin));
+    fieldRow("Access", accessSummary(lockin));
+    fieldRow("Gate", gateSummary(lockin));
+    fieldRow("Showing Approval Contact", lockin.showingApprovalContact === "owner1" ? (lockin.ownerNames || "Owner 1")
+      : lockin.showingApprovalContact === "owner2" ? (lockin.ownerNames2 || "Owner 2")
+      : lockin.showingContactOtherName || "—");
+    if (lockin.showingRestrictions) fieldRow("Showing Restrictions", lockin.showingRestrictions);
+    fieldRow("Cleaning Needed", lockin.needsCleaning === "yes" ? "Yes" : lockin.needsCleaning === "no" ? "No" : "—");
+    if (lockin.forecastStartDate) fieldRow("Forecast Start Date", lockin.forecastStartDate);
+    if (lockin.repairWindowStart && lockin.repairWindowEnd) fieldRow("Repairs Window", `${lockin.repairWindowStart} – ${lockin.repairWindowEnd}`);
+    if (lockin.forecastCleaningDate) fieldRow("Cleaning Date", lockin.forecastCleaningDate);
+    if (lockin.goLiveDate) fieldRow("Go-Live Date", lockin.goLiveDate);
+    if (lockin.openHouseDate) fieldRow("Open House Date", lockin.openHouseDate);
+  }
+
+  // ── Photo grid pages ──
+  async function addPhotoGridPages(photos: string[], sectionTitle: string) {
+    if (!photos || photos.length === 0) return;
+    const cols = 2, rows = 3, perPage = cols * rows;
+    const gap = 14;
+    const imgW = (PAGE_W - marginX * 2 - gap) / cols;
+    const imgH = 148;
+    const cellH = imgH + gap + 6;
+    for (let pageStart = 0; pageStart < photos.length; pageStart += perPage) {
+      newPage();
+      const t = sectionTitle;
+      const tW = fontBold.widthOfTextAtSize(t, 15);
+      page.drawText(t, { x: (PAGE_W - tW) / 2, y, size: 15, font: fontBold, color: black });
+      y -= 18;
+      page.drawRectangle({ x: marginX, y: y - 20, width: PAGE_W - marginX * 2, height: 20, color: black });
+      page.drawText(r.property_address || "", { x: marginX + 5, y: y - 14, size: 9.5, font: fontBold, color: white });
+      y -= 40;
+      const chunk = photos.slice(pageStart, pageStart + perPage);
+      for (let i = 0; i < chunk.length; i++) {
+        const row_ = Math.floor(i / cols);
+        const col = i % cols;
+        const boxX = marginX + col * (imgW + gap);
+        const boxY = y - row_ * cellH;
+        const url = chunk[i];
+        try {
+          const p = resolveListingPhotoPath(url);
+          if (p && fs.existsSync(p)) {
+            const bytes = fs.readFileSync(p);
+            const img = url.endsWith(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+            drawContainedImage(page, img, { x: boxX, y: boxY, width: imgW, height: imgH });
+          }
+        } catch { /* skip unreadable photo */ }
+      }
+    }
+  }
+
+  const galleryPhotos: string[] = Array.isArray(r.gallery_photos) ? r.gallery_photos : [];
+  const scopePhotos: string[] = Array.isArray(r.scope_photos) ? r.scope_photos : [];
+  await addPhotoGridPages(galleryPhotos, "Walkthrough Photos");
+  await addPhotoGridPages(scopePhotos, "Scope Photos — Evidence");
+
+  const bytes = await pdfDoc.save();
+  const outDir = listingReportsDir();
+  const filename = `report-${consultId}-${Date.now()}.pdf`;
+  fs.writeFileSync(path.join(outDir, filename), bytes);
+  return `/listing-reports/${filename}`;
+}
+
 export function registerListingConsultRoutes(app: Express) {
   ensureListingConsultSchema();
 
@@ -703,5 +1005,54 @@ export function registerListingConsultRoutes(app: Express) {
     sendSignedTcEmail(id).catch((err) => console.error("[ListingConsult] TC email failed:", err));
 
     res.json({ ok: true, newLeadId });
+  });
+
+  // ── v20.53.0 — Admin: Listing Consults list/detail/report-pdf ─────────────
+  // All 3 routes require an authenticated admin (same guard used elsewhere).
+  function requireAdmin(req: any, res: Response): boolean {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") {
+      res.status(403).json({ error: "Admin only" });
+      return false;
+    }
+    return true;
+  }
+
+  app.get("/api/admin/listing-consults", (req: any, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const status = String(req.query.status || "").trim();
+    const validStatuses = ["in_progress", "not_moving", "archived", "signed"];
+    let sql = `
+      SELECT lc.id, lc.property_address, lc.client_name, lc.client_email, lc.client_phone,
+             lc.status, lc.hero_photo_url, lc.agent_id, a.name AS agent_name,
+             lc.created_at, lc.updated_at, lc.debrief_sent_at
+      FROM listing_consults lc
+      LEFT JOIN agents a ON a.id = lc.agent_id
+    `;
+    const params: any[] = [];
+    if (status && validStatuses.includes(status)) {
+      sql += ` WHERE lc.status = ?`;
+      params.push(status);
+    }
+    sql += ` ORDER BY lc.updated_at DESC`;
+    const rows = rawDb.prepare(sql).all(...params);
+    res.json({ consults: rows });
+  });
+
+  app.get("/api/admin/listing-consults/:id", (req: any, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    const r = getRow(parseInt(req.params.id));
+    if (!r) return res.status(404).json({ error: "Not found" });
+    res.json({ ...r, data: parseData(r), agent_name: getAgentName(r.agent_id) });
+  });
+
+  app.get("/api/admin/listing-consults/:id/report-pdf", async (req: any, res: Response) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const url = await generateListingConsultReportPdf(parseInt(req.params.id));
+      res.redirect(url);
+    } catch (err: any) {
+      console.error("[ListingConsult] report PDF failed:", err);
+      res.status(500).json({ error: "Failed to generate report", detail: err?.message });
+    }
   });
 }

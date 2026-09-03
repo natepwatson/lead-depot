@@ -276,7 +276,16 @@ export function InspectionsPlusSheet({
       fetchJson("/api/inspection-items"),
       fetchJson("/api/inspection-vendors").catch(() => ({ vendors: [] })),
     ])
-      .then(([itemsRes, vendorsRes]) => { setCatalog(itemsRes.items || []); setVendors(vendorsRes.vendors || []); })
+      .then(([itemsRes, vendorsRes]) => {
+        setCatalog(itemsRes.items || []);
+        const vendorList: InspectionVendor[] = vendorsRes.vendors || [];
+        setVendors(vendorList);
+        // Superior Inspections is our premier/primary inspection vendor
+        // (as of 9/3/26) — default the picker to it so agents don't have to
+        // remember to switch off Pro-Spect (backup) every time.
+        const premier = vendorList.find(v => v.name === "Superior Inspections");
+        if (premier) setSelectedVendorId(String(premier.id));
+      })
       .catch(() => setError("Couldn't load inspection catalog."))
       .finally(() => setCatalogLoading(false));
   }, [step]);

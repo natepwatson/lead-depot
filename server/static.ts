@@ -78,8 +78,23 @@ export function serveStatic(app: Express) {
     etag: false,
   }));
 
+  // ── Recruiting landing — MUST run before express.static(distPath) ────────
+  // Otherwise static serves index.html for "/" and the join-host gate never runs.
+  app.get("/join", (_req, res) => {
+    res.redirect(301, "/join.html");
+  });
+  app.get("/", (req, res, next) => {
+    const host = String(req.hostname || req.headers.host || "").toLowerCase().split(":")[0];
+    const isJoinHost = host === "join.watsonbrothersgroup.com" || host.startsWith("join.");
+    if (!isJoinHost) return next();
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.sendFile(path.resolve(distPath, "join.html"));
+  });
+
   // ── Icons + manifest → 7 day cache ───────────────────────────────────────
+  // index: false so "/" is not auto-served as index.html (join gate + SPA fallback own "/")
   app.use(express.static(distPath, {
+    index: false,
     maxAge: "7d",
     etag: true,
     setHeaders(res, filePath) {
@@ -95,22 +110,6 @@ export function serveStatic(app: Express) {
   if (fs.existsSync(teamPath)) {
     app.use("/team", express.static(teamPath, { maxAge: "7d", etag: true }));
   }
-
-  // ── Recruiting landing page — join.watsonbrothersgroup.com ───────────────
-  // Served at /join and /join.html — redirect /join → /join.html so static middleware serves it
-  app.get("/join", (_req, res) => {
-    res.redirect(301, "/join.html");
-  });
-
-  // Bare join host (/) must serve join.html, not the SPA index (agent login).
-  // Host check here works even with stale client JS / missing JoinHostRedirect.
-  app.get("/", (req, res, next) => {
-    const host = String(req.hostname || req.headers.host || "").toLowerCase().split(":")[0];
-    const isJoinHost = host === "join.watsonbrothersgroup.com" || host.startsWith("join.");
-    if (!isJoinHost) return next();
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    res.sendFile(path.resolve(distPath, "join.html"));
-  });
 
   // ── SPA fallback ──────────────────────────────────────────────────────────
   app.use("/{*path}", (_req, res) => {

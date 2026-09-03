@@ -14,6 +14,7 @@ import { AccountsReceivablePanel } from "../components/ld/AccountsReceivablePane
 import { WorkCalendarPanel } from "../components/ld/WorkCalendarPanel";
 import { LaborCrewsPanel } from "../components/ld/LaborCrewsPanel";
 import { BghsPnlPanel } from "../components/ld/BghsPnlPanel";
+import { JobProfitabilityPanel } from "../components/ld/JobProfitabilityPanel";
 import { OpenHouseSchedulePanel } from "../components/ld/OpenHouseSchedulePanel";
 import { PendingOpenHousesPanel } from "../components/ld/PendingOpenHousesPanel";
 import ProfilePage from "./ProfilePage";
@@ -41,7 +42,7 @@ import {
   Clock, ChevronDown, ChevronUp, Activity, Star, Wifi, WifiOff, Shield, Settings, Snowflake,
   UserPlus, UserCircle2, KeyRound, RotateCcw,
   Database, Wrench, FileText, PlayCircle, Home, CalendarDays,
-  ClipboardList, ClipboardCheck, DollarSign, CalendarClock, PieChart, HardHat
+  ClipboardList, ClipboardCheck, DollarSign, CalendarClock, PieChart, HardHat, Calculator
 } from "lucide-react";
 import type { Lead, Agent } from "@shared/schema";
 // v14.49 — reuse the agent's "Who called me?" modal on the admin dashboard.
@@ -1902,7 +1903,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.52.0
+              v20.53.0
             </p>
           </div>
         </div>
@@ -2023,6 +2024,7 @@ export default function AdminDashboard({
               { value: "work-calendar", icon: CalendarClock, label: "Calendar" },
               { value: "labor-crews",   icon: HardHat,     label: "Labor & Crews" },
               { value: "bghs-pnl",      icon: PieChart,    label: "HHS P&L" },
+              { value: "job-profit",    icon: Calculator,  label: "Job Profitability" },
             ].map(tab => (
               <TabsTrigger
                 key={tab.value}
@@ -3126,6 +3128,10 @@ export default function AdminDashboard({
           {/* v20.33.4 — Work Calendar/Scheduler admin: agenda view of every dated,
               schedulable event (job starts/completions, project meetings,
               inspection deadlines, open houses). */}
+          <TabsContent value="job-profit" className="mt-5">
+            <JobProfitabilityPanel />
+          </TabsContent>
+
           <TabsContent value="bghs-pnl" className="mt-5">
             <BghsPnlPanel />
           </TabsContent>

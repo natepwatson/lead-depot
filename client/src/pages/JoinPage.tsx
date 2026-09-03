@@ -153,11 +153,11 @@ export default function JoinPage() {
               fontSize: "clamp(2.1rem, 8vw, 3.1rem)",
               fontWeight: 300, color: "#fff", margin: "0 0 12px", lineHeight: 1.1,
             }}>
-              We Bleed Culture.
+              Your Split Just Got Better.
             </h1>
             <p style={{ fontSize: 15, color: "rgba(255,255,255,0.45)", maxWidth: 420, margin: "0 auto 28px", lineHeight: 1.65 }}>
-              Brothers Group at Momentum Realty — a professional boutique team built to be the best. We bleed culture: train, shadow, hold the standard.
-              Team 50/50 with no team cap; Momentum’s brokerage caps are low and clear. Live leads + Lead Depot.
+              Watson Brothers Group at Momentum Realty. 50/50 team split with no team cap, low and clear Momentum brokerage caps,
+              live leads, and Lead Depot — plus training that starts on day one.
             </p>
 
             <div style={{
@@ -165,10 +165,10 @@ export default function JoinPage() {
               gap: 10, marginBottom: 28, maxWidth: 520,
             }}>
               {[
-                ["Momentum Realty", "Low brokerage caps — clear math"],
+                ["Momentum Realty", "Low brokerage caps, clear math"],
                 ["Lead Depot", "Leads, points, real income"],
                 ["Live Lead Flow", "Real opportunities in your hands"],
-                ["Train & Shadow", "Culture you can feel day one"],
+                ["Train & Shadow", "Support from day one"],
               ].map(([title, sub]) => (
                 <div key={title} style={{
                   background: "rgba(200,170,90,0.06)",
@@ -195,7 +195,7 @@ export default function JoinPage() {
                 How we run
               </p>
               {[
-                "We bleed culture — train, shadow, and hold the boutique standard together.",
+                "Train, shadow, and hold a high standard together from day one.",
                 "Brothers Group: no team cap. Momentum: low brokerage caps — know the math before you join.",
                 "Lead Depot + live lead flow so you’re not left hunting alone.",
                 "7 territories across NE Florida & SE Georgia — pick where you’ll grind.",

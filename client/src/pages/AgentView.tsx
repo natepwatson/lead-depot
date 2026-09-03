@@ -6100,7 +6100,7 @@ function PastClientApptForm(props: { user: any; toast: any; onDone: () => void }
         qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
         onDone();
       } else if (r.status === 409) {
-        toast({ title: "Already scored", description: data.error || "This client already had a Past Client Appt scored within 60 days.", variant: "destructive" });
+        toast({ title: "Already scored", description: data.error || "This client already had a Past Client Appt scored within 30 days.", variant: "destructive" });
       } else {
         toast({ title: "Failed to submit", description: data.error || undefined, variant: "destructive" });
       }
@@ -8539,17 +8539,19 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
 }
 
 
-// ─── v17.2 Door Knock LOG form ──────────────────────────────
-// Field-prospecting flow. Address + doors-knocked count + notes. Evidence
-// lives in the rep-card app (external); no photo required in Depot. Points
-// = 2 pts x doors, awarded when Nate approves in the Phase 6 approvals queue.
+// ─── v20.50.8 Door Knock SESSION form ───────────────────────
+// Session model: neighborhood/block + door count + optional notes + optional
+// GPS + required proof photo (camera or gallery). Auto-banks 2 pts/door when
+// proof present and doors are in a sane range; anomalies go pending for Nate.
 function DoorKnockLogForm(props: { user: any; toast: any; onDone: () => void }) {
   const { user, toast, onDone } = props;
   const [address, setAddress] = useState("");
   const [doorsCount, setDoorsCount] = useState("");
   const [notes, setNotes] = useState("");
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!("geolocation" in navigator)) return;
@@ -8560,99 +8562,7 @@ function DoorKnockLogForm(props: { user: any; toast: any; onDone: () => void }) 
     );
   }, []);
 
-  const doorsNum = doorsCount.trim() ? Math.max(0, parseInt(doorsCount.trim()) || 0) : 0;
-  const pointsPreview = Math.min(doorsNum, 250) * 2;
-
-  const submit = async () => {
-    if (!address.trim()) { toast({ title: "Address / block required", variant: "destructive" }); return; }
-    if (!doorsNum) { toast({ title: "Doors count required", description: "How many doors did you knock?", variant: "destructive" }); return; }
-    setSubmitting(true);
-    try {
-      const r = await apiRequest("POST", "/api/lead-gen/door-knock-log", {
-        agentId: user?.id,
-        address: address.trim(),
-        doorsCount: doorsNum,
-        notes: notes.trim(),
-        gpsLat: gps?.lat ?? null,
-        gpsLng: gps?.lng ?? null,
-        timestamp: new Date().toISOString(),
-      });
-      const data = await r.json();
-      if (r.ok && data.submitted) {
-        toast({
-          title: "Submitted for approval",
-          description: `Nate reconciles with the rep-card app. ${data.pointsPotential ?? pointsPreview} pts bank on approval.`,
-        });
-        onDone();
-      } else {
-        toast({ title: "Failed to submit", description: data.error || "Unknown error", variant: "destructive" });
-      }
-    } catch (err: any) {
-      toast({ title: "Failed to submit", description: err?.message || String(err), variant: "destructive" });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const inputStyle: React.CSSProperties = {
-    width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(200,170,90,0.22)",
-    borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 14, outline: "none",
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", margin: 0, lineHeight: 1.55 }}>
-        Log a knock route. Evidence lives in the rep-card app — Nate reconciles and approves. 2 pts per door.
-      </p>
-      <input
-        style={inputStyle} placeholder="Block / cross-streets / neighborhood"
-        value={address} onChange={e => setAddress(e.target.value)}
-      />
-      <input
-        style={inputStyle} placeholder="Doors knocked"
-        inputMode="numeric" value={doorsCount} onChange={e => setDoorsCount(e.target.value.replace(/[^0-9]/g, ""))}
-      />
-      {doorsNum > 0 && (
-        <div style={{
-          padding: "10px 12px", borderRadius: 10,
-          background: "rgba(200,170,90,0.10)", border: "1px solid rgba(200,170,90,0.28)",
-          fontSize: 12, color: "#c8aa5a", letterSpacing: "0.04em",
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-        }}>
-          <span>{doorsNum > 250 ? `250 doors capped (of ${doorsNum})` : `${doorsNum} doors x 2 pts`}</span>
-          <strong style={{ color: "#fde047", fontSize: 14 }}>+{pointsPreview} pts pending</strong>
-        </div>
-      )}
-      <textarea
-        style={{ ...inputStyle, minHeight: 80, resize: "vertical", fontFamily: "inherit" }}
-        placeholder="Notes — what did you say at the door? Any live prospects?"
-        value={notes} onChange={e => setNotes(e.target.value)}
-      />
-      <button onClick={submit} disabled={submitting} style={{
-        width: "100%", marginTop: 4, padding: "14px 16px",
-        background: submitting ? "rgba(200,170,90,0.4)" : "linear-gradient(135deg,#fde047 0%,#c8aa5a 100%)",
-        border: "none", borderRadius: 12, cursor: submitting ? "wait" : "pointer",
-        fontSize: 15, fontWeight: 700, letterSpacing: "0.02em", color: "#080808",
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-      }}>
-        <Send size={14} /> {submitting ? "Submitting…" : "Submit for approval"}
-      </button>
-    </div>
-  );
-}
-
-// ─── v17.2 Direct Mail LOG form ─────────────────────────────────────────────
-// Log a mailer campaign. Agent uploads evidence of the mailer (photo + audience
-// description + count). Nate approves and awards points (1 pt per address).
-function DirectMailLogForm(props: { user: any; toast: any; onDone: () => void }) {
-  const { user, toast, onDone } = props;
-  const [audience, setAudience] = useState("");
-  const [mailedCount, setMailedCount] = useState("");
-  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
-  const [notes, setNotes] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-
+  // Mirror DirectMailLogForm — FileReader + canvas compress to ~1024px JPEG.
   const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -8681,26 +8591,39 @@ function DirectMailLogForm(props: { user: any; toast: any; onDone: () => void })
     reader.readAsDataURL(f);
   };
 
+  const doorsNum = doorsCount.trim() ? Math.max(0, parseInt(doorsCount.trim()) || 0) : 0;
+  const pointsPreview = Math.min(doorsNum, 250) * 2;
+  const looksFlagged = doorsNum > 250 || (doorsNum > 150 && !notes.trim());
+
   const submit = async () => {
-    if (!audience.trim()) { toast({ title: "Audience required", variant: "destructive" }); return; }
-    if (!mailedCount.trim() || !parseInt(mailedCount.trim())) { toast({ title: "Address count required", variant: "destructive" }); return; }
-    if (!photoDataUrl) { toast({ title: "Mailer photo required", description: "Attach a photo of the mailer.", variant: "destructive" }); return; }
+    if (!address.trim()) { toast({ title: "Neighborhood / block required", variant: "destructive" }); return; }
+    if (doorsNum < 10) { toast({ title: "At least 10 doors", description: "Short sessions need a real door count (min 10).", variant: "destructive" }); return; }
+    if (!photoDataUrl) { toast({ title: "Proof photo required", description: "Take a photo or upload one from your gallery.", variant: "destructive" }); return; }
     setSubmitting(true);
     try {
-      const r = await apiRequest("POST", "/api/lead-gen/direct-mail-log", {
+      const r = await apiRequest("POST", "/api/lead-gen/door-knock-log", {
         agentId: user?.id,
-        audience: audience.trim(),
-        mailedCount: parseInt(mailedCount.trim()),
-        photoDataUrl,
+        address: address.trim(),
+        doorsCount: doorsNum,
         notes: notes.trim(),
+        photoDataUrl,
+        gpsLat: gps?.lat ?? null,
+        gpsLng: gps?.lng ?? null,
         timestamp: new Date().toISOString(),
       });
       const data = await r.json();
       if (r.ok && data.submitted) {
-        toast({
-          title: "Submitted for approval",
-          description: "Nate reviews mailer + approves. Points bank at 1 pt per address on approval.",
-        });
+        if (data.pendingApproval) {
+          toast({
+            title: "Submitted — pending review",
+            description: `${data.pointsPotential ?? pointsPreview} pts pending. Flagged for a quick Nate check.`,
+          });
+        } else {
+          toast({
+            title: "Points banked",
+            description: `+${data.pointsAwarded ?? pointsPreview} pts for ${data.doorsCount ?? doorsNum} doors.`,
+          });
+        }
         onDone();
       } else {
         toast({ title: "Failed to submit", description: data.error || "Unknown error", variant: "destructive" });
@@ -8720,24 +8643,38 @@ function DirectMailLogForm(props: { user: any; toast: any; onDone: () => void })
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", margin: 0, lineHeight: 1.55 }}>
-        Log a direct-mail campaign. Nate approves the mailer + audience + count. Points bank at approval.
+        Log a knock session. Proof photo required. 2 pts per door — banks automatically when the session looks sane.
       </p>
       <input
-        style={inputStyle} placeholder="Audience — e.g. 32082 zip, expired listings"
-        value={audience} onChange={e => setAudience(e.target.value)}
+        style={inputStyle} placeholder="Neighborhood / block / cross-streets"
+        value={address} onChange={e => setAddress(e.target.value)}
       />
       <input
-        style={inputStyle} placeholder="Addresses mailed (count)"
-        inputMode="numeric" value={mailedCount} onChange={e => setMailedCount(e.target.value)}
+        style={inputStyle} placeholder="Doors knocked (min 10)"
+        inputMode="numeric" value={doorsCount} onChange={e => setDoorsCount(e.target.value.replace(/[^0-9]/g, ""))}
       />
+      {doorsNum > 0 && (
+        <div style={{
+          padding: "10px 12px", borderRadius: 10,
+          background: looksFlagged ? "rgba(251,146,60,0.10)" : "rgba(200,170,90,0.10)",
+          border: `1px solid ${looksFlagged ? "rgba(251,146,60,0.35)" : "rgba(200,170,90,0.28)"}`,
+          fontSize: 12, color: looksFlagged ? "#fb923c" : "#c8aa5a", letterSpacing: "0.04em",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <span>{doorsNum > 250 ? `${doorsNum} doors — will need review` : `${doorsNum} doors × 2 pts`}</span>
+          <strong style={{ color: looksFlagged ? "#fdba74" : "#fde047", fontSize: 14 }}>
+            {looksFlagged ? `+${pointsPreview} pts pending` : `+${pointsPreview} pts`}
+          </strong>
+        </div>
+      )}
       <textarea
         style={{ ...inputStyle, minHeight: 80, resize: "vertical", fontFamily: "inherit" }}
-        placeholder="Notes — piece type, CTA, sending window, follow-up plan"
+        placeholder="Notes (optional) — pitch, live prospects, anything odd. Required if doors > 150."
         value={notes} onChange={e => setNotes(e.target.value)}
       />
       <div>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onPickPhoto} />
-        <button onClick={() => fileRef.current?.click()} style={{
+        <button type="button" onClick={() => fileRef.current?.click()} style={{
           width: "100%", padding: "14px 16px", borderRadius: 12,
           background: photoDataUrl ? "rgba(74,222,128,0.14)" : "rgba(200,170,90,0.14)",
           border: `1px solid ${photoDataUrl ? "rgba(74,222,128,0.4)" : "rgba(200,170,90,0.35)"}`,
@@ -8745,7 +8682,167 @@ function DirectMailLogForm(props: { user: any; toast: any; onDone: () => void })
           fontSize: 14, fontWeight: 600, cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
         }}>
-          <Camera size={16} /> {photoDataUrl ? "Photo attached — tap to replace" : "Attach mailer photo"}
+          <Camera size={16} /> {photoDataUrl ? "Proof attached — tap to replace" : "Take / upload proof photo"}
+        </button>
+      </div>
+      {gps && (
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", margin: 0 }}>
+          GPS attached · {gps.lat.toFixed(5)}, {gps.lng.toFixed(5)}
+        </p>
+      )}
+      <button onClick={submit} disabled={submitting} style={{
+        width: "100%", marginTop: 4, padding: "14px 16px",
+        background: submitting ? "rgba(200,170,90,0.4)" : "linear-gradient(135deg,#fde047 0%,#c8aa5a 100%)",
+        border: "none", borderRadius: 12, cursor: submitting ? "wait" : "pointer",
+        fontSize: 15, fontWeight: 700, letterSpacing: "0.02em", color: "#080808",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      }}>
+        <Send size={14} /> {submitting ? "Submitting…" : looksFlagged ? "Submit for review" : "Bank session points"}
+      </button>
+    </div>
+  );
+}
+
+// ─── v20.50.9 Direct Mail DROP form ─────────────────────────────────────────
+// Log a mailer drop: neighborhood/farm + piece count + optional notes + required
+// proof photo. 1 pt per mailer — banks automatically when the drop looks sane;
+// flagged pending only for anomalies (>500, or >200 without notes). Soft prefer
+// min 10 pieces (UI guidance, not a brick wall).
+function DirectMailLogForm(props: { user: any; toast: any; onDone: () => void }) {
+  const { user, toast, onDone } = props;
+  const [audience, setAudience] = useState("");
+  const [mailedCount, setMailedCount] = useState("");
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // FileReader + canvas compress to ~1024px JPEG (same as DoorKnockLogForm).
+  const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 25 * 1024 * 1024) {
+      toast({ title: "Photo too large", description: "Try a smaller image (< 25MB).", variant: "destructive" });
+      return;
+    }
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => {
+      img.onload = () => {
+        const MAX = 1024;
+        let { width, height } = img;
+        if (width > MAX || height > MAX) {
+          const scale = MAX / Math.max(width, height);
+          width = Math.round(width * scale); height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) { ctx.drawImage(img, 0, 0, width, height); }
+        setPhotoDataUrl(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(f);
+  };
+
+  const mailedNum = mailedCount.trim() ? Math.max(0, parseInt(mailedCount.trim()) || 0) : 0;
+  const pointsPreview = Math.min(mailedNum, 500);
+  const looksFlagged = mailedNum > 500 || (mailedNum > 200 && !notes.trim());
+  const softUnderMin = mailedNum > 0 && mailedNum < 10;
+
+  const submit = async () => {
+    if (!audience.trim()) { toast({ title: "Neighborhood / farm required", variant: "destructive" }); return; }
+    if (mailedNum < 1) { toast({ title: "Piece / mailer count required", variant: "destructive" }); return; }
+    if (!photoDataUrl) { toast({ title: "Proof photo required", description: "Take a photo or upload one from your gallery.", variant: "destructive" }); return; }
+    setSubmitting(true);
+    try {
+      const r = await apiRequest("POST", "/api/lead-gen/direct-mail-log", {
+        agentId: user?.id,
+        audience: audience.trim(),
+        mailedCount: mailedNum,
+        photoDataUrl,
+        notes: notes.trim(),
+        timestamp: new Date().toISOString(),
+      });
+      const data = await r.json();
+      if (r.ok && data.submitted) {
+        if (data.pendingApproval) {
+          toast({
+            title: "Submitted — pending review",
+            description: `${data.pointsPotential ?? pointsPreview} pts pending. Flagged for a quick Nate check.`,
+          });
+        } else {
+          toast({
+            title: "Points banked",
+            description: `+${data.pointsAwarded ?? pointsPreview} pts for ${data.mailedCount ?? mailedNum} mailers.`,
+          });
+        }
+        onDone();
+      } else {
+        toast({ title: "Failed to submit", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Failed to submit", description: err?.message || String(err), variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(200,170,90,0.22)",
+    borderRadius: 10, padding: "12px 14px", color: "#fff", fontSize: 14, outline: "none",
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", margin: 0, lineHeight: 1.55 }}>
+        Log a mailer drop. Proof photo required. 1 pt per mailer — banks automatically when the drop looks sane.
+      </p>
+      <input
+        style={inputStyle} placeholder="Neighborhood / farm name"
+        value={audience} onChange={e => setAudience(e.target.value)}
+      />
+      <input
+        style={inputStyle} placeholder="Pieces / mailers (prefer 10+)"
+        inputMode="numeric" value={mailedCount} onChange={e => setMailedCount(e.target.value.replace(/[^0-9]/g, ""))}
+      />
+      {mailedNum > 0 && (
+        <div style={{
+          padding: "10px 12px", borderRadius: 10,
+          background: looksFlagged ? "rgba(251,146,60,0.10)" : softUnderMin ? "rgba(251,146,60,0.08)" : "rgba(200,170,90,0.10)",
+          border: `1px solid ${looksFlagged || softUnderMin ? "rgba(251,146,60,0.35)" : "rgba(200,170,90,0.28)"}`,
+          fontSize: 12, color: looksFlagged || softUnderMin ? "#fb923c" : "#c8aa5a", letterSpacing: "0.04em",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <span>
+            {mailedNum > 500
+              ? `${mailedNum} mailers — will need review`
+              : softUnderMin
+                ? `${mailedNum} mailers — prefer 10+ for a real drop`
+                : `${mailedNum} mailers × 1 pt`}
+          </span>
+          <strong style={{ color: looksFlagged ? "#fdba74" : "#fde047", fontSize: 14 }}>
+            {looksFlagged ? `+${pointsPreview} pts pending` : `+${pointsPreview} pts`}
+          </strong>
+        </div>
+      )}
+      <textarea
+        style={{ ...inputStyle, minHeight: 80, resize: "vertical", fontFamily: "inherit" }}
+        placeholder="Notes (optional) — postcard vs letter, vendor, send window. Required if count > 200."
+        value={notes} onChange={e => setNotes(e.target.value)}
+      />
+      <div>
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onPickPhoto} />
+        <button type="button" onClick={() => fileRef.current?.click()} style={{
+          width: "100%", padding: "14px 16px", borderRadius: 12,
+          background: photoDataUrl ? "rgba(74,222,128,0.14)" : "rgba(200,170,90,0.14)",
+          border: `1px solid ${photoDataUrl ? "rgba(74,222,128,0.4)" : "rgba(200,170,90,0.35)"}`,
+          color: photoDataUrl ? "#4ade80" : "#c8aa5a",
+          fontSize: 14, fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+        }}>
+          <Camera size={16} /> {photoDataUrl ? "Proof attached — tap to replace" : "Take / upload proof photo"}
         </button>
       </div>
       <button onClick={submit} disabled={submitting} style={{
@@ -8755,7 +8852,7 @@ function DirectMailLogForm(props: { user: any; toast: any; onDone: () => void })
         fontSize: 15, fontWeight: 700, letterSpacing: "0.02em", color: "#080808",
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
       }}>
-        <Send size={14} /> {submitting ? "Submitting…" : "Submit for approval"}
+        <Send size={14} /> {submitting ? "Submitting…" : looksFlagged ? "Submit for review" : "Bank drop points"}
       </button>
     </div>
   );

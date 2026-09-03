@@ -71,6 +71,8 @@ export default function JoinPage() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
+  // Landing first (culture), then the intake form.
+  const [step, setStep] = useState<"landing" | "form">("landing");
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
@@ -127,15 +129,127 @@ export default function JoinPage() {
         background: "radial-gradient(circle, rgba(200,170,90,0.05) 0%, transparent 70%)",
       }} />
 
-      {/* Header */}
+      {step === "landing" && !done ? (
+        <>
+          {/* Landing — culture first */}
+          <header style={{
+            padding: "28px 20px 0",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            textAlign: "center",
+          }}>
+            <div style={{ marginBottom: 18 }}>
+              <svg width="44" height="44" viewBox="0 0 36 36" fill="none" style={{ display: "block", margin: "0 auto 8px" }}>
+                <rect x="2" y="18" width="32" height="15" rx="1" stroke="#c8aa5a" strokeWidth="1.6"/>
+                <path d="M2 18 L18 5 L34 18" stroke="#c8aa5a" strokeWidth="1.6" strokeLinejoin="round" fill="none"/>
+                <rect x="13" y="24" width="10" height="9" rx="0.5" stroke="#c8aa5a" strokeWidth="1.4"/>
+              </svg>
+              <p style={{ fontSize: 10, letterSpacing: "0.22em", color: "rgba(200,170,90,0.55)", margin: 0, textTransform: "uppercase" }}>
+                Brothers Group · Momentum Realty
+              </p>
+            </div>
+
+            <h1 style={{
+              fontFamily: "'Cormorant Garamond','Georgia',serif",
+              fontSize: "clamp(2.1rem, 8vw, 3.1rem)",
+              fontWeight: 300, color: "#fff", margin: "0 0 12px", lineHeight: 1.1,
+            }}>
+              Your Split Just Got Better.
+            </h1>
+            <p style={{ fontSize: 15, color: "rgba(255,255,255,0.45)", maxWidth: 420, margin: "0 auto 28px", lineHeight: 1.65 }}>
+              Watson Brothers Group at Momentum Realty. 50/50 team split with no team cap, low and clear Momentum brokerage caps,
+              live leads, and Lead Depot — plus training that starts on day one.
+            </p>
+
+            <div style={{
+              display: "flex", flexWrap: "wrap", justifyContent: "center",
+              gap: 10, marginBottom: 28, maxWidth: 520,
+            }}>
+              {[
+                ["Momentum Realty", "Low brokerage caps, clear math"],
+                ["Lead Depot", "Leads, points, real income"],
+                ["Live Lead Flow", "Real opportunities in your hands"],
+                ["Train & Shadow", "Support from day one"],
+              ].map(([title, sub]) => (
+                <div key={title} style={{
+                  background: "rgba(200,170,90,0.06)",
+                  border: "1px solid rgba(200,170,90,0.18)",
+                  borderRadius: 10, padding: "10px 14px", textAlign: "center",
+                  minWidth: 130, flex: "1 1 130px",
+                }}>
+                  <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#c8aa5a", letterSpacing: "0.05em" }}>{title}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 10, color: "rgba(255,255,255,0.35)", lineHeight: 1.4 }}>{sub}</p>
+                </div>
+              ))}
+            </div>
+          </header>
+
+          <main style={{ padding: "0 16px 60px", maxWidth: 480, margin: "0 auto" }}>
+            <div style={{
+              background: "rgba(15,13,8,0.96)",
+              border: "1px solid rgba(200,170,90,0.2)",
+              borderRadius: 18, padding: "28px 22px",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+              marginBottom: 20,
+            }}>
+              <p style={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(200,170,90,0.5)", margin: "0 0 14px", fontWeight: 600 }}>
+                How we run
+              </p>
+              {[
+                "Train, shadow, and hold a high standard together from day one.",
+                "Brothers Group: no team cap. Momentum: low brokerage caps — know the math before you join.",
+                "Lead Depot + live lead flow so you’re not left hunting alone.",
+                "7 territories across NE Florida & SE Georgia — pick where you’ll grind.",
+              ].map((line) => (
+                <p key={line} style={{ margin: "0 0 12px", fontSize: 14, color: "rgba(255,255,255,0.55)", lineHeight: 1.55, paddingLeft: 14, borderLeft: "2px solid rgba(200,170,90,0.35)" }}>
+                  {line}
+                </p>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setStep("form")}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                width: "100%", padding: "15px",
+                background: "linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%)",
+                border: "none", borderRadius: 10,
+                fontSize: 13, fontWeight: 700, letterSpacing: "0.14em",
+                textTransform: "uppercase", color: "#080808",
+                cursor: "pointer",
+                boxShadow: "0 6px 24px rgba(200,170,90,0.3)",
+              }}
+            >
+              Start the Conversation
+            </button>
+            <p style={{ textAlign: "center", fontSize: 11, color: "rgba(255,255,255,0.2)", marginTop: 14, lineHeight: 1.6 }}>
+              No commitment. Next step is a short application — Alex reaches out within one business day.
+            </p>
+          </main>
+        </>
+      ) : (
+        <>
+      {/* Form header */}
+
       <header style={{
         padding: "20px 20px 0",
         display: "flex", flexDirection: "column", alignItems: "center",
         textAlign: "center",
       }}>
-        {/* Logo */}
-        <div style={{ marginBottom: 16 }}>
-          <svg width="44" height="44" viewBox="0 0 36 36" fill="none" style={{ display: "block", margin: "0 auto 8px" }}>
+        <button
+          type="button"
+          onClick={() => { if (!done) setStep("landing"); }}
+          style={{
+            alignSelf: "flex-start",
+            background: "none", border: "none", color: "rgba(200,170,90,0.65)",
+            fontSize: 12, letterSpacing: "0.08em", cursor: done ? "default" : "pointer",
+            padding: "0 0 12px", textTransform: "uppercase",
+          }}
+        >
+          {done ? "" : "← Back"}
+        </button>
+        <div style={{ marginBottom: 12 }}>
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" style={{ display: "block", margin: "0 auto 8px" }}>
             <rect x="2" y="18" width="32" height="15" rx="1" stroke="#c8aa5a" strokeWidth="1.6"/>
             <path d="M2 18 L18 5 L34 18" stroke="#c8aa5a" strokeWidth="1.6" strokeLinejoin="round" fill="none"/>
             <rect x="13" y="24" width="10" height="9" rx="0.5" stroke="#c8aa5a" strokeWidth="1.4"/>
@@ -144,42 +258,19 @@ export default function JoinPage() {
             Brothers Group · Momentum Realty
           </p>
         </div>
-
         <h1 style={{
           fontFamily: "'Cormorant Garamond','Georgia',serif",
-          fontSize: "clamp(2rem, 8vw, 3rem)",
-          fontWeight: 300, color: "#fff", margin: "0 0 10px", lineHeight: 1.1,
+          fontSize: "clamp(1.7rem, 7vw, 2.4rem)",
+          fontWeight: 300, color: "#fff", margin: "0 0 8px", lineHeight: 1.15,
         }}>
-          Your Split Just Got Better.
+          {done ? "You\u2019re in the pipeline." : "Tell us about you."}
         </h1>
-        <p style={{ fontSize: 15, color: "rgba(255,255,255,0.45)", maxWidth: 360, margin: "0 auto 24px", lineHeight: 1.6 }}>
-          50/50 split. 7 open territories. Real lead flow. Join the Brothers Group Real Estate Team at Momentum Realty.
-        </p>
-
-        {/* Trust strip */}
-        <div style={{
-          display: "flex", flexWrap: "wrap", justifyContent: "center",
-          gap: 10, marginBottom: 32, maxWidth: 500,
-        }}>
-          {[
-            ["50 / 50", "Flat split, no cap games"],
-            ["Momentum Realty", "Established brand & infrastructure"],
-            ["Live Lead Flow", "Real leads handed to you"],
-            ["Training & Shadow", "Hands-on from day one"],
-          ].map(([title, sub]) => (
-            <div key={title} style={{
-              background: "rgba(200,170,90,0.06)",
-              border: "1px solid rgba(200,170,90,0.18)",
-              borderRadius: 10, padding: "10px 14px", textAlign: "center",
-              minWidth: 130, flex: "1 1 130px",
-            }}>
-              <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#c8aa5a", letterSpacing: "0.05em" }}>{title}</p>
-              <p style={{ margin: "3px 0 0", fontSize: 10, color: "rgba(255,255,255,0.35)", lineHeight: 1.4 }}>{sub}</p>
-            </div>
-          ))}
-        </div>
+        {!done && (
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.4)", maxWidth: 360, margin: "0 auto 20px", lineHeight: 1.55 }}>
+            Short application. Lead Depot, live leads, and Brothers Group culture — Alex follows up personally.
+          </p>
+        )}
       </header>
-
       {/* Form */}
       <main style={{ padding: "0 16px 60px", maxWidth: 480, margin: "0 auto" }}>
 
@@ -393,6 +484,9 @@ export default function JoinPage() {
           </form>
         )}
       </main>
+
+        </>
+      )}
     </div>
   );
 }

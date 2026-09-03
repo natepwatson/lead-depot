@@ -151,6 +151,22 @@ function AppRoutes() {
   );
 }
 
+function JoinHostRedirect() {
+  // join.watsonbrothersgroup.com should land on recruiting, not agent login.
+  // Hard-nav to static join.html (real recruiting landing). Hash-route /join
+  // only reaches React JoinPage, which is not the shipped recruiting site.
+  const [loc] = useLocation();
+  useEffect(() => {
+    const host = window.location.hostname.toLowerCase();
+    const isJoinHost = host === "join.watsonbrothersgroup.com" || host.startsWith("join.");
+    if (!isJoinHost) return;
+    if (loc === "/" || loc === "") {
+      window.location.replace("/join.html");
+    }
+  }, [loc]);
+  return null;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -158,6 +174,7 @@ export default function App() {
         {/* v16.7 — Identity watermark on every authenticated screen. */}
         <Watermark />
         <Router hook={useHashLocation}>
+          <JoinHostRedirect />
           <Switch>
             {/* Public /join marketing page — no auth required */}
             <Route path="/join" component={JoinPage} />

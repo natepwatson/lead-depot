@@ -51,7 +51,7 @@ function ForgotPasswordLink() {
         </p>
       ) : (
         <form onSubmit={send} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: 0 }}>Enter your email and we\'ll send a reset link.</p>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", margin: 0 }}>Enter your email and we'll send a reset link.</p>
           <input
             type="email" value={email} onChange={e => setEmail(e.target.value)}
             placeholder="your@email.com"

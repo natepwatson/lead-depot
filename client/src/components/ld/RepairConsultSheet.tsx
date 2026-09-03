@@ -1384,9 +1384,11 @@ export function RepairConsultSheet({
       await submitCurrentItems();
       // v20.30.0 — re-editing after a quote already existed: clear the stale
       // quote/vendor-dispatch results so the auto-generate effect below fires
-      // again against the just-saved scope. The server already clears office
-      // approval on every fresh generate-quote call, so re-approval is always
-      // required after an edit — nothing can slip out to the client stale.
+      // again against the just-saved scope. v20.51.0 update: for a consult
+      // that's already accepted/work_order_sent, the server now leaves
+      // status/approval/deposit untouched on this refresh — it only
+      // refreshes pricing + the itemized PDF for the final invoice. Nothing
+      // requires (or can trigger) a brand-new client signature at this point.
       if (quoteResult) { setQuoteResult(null); setClientSent(false); }
       if (vendorDispatchResult) setVendorDispatchResult(null);
       setEditingScope(false);

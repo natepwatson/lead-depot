@@ -3006,14 +3006,33 @@ export function registerRepairConsultRoutes(app: Express) {
     const incentive = rawDb.prepare(`SELECT * FROM repair_incentive_settings WHERE id = 1`).get() as any;
     const freeItemKey = (incentive?.active && total >= (incentive?.threshold_amount || Infinity)) ? incentive.free_item_key : null;
 
+    // v20.51.0 — Never Forget Deposit: a consult that's already been signed
+    // (status accepted/work_order_sent) and/or already has a deposit on
+    // record must NOT have deposit_amount blindly recomputed as a fresh
+    // 50/50 split of the edited total — that silently erases what the
+    // client already actually paid. Once real money is on record, editing
+    // items only recomputes the FINAL INVOICE balance still owed
+    // (new total minus what's already been paid), and the deposit figure
+    // itself is left untouched. Pre-signature quotes (no deposit yet)
+    // keep the original 50/50 preview-split behavior.
+    const priorRow = rawDb.prepare(`SELECT status, deposit_amount, deposit_received_at FROM repair_consults WHERE id = ?`).get(consultId) as any;
+    const alreadyLocked = !!priorRow && (priorRow.status === "accepted" || priorRow.status === "work_order_sent" || !!priorRow.deposit_received_at);
+    const alreadyPaid = alreadyLocked
+      ? (Number((rawDb.prepare(`SELECT COALESCE(SUM(amount), 0) AS s FROM payment_records WHERE source_type = 'repair_consult' AND source_id = ?`).get(consultId) as any)?.s) || 0)
+      : 0;
+    const depositAmount = alreadyLocked ? (Number(priorRow.deposit_amount) || 0) : total / 2;
+    const finalAmount = alreadyLocked
+      ? Math.max(0, Math.round((total - Math.max(alreadyPaid, depositAmount)) * 100) / 100)
+      : total / 2;
+
     rawDb.prepare(`
       UPDATE repair_consults SET subtotal = ?, total = ?, two_story = ?,
         package_discount_pct = ?, package_discount_amount = ?, free_item_applied_key = ?,
         deposit_amount = ?, final_amount = ?, vendor_quoted_subtotal = ?, updated_at = datetime('now')
       WHERE id = ?
-    `).run(subtotal, total, anyTwoStory, discountPct, discountAmount, freeItemKey, total / 2, total / 2, vendorQuotedSubtotal, consultId);
+    `).run(subtotal, total, anyTwoStory, discountPct, discountAmount, freeItemKey, depositAmount, finalAmount, vendorQuotedSubtotal, consultId);
 
-    res.json({ ok: true, subtotal, discountAmount, total, freeItemKey, vendorQuotedSubtotal });
+    res.json({ ok: true, subtotal, discountAmount, total, freeItemKey, vendorQuotedSubtotal, alreadyLocked, finalAmount });
   });
 
   // ── Set start window / specific date+time ──
@@ -3060,22 +3079,68 @@ export function registerRepairConsultRoutes(app: Express) {
     res.json({ ok: true });
   });
 
+  // v20.51.0 — Restore Approved: admin-only safety valve. If a consult's
+  // status ever gets knocked back to 'quoted' after it was genuinely
+  // signed+countersigned (proof: accepted_at AND countersigned_at already
+  // on file), this puts status back to 'accepted' without re-sending
+  // anything to the client, without touching the original signature/
+  // countersign timestamps, and without regenerating any documents. This
+  // is the manual repair tool for exactly the failure Laura Dodson's
+  // Sept 2026 invoice hit, kept as a permanent guard rail.
+  app.post("/api/repair-consult/:id/restore-accepted", (req: any, res: Response) => {
+    if (!req.currentAgent || req.currentAgent.role !== "admin") return res.status(403).json({ error: "Admin only" });
+    const consultId = parseInt(req.params.id);
+    const consult = getConsultRow(consultId);
+    if (!consult) return res.status(404).json({ error: "Consult not found" });
+    if (consult.status === "accepted" || consult.status === "work_order_sent") {
+      return res.json({ ok: true, alreadyAccepted: true });
+    }
+    if (!consult.accepted_at || !consult.countersigned_at) {
+      return res.status(409).json({ error: "No prior signature + countersignature on file — this consult was never actually accepted, so status can't be restored." });
+    }
+    rawDb.prepare(`UPDATE repair_consults SET status = 'accepted', updated_at = datetime('now') WHERE id = ?`).run(consultId);
+    res.json({ ok: true, restored: true });
+  });
+
   // ── Generate quote: builds PDF, mints accept token, emails internal notice ──
   app.post("/api/repair-consult/:id/generate-quote", async (req: any, res: Response) => {
     const consultId = parseInt(req.params.id);
     try {
       const token = randomBytes(20).toString("hex");
       const expires = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-      rawDb.prepare(`
-        UPDATE repair_consults SET status = 'quoted', quote_token = ?, quote_expires_at = ?,
-          office_approved_at = NULL, office_approved_by = NULL, updated_at = datetime('now')
-        WHERE id = ?
-      `).run(token, expires, consultId);
+      // v20.51.0 — Never Forget Approval/Deposit: a consult that has already
+      // been signed (accepted) or moved further (work_order_sent) must NEVER
+      // be pushed back to 'quoted' just because an admin edited line items
+      // and re-hit "Generate Quote" to refresh pricing/PDFs. Doing that used
+      // to silently re-open the signature gate and wipe office approval on
+      // an already-executed contract — Laura Dodson's Sept 2026 invoice was
+      // hit by exactly this. Once accepted, an item edit only refreshes the
+      // itemized PDF for the FINAL INVOICE; it never touches status,
+      // approval, or deposit fields, and it never re-mints an accept token
+      // or regenerates a blank (unsigned) agreement template.
+      const priorStatusRow = rawDb.prepare(`SELECT status FROM repair_consults WHERE id = ?`).get(consultId) as any;
+      const alreadyAccepted = !!priorStatusRow && (priorStatusRow.status === "accepted" || priorStatusRow.status === "work_order_sent");
+
+      if (!alreadyAccepted) {
+        rawDb.prepare(`
+          UPDATE repair_consults SET status = 'quoted', quote_token = ?, quote_expires_at = ?,
+            office_approved_at = NULL, office_approved_by = NULL, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(token, expires, consultId);
+      } else {
+        rawDb.prepare(`UPDATE repair_consults SET updated_at = datetime('now') WHERE id = ?`).run(consultId);
+      }
       const pdfUrl = await generateQuotePdf(consultId);
-      const agreementPdfUrl = await generateAgreementPdf(consultId, { blank: true });
-      await sendInHouseQuoteInternal(consultId);
+      const agreementPdfUrl = alreadyAccepted ? null : await generateAgreementPdf(consultId, { blank: true });
+      if (!alreadyAccepted) await sendInHouseQuoteInternal(consultId);
       const consult = getConsultRow(consultId);
-      res.json({ ok: true, quoteToken: token, pdfUrl, agreementPdfUrl, total: consult.total, acceptUrl: `${APP_URL}/#/repair-quote/${token}` });
+      res.json({
+        ok: true,
+        quoteToken: alreadyAccepted ? consult.quote_token : token,
+        pdfUrl, agreementPdfUrl, total: consult.total,
+        acceptUrl: alreadyAccepted ? null : `${APP_URL}/#/repair-quote/${token}`,
+        alreadyAccepted,
+      });
     } catch (err: any) {
       console.error("generate-quote error:", err);
       res.status(500).json({ error: "Failed to generate quote", detail: err?.message });

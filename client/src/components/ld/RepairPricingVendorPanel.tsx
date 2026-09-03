@@ -968,11 +968,18 @@ function ConsultsPanel() {
                       if (!c.deposit_received_at) return <span style={{ color: "#e8d8a8" }}>Awaiting deposit</span>;
                       const paidLabel = `$${paidSoFar.toLocaleString(undefined, { minimumFractionDigits: 2 })} paid`;
                       const fullyPaid = totalDue > 0 && paidSoFar >= totalDue - 0.005;
+                      const balanceDue = Math.max(0, Math.round((totalDue - paidSoFar) * 100) / 100);
                       const depositLine = <span style={{ color: fullyPaid ? "#4ade80" : "#5eead4" }}>{paidLabel}{fullyPaid ? " \u00b7 paid in full" : ""}</span>;
+                      // v20.51.0 — once a real edit happens after signing/deposit,
+                      // make the remaining balance explicit as a "Final invoice
+                      // due" line so nobody has to do the subtraction by hand.
+                      const balanceLine = (!fullyPaid && balanceDue > 0)
+                        ? <div style={{ color: GOLD, fontSize: 10 }}>Final invoice due: ${balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                        : null;
                       if (!c.start_date && !c.start_window) {
-                        return <>{depositLine}<div style={{ color: "#64748b", fontSize: 10 }}>Not scheduled</div></>;
+                        return <>{depositLine}{balanceLine}<div style={{ color: "#64748b", fontSize: 10 }}>Not scheduled</div></>;
                       }
-                      return <>{depositLine}<div style={{ color: "#5eead4", fontSize: 10 }}>{c.start_date ? `Start ${c.start_date}${c.start_time ? " " + c.start_time : ""}` : c.start_window}</div></>;
+                      return <>{depositLine}{balanceLine}<div style={{ color: "#5eead4", fontSize: 10 }}>{c.start_date ? `Start ${c.start_date}${c.start_time ? " " + c.start_time : ""}` : c.start_window}</div></>;
                     })()}
                   </td>
                   <td style={{ padding: "6px 10px" }}>

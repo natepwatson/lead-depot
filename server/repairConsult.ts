@@ -1450,6 +1450,47 @@ function drawContainedImage(
   });
 }
 
+// v20.57.0 — Alex: "I wanted the photo and the details of the repair scope
+// for as many items that we have photos for ... I want the estimates to feel
+// more professional and more associated with the inspection photos." Draws
+// a small inline thumbnail grid (up to 4 per row) directly under a single
+// line item's scope text, tied to THAT item — instead of every scope photo
+// getting dumped into one generic gallery at the very end of the document.
+// Never draws any price/cost — purely visual, caller controls all $ text.
+// Page-breaks row-by-row (matches the surrounding per-line page-break style
+// already used for vendor scope text) so a single item's photos can safely
+// spill onto a fresh page without corrupting layout.
+async function drawItemPhotoGrid(
+  pdfDoc: any,
+  page: any,
+  y: number,
+  photoUrls: string[],
+  minY: number,
+  indentX = 46
+): Promise<{ page: any; y: number }> {
+  if (!photoUrls || photoUrls.length === 0) return { page, y };
+  const thumbW = 116, thumbH = 84, gap = 8, cols = 4;
+  for (let i = 0; i < photoUrls.length; i += cols) {
+    const rowPhotos = photoUrls.slice(i, i + cols);
+    if (y - thumbH < minY) {
+      page = pdfDoc.addPage([612, 792]);
+      y = 792 - 50;
+    }
+    for (let c = 0; c < rowPhotos.length; c++) {
+      try {
+        const p = resolveConsultPhotoPath(rowPhotos[c]);
+        if (p && fs.existsSync(p)) {
+          const bytes = fs.readFileSync(p);
+          const img = rowPhotos[c].endsWith(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+          drawContainedImage(page, img, { x: indentX + c * (thumbW + gap), y, width: thumbW, height: thumbH });
+        }
+      } catch { /* non-fatal — skip this photo if unreadable, leave grid slot blank */ }
+    }
+    y -= thumbH + 10;
+  }
+  return { page, y };
+}
+
 // v20.30.0 — Alex: the other scope/gallery photos (front-of-house hero is
 // separate, shown on page 1) give the itemized quote more legitimacy on the
 // work being proposed. Appends a 2x3 photo-grid page for every 6 photos,
@@ -1629,6 +1670,29 @@ export async function generateQuotePdf(consultId: number, opts: { mode?: "with_s
       }
       page.drawText(`${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`, { x: colQtyX, y, size: 9, font, color: black });
       y -= rowHeight;
+
+      // v20.57.0 — Alex: "I wanted the photo and the details of the repair
+      // scope for as many items that we have photos for ... more associated
+      // with the inspection photos." Items with attached photos get their
+      // scope text + a small thumbnail grid drawn right here, tied to this
+      // specific item — no-photo items keep today's simple name+qty row.
+      // Never shows vendor cost — only the item's own descriptive text.
+      let itPhotos: string[] = [];
+      try { itPhotos = it.photos ? JSON.parse(it.photos) : []; } catch { itPhotos = []; }
+      if (itPhotos.length > 0) {
+        if (it.instruction) {
+          for (const line of wrapText(it.instruction, fontItalic, 7.5, 500)) {
+            if (y < MIN_Y + 10) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; drawItemsHeader(); rowIdx = 0; }
+            page.drawText(line, { x: colLabelX + 8, y, size: 7.5, font: fontItalic, color: gray });
+            y -= 9.5;
+          }
+        }
+        y -= 2;
+        const pageBefore = page;
+        ({ page, y } = await drawItemPhotoGrid(pdfDoc, page, y, itPhotos, MIN_Y, colLabelX + 8));
+        if (page !== pageBefore) { drawItemsHeader(); rowIdx = -1; }
+        y -= 8;
+      }
       rowIdx++;
     }
     y -= 10;
@@ -1726,6 +1790,19 @@ export async function generateQuotePdf(consultId: number, opts: { mode?: "with_s
             page.drawText(line, { x: 46, y, size: 7, font: fontItalic, color: gray });
             y -= 9;
           }
+        }
+
+        // v20.57.0 — Alex: same photo+scope treatment as in-house items above
+        // — WDO, HVAC, chimney, etc. are all vendor-category items, so this is
+        // where most of Alex's inspection-photo line items actually live.
+        // Only the already-marked-up client price (priceLabel above) is ever
+        // shown; vendor_quote_amount (raw vendor cost) is never drawn here.
+        let vPhotos: string[] = [];
+        try { vPhotos = v.photos ? JSON.parse(v.photos) : []; } catch { vPhotos = []; }
+        if (vPhotos.length > 0) {
+          y -= 2;
+          ({ page, y } = await drawItemPhotoGrid(pdfDoc, page, y, vPhotos, MIN_Y, 46));
+          y -= 4;
         }
       }
       y -= 4;

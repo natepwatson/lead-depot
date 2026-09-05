@@ -492,6 +492,14 @@ export function ListingConsultSheet({
   // Address until the agent picks which property this consult is about.
   const [fubAddressChoices, setFubAddressChoices] = useState<FubAddress[]>([]);
 
+  // v20.57.2 — New vs Past Client choice at the top of prep. Alex asked for an
+  // explicit "is this a past client?" question so a returning seller (e.g. a
+  // client who already listed with us before, like the Dunn Crossing Drive
+  // repeat) has an obvious path. Both paths use the same FUB search below —
+  // FUB already contains past clients; this just makes the intent explicit
+  // and prompts the right search. `null` = not chosen yet (show the picker).
+  const [clientType, setClientType] = useState<null | "new" | "past">(null);
+
   useEffect(() => {
     if (fubQuery.trim().length < 2 || fubPickedName) { setFubResults([]); return; }
     const t = setTimeout(async () => {
@@ -1242,7 +1250,85 @@ export function ListingConsultSheet({
         {step === "prep" && (
           <>
             {header("Before You Arrive", "Property + client info, quick prep checklist")}
-            <label style={labelStyle}>Find in FUB</label>
+
+            {/* v20.57.2 — New vs Past Client chooser. Renders once at the top
+                of prep; disappears as soon as agent picks one so the rest of
+                the form isn't cluttered. Past Client emphasizes the FUB
+                search (their contact is already in there). New Client hides
+                the search and lets them fill in details manually. */}
+            {clientType === null && (
+              <div style={{
+                marginBottom: 14, padding: 14, borderRadius: 12,
+                background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.28)",
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: GOLD, marginBottom: 4, letterSpacing: "0.02em" }}>
+                  Who are you consulting with?
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", marginBottom: 10 }}>
+                  Past client = already in FUB from a prior listing, purchase, or referral.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setClientType("new")}
+                    style={{
+                      padding: "12px 10px", borderRadius: 10, cursor: "pointer",
+                      background: "rgba(200,170,90,0.10)", color: "#ffffff",
+                      border: "1px solid rgba(200,170,90,0.35)",
+                      fontSize: 13, fontWeight: 600,
+                    }}
+                  >
+                    New Client
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setClientType("past")}
+                    style={{
+                      padding: "12px 10px", borderRadius: 10, cursor: "pointer",
+                      background: GOLD, color: "#0a0908",
+                      border: `1px solid ${GOLD}`,
+                      fontSize: 13, fontWeight: 700,
+                    }}
+                  >
+                    Past Client
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {clientType !== null && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 11 }}>
+                <span style={{
+                  padding: "3px 8px", borderRadius: 999,
+                  background: clientType === "past" ? "rgba(200,170,90,0.18)" : "rgba(255,255,255,0.08)",
+                  color: clientType === "past" ? GOLD : "rgba(255,255,255,0.65)",
+                  border: `1px solid ${clientType === "past" ? "rgba(200,170,90,0.4)" : "rgba(255,255,255,0.15)"}`,
+                  fontWeight: 600, letterSpacing: "0.03em",
+                }}>
+                  {clientType === "past" ? "PAST CLIENT" : "NEW CLIENT"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setClientType(null); setFubQuery(""); setFubResults([]); setFubPickedName(null); setFubPersonId(null); }}
+                  style={{
+                    background: "transparent", border: "none", color: "rgba(255,255,255,0.5)",
+                    fontSize: 11, cursor: "pointer", textDecoration: "underline", padding: 0,
+                  }}
+                >
+                  change
+                </button>
+              </div>
+            )}
+
+            {clientType === "past" && (
+              <label style={labelStyle}>Search FUB for the past client</label>
+            )}
+            {clientType === "new" && (
+              <label style={labelStyle}>Find in FUB (optional — or type details below)</label>
+            )}
+            {clientType === null && (
+              <label style={labelStyle}>Find in FUB</label>
+            )}
             <div style={{ position: "relative", marginBottom: 6 }}>
               <input
                 style={inputStyle}

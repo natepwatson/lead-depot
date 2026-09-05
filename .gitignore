@@ -1,6 +1,13 @@
 node_modules/
-dist/
 .vite/
+
+# NOTE: dist/ is intentionally NOT gitignored. This repo commits the build
+# output and Railway deploys straight from it. Vite content-hashes asset
+# filenames on every build, so if dist/ were ignored, "git add -A" would
+# silently skip newly-hashed JS/CSS files (they're untracked+ignored) while
+# still staging deletions of the old hash-named ones — breaking the live
+# site (v20.57.0 outage, 2026-09-04). Keep dist/ tracked so normal add/commit
+# always picks up new build output without needing force-add.
 
 # SQLite database files — never commit; exposes demo data at rest
 data.db

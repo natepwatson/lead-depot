@@ -1,0 +1,268 @@
+{
+  "startedAt": "2026-09-04T07:06:43.175Z",
+  "finishedAt": "2026-09-04T07:06:50.458Z",
+  "durationMs": 7282,
+  "tier": "nightly",
+  "plan": [
+    "T1",
+    "T4"
+  ],
+  "version": null,
+  "summary": {
+    "passed": 30,
+    "failed": 0,
+    "critFail": 0,
+    "skipped": 1,
+    "total": 31
+  },
+  "results": [
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "health · /api/health returns healthy",
+      "status": "pass",
+      "critical": true,
+      "detail": "ver=v20.56.0 status=healthy services=7",
+      "durationMs": 666
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "health · /api/boot-info returns diagnostics",
+      "status": "pass",
+      "critical": false,
+      "detail": "uptime=32146s node=v22.23.2 lastFatal=null",
+      "durationMs": 200
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "auth · login rejects bad password",
+      "status": "pass",
+      "critical": true,
+      "detail": "http=401",
+      "durationMs": 110
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "auth · admin login succeeds + session cookie set",
+      "status": "pass",
+      "critical": true,
+      "detail": "cookie-len=54",
+      "durationMs": 105
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "auth · authenticated /api/agents works",
+      "status": "pass",
+      "critical": true,
+      "detail": "http=200 agents=8",
+      "durationMs": 55
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "auth · login response echoes onboarding gate fields",
+      "status": "pass",
+      "critical": false,
+      "detail": "profileField=true tutorialField=true tutorialAt=set",
+      "durationMs": 85
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "auth · logout revokes session",
+      "status": "pass",
+      "critical": false,
+      "detail": "post-logout http=200",
+      "durationMs": 210
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "agents · list returns non-empty",
+      "status": "pass",
+      "critical": true,
+      "detail": "count=8",
+      "durationMs": 25
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "agents · no duplicate (name, isActive=true) pairs",
+      "status": "pass",
+      "critical": false,
+      "detail": "active=8 dups=none",
+      "durationMs": 30
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "agents · leaderboard shape valid",
+      "status": "pass",
+      "critical": false,
+      "detail": "rows=8",
+      "durationMs": 36
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "leads · /api/leads/my-count/:agentId returns integer",
+      "status": "pass",
+      "critical": false,
+      "detail": "http=200 count=82",
+      "durationMs": 48
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "leads · /api/leads/stats returns aggregate",
+      "status": "pass",
+      "critical": false,
+      "detail": "http=200",
+      "durationMs": 23
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "leads · /api/leads/paginated works",
+      "status": "pass",
+      "critical": false,
+      "detail": "http=200",
+      "durationMs": 25
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "leads · no cycling-bug leads (unassigned + all no_answer_today)",
+      "status": "pass",
+      "critical": false,
+      "detail": "sampled=8 stuck=0",
+      "durationMs": 315
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "leads · fixture write path",
+      "status": "skip",
+      "critical": false,
+      "detail": "no INGEST_SECRET; skipping write tests",
+      "durationMs": 0
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "scripts · /api/scripts/expired returns content",
+      "status": "pass",
+      "critical": false,
+      "detail": "http=200 keys=3",
+      "durationMs": 30
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "scripts · /api/scripts (list) works",
+      "status": "pass",
+      "critical": false,
+      "detail": "http=200 count=2",
+      "durationMs": 22
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "reports · /api/reports/outcomes returns aggregate",
+      "status": "pass",
+      "critical": false,
+      "detail": "http=200",
+      "durationMs": 2943
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "reports · /api/admin/leaderboard works",
+      "status": "pass",
+      "critical": false,
+      "detail": "http=200",
+      "durationMs": 42
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "reports · /api/admin/pipeline works",
+      "status": "pass",
+      "critical": false,
+      "detail": "http=200",
+      "durationMs": 51
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "reports · /api/admin/agent-inactivity works",
+      "status": "pass",
+      "critical": false,
+      "detail": "http=200",
+      "durationMs": 26
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "fub · connector reports connected in /api/health",
+      "status": "pass",
+      "critical": false,
+      "detail": "fub={\"ok\":true,\"latencyMs\":104,\"detail\":\"Connected\"}",
+      "durationMs": 288
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "integrity · tombstone chain has no cycles",
+      "status": "pass",
+      "critical": false,
+      "detail": "cycles=0",
+      "durationMs": 48
+    },
+    {
+      "tier": "Tier 1 · Backend",
+      "name": "integrity · admin/leaderboard-reset baseline present",
+      "status": "pass",
+      "critical": false,
+      "detail": "http=200",
+      "durationMs": 23
+    },
+    {
+      "tier": "Tier 4 · Data Integrity",
+      "name": "inv · no duplicate active agent names",
+      "status": "pass",
+      "critical": false,
+      "detail": "active=8 dups=none",
+      "durationMs": 0
+    },
+    {
+      "tier": "Tier 4 · Data Integrity",
+      "name": "inv · merge tombstone chain valid",
+      "status": "pass",
+      "critical": false,
+      "detail": "cycles=0 dangling=0",
+      "durationMs": 0
+    },
+    {
+      "tier": "Tier 4 · Data Integrity",
+      "name": "inv · no cycling-bug leads (Hector class)",
+      "status": "pass",
+      "critical": false,
+      "detail": "sampled=12 stuck=0",
+      "durationMs": 354
+    },
+    {
+      "tier": "Tier 4 · Data Integrity",
+      "name": "inv · dead_lines disjoint from phones (v14.65 sweep)",
+      "status": "pass",
+      "critical": false,
+      "detail": "sampled=25 overlap=0",
+      "durationMs": 700
+    },
+    {
+      "tier": "Tier 4 · Data Integrity",
+      "name": "inv · /api/health all services ok",
+      "status": "pass",
+      "critical": true,
+      "detail": "bad=none",
+      "durationMs": 286
+    },
+    {
+      "tier": "Tier 4 · Data Integrity",
+      "name": "inv · no orphan hard_deleted audit rows (v14.81.3 regression guard)",
+      "status": "pass",
+      "critical": false,
+      "detail": "sampled=8 orphanRows=0",
+      "durationMs": 231
+    },
+    {
+      "tier": "Tier 4 · Data Integrity",
+      "name": "inv · db audit — no critical findings",
+      "status": "pass",
+      "critical": true,
+      "detail": "crit=0 warn=1 info=33",
+      "durationMs": 161
+    }
+  ]
+}

@@ -5823,6 +5823,11 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
   // name+phone+intent required; email/notes/address optional. Other warm-lead
   // sources (OH / Door Knock / Direct Mail) keep their fuller required set.
   const isAddLead = source === "network";
+  // v20.57.1 — Co-listed OH: only shown when source === "open_house". Awards 20 pts to co-host instantly on submit.
+  const isOpenHouseLead = source === "open_house";
+  const [isCohosted, setIsCohosted] = useState(false);
+  const [cohostAgentId, setCohostAgentId] = useState<string>("");
+  const [agentOptions, setAgentOptions] = useState<Array<{ id: number; name: string }>>([]);
   const [netName, setNetName]   = useState("");
   const [netPhone, setNetPhone] = useState("");
   const [netEmail, setNetEmail] = useState("");
@@ -5831,6 +5836,22 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
   const [intent, setIntent]     = useState<WarmLeadIntent | "">("");
   const [dupeStatus, setDupeStatus] = useState<null | { checking: boolean; existing: any | null }>(null);
   const [netSending, setNetSending] = useState(false);
+
+  // v20.57.1 — Lazy-load active agent list once the co-host toggle is flipped.
+  useEffect(() => {
+    if (!isOpenHouseLead || !isCohosted || agentOptions.length > 0) return;
+    (async () => {
+      try {
+        const r = await apiRequest("GET", "/api/agents");
+        const all = await r.json();
+        const active = (Array.isArray(all) ? all : [])
+          .filter((a: any) => a && a.isActive && a.id !== user?.id)
+          .map((a: any) => ({ id: a.id, name: a.name }))
+          .sort((a: any, b: any) => a.name.localeCompare(b.name));
+        setAgentOptions(active);
+      } catch { setAgentOptions([]); }
+    })();
+  }, [isOpenHouseLead, isCohosted, user?.id, agentOptions.length]);
 
   // Phone dupe check — fires 500ms after user stops typing a 10+ digit phone.
   useEffect(() => {
@@ -5883,6 +5904,10 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
       const proceed = window.confirm(`This phone is already in Depot (assigned to ${owner}). Submit anyway?`);
       if (!proceed) return;
     }
+    if (isOpenHouseLead && isCohosted && !cohostAgentId) {
+      toast({ title: "Pick a co-host", description: "Select the other agent, or turn off Co-listed.", variant: "destructive" });
+      return;
+    }
     setNetSending(true);
     try {
       const r = await apiRequest("POST", "/api/leads/network", {
@@ -5893,6 +5918,9 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
         submittedBy: user?.id, submittedByName: user?.name,
         warmLeadIntent: intent || null,
         warmLeadSource: source,
+        // v20.57.1 — Co-listed OH Lead. Server awards co-host 20 pts + activity row (open_house_lead_cohost).
+        // No lead ownership — points-only credit. Ignored for non-open_house sources.
+        cohostAgentId: isOpenHouseLead && isCohosted && cohostAgentId ? parseInt(cohostAgentId) : null,
       });
       const data = await r.json();
       if (r.ok && data.leadId) {
@@ -5953,6 +5981,28 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
           : "Know someone thinking about selling, buying, or renting? Drop their info here — the lead is auto-assigned to you and opens instantly."}
       </p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* v20.57.1 — Co-listed OH: only shown when source is open_house. Both agents get 20 pts on submit. */}
+        {isOpenHouseLead && (
+          <div style={{
+            padding: "10px 12px", borderRadius: 8,
+            background: "rgba(200,170,90,0.06)", border: "1px solid rgba(200,170,90,0.22)",
+          }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 12, color: "rgba(255,255,255,0.85)" }}>
+              <input type="checkbox" checked={isCohosted} onChange={e => { setIsCohosted(e.target.checked); if (!e.target.checked) setCohostAgentId(""); }}
+                style={{ width: 16, height: 16, accentColor: "#c8aa5a" }} />
+              <span><strong style={{ color: "#c8aa5a" }}>Co-listed open house?</strong> — co-host also earns 20 pts.</span>
+            </label>
+            {isCohosted && (
+              <div style={{ marginTop: 8 }}>
+                <label style={labelStyle}>Co-host agent *</label>
+                <select value={cohostAgentId} onChange={e => setCohostAgentId(e.target.value)} style={inputStyle}>
+                  <option value="">Select agent…</option>
+                  {agentOptions.map(a => (<option key={a.id} value={String(a.id)}>{a.name}</option>))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div>
             <label style={labelStyle}>Name *</label>
@@ -6657,7 +6707,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.57.0</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.57.1</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -8289,6 +8339,25 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
   const [ohNotes, setOhNotes] = useState("");
   const [issues, setIssues] = useState("");
   const [recommendations, setRecommendations] = useState("");
+  // v20.57.1 — Co-listed OH: agent can flag this OH as co-hosted with another
+  // active team agent. On admin approval BOTH agents get the full 50 pts.
+  const [isCohosted, setIsCohosted] = useState(false);
+  const [cohostAgentId, setCohostAgentId] = useState<string>("");
+  const [agentOptions, setAgentOptions] = useState<Array<{ id: number; name: string }>>([]);
+  useEffect(() => {
+    if (!isCohosted || agentOptions.length > 0) return;
+    (async () => {
+      try {
+        const r = await apiRequest("GET", "/api/agents");
+        const all = await r.json();
+        const active = (Array.isArray(all) ? all : [])
+          .filter((a: any) => a && a.isActive && a.id !== user?.id)
+          .map((a: any) => ({ id: a.id, name: a.name }))
+          .sort((a: any, b: any) => a.name.localeCompare(b.name));
+        setAgentOptions(active);
+      } catch { setAgentOptions([]); }
+    })();
+  }, [isCohosted, user?.id, agentOptions.length]);
   // v20.38.3 — Issue photos are separate from the required OH selfie. Agents
   // can attach photos of anything they flagged in "Issues we should know
   // about" (broken fence, dirty carpet, sign knocked over, etc.) without
@@ -8383,6 +8452,10 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
   const submit = async () => {
     if (!address.trim()) { toast({ title: "Address required", variant: "destructive" }); return; }
     if (!photoDataUrl) { toast({ title: "Selfie required", description: "Snap a selfie with the OH sign in the background.", variant: "destructive" }); return; }
+    if (isCohosted && !cohostAgentId) {
+      toast({ title: "Pick a co-host", description: "Select the other agent, or turn off Co-listed.", variant: "destructive" });
+      return;
+    }
     setSubmitting(true);
     try {
       const r = await apiRequest("POST", "/api/lead-gen/open-house-log", {
@@ -8397,6 +8470,10 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
         notes: ohNotes.trim(),
         issues: issues.trim(),
         recommendations: recommendations.trim(),
+        // v20.57.1 — Co-listed OH. Server persists these on the approval row.
+        // On approve, co-host gets a parallel 50-pt award + lead_activity row
+        // tagged `open_house_log_cohost` for audit.
+        cohostAgentId: isCohosted && cohostAgentId ? parseInt(cohostAgentId) : null,
       });
       const data = await r.json();
       if (r.ok && data.submitted) {
@@ -8474,6 +8551,28 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
         border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10,
       }}>
         <p style={{ margin: "0 0 12px", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700 }}>Open House Results</p>
+
+        {/* v20.57.1 — Co-listed open house. Both agents get the full 50 pts on approval. */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 12, color: "rgba(255,255,255,0.85)" }}>
+            <input type="checkbox" checked={isCohosted} onChange={e => { setIsCohosted(e.target.checked); if (!e.target.checked) setCohostAgentId(""); }}
+              style={{ width: 16, height: 16, accentColor: "#c8aa5a" }} />
+            <span><strong style={{ color: "#c8aa5a" }}>Co-listed open house?</strong> — both agents earn full points on approval.</span>
+          </label>
+          {isCohosted && (
+            <div style={{ marginTop: 8 }}>
+              <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Co-host agent *</label>
+              <select value={cohostAgentId} onChange={e => setCohostAgentId(e.target.value)} style={{
+                width: "100%", padding: "12px 14px", borderRadius: 8,
+                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(200,170,90,0.28)",
+                color: "#fff", fontSize: 14, boxSizing: "border-box", fontFamily: "'Switzer','Inter',sans-serif",
+              }}>
+                <option value="">Select agent…</option>
+                {agentOptions.map(a => (<option key={a.id} value={String(a.id)}>{a.name}</option>))}
+              </select>
+            </div>
+          )}
+        </div>
 
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(200,170,90,0.7)", fontWeight: 600, marginBottom: 6 }}>Number of attendees</label>

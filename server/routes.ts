@@ -174,7 +174,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.57.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.57.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -403,7 +403,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.57.0 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.57.1 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -462,7 +462,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.57.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.57.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -510,7 +510,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.57.0 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.57.1 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1763,7 +1763,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.57.0</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.57.1</p>
             </div>
           `,
         });
@@ -1923,7 +1923,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.57.0 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.57.1 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -8300,7 +8300,7 @@ This template is for informational/outreach purposes only.`;
     // Lead). `warmLeadSource` distinguishes them; `warmLeadIntent` drives the
     // Work-the-Lead script tab (LPMAMA / CPMAMA / LPMA / combos). Both are
     // stored in extraData so no DB migration is needed.
-    const { ownerName, phone, email, address, notes, submittedBy, submittedByName, warmLeadIntent, warmLeadSource } = req.body;
+    const { ownerName, phone, email, address, notes, submittedBy, submittedByName, warmLeadIntent, warmLeadSource, cohostAgentId } = req.body;
     if (!ownerName || !phone) return res.status(400).json({ error: "Name and phone required" });
     const ALLOWED_SOURCES = new Set(["network", "open_house", "door_knock", "direct_mail"]);
     const source = ALLOWED_SOURCES.has(String(warmLeadSource)) ? String(warmLeadSource) : "network";
@@ -8525,6 +8525,36 @@ This template is for informational/outreach purposes only.`;
     }
     awardPoints(submitterAgentId, activityOutcome, created.id);
 
+    // v20.57.1 — Co-listed Open House Lead: award the co-host 20 pts + a
+    // separate lead_activity row tagged `open_house_lead_cohost`. Points-only
+    // credit — the lead itself stays owned by the submitter (co-host does NOT
+    // work-the-lead). Ignored for non-open_house sources. Validated the same
+    // way as OH-Log co-hosts: must be a real active agent that isn't the
+    // submitter.
+    if (source === "open_house" && cohostAgentId != null && String(cohostAgentId).length > 0 && submitterAgentId) {
+      const parsedCohost = parseInt(String(cohostAgentId));
+      if (parsedCohost && parsedCohost !== submitterAgentId) {
+        const coAgent = storage.getAgentById(parsedCohost);
+        if (coAgent && coAgent.isActive) {
+          try {
+            rawDb.prepare(`
+              INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, created_at)
+              VALUES (?, ?, 'open_house_lead', ?, ?)
+            `).run(created.id, parsedCohost, `Co-host credit — primary agent: ${submittedByName || "Unknown"} (id ${submitterAgentId})`, now);
+            // Award 20 pts flat, tagged as cohost so the ledger keeps solo vs
+            // shared credit auditable. Uses the same amount as `open_house_lead`
+            // in points.ts (20 flat, no Prime multiplier).
+            rawDb.prepare(
+              `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, 20, 'open_house_lead_cohost', ?, 'seller', ?)`
+            ).run(parsedCohost, created.id, now);
+            try { broadcast({ type: "points_awarded", agentId: parsedCohost, delta: 20, outcome: "open_house_lead_cohost", scope: "seller", ts: now }); } catch {}
+          } catch (err) {
+            console.warn("[v20.57.1] OH-Lead co-host award failed", { leadId: created.id, cohostId: parsedCohost, err });
+          }
+        }
+      }
+    }
+
     // v20.7.11 — Warm-lead ingest also pushes to FUB immediately (person + tags +
     // Nurture stage, no Action Plan). Idempotent — no-op if phone already in FUB.
     // Runs fire-and-forget so slow FUB API never blocks the LD user response.
@@ -8570,7 +8600,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.57.0 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.57.1 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8748,12 +8778,30 @@ This template is for informational/outreach purposes only.`;
   app.post("/api/lead-gen/open-house-log", async (req, res) => {
     const {
       agentId, address, photoDataUrl, issuePhotoDataUrls, gpsLat, gpsLng, timestamp,
-      attendees, notes, issues, recommendations,
+      attendees, notes, issues, recommendations, cohostAgentId,
     } = req.body;
     const submitterId = agentId ? parseInt(String(agentId)) : null;
     if (!submitterId) return res.status(400).json({ error: "agentId required" });
     if (!address || !String(address).trim()) return res.status(400).json({ error: "Address required" });
     if (!photoDataUrl) return res.status(400).json({ error: "Selfie photo required" });
+
+    // v20.57.1 — Co-listed OH. If a co-host was picked, verify the agent id is
+    // real, active, and not the submitter (frontend already filters, but
+    // never trust the client). On approval, this co-host gets a parallel 50-pt
+    // ledger row + lead_activity row tagged `open_house_log_cohost` so audits
+    // can distinguish shared vs solo credit.
+    let validatedCohostId: number | null = null;
+    let validatedCohostName: string | null = null;
+    if (cohostAgentId != null && String(cohostAgentId).length > 0) {
+      const parsed = parseInt(String(cohostAgentId));
+      if (parsed && parsed !== submitterId) {
+        const coAgent = storage.getAgentById(parsed);
+        if (coAgent && coAgent.isActive) {
+          validatedCohostId = parsed;
+          validatedCohostName = coAgent.name;
+        }
+      }
+    }
 
     const now = new Date().toISOString();
     const submitter = storage.getAgentById(submitterId);
@@ -8777,6 +8825,10 @@ This template is for informational/outreach purposes only.`;
       photoDataUrl: String(photoDataUrl).slice(0, 4_000_000),
       issuePhotoDataUrls: cleanIssuePhotos,
       results,
+      // v20.57.1 — Persist validated co-host on the approval row. Consumed by
+      // the approve handler to fan out the second award.
+      cohostAgentId: validatedCohostId,
+      cohostAgentName: validatedCohostName,
     };
 
     // Create the approval request — status='pending'. No points awarded yet,
@@ -9455,6 +9507,32 @@ This template is for informational/outreach purposes only.`;
       try { broadcast({ type: "points_awarded", agentId: row.agent_id, delta: pointsAwarded, outcome: `approval:${outcome}`, scope: "seller", ts: now }); } catch {}
     }
 
+    // v20.57.1 — Co-listed Open House Log: award the co-host in parallel. Same
+    // point value (50), separate ledger row tagged `approval:open_house_log_cohost`,
+    // and a matching lead_activity row so leaderboard bucketing counts both
+    // agents. Guarded to open_house_log only — no other approval kind currently
+    // supports co-hosts. Co-host id was validated at submit time.
+    if (row.kind === "open_house_log" && payload.cohostAgentId && Number(payload.cohostAgentId) !== Number(row.agent_id)) {
+      const cohostId = Number(payload.cohostAgentId);
+      const cohostPoints = pointsAwarded;
+      try {
+        rawDb.prepare(`
+          INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, lpmamab_snapshot, created_at,
+                                      lead_address_snapshot, lead_phone_snapshot, lead_owner_snapshot)
+          VALUES (NULL, ?, 'open_house_log', ?, NULL, ?, ?, NULL, NULL)
+        `).run(cohostId, JSON.stringify({ ...payload, cohostCredit: true, primaryAgentId: row.agent_id, primaryAgentName: row.agent_name }), now, addrSnap);
+        if (cohostPoints > 0) {
+          rawDb.prepare(
+            `INSERT INTO agent_points (agent_id, points, reason, lead_id, scope, created_at) VALUES (?, ?, 'approval:open_house_log_cohost', NULL, 'seller', ?)`
+          ).run(cohostId, cohostPoints, now);
+          try { broadcast({ type: "points_awarded", agentId: cohostId, delta: cohostPoints, outcome: "approval:open_house_log_cohost", scope: "seller", ts: now }); } catch {}
+        }
+      } catch (e) {
+        // Non-fatal — primary award already succeeded. Log and continue.
+        console.warn("[v20.57.1] OH log co-host award failed", { requestId: id, cohostId, err: e });
+      }
+    }
+
     rawDb.prepare(`
       UPDATE approval_requests
          SET status = 'approved', points_awarded = ?, decided_at = ?, decided_by = ?,
@@ -10061,7 +10139,7 @@ This template is for informational/outreach purposes only.`;
     res.status(allOk ? 200 : criticalOk ? 207 : 503).json({
       status: allOk ? "healthy" : criticalOk ? "degraded" : "critical",
       timestamp: new Date().toISOString(),
-      version: "v20.57.0",
+      version: "v20.57.1",
       services: results,
     });
   });
@@ -11624,7 +11702,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.57.0</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.57.1</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

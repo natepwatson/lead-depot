@@ -449,16 +449,38 @@ export function ListingConsultSheet({
     return () => document.body.classList.remove("ld-modal-open");
   }, []);
 
+  // v20.57.3 — Toggle between the short in-progress list and the wider
+  // history view (signed / archived / not-moving). Alex needs the ability to
+  // reopen consults where the walkthrough already happened.
+  const [showingHistory, setShowingHistory] = useState(false);
+
   useEffect(() => {
     fetchJson(`/api/listing-consult/mine?agentId=${agentId ?? ""}`)
       .then(d => {
         const list: ResumeItem[] = d.consults || [];
-        if (list.length > 0) { setResumeList(list); setResumePhase("picking"); }
-        else setResumePhase("ready");
+        // v20.57.3 — Even with 0 in-progress consults, show the picker so
+        // the agent has a one-tap path to "See past consults" before starting
+        // a new one. Empty state renders just the Start New + history link.
+        setResumeList(list);
+        setResumePhase("picking");
       })
       .catch(() => setResumePhase("ready"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // v20.57.3 — Fetch the wider history list on demand and swap into the
+  // picker view. Called when the agent taps "See past consults".
+  const handleShowHistory = async () => {
+    try {
+      const d = await fetchJson(`/api/listing-consult/mine?agentId=${agentId ?? ""}&includeAll=1`);
+      const list: ResumeItem[] = d.consults || [];
+      setResumeList(list);
+      setShowingHistory(true);
+      setResumePhase("picking");
+    } catch (e: any) {
+      setError(e.message || "Failed to load history.");
+    }
+  };
 
   const [clientName, setClientName] = useState(initialClientName || "");
   const [clientEmail, setClientEmail] = useState(initialClientEmail || "");
@@ -615,6 +637,12 @@ export function ListingConsultSheet({
   // a specific forecasted date — everything computes off the rule-of-thumb
   // gaps until then.
   const [forecastOverrides, setForecastOverrides] = useState<Partial<Record<MilestoneKey, string>>>({});
+  // v20.57.3 — Alex: some homes can't do an open house, so the open house
+  // milestone is now optional. When skipped, the row is hidden from the
+  // timeline forecast, the outbound payload sends openHouseDate: null, and
+  // the signed-TC email skips the open-house row too (it already guards on
+  // truthiness of lockin.openHouseDate).
+  const [skipOpenHouse, setSkipOpenHouse] = useState(false);
   // v20.32.24 — Occupancy + Pets, asked on Lock In right before Access.
   // Feeds the ShowingTime setup / TC email so showing logistics (who's
   // in the home, what happens with pets) are known before the first showing.
@@ -804,7 +832,8 @@ export function ListingConsultSheet({
           photosBackDate: timelineForecast ? toISO(timelineForecast.photosBack) : null,
           goLiveDate: timelineForecast ? toISO(timelineForecast.goLive) : null,
           showingsBeginDate: timelineForecast ? toISO(timelineForecast.showingsBegin) : null,
-          openHouseDate: timelineForecast ? toISO(timelineForecast.openHouse) : null,
+          openHouseDate: timelineForecast && !skipOpenHouse ? toISO(timelineForecast.openHouse) : null,
+          skipOpenHouse,
           homeOccupied, hasPets, petShowingPlan, petShowingPlanOther,
           accessType, accessCode, accessCodeInstructions, keyInLockbox, hasGate, gateCode, gateGuarded, gateAccessInstructions, ownerNames, ownerNames2, owner2Phone, owner2Email,
           showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail,
@@ -971,6 +1000,9 @@ export function ListingConsultSheet({
         if (savedCleaning && savedCleaning !== derivedFromPillar) setCleaningManualOverride(true);
         setNeedsCleaning(savedCleaning || derivedFromPillar);
         setForecastStartDate(data.lockin.forecastStartDate || toISO(new Date()));
+        // v20.57.3 — rehydrate the skip-open-house flag. Older consults
+        // without the field default to false (open house shown).
+        setSkipOpenHouse(data.lockin.skipOpenHouse === true);
         setHomeOccupied(data.lockin.homeOccupied || "");
         setHasPets(data.lockin.hasPets || "");
         setPetShowingPlan(data.lockin.petShowingPlan || "");
@@ -1130,7 +1162,8 @@ export function ListingConsultSheet({
         photosBackDate: timelineForecast ? toISO(timelineForecast.photosBack) : null,
         goLiveDate: timelineForecast ? toISO(timelineForecast.goLive) : null,
         showingsBeginDate: timelineForecast ? toISO(timelineForecast.showingsBegin) : null,
-        openHouseDate: timelineForecast ? toISO(timelineForecast.openHouse) : null,
+        openHouseDate: timelineForecast && !skipOpenHouse ? toISO(timelineForecast.openHouse) : null,
+        skipOpenHouse,
         homeOccupied, hasPets, petShowingPlan, petShowingPlanOther,
         accessType, accessCode, accessCodeInstructions, keyInLockbox, hasGate, gateCode, gateGuarded, gateAccessInstructions, ownerNames, ownerNames2, owner2Phone, owner2Email,
         showingApprovalContact, showingContactOtherName, showingContactOtherPhone, showingContactOtherEmail,
@@ -1241,7 +1274,9 @@ export function ListingConsultSheet({
             items={resumeList}
             onResume={handleResumeConsult}
             onStartNew={() => setResumePhase("ready")}
-            onArchive={handleArchiveConsult}
+            onArchive={showingHistory ? undefined : handleArchiveConsult}
+            onShowHistory={handleShowHistory}
+            showingHistory={showingHistory}
           />
         )}
 
@@ -1751,9 +1786,19 @@ export function ListingConsultSheet({
                     <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Photos Scheduled</td><td style={{ padding: "4px 0" }}><input type="date" style={forecastDateInputStyle} value={toISO(timelineForecast.photosScheduled)} onChange={e => handleForecastDateEdit("photosScheduled", e.target.value)} /></td></tr>
                     <tr><td style={{ color: "rgba(255,255,255,0.45)", padding: "4px 0" }}>Photo/Video Back</td><td style={{ padding: "4px 0" }}><input type="date" style={forecastDateInputStyle} value={toISO(timelineForecast.photosBack)} onChange={e => handleForecastDateEdit("photosBack", e.target.value)} /></td></tr>
                     <tr><td style={{ color: GOLD, padding: "6px 0", fontWeight: 700 }}>Go-Live</td><td style={{ padding: "6px 0", fontWeight: 700, color: GOLD }}><input type="date" style={{ ...forecastDateInputStyle, color: GOLD, fontWeight: 700 }} value={toISO(timelineForecast.goLive)} onChange={e => handleForecastDateEdit("goLive", e.target.value)} /></td></tr>
-                    <tr><td style={{ color: GOLD, padding: "6px 0", fontWeight: 700 }}>Open House</td><td style={{ padding: "6px 0", fontWeight: 700, color: GOLD }}><input type="date" style={{ ...forecastDateInputStyle, color: GOLD, fontWeight: 700 }} value={toISO(timelineForecast.openHouse)} onChange={e => handleForecastDateEdit("openHouse", e.target.value)} /></td></tr>
+                    {/* v20.57.3 — Open house is optional (some homes can't do one). */}
+                    {!skipOpenHouse && (
+                      <tr><td style={{ color: GOLD, padding: "6px 0", fontWeight: 700 }}>Open House</td><td style={{ padding: "6px 0", fontWeight: 700, color: GOLD }}><input type="date" style={{ ...forecastDateInputStyle, color: GOLD, fontWeight: 700 }} value={toISO(timelineForecast.openHouse)} onChange={e => handleForecastDateEdit("openHouse", e.target.value)} /></td></tr>
+                    )}
                   </tbody>
                 </table>
+                {/* v20.57.3 — Toggle open house on/off. Renders as a plain inline link under the table. */}
+                <div style={{ marginTop: 6, textAlign: "right" }}>
+                  <button type="button" onClick={() => setSkipOpenHouse(s => !s)} style={{
+                    background: "transparent", border: "none", color: skipOpenHouse ? GOLD : "rgba(255,255,255,0.5)",
+                    fontSize: 11.5, cursor: "pointer", padding: "2px 4px", textDecoration: "underline",
+                  }}>{skipOpenHouse ? "+ Add an open house" : "No open house for this home"}</button>
+                </div>
                 <p style={{ fontSize: 10.5, color: "rgba(255,255,255,0.35)", margin: "8px 0 0", fontStyle: "italic" }}>Every date above is editable — tap any of them to override. Forecasted from the start date, this goes out with the contract; nothing here is booked yet.</p>
               </div>
             )}

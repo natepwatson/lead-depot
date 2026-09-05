@@ -29,7 +29,7 @@ import type { Express, Request, Response } from "express";
 import { rawDb } from "./db";
 import { storage } from "./storage";
 import { awardPoints } from "./points";
-import { fubRequest } from "./fub";
+import { fubRequest, fireMilestoneTasks } from "./fub";
 import { Resend } from "resend";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import fs from "node:fs";
@@ -416,6 +416,55 @@ async function sendSignedTcEmail(consultId: number) {
     to: [TC_EMAIL],
     cc: ADMIN_EMAILS,
     subject: `Signed Listing — Please Open File — ${r.property_address}`,
+    html,
+  });
+}
+
+// ─── EMAIL: Signed — dedicated "Build Sales Package" trigger for Nate ─────
+// v20.57.3 — Alex asked for a distinct, laser-focused email + FUB task
+// telling Nate to build the sales package for a newly-signed listing. This
+// runs alongside sendSignedTcEmail (which covers general file-open intake).
+async function sendBuildSalesPackageEmail(consultId: number) {
+  if (!resend) return;
+  const r = getRow(consultId);
+  if (!r) return;
+  const d = parseData(r);
+  const close = d.close || {};
+  const listingAgent = getAgentName(r.agent_id);
+
+  const html = `
+  <!DOCTYPE html><html><body style="margin:0;padding:0;background:#e9e9e9;font-family:Helvetica,Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+    ${brandedHeader("Build Sales Package → " + r.property_address, "New signed listing needs a sales package")}
+    <div style="padding:20px 32px">
+      <p style="font-size:14px;color:#333;line-height:1.55;margin:0 0 14px">Nate — ${listingAgent} just booked a new listing at <strong>${r.property_address}</strong>. Please build the full sales package for this property so we're ready for photos and go-live.</p>
+      <table style="width:100%">
+        ${row("Property Address", r.property_address)}
+        ${row("Listing Agent", listingAgent)}
+        ${row("Client", r.client_name || "—")}
+        ${row("Client Contact", [r.client_email, r.client_phone].filter(Boolean).join(" · ") || "—")}
+        ${row("Final Listing Price", close.finalListingPrice || "—")}
+      </table>
+      <div style="margin-top:16px;padding:14px 16px;background:${BRAND.lightGray};border-radius:8px;font-size:12.5px;color:#333;line-height:1.6">
+        <strong>What to include in the sales package:</strong><br/>
+        • CMA + pricing rationale<br/>
+        • Marketing plan (MLS entry, syndication, social)<br/>
+        • Photography + video scope<br/>
+        • Open-house / showing logistics (see full TC email for access notes)<br/>
+        • Print collateral (flyers, just-listed cards)<br/>
+        • Any addenda flagged in the signed contract
+      </div>
+      <p style="font-size:11.5px;color:#888;margin:14px 0 0">A companion FUB task has been created under the client's profile. Full signed-listing details are in the separate "Signed Listing — Please Open File" email.</p>
+    </div>
+    ${brandedFooter()}
+  </div>
+  </body></html>`;
+
+  await resend.emails.send({
+    from: FROM,
+    to: [TC_EMAIL],
+    cc: ["alex@watsonbrothersgroup.com"],
+    subject: `Build Sales Package — ${r.property_address}`,
     html,
   });
 }
@@ -868,13 +917,27 @@ export function registerListingConsultRoutes(app: Express) {
   app.get("/api/listing-consult/mine", (req: any, res: Response) => {
     const agentId = parseInt(req.query.agentId as string) || req.currentAgent?.id || null;
     if (!agentId) return res.json({ consults: [] });
-    const rows = rawDb.prepare(`
-      SELECT id, property_address, client_name, status, updated_at, created_at
-      FROM listing_consults
-      WHERE agent_id = ? AND status = 'in_progress'
-      ORDER BY updated_at DESC
-      LIMIT 20
-    `).all(agentId);
+    // v20.57.3 — Alex: "if we went to the house we can't act like we never saw
+    // it". Default view still only returns in-progress (keeps the resume
+    // picker short); pass includeAll=1 to get the full history including
+    // signed, archived, and not_moving. Limit stays at 40 to keep the
+    // payload small even in the wide view.
+    const includeAll = req.query.includeAll === "1" || req.query.includeAll === "true";
+    const rows = includeAll
+      ? rawDb.prepare(`
+          SELECT id, property_address, client_name, status, updated_at, created_at
+          FROM listing_consults
+          WHERE agent_id = ?
+          ORDER BY updated_at DESC
+          LIMIT 40
+        `).all(agentId)
+      : rawDb.prepare(`
+          SELECT id, property_address, client_name, status, updated_at, created_at
+          FROM listing_consults
+          WHERE agent_id = ? AND status = 'in_progress'
+          ORDER BY updated_at DESC
+          LIMIT 20
+        `).all(agentId);
     res.json({ consults: rows });
   });
 
@@ -1027,6 +1090,19 @@ export function registerListingConsultRoutes(app: Express) {
     }).catch((err) => console.error("[ListingConsult→FUB] stage push failed:", err));
 
     sendSignedTcEmail(id).catch((err) => console.error("[ListingConsult] TC email failed:", err));
+
+    // v20.57.3 — Companion email + FUB task for Nate: build the sales
+    // package for this newly-signed listing. Both are best-effort (fire and
+    // forget) so a hiccup in Resend or FUB never blocks the signed lifecycle
+    // transition above.
+    sendBuildSalesPackageEmail(id).catch((err) => console.error("[ListingConsult] Build-sales-package email failed:", err));
+    fireMilestoneTasks("listing_signed", {
+      personId: data.prep?.fubPersonId ?? null,
+      clientName: r.client_name,
+      clientPhone: r.client_phone,
+      clientEmail: r.client_email,
+      contextNote: `Listing signed at ${r.property_address} — final price ${close.finalListingPrice || "—"}. Build the full sales package (CMA, marketing plan, photography scope, open-house/showing logistics, print collateral, addenda) so we're ready for photos and go-live.`,
+    }).catch((err) => console.error("[ListingConsult] FUB milestone (listing_signed) failed:", err));
 
     res.json({ ok: true, newLeadId });
   });

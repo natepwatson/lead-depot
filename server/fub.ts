@@ -2202,6 +2202,10 @@ export const FUB_MILESTONE_TRIGGER_EVENTS = [
   "repair_final_payment_due",
   "offer_submitted",
   "invoice_sent",
+  // v20.57.3 — fires when a listing consult is booked (contract sent). Nate
+  // (the TC) owns the resulting FUB task: build the sales package for the
+  // newly-signed listing.
+  "listing_signed",
 ] as const;
 
 export type FubMilestoneTriggerEvent = typeof FUB_MILESTONE_TRIGGER_EVENTS[number];
@@ -2260,6 +2264,19 @@ export function ensureFubMilestoneSchema() {
       `INSERT INTO fub_milestone_tasks (trigger_event, task_name, days_offset, assigned_fub_user_id) VALUES (?, ?, ?, ?)`
     ).run("inspection_payment_pending", "Collect wire payment before ordering inspection", 0, NATE_FUB_USER_ID);
     console.log(`[FUB Milestone] Backfilled inspection_payment_pending trigger row.`);
+  }
+
+  // v20.57.3 — same self-healing pattern for listing_signed. Alex asked for
+  // a FUB task under the client's profile when a listing consult is booked;
+  // Nate owns building the sales package.
+  const hasListingSigned = rawDb.prepare(
+    `SELECT 1 FROM fub_milestone_tasks WHERE trigger_event = ?`
+  ).get("listing_signed");
+  if (!hasListingSigned) {
+    rawDb.prepare(
+      `INSERT INTO fub_milestone_tasks (trigger_event, task_name, days_offset, assigned_fub_user_id) VALUES (?, ?, ?, ?)`
+    ).run("listing_signed", "Build sales package for newly-signed listing", 0, NATE_FUB_USER_ID);
+    console.log(`[FUB Milestone] Backfilled listing_signed trigger row.`);
   }
 }
 

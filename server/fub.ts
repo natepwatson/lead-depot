@@ -2280,6 +2280,134 @@ export function ensureFubMilestoneSchema() {
   }
 }
 
+// v20.57.4 — Listing-consult helpers: add collaborators + book milestone
+// appointments on the client's FUB profile so Denise stops having to hand-
+// build all of this every time a listing gets signed. Both are non-fatal.
+export async function pushListingCollaborators(personId: number, listingAgentName?: string): Promise<void> {
+  // Full watch-list per Alex: listing agent + Nate + Alex + Denise.
+  const ids = new Set<number>(COLLAB_USER_IDS);
+  if (listingAgentName) {
+    const uid = await resolveFubUserIdByName(listingAgentName);
+    if (uid) ids.add(uid);
+  }
+  for (const uid of ids) {
+    try {
+      const r = await fubRequest("POST", `/collaborators`, { personId, userId: uid });
+      if (r.ok) {
+        console.log(`[FUB] Collaborator user_id=${uid} added on person ${personId} (listing)`);
+      } else if (r.status !== 409 && r.status !== 422) {
+        console.warn(`[FUB] Listing collaborator user_id=${uid} returned ${r.status}:`, r.data);
+      }
+    } catch (err) {
+      console.warn(`[FUB] Listing collaborator user_id=${uid} threw (non-fatal):`, err);
+    }
+  }
+}
+
+export async function pushListingAppointments(opts: {
+  personId: number;
+  propertyAddress: string;
+  listingAgentName?: string;
+  signedAt?: Date;                       // when send-contract fired (= listing signed live at the table)
+  photosScheduledDate?: string | null;   // ISO YYYY-MM-DD
+  goLiveDate?: string | null;            // ISO YYYY-MM-DD
+  openHouseDate?: string | null;         // ISO YYYY-MM-DD (may be null if skipOpenHouse)
+}): Promise<void> {
+  const invitees = COLLAB_USER_IDS.map(uid => ({ userId: uid }));
+  const addressLabel = opts.propertyAddress || "listing";
+
+  // Helper: build a start/end pair from a YYYY-MM-DD date at a fixed local hour.
+  // FUB accepts ISO strings; we pin appointments to a stable Eastern-ish hour
+  // (uses UTC offset +4, so the calendar block lands in a reasonable working
+  // hour year-round). The agent can drag it to a precise time if needed.
+  function isoRange(dateStr: string | null | undefined, hourLocal: number, durationMinutes: number): { start: string; end: string } | null {
+    if (!dateStr) return null;
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
+    if (!m) return null;
+    const utcHour = (hourLocal + 4) % 24;
+    const start = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], utcHour, 0, 0));
+    const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
+    return { start: start.toISOString(), end: end.toISOString() };
+  }
+
+  const appts: Array<{ title: string; description: string; type: string; startTime: string; endTime: string; location?: string }> = [];
+
+  // 1) Listing Signed — fires NOW (the moment send-contract runs).
+  const signedStart = opts.signedAt || new Date();
+  const signedEnd = new Date(signedStart.getTime() + 60 * 60 * 1000);
+  appts.push({
+    title: `Listing Signed — ${addressLabel}`,
+    description: `Listing consult booked by ${opts.listingAgentName || "Brothers Group"} via Lead Depot.`,
+    type: "Meeting",
+    startTime: signedStart.toISOString(),
+    endTime: signedEnd.toISOString(),
+    location: opts.propertyAddress || undefined,
+  });
+
+  // 2) Photo Shoot — photosScheduledDate at 10 AM, 2 hours.
+  const photoRange = isoRange(opts.photosScheduledDate, 10, 120);
+  if (photoRange) {
+    appts.push({
+      title: `Photo Shoot — ${addressLabel}`,
+      description: `Listing photography for ${addressLabel}. Auto-created from listing consult timeline.`,
+      type: "Meeting",
+      startTime: photoRange.start,
+      endTime: photoRange.end,
+      location: opts.propertyAddress || undefined,
+    });
+  }
+
+  // 3) Go Live — goLiveDate at 9 AM, 30-minute marker.
+  const goLiveRange = isoRange(opts.goLiveDate, 9, 30);
+  if (goLiveRange) {
+    appts.push({
+      title: `Listing Goes Live — ${addressLabel}`,
+      description: `MLS go-live milestone for ${addressLabel}. Auto-created from listing consult timeline.`,
+      type: "Meeting",
+      startTime: goLiveRange.start,
+      endTime: goLiveRange.end,
+      location: opts.propertyAddress || undefined,
+    });
+  }
+
+  // 4) Open House — openHouseDate at 12 PM, 3 hours. Skipped when null
+  //    (respects the v20.57.3 "no open house for this home" toggle).
+  const openHouseRange = isoRange(opts.openHouseDate, 12, 180);
+  if (openHouseRange) {
+    appts.push({
+      title: `Open House — ${addressLabel}`,
+      description: `Public open house for ${addressLabel}. Auto-created from listing consult timeline.`,
+      type: "Meeting",
+      startTime: openHouseRange.start,
+      endTime: openHouseRange.end,
+      location: opts.propertyAddress || undefined,
+    });
+  }
+
+  // Fire sequentially so log lines are readable + we don't hammer FUB.
+  for (const a of appts) {
+    try {
+      const r = await fubRequest("POST", `/appointments`, {
+        personId: opts.personId,
+        type: a.type,
+        title: a.title,
+        description: a.description,
+        startTime: a.startTime,
+        endTime: a.endTime,
+        location: a.location,
+        invitees,
+      });
+      if (r.ok) {
+        console.log(`[FUB] Listing appointment created: "${a.title}" on ${a.startTime} for person ${opts.personId}`);
+      } else {
+        console.warn(`[FUB] Listing appointment "${a.title}" returned ${r.status}:`, r.data);
+      }
+    } catch (err) {
+      console.warn(`[FUB] Listing appointment "${a.title}" threw (non-fatal):`, err);
+    }
+  }
+}
+
 // Best-effort FUB person lookup by phone, then email, then name — same
 // search pattern already proven in pushOutcomeToFub / pushColdOutcomeToFub.
 // Used as a fallback when the caller doesn't already have a personId on hand

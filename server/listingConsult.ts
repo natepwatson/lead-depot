@@ -29,7 +29,7 @@ import type { Express, Request, Response } from "express";
 import { rawDb } from "./db";
 import { storage } from "./storage";
 import { awardPoints } from "./points";
-import { fubRequest, fireMilestoneTasks } from "./fub";
+import { fubRequest, fireMilestoneTasks, pushListingCollaborators, pushListingAppointments } from "./fub";
 import { Resend } from "resend";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import fs from "node:fs";
@@ -1081,12 +1081,31 @@ export function registerListingConsultRoutes(app: Express) {
       catch (err) { console.error("[ListingConsult] awardPoints failed:", err); }
     }
 
+    // v20.57.4 — chain collaborators + milestone appointments AFTER the stage
+    // push resolves, because we need its returned personId. Non-fatal.
     pushListingConsultStageToFub({
       fubPersonId: data.prep?.fubPersonId,
       phone: r.client_phone,
       name: r.client_name,
       stageName: "Active",
       note: `Listing signed at ${r.property_address} — final price ${close.finalListingPrice || "—"}.`,
+    }).then(({ ok, personId }) => {
+      if (!ok || !personId) return;
+      // Full watch-list per Alex: listing agent + Nate + Alex + Denise.
+      pushListingCollaborators(personId, getAgentName(r.agent_id)).catch(
+        (err) => console.error("[ListingConsult→FUB] collaborators failed:", err)
+      );
+      // Auto-book the four milestone appointments so Denise stops having to
+      // hand-create them for every listing.
+      pushListingAppointments({
+        personId,
+        propertyAddress: r.property_address,
+        listingAgentName: getAgentName(r.agent_id),
+        signedAt: new Date(),
+        photosScheduledDate: lockin.photosScheduledDate || null,
+        goLiveDate: lockin.goLiveDate || null,
+        openHouseDate: lockin.openHouseDate || null,
+      }).catch((err) => console.error("[ListingConsult→FUB] appointments failed:", err));
     }).catch((err) => console.error("[ListingConsult→FUB] stage push failed:", err));
 
     sendSignedTcEmail(id).catch((err) => console.error("[ListingConsult] TC email failed:", err));

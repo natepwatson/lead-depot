@@ -2013,16 +2013,54 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   // v20.48.0 — leave extra headroom when vendor-coordinated items exist so
   // the vendor block below always has room to draw (was a fixed 248, which
   // assumed only in-house rows would ever need space here).
+  // v20.58.0 — per-item photos inline in scope table. Rows with photos grow
+  // to fit a small strip of thumbnails (24x24pt each, up to 5) directly
+  // beneath the item name so the client sees exactly what was scoped without
+  // paging to an appendix. Rows without photos stay the original 14pt tall.
+  const IN_ROW_PHOTO_H = 26;
+  const IN_ROW_PHOTO_W = 34;
+  const IN_ROW_PHOTO_GAP = 4;
+  const IN_ROW_MAX_PHOTOS = 5;
+  const itemRowData = items.map((it: any) => {
+    let raw: any[] = [];
+    try { raw = it.photos ? JSON.parse(it.photos) : []; } catch { raw = []; }
+    const urls: string[] = raw
+      .map((p: any) => (typeof p === "string" ? p : p?.url))
+      .filter((u: any): u is string => !!u && typeof u === "string")
+      .slice(0, IN_ROW_MAX_PHOTOS);
+    const rowH = urls.length > 0 ? 14 + IN_ROW_PHOTO_H + 4 : 14;
+    return { it, urls, rowH };
+  });
   const rowFloor = 248 + (vendorItems.length > 0
     ? 18 + vendorLineData.reduce((sum: number, d: any) => sum + 13 + d.lines.length * 9 + 3, 0)
     : 0);
-  for (const it of items) {
-    if (y < rowFloor) break;
-    if (rowIdx % 2 === 1) p1.drawRectangle({ x: 38, y: y - 3, width: 536, height: 14, color: lightGray });
+  for (const row of itemRowData) {
+    const { it, urls, rowH } = row;
+    if (y - rowH < rowFloor) break;
+    if (rowIdx % 2 === 1) p1.drawRectangle({ x: 38, y: y - (rowH - 11), width: 536, height: rowH, color: lightGray });
     const label = it.two_story ? `${it.name} (2-story)` : it.name;
     p1.drawText(label.slice(0, 62), { x: colLabelX, y, size: 8.5, font, color: black });
     p1.drawText(`${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`, { x: colQtyX, y, size: 8.5, font, color: black });
-    y -= 14;
+    if (urls.length > 0) {
+      let px = colLabelX;
+      const pyTop = y - 14;
+      for (const url of urls) {
+        try {
+          const localPath = resolveConsultPhotoPath(url);
+          if (localPath && fs.existsSync(localPath)) {
+            const bytes = fs.readFileSync(localPath);
+            const isPng = url.toLowerCase().endsWith(".png");
+            const img = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+            const scale = Math.min(IN_ROW_PHOTO_W / img.width, IN_ROW_PHOTO_H / img.height);
+            const drawW = img.width * scale;
+            const drawH = img.height * scale;
+            p1.drawImage(img, { x: px + (IN_ROW_PHOTO_W - drawW) / 2, y: pyTop - drawH, width: drawW, height: drawH });
+          }
+        } catch { /* non-fatal per-photo */ }
+        px += IN_ROW_PHOTO_W + IN_ROW_PHOTO_GAP;
+      }
+    }
+    y -= rowH;
     rowIdx++;
   }
 
@@ -2194,16 +2232,24 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     fy -= 8;
   }
 
-  // v20.57.5 — Alex: the Agreement PDF he was reviewing (screenshot 9/6) had no
-  // photos of the scoped work anywhere — just the hero. That made the scope
-  // feel abstract to the client. Add scope/gallery pages after the Terms
-  // page using the same photo-grid helper the Quote and Work Order PDFs use.
-  // Sources both property-level gallery photos AND per-item photos captured
-  // during the walkthrough. Deduped and hero-suppressed so nothing repeats.
+  // v20.58.0 — per-item photos now render INLINE in the scope table above
+  // (see itemRowData / IN_ROW_PHOTO_H block). Property-gallery photos not
+  // attached to a specific scope item still get the appendix treatment so
+  // the client sees the broader property context; per-item photos never
+  // duplicate here since they're already visible next to their line.
   try {
     const scopePhotos: { url: string; tag?: string }[] = [];
     const seen = new Set<string>();
     const heroUrl = consult.hero_photo_url || "";
+    // Suppress URLs already shown inline next to items.
+    for (const it of items) {
+      let itemPhotos: any[] = [];
+      try { itemPhotos = it.photos ? JSON.parse(it.photos) : []; } catch { itemPhotos = []; }
+      for (const p of itemPhotos) {
+        const url = typeof p === "string" ? p : p?.url;
+        if (url) seen.add(url);
+      }
+    }
     const propGallery: any[] = (() => {
       try { return consult.property_photos ? JSON.parse(consult.property_photos) : []; } catch { return []; }
     })();
@@ -2212,17 +2258,6 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
       if (url && url !== heroUrl && !seen.has(url)) {
         seen.add(url);
         scopePhotos.push({ url, tag: "property" });
-      }
-    }
-    for (const it of items) {
-      let itemPhotos: any[] = [];
-      try { itemPhotos = it.photos ? JSON.parse(it.photos) : []; } catch { itemPhotos = []; }
-      for (const p of itemPhotos) {
-        const url = typeof p === "string" ? p : p?.url;
-        if (url && url !== heroUrl && !seen.has(url)) {
-          seen.add(url);
-          scopePhotos.push({ url, tag: it.name || "repair_scope" });
-        }
       }
     }
     if (scopePhotos.length > 0) {
@@ -3363,8 +3398,13 @@ export function registerRepairConsultRoutes(app: Express) {
       } else {
         rawDb.prepare(`UPDATE repair_consults SET updated_at = datetime('now') WHERE id = ?`).run(consultId);
       }
-      const pdfUrl = await generateQuotePdf(consultId);
+      // v20.58.0 — ONE DOCUMENT. Previously generated two PDFs (a Quote PDF
+      // and a separate Agreement PDF). Now the agreement IS the quote, so we
+      // generate it once and hand the same URL back for both fields to keep
+      // legacy consumers of `pdfUrl` working without a second write.
       const agreementPdfUrl = alreadyAccepted ? null : await generateAgreementPdf(consultId, { blank: true });
+      const priorAgreementUrl = (rawDb.prepare(`SELECT agreement_pdf_url FROM repair_consults WHERE id = ?`).get(consultId) as any)?.agreement_pdf_url || "";
+      const pdfUrl = agreementPdfUrl || priorAgreementUrl;
       if (!alreadyAccepted) await sendInHouseQuoteInternal(consultId);
       const consult = getConsultRow(consultId);
       res.json({
@@ -3430,11 +3470,13 @@ export function registerRepairConsultRoutes(app: Express) {
       const consult = getConsultRow(consultId);
       if (!consult) return res.status(404).json({ error: "Consult not found" });
       if (!consult.quote_token) return res.status(409).json({ error: "Generate the quote first." });
-      // v20.52.0 — With Scope vs Summary Only: optional ?mode= query param.
-      // Defaults to "with_scope" so every existing caller (the consult wizard's
-      // View button, resend links, etc.) keeps its current behavior untouched.
-      const mode = req.query.mode === "summary" ? "summary" : "with_scope";
-      const url = await generateQuotePdf(consultId, { mode });
+      // v20.58.0 — ONE DOCUMENT. Alex: quote / estimate / preview / sample /
+      // agreement / invoice are all the SAME file now. This endpoint used to
+      // call generateQuotePdf, which produced a separate itemized PDF; it now
+      // regenerates the unified Agreement PDF (with inline scope photos +
+      // signature block + Terms) so every "view / print / send" path returns
+      // the exact same artifact the client signs and pays against.
+      const url = await generateAgreementPdf(consultId, { blank: true });
       res.redirect(url);
     } catch (err: any) {
       console.error("quote-pdf error:", err);

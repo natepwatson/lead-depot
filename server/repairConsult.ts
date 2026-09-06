@@ -1519,7 +1519,7 @@ async function addScopePhotosPages(
   for (let pageStart = 0; pageStart < photos.length; pageStart += perPage) {
     const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
     let y = PAGE_H - 40;
-    const title = "Additional Scope Photos";
+    const title = "Scope & Property Photos";
     const titleW = fontBold.widthOfTextAtSize(title, 16);
     page.drawText(title, { x: (PAGE_W - titleW) / 2, y, size: 16, font: fontBold, color: black });
     y -= 20;
@@ -1540,8 +1540,9 @@ async function addScopePhotosPages(
           const bytes = fs.readFileSync(p);
           const img = photo.url.endsWith(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
           drawContainedImage(page, img, { x: boxX, y: boxY, width: imgW, height: imgH });
-          const label = photo.tag === "repair_scope" ? "Repair Scope" : "Property Photo";
-          page.drawText(label, { x: boxX, y: boxY - imgH - 10, size: 7.5, font: fontItalic, color: gray });
+          const label = photo.tag === "property" ? "Property Photo" : (photo.tag || "Repair Scope");
+          const labelClipped = label.length > 60 ? label.slice(0, 57) + "\u2026" : label;
+          page.drawText(labelClipped, { x: boxX, y: boxY - imgH - 10, size: 7.5, font: fontItalic, color: gray });
         }
       } catch { /* non-fatal — skip this photo if unreadable, leave grid slot blank */ }
     }
@@ -1949,7 +1950,7 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   const titleWidth = fontBold.widthOfTextAtSize(title, 16);
   p1.drawText(title, { x: (PAGE_W - titleWidth) / 2, y, size: 16, font: fontBold, color: black });
   y -= 8;
-  const pageTag = "Page 1 of 2 — Estimate, Scope of Work & Signatures";
+  const pageTag = "Page 1 — Estimate, Scope of Work & Signatures";
   const pageTagW = font.widthOfTextAtSize(pageTag, 8);
   p1.drawText(pageTag, { x: (PAGE_W - pageTagW) / 2, y: y - 10, size: 8, font: fontItalic, color: gray });
   y -= 24;
@@ -2013,54 +2014,20 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   // v20.48.0 — leave extra headroom when vendor-coordinated items exist so
   // the vendor block below always has room to draw (was a fixed 248, which
   // assumed only in-house rows would ever need space here).
-  // v20.58.0 — per-item photos inline in scope table. Rows with photos grow
-  // to fit a small strip of thumbnails (24x24pt each, up to 5) directly
-  // beneath the item name so the client sees exactly what was scoped without
-  // paging to an appendix. Rows without photos stay the original 14pt tall.
-  const IN_ROW_PHOTO_H = 26;
-  const IN_ROW_PHOTO_W = 34;
-  const IN_ROW_PHOTO_GAP = 4;
-  const IN_ROW_MAX_PHOTOS = 5;
-  const itemRowData = items.map((it: any) => {
-    let raw: any[] = [];
-    try { raw = it.photos ? JSON.parse(it.photos) : []; } catch { raw = []; }
-    const urls: string[] = raw
-      .map((p: any) => (typeof p === "string" ? p : p?.url))
-      .filter((u: any): u is string => !!u && typeof u === "string")
-      .slice(0, IN_ROW_MAX_PHOTOS);
-    const rowH = urls.length > 0 ? 14 + IN_ROW_PHOTO_H + 4 : 14;
-    return { it, urls, rowH };
-  });
+  // v20.58.3 — reverted inline per-item photos on page 1. Instead, ALL photos
+  // (in-house, vendor, property gallery) now render on dedicated Photos pages
+  // AFTER the estimate page and BEFORE the Terms page. Signatures stay on
+  // page 1 with the summary; Terms + Conditions become the LAST page.
   const rowFloor = 248 + (vendorItems.length > 0
     ? 18 + vendorLineData.reduce((sum: number, d: any) => sum + 13 + d.lines.length * 9 + 3, 0)
     : 0);
-  for (const row of itemRowData) {
-    const { it, urls, rowH } = row;
-    if (y - rowH < rowFloor) break;
-    if (rowIdx % 2 === 1) p1.drawRectangle({ x: 38, y: y - (rowH - 11), width: 536, height: rowH, color: lightGray });
+  for (const it of items) {
+    if (y - 14 < rowFloor) break;
+    if (rowIdx % 2 === 1) p1.drawRectangle({ x: 38, y: y - 3, width: 536, height: 14, color: lightGray });
     const label = it.two_story ? `${it.name} (2-story)` : it.name;
     p1.drawText(label.slice(0, 62), { x: colLabelX, y, size: 8.5, font, color: black });
     p1.drawText(`${it.quantity} ${it.unit === "each" ? "ea" : it.unit === "flat" ? "" : it.unit.replace("_", " ")}`, { x: colQtyX, y, size: 8.5, font, color: black });
-    if (urls.length > 0) {
-      let px = colLabelX;
-      const pyTop = y - 14;
-      for (const url of urls) {
-        try {
-          const localPath = resolveConsultPhotoPath(url);
-          if (localPath && fs.existsSync(localPath)) {
-            const bytes = fs.readFileSync(localPath);
-            const isPng = url.toLowerCase().endsWith(".png");
-            const img = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
-            const scale = Math.min(IN_ROW_PHOTO_W / img.width, IN_ROW_PHOTO_H / img.height);
-            const drawW = img.width * scale;
-            const drawH = img.height * scale;
-            p1.drawImage(img, { x: px + (IN_ROW_PHOTO_W - drawW) / 2, y: pyTop - drawH, width: drawW, height: drawH });
-          }
-        } catch { /* non-fatal per-photo */ }
-        px += IN_ROW_PHOTO_W + IN_ROW_PHOTO_GAP;
-      }
-    }
-    y -= rowH;
+    y -= 14;
     rowIdx++;
   }
 
@@ -2089,16 +2056,9 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     // price"). Now prints the same vendor_scope_note (falling back to
     // instruction for older items) shown on the Review & Send screen and
     // on the Quote PDF, wrapped beneath each bullet.
-    // v20.58.1 — vendor items also get inline photo thumbnails (bug caught in
-    // v20.58.0: the initial inline-photo work only touched the in_house table,
-    // but on consult #46 the photos were all attached to vendor items, so the
-    // regenerated PDF had zero photos even though the consult had 11). Cap at
-    // 3 thumbnails per vendor row to keep page 1 from overflowing; larger
-    // galleries still fall through to the property-photos appendix pages.
-    const VENDOR_PHOTO_H = 24;
-    const VENDOR_PHOTO_W = 32;
-    const VENDOR_PHOTO_GAP = 4;
-    const VENDOR_MAX_PHOTOS = 3;
+    // v20.58.3 — vendor block: bullet + price + wrapped scope-notes only.
+    // Per-item vendor photos moved to the dedicated Photos pages that render
+    // after the estimate page.
     for (const { v, lines } of vendorLineData) {
       const vendorPriced = v.vendor_quote_amount != null && v.line_total != null;
       const priceLabel = vendorPriced
@@ -2110,40 +2070,6 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
       for (const line of lines) {
         p1.drawText(line, { x: 46, y, size: 7, font: fontItalic, color: gray });
         y -= 9;
-      }
-      // Inline photos for this vendor item, if any.
-      let vendorPhotos: any[] = [];
-      try { vendorPhotos = v.photos ? JSON.parse(v.photos) : []; } catch { vendorPhotos = []; }
-      const vUrls: string[] = vendorPhotos
-        .map((p: any) => (typeof p === "string" ? p : p?.url))
-        .filter((u: any): u is string => !!u && typeof u === "string")
-        .slice(0, VENDOR_MAX_PHOTOS);
-      // v20.58.2 — removed the tight rowFloor guard that was silently skipping
-      // vendor photos on consult #46 (3 vendor items, 11 total item photos).
-      // We now attempt the draw and log per-photo errors so failures surface.
-      if (vUrls.length > 0) {
-        let vpx = 46;
-        const vpyTop = y;
-        for (const url of vUrls) {
-          try {
-            const localPath = resolveConsultPhotoPath(url);
-            if (localPath && fs.existsSync(localPath)) {
-              const bytes = fs.readFileSync(localPath);
-              const isPng = url.toLowerCase().endsWith(".png");
-              const img = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
-              const scale = Math.min(VENDOR_PHOTO_W / img.width, VENDOR_PHOTO_H / img.height);
-              const drawW = img.width * scale;
-              const drawH = img.height * scale;
-              p1.drawImage(img, { x: vpx + (VENDOR_PHOTO_W - drawW) / 2, y: vpyTop - drawH, width: drawW, height: drawH });
-            } else {
-              console.warn(`[v20.58.2] vendor photo not resolvable: url=${url} local=${localPath}`);
-            }
-          } catch (err: any) {
-            console.warn(`[v20.58.2] vendor photo embed failed url=${url}: ${err?.message || err}`);
-          }
-          vpx += VENDOR_PHOTO_W + VENDOR_PHOTO_GAP;
-        }
-        y -= VENDOR_PHOTO_H + 2;
       }
       y -= 3;
     }
@@ -2219,14 +2145,64 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   p1.drawText("Date:", { x: 440, y, size: 8, font, color: gray });
   p1.drawLine({ start: { x: 470, y: y - 2 }, end: { x: 574, y: y - 2 }, thickness: 0.75, color: black });
 
-  // ── PAGE 2 — BACK: Full Terms & Conditions (two-column) ──────────────────
+  // ── PHOTO PAGES — all scope + property photos, paginated (6 per page) ────
+  // v20.58.3 — Every photo attached to the consult renders here, no caps.
+  // Photo pages come AFTER page 1 and BEFORE the Terms page below.
+  try {
+    const scopePhotos: { url: string; tag?: string }[] = [];
+    const seen = new Set<string>();
+    const heroUrl = consult.hero_photo_url || "";
+    if (heroUrl) seen.add(heroUrl);
+    for (const it of items) {
+      let itemPhotos: any[] = [];
+      try { itemPhotos = it.photos ? JSON.parse(it.photos) : []; } catch { itemPhotos = []; }
+      for (const p of itemPhotos) {
+        const url = typeof p === "string" ? p : p?.url;
+        if (url && !seen.has(url)) {
+          seen.add(url);
+          scopePhotos.push({ url, tag: it.name || "repair_scope" });
+        }
+      }
+    }
+    for (const v of vendorItems) {
+      let vp: any[] = [];
+      try { vp = v.photos ? JSON.parse(v.photos) : []; } catch { vp = []; }
+      for (const p of vp) {
+        const url = typeof p === "string" ? p : p?.url;
+        if (url && !seen.has(url)) {
+          seen.add(url);
+          scopePhotos.push({ url, tag: v.name || "vendor_scope" });
+        }
+      }
+    }
+    let propGallery: any[] = [];
+    try { propGallery = consult.property_photos ? JSON.parse(consult.property_photos) : []; } catch { propGallery = []; }
+    for (const p of propGallery) {
+      const url = typeof p === "string" ? p : p?.url;
+      if (url && !seen.has(url)) {
+        seen.add(url);
+        scopePhotos.push({ url, tag: "property" });
+      }
+    }
+    if (scopePhotos.length > 0) {
+      await addScopePhotosPages(pdfDoc, fontBold, font, fontItalic, scopePhotos, consult.property_address);
+    }
+  } catch (err) {
+    console.warn("[repairConsult] Agreement photo pages failed (non-fatal):", err);
+  }
+
+  // ── LAST PAGE — Full Terms & Conditions (two-column) ────────────────────
+  // v20.58.3 — Terms is now inserted AFTER photo pages so it's always the
+  // LAST page of the document (client sees: estimate + signatures → photos
+  // → terms). Page-number labels dropped since total page count varies with
+  // photo count.
   const p2 = pdfDoc.addPage([PAGE_W, PAGE_H]);
   let py = PAGE_H - 36;
   const backTitle = "Terms & Conditions";
   const backTitleW = fontBold.widthOfTextAtSize(backTitle, 14);
   p2.drawText(backTitle, { x: (PAGE_W - backTitleW) / 2, y: py, size: 14, font: fontBold, color: black });
   py -= 6;
-  const backSub = "Page 2 of 2 — This page is part of the Repair & Renovation Agreement";
+  const backSub = "This page is part of the Repair & Renovation Agreement";
   const backSubW = font.widthOfTextAtSize(backSub, 7.5);
   p2.drawText(backSub, { x: (PAGE_W - backSubW) / 2, y: py - 10, size: 7.5, font: fontItalic, color: gray });
   py -= 24;
@@ -2276,65 +2252,11 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     fy -= 8;
   }
 
-  // v20.58.0 — per-item photos now render INLINE in the scope table above
-  // (see itemRowData / IN_ROW_PHOTO_H block). Property-gallery photos not
-  // attached to a specific scope item still get the appendix treatment so
-  // the client sees the broader property context; per-item photos never
-  // duplicate here since they're already visible next to their line.
-  try {
-    const scopePhotos: { url: string; tag?: string }[] = [];
-    const seen = new Set<string>();
-    const heroUrl = consult.hero_photo_url || "";
-    // v20.58.1 — only suppress URLs that were ACTUALLY drawn inline (first 5
-    // in-house photos per item, first 3 vendor photos per item). Any overflow
-    // still shows up in the appendix so the client sees every photo captured,
-    // not just the first few.
-    const IN_ROW_MAX_PHOTOS_APX = 5;
-    const VENDOR_MAX_PHOTOS_APX = 3;
-    for (const it of items) {
-      let itemPhotos: any[] = [];
-      try { itemPhotos = it.photos ? JSON.parse(it.photos) : []; } catch { itemPhotos = []; }
-      const urls = itemPhotos.map((p: any) => (typeof p === "string" ? p : p?.url)).filter(Boolean);
-      for (const u of urls.slice(0, IN_ROW_MAX_PHOTOS_APX)) seen.add(u);
-    }
-    for (const v of vendorItems) {
-      let vp: any[] = [];
-      try { vp = v.photos ? JSON.parse(v.photos) : []; } catch { vp = []; }
-      const urls = vp.map((p: any) => (typeof p === "string" ? p : p?.url)).filter(Boolean);
-      for (const u of urls.slice(0, VENDOR_MAX_PHOTOS_APX)) seen.add(u);
-    }
-    // Any remaining item/vendor photos not shown inline get the appendix treatment.
-    const gatherOverflow = (raw: any[], cap: number, tag: string) => {
-      const urls = raw.map((p: any) => (typeof p === "string" ? p : p?.url)).filter(Boolean);
-      for (const u of urls.slice(cap)) {
-        if (!seen.has(u)) {
-          seen.add(u);
-          scopePhotos.push({ url: u, tag });
-        }
-      }
-    };
-    for (const it of items) {
-      try { gatherOverflow(it.photos ? JSON.parse(it.photos) : [], IN_ROW_MAX_PHOTOS_APX, it.name || "repair_scope"); } catch {}
-    }
-    for (const v of vendorItems) {
-      try { gatherOverflow(v.photos ? JSON.parse(v.photos) : [], VENDOR_MAX_PHOTOS_APX, v.name || "vendor_scope"); } catch {}
-    }
-    const propGallery: any[] = (() => {
-      try { return consult.property_photos ? JSON.parse(consult.property_photos) : []; } catch { return []; }
-    })();
-    for (const p of propGallery) {
-      const url = typeof p === "string" ? p : p?.url;
-      if (url && url !== heroUrl && !seen.has(url)) {
-        seen.add(url);
-        scopePhotos.push({ url, tag: "property" });
-      }
-    }
-    if (scopePhotos.length > 0) {
-      await addScopePhotosPages(pdfDoc, fontBold, font, fontItalic, scopePhotos, consult.property_address);
-    }
-  } catch (err) {
-    console.warn("[repairConsult] Agreement scope-photo pages failed (non-fatal):", err);
-  }
+  // v20.58.3 — Photo pages already rendered ABOVE (before Terms) so the
+  // final page order is: [Page 1: estimate + signatures] → [Photo pages] →
+  // [Last page: Terms]. Every photo attached to the consult (in-house items,
+  // vendor items, property gallery) is included with no caps.
+  // (Actual insertion moved to before the Terms page — see above.)
 
   const bytes = await pdfDoc.save();
   const outDir = repairPdfDir();

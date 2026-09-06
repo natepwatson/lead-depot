@@ -5823,7 +5823,7 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
   // name+phone+intent required; email/notes/address optional. Other warm-lead
   // sources (OH / Door Knock / Direct Mail) keep their fuller required set.
   const isAddLead = source === "network";
-  // v20.58.2 — Co-listed OH: only shown when source === "open_house". Awards 20 pts to co-host instantly on submit.
+  // v20.58.3 — Co-listed OH: only shown when source === "open_house". Awards 20 pts to co-host instantly on submit.
   const isOpenHouseLead = source === "open_house";
   const [isCohosted, setIsCohosted] = useState(false);
   const [cohostAgentId, setCohostAgentId] = useState<string>("");
@@ -5837,7 +5837,7 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
   const [dupeStatus, setDupeStatus] = useState<null | { checking: boolean; existing: any | null }>(null);
   const [netSending, setNetSending] = useState(false);
 
-  // v20.58.2 — Lazy-load active agent list once the co-host toggle is flipped.
+  // v20.58.3 — Lazy-load active agent list once the co-host toggle is flipped.
   useEffect(() => {
     if (!isOpenHouseLead || !isCohosted || agentOptions.length > 0) return;
     (async () => {
@@ -5918,7 +5918,7 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
         submittedBy: user?.id, submittedByName: user?.name,
         warmLeadIntent: intent || null,
         warmLeadSource: source,
-        // v20.58.2 — Co-listed OH Lead. Server awards co-host 20 pts + activity row (open_house_lead_cohost).
+        // v20.58.3 — Co-listed OH Lead. Server awards co-host 20 pts + activity row (open_house_lead_cohost).
         // No lead ownership — points-only credit. Ignored for non-open_house sources.
         cohostAgentId: isOpenHouseLead && isCohosted && cohostAgentId ? parseInt(cohostAgentId) : null,
       });
@@ -5981,7 +5981,7 @@ function ClientReferralForm(props: { source?: WarmLeadSource; addressPrefill?: s
           : "Know someone thinking about selling, buying, or renting? Drop their info here — the lead is auto-assigned to you and opens instantly."}
       </p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {/* v20.58.2 — Co-listed OH: only shown when source is open_house. Both agents get 20 pts on submit. */}
+        {/* v20.58.3 — Co-listed OH: only shown when source is open_house. Both agents get 20 pts on submit. */}
         {isOpenHouseLead && (
           <div style={{
             padding: "10px 12px", borderRadius: 8,
@@ -6145,7 +6145,7 @@ function PastClientApptForm(props: { user: any; toast: any; onDone: () => void }
     setSelected(c);
     setQuery(c.name);
     setResults([]);
-    // v20.58.2 — auto-fill Property Address from FUB when the picked contact
+    // v20.58.3 — auto-fill Property Address from FUB when the picked contact
     // has one on file. Agent can still edit it if they're meeting elsewhere.
     if (c.address && !propertyAddress) setPropertyAddress(c.address);
   };
@@ -6710,7 +6710,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.58.2</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.58.3</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -8342,7 +8342,7 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
   const [ohNotes, setOhNotes] = useState("");
   const [issues, setIssues] = useState("");
   const [recommendations, setRecommendations] = useState("");
-  // v20.58.2 — Co-listed OH: agent can flag this OH as co-hosted with another
+  // v20.58.3 — Co-listed OH: agent can flag this OH as co-hosted with another
   // active team agent. On admin approval BOTH agents get the full 50 pts.
   const [isCohosted, setIsCohosted] = useState(false);
   const [cohostAgentId, setCohostAgentId] = useState<string>("");
@@ -8473,7 +8473,7 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
         notes: ohNotes.trim(),
         issues: issues.trim(),
         recommendations: recommendations.trim(),
-        // v20.58.2 — Co-listed OH. Server persists these on the approval row.
+        // v20.58.3 — Co-listed OH. Server persists these on the approval row.
         // On approve, co-host gets a parallel 50-pt award + lead_activity row
         // tagged `open_house_log_cohost` for audit.
         cohostAgentId: isCohosted && cohostAgentId ? parseInt(cohostAgentId) : null,
@@ -8555,7 +8555,7 @@ function OpenHouseLogForm(props: { user: any; toast: any; onDone: () => void }) 
       }}>
         <p style={{ margin: "0 0 12px", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#c8aa5a", fontWeight: 700 }}>Open House Results</p>
 
-        {/* v20.58.2 — Co-listed open house. Both agents get the full 50 pts on approval. */}
+        {/* v20.58.3 — Co-listed open house. Both agents get the full 50 pts on approval. */}
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 12, color: "rgba(255,255,255,0.85)" }}>
             <input type="checkbox" checked={isCohosted} onChange={e => { setIsCohosted(e.target.checked); if (!e.target.checked) setCohostAgentId(""); }}

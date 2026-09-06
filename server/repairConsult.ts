@@ -2118,7 +2118,10 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
         .map((p: any) => (typeof p === "string" ? p : p?.url))
         .filter((u: any): u is string => !!u && typeof u === "string")
         .slice(0, VENDOR_MAX_PHOTOS);
-      if (vUrls.length > 0 && y - VENDOR_PHOTO_H > rowFloor - 20) {
+      // v20.58.2 — removed the tight rowFloor guard that was silently skipping
+      // vendor photos on consult #46 (3 vendor items, 11 total item photos).
+      // We now attempt the draw and log per-photo errors so failures surface.
+      if (vUrls.length > 0) {
         let vpx = 46;
         const vpyTop = y;
         for (const url of vUrls) {
@@ -2132,8 +2135,12 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
               const drawW = img.width * scale;
               const drawH = img.height * scale;
               p1.drawImage(img, { x: vpx + (VENDOR_PHOTO_W - drawW) / 2, y: vpyTop - drawH, width: drawW, height: drawH });
+            } else {
+              console.warn(`[v20.58.2] vendor photo not resolvable: url=${url} local=${localPath}`);
             }
-          } catch { /* non-fatal per-photo */ }
+          } catch (err: any) {
+            console.warn(`[v20.58.2] vendor photo embed failed url=${url}: ${err?.message || err}`);
+          }
           vpx += VENDOR_PHOTO_W + VENDOR_PHOTO_GAP;
         }
         y -= VENDOR_PHOTO_H + 2;

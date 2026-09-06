@@ -2117,7 +2117,7 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
   }
   p1.drawText(START_MOMENTUM_PDF_LINE, { x: 38, y, size: 8.5, font: fontBold, color: rgb(0, 0.35, 0) });
   y -= 14;
-  p1.drawText("Full Terms & Conditions (Sections 1–16) on the reverse — part of this Agreement by reference.", { x: 38, y, size: 7.5, font: fontItalic, color: gray });
+  p1.drawText("Full Terms & Conditions (Sections 1–16) on the last page — part of this Agreement by reference.", { x: 38, y, size: 7.5, font: fontItalic, color: gray });
   y -= 22;
 
   // ── Signature block ──

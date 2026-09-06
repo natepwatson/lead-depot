@@ -2089,6 +2089,16 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     // price"). Now prints the same vendor_scope_note (falling back to
     // instruction for older items) shown on the Review & Send screen and
     // on the Quote PDF, wrapped beneath each bullet.
+    // v20.58.1 — vendor items also get inline photo thumbnails (bug caught in
+    // v20.58.0: the initial inline-photo work only touched the in_house table,
+    // but on consult #46 the photos were all attached to vendor items, so the
+    // regenerated PDF had zero photos even though the consult had 11). Cap at
+    // 3 thumbnails per vendor row to keep page 1 from overflowing; larger
+    // galleries still fall through to the property-photos appendix pages.
+    const VENDOR_PHOTO_H = 24;
+    const VENDOR_PHOTO_W = 32;
+    const VENDOR_PHOTO_GAP = 4;
+    const VENDOR_MAX_PHOTOS = 3;
     for (const { v, lines } of vendorLineData) {
       const vendorPriced = v.vendor_quote_amount != null && v.line_total != null;
       const priceLabel = vendorPriced
@@ -2100,6 +2110,33 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
       for (const line of lines) {
         p1.drawText(line, { x: 46, y, size: 7, font: fontItalic, color: gray });
         y -= 9;
+      }
+      // Inline photos for this vendor item, if any.
+      let vendorPhotos: any[] = [];
+      try { vendorPhotos = v.photos ? JSON.parse(v.photos) : []; } catch { vendorPhotos = []; }
+      const vUrls: string[] = vendorPhotos
+        .map((p: any) => (typeof p === "string" ? p : p?.url))
+        .filter((u: any): u is string => !!u && typeof u === "string")
+        .slice(0, VENDOR_MAX_PHOTOS);
+      if (vUrls.length > 0 && y - VENDOR_PHOTO_H > rowFloor - 20) {
+        let vpx = 46;
+        const vpyTop = y;
+        for (const url of vUrls) {
+          try {
+            const localPath = resolveConsultPhotoPath(url);
+            if (localPath && fs.existsSync(localPath)) {
+              const bytes = fs.readFileSync(localPath);
+              const isPng = url.toLowerCase().endsWith(".png");
+              const img = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+              const scale = Math.min(VENDOR_PHOTO_W / img.width, VENDOR_PHOTO_H / img.height);
+              const drawW = img.width * scale;
+              const drawH = img.height * scale;
+              p1.drawImage(img, { x: vpx + (VENDOR_PHOTO_W - drawW) / 2, y: vpyTop - drawH, width: drawW, height: drawH });
+            }
+          } catch { /* non-fatal per-photo */ }
+          vpx += VENDOR_PHOTO_W + VENDOR_PHOTO_GAP;
+        }
+        y -= VENDOR_PHOTO_H + 2;
       }
       y -= 3;
     }
@@ -2241,14 +2278,39 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     const scopePhotos: { url: string; tag?: string }[] = [];
     const seen = new Set<string>();
     const heroUrl = consult.hero_photo_url || "";
-    // Suppress URLs already shown inline next to items.
+    // v20.58.1 — only suppress URLs that were ACTUALLY drawn inline (first 5
+    // in-house photos per item, first 3 vendor photos per item). Any overflow
+    // still shows up in the appendix so the client sees every photo captured,
+    // not just the first few.
+    const IN_ROW_MAX_PHOTOS_APX = 5;
+    const VENDOR_MAX_PHOTOS_APX = 3;
     for (const it of items) {
       let itemPhotos: any[] = [];
       try { itemPhotos = it.photos ? JSON.parse(it.photos) : []; } catch { itemPhotos = []; }
-      for (const p of itemPhotos) {
-        const url = typeof p === "string" ? p : p?.url;
-        if (url) seen.add(url);
+      const urls = itemPhotos.map((p: any) => (typeof p === "string" ? p : p?.url)).filter(Boolean);
+      for (const u of urls.slice(0, IN_ROW_MAX_PHOTOS_APX)) seen.add(u);
+    }
+    for (const v of vendorItems) {
+      let vp: any[] = [];
+      try { vp = v.photos ? JSON.parse(v.photos) : []; } catch { vp = []; }
+      const urls = vp.map((p: any) => (typeof p === "string" ? p : p?.url)).filter(Boolean);
+      for (const u of urls.slice(0, VENDOR_MAX_PHOTOS_APX)) seen.add(u);
+    }
+    // Any remaining item/vendor photos not shown inline get the appendix treatment.
+    const gatherOverflow = (raw: any[], cap: number, tag: string) => {
+      const urls = raw.map((p: any) => (typeof p === "string" ? p : p?.url)).filter(Boolean);
+      for (const u of urls.slice(cap)) {
+        if (!seen.has(u)) {
+          seen.add(u);
+          scopePhotos.push({ url: u, tag });
+        }
       }
+    };
+    for (const it of items) {
+      try { gatherOverflow(it.photos ? JSON.parse(it.photos) : [], IN_ROW_MAX_PHOTOS_APX, it.name || "repair_scope"); } catch {}
+    }
+    for (const v of vendorItems) {
+      try { gatherOverflow(v.photos ? JSON.parse(v.photos) : [], VENDOR_MAX_PHOTOS_APX, v.name || "vendor_scope"); } catch {}
     }
     const propGallery: any[] = (() => {
       try { return consult.property_photos ? JSON.parse(consult.property_photos) : []; } catch { return []; }

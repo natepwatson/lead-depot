@@ -810,12 +810,12 @@ function fillInstruction(template: string, qty: number, unit: string, twoStory: 
 // edit here updates every quote + PDF + work order footnote.
 export const IN_HOUSE_TERMS = [
   "Price reflects the scope, quantities, and condition observed at this consultation. Conditions discovered once work begins (rot, mold, structural issues, pest damage, code violations, etc.) are not included and will be presented as a separate change order requiring written approval before we proceed.",
-  `Payment: 50% deposit due before work begins, 50% due upon completion. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL}.`,
+  `Payment: 50% upfront before work begins, 50% due upon completion. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL}.`,
   "Color/pattern matching on paint, countertops, tile, and other materials is a best-effort visual match only, NOT guaranteed exact — natural stone and tile can vary lot to lot. This variance is not a workmanship defect. Client approves the sample before purchase.",
   "Defective products (parts, fixtures, appliances, materials) are the manufacturer's/retailer's responsibility, not ours. We'll try to coordinate a store-approved exchange as a courtesy, but this is not guaranteed. All materials sales are final — no refunds.",
   "This quote covers in-house labor & materials for the items listed only. It does not include permits, HOA approval, or any item requiring a licensed trade (electrical, plumbing, roofing, HVAC, structural, etc.) — those requests are relayed to our independent, licensed vendor network, who quote and perform that work themselves; it's not performed or warrantied by Happy Home Solutions, LLC's in-house crew.",
   "Client provides on-site access, water, and electrical, and secures pets and personal property in work areas. Delays caused by lack of access may incur a rescheduling fee.",
-  "Quote valid 14 days from issue date. Deposits are non-refundable once material is purchased or labor is scheduled with less than 48 hours' notice.",
+  "Quote valid 14 days from issue date. The 50% upfront payment is non-refundable once material is purchased or labor is scheduled with less than 48 hours' notice.",
   "Happy Home Solutions, LLC is affiliated with a Florida real estate brokerage team and offers this as a home service coordination program, not a licensed general contractor; in-house work is limited to non-structural, non-permitted cosmetic and maintenance items as listed above.",
   "Happy Home Solutions, LLC may stop work and terminate this agreement for non-payment, unsafe conditions, lack of access, or unresolved scope growth — if so, the remaining contract balance is still owed as liquidated damages, not a penalty.",
   "By signing below, client authorizes Happy Home Solutions, LLC to perform the listed work at the listed price under the terms above.",
@@ -846,11 +846,11 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "3. Pricing & Payment",
-    body: `Total price for the Scope of Work is set out in your itemized quote and is part of this Agreement. 50% deposit is due before work begins. The remaining 50% is due upon completion, before the job is considered closed out. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL}. Deposits are non-refundable once materials have been purchased or labor has been scheduled with less than 48 hours' notice. Your quote is valid for 14 days from the date it's issued.`,
+    body: `Total price for the Scope of Work is set out in your itemized quote and is part of this Agreement. We accept 50% upfront before work begins. The remaining 50% is due upon completion, before the job is considered closed out. We accept ${ACCEPTED_PAYMENT_METHODS_LABEL}. The 50% upfront payment is non-refundable once materials have been purchased or labor has been scheduled with less than 48 hours' notice. Your quote is valid for 14 days from the date it's issued.`,
   },
   {
     heading: "4. If Payment Isn't Made",
-    body: "If the deposit isn't received, we won't schedule or begin work. If final payment isn't made upon completion, we may pause any remaining or future work under this or any other agreement with you until the balance is resolved, and pursue the unpaid balance through ordinary collection remedies available under Florida law. We do not assert, and this Agreement does not create, any lien or other claim against your property.",
+    body: "If the 50% upfront payment isn't received, we won't schedule or begin work. If final payment isn't made upon completion, we may pause any remaining or future work under this or any other agreement with you until the balance is resolved, and pursue the unpaid balance through ordinary collection remedies available under Florida law. We do not assert, and this Agreement does not create, any lien or other claim against your property.",
   },
   {
     heading: "5. Conditions Discovered Once Work Begins",
@@ -878,7 +878,7 @@ export const AGREEMENT_SECTIONS: AgreementSection[] = [
   },
   {
     heading: "11. Cancellation & Our Right to Terminate",
-    body: "Either party may cancel this Agreement before work begins by written notice. If you cancel after your deposit has been used to purchase materials or after labor has been scheduled with less than 48 hours' notice, the deposit is non-refundable as described in Section 3. Happy Home Solutions, LLC also reserves the right to stop work and terminate this Agreement at any time — including after work has begun — for reasons such as non-payment, unsafe site conditions, lack of site access, or scope that has grown beyond what was originally quoted and not resolved by change order. If we terminate for any of these reasons, the full remaining contract balance under this Agreement becomes immediately due and is retained/owed to us as liquidated damages for our costs, lost scheduling, and administrative time — not as a penalty — regardless of how much of the work was completed at the time we stop. This is not a substitute for open communication — we'll always try to resolve an issue with you directly before stopping work.",
+    body: "Either party may cancel this Agreement before work begins by written notice. If you cancel after your 50% upfront payment has been used to purchase materials or after labor has been scheduled with less than 48 hours' notice, that upfront payment is non-refundable as described in Section 3. Happy Home Solutions, LLC also reserves the right to stop work and terminate this Agreement at any time — including after work has begun — for reasons such as non-payment, unsafe site conditions, lack of site access, or scope that has grown beyond what was originally quoted and not resolved by change order. If we terminate for any of these reasons, the full remaining contract balance under this Agreement becomes immediately due and is retained/owed to us as liquidated damages for our costs, lost scheduling, and administrative time — not as a penalty — regardless of how much of the work was completed at the time we stop. This is not a substitute for open communication — we'll always try to resolve an issue with you directly before stopping work.",
   },
   {
     heading: "12. Resolving Disagreements",
@@ -1729,7 +1729,11 @@ export async function generateQuotePdf(consultId: number, opts: { mode?: "with_s
   if (y < MIN_Y + 30) { page = pdfDoc.addPage([612, 792]); y = 792 - 50; }
   page.drawRectangle({ x: 38, y: y - 30, width: 536, height: 30, color: rgb(0.94, 0.98, 0.94) });
   const balanceIsZero = Number(consult.final_amount) <= 0.004;
-  const boxLeftLabel = isFinalInvoice ? "DEPOSIT RECEIVED" : "50% DEPOSIT TO START";
+  // v20.57.5 — Alex: drop the word "deposit" from client-facing copy across the
+  // board. Internally the deposit_amount column and gating logic are unchanged;
+  // this is purely the customer-visible label so the terminology stops causing
+  // confusion at the signing table.
+  const boxLeftLabel = isFinalInvoice ? "50% UPFRONT RECEIVED" : "50% UPFRONT TO START";
   const boxRightLabel = isFinalInvoice ? "BALANCE DUE NOW" : "50% ON COMPLETION";
   const boxRightValue = isFinalInvoice && balanceIsZero
     ? "PAID IN FULL"
@@ -2090,7 +2094,8 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     // Mirrors the same isFinalInvoice check in generateQuotePdf.
     const agreementIsFinalInvoice = (consult.status === "accepted" || consult.status === "work_order_sent") && !!consult.deposit_received_at;
     const agreementBalanceIsZero = Number(consult.final_amount) <= 0.004;
-    const leftLabel = agreementIsFinalInvoice ? "DEPOSIT RECEIVED" : "50% DEPOSIT TO START";
+    // v20.57.5 — same client-facing rename as generateQuotePdf (see above).
+    const leftLabel = agreementIsFinalInvoice ? "50% UPFRONT RECEIVED" : "50% UPFRONT TO START";
     const rightLabel = agreementIsFinalInvoice ? "BALANCE DUE NOW" : "50% ON COMPLETION";
     const rightValue = agreementIsFinalInvoice && agreementBalanceIsZero
       ? "PAID IN FULL"
@@ -2187,6 +2192,44 @@ export async function generateAgreementPdf(consultId: number, opts: { blank?: bo
     const fw = fontItalic.widthOfTextAtSize(line, 6.5);
     p2.drawText(line, { x: (PAGE_W - fw) / 2, y: fy, size: 6.5, font: fontItalic, color: gray });
     fy -= 8;
+  }
+
+  // v20.57.5 — Alex: the Agreement PDF he was reviewing (screenshot 9/6) had no
+  // photos of the scoped work anywhere — just the hero. That made the scope
+  // feel abstract to the client. Add scope/gallery pages after the Terms
+  // page using the same photo-grid helper the Quote and Work Order PDFs use.
+  // Sources both property-level gallery photos AND per-item photos captured
+  // during the walkthrough. Deduped and hero-suppressed so nothing repeats.
+  try {
+    const scopePhotos: { url: string; tag?: string }[] = [];
+    const seen = new Set<string>();
+    const heroUrl = consult.hero_photo_url || "";
+    const propGallery: any[] = (() => {
+      try { return consult.property_photos ? JSON.parse(consult.property_photos) : []; } catch { return []; }
+    })();
+    for (const p of propGallery) {
+      const url = typeof p === "string" ? p : p?.url;
+      if (url && url !== heroUrl && !seen.has(url)) {
+        seen.add(url);
+        scopePhotos.push({ url, tag: "property" });
+      }
+    }
+    for (const it of items) {
+      let itemPhotos: any[] = [];
+      try { itemPhotos = it.photos ? JSON.parse(it.photos) : []; } catch { itemPhotos = []; }
+      for (const p of itemPhotos) {
+        const url = typeof p === "string" ? p : p?.url;
+        if (url && url !== heroUrl && !seen.has(url)) {
+          seen.add(url);
+          scopePhotos.push({ url, tag: it.name || "repair_scope" });
+        }
+      }
+    }
+    if (scopePhotos.length > 0) {
+      await addScopePhotosPages(pdfDoc, fontBold, font, fontItalic, scopePhotos, consult.property_address);
+    }
+  } catch (err) {
+    console.warn("[repairConsult] Agreement scope-photo pages failed (non-fatal):", err);
   }
 
   const bytes = await pdfDoc.save();

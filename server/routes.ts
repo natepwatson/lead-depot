@@ -580,6 +580,26 @@ function toApiLead(r: any): any {
   };
 }
 
+/** Count OTHER leads sharing the same owner (powers dial-card Owner Intel). */
+function relatedPropertyEnrichment(leadId: number): { ownerNameKey: string | null; relatedPropertyCount: number } {
+  let ownerNameKey: string | null = null;
+  let relatedPropertyCount = 0;
+  try {
+    const row = rawDb.prepare("SELECT owner_name_key, owner_name FROM leads WHERE id = ?").get(leadId) as any;
+    ownerNameKey = row?.owner_name_key || null;
+    if (ownerNameKey) {
+      const cnt = rawDb.prepare("SELECT COUNT(*) as n FROM leads WHERE owner_name_key = ? AND id != ?").get(ownerNameKey, leadId) as any;
+      relatedPropertyCount = Number(cnt?.n || 0);
+    } else if (row?.owner_name) {
+      const cnt = rawDb.prepare(
+        "SELECT COUNT(*) as n FROM leads WHERE (owner_name_key IS NULL OR owner_name_key = '') AND owner_name = ? AND id != ?"
+      ).get(row.owner_name, leadId) as any;
+      relatedPropertyCount = Number(cnt?.n || 0);
+    }
+  } catch { /* column may be missing on very old DBs */ }
+  return { ownerNameKey, relatedPropertyCount };
+}
+
 export function registerRoutes(httpServer: ReturnType<typeof createServer>, app: Express) {
 
   // ─── v15.11.10 — On Air push (15-min-before) routes + 5-min scheduler ───
@@ -3242,13 +3262,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ lead: next || null, totalActive: total });
   });
 
-  // ─── AGENT: NEXT LEAD (v20.58.8 — territory-first, cross-territory overflow) ─
+  // ─── AGENT: NEXT LEAD (v20.58.9 — strict explicit territory; home overflow) ─
   // Priority order:
   //   1. Callbacks due now (agent's own, any territory)
   //   2. Working/home territory unassigned pool: expired only
-  //   3. Overflow to other territories ONLY when working territory is dry
-  // Agent home = territory1 and/or territory2. Session override: ?territory=key|all
-  // Admins / All → no territory gate (killer mode).
+  //   3. Overflow to other territories ONLY when using agent HOME (no ?territory=)
+  // Explicit ?territory=key = STRICT that territory only (no overflow).
+  // ?territory=all / admin killer = all territories.
   //
   // Locks a lead to the agent for 60 min so no other agent gets it.
   app.get("/api/leads/my-next", (req, res) => {
@@ -3258,9 +3278,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const agent: any = rawDb.prepare(`SELECT id, home_county, role, territory1, territory2 FROM agents WHERE id = ?`).get(agentId);
     if (!agent) return res.status(404).json({ error: "Agent not found" });
 
-    // v20.58.8 — Dial-time Working territory override (?territory=key|all).
-    // Session-only; does not persist territory1. Empty / missing → home territories.
-    // Legacy ?county= still accepted for one release (maps Nassau→nassau only; else ignored → home).
+    // v20.58.9 — Dial-time Working territory override (?territory=key|all).
+    // Session-only; does not persist territory1. Empty / missing → home + overflow.
+    // Explicit key → STRICT (no overflow). Legacy ?county= still accepted (Nassau→nassau).
     const territoryRaw = String(req.query.territory || "").trim();
     const territoryLower = territoryRaw.toLowerCase();
     const territoryIsAll = territoryLower === "all" || territoryLower === "all territories";
@@ -3280,6 +3300,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         territoryOverride = mapped;
       }
     }
+
+    // Early poolMode for alreadyLocked / callback responses (keys resolved again at pull).
+    const earlyPoolMode: "strict" | "home_overflow" | "all" =
+      territoryOverride === null ? "all"
+      : territoryOverride !== undefined ? "strict"
+      : "home_overflow";
 
     // Sweep expired locks so recycled leads are eligible again.
     rawDb.prepare(`DELETE FROM lead_locks WHERE expires_at < datetime('now')`).run();
@@ -3321,7 +3347,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
          AND outcome IN (${dialOutcomesForCounter.map(() => "?").join(",")})
     `).get(leadId, agentId, todayMidnight.toISOString(), ...dialOutcomesForCounter) as any)?.c ?? 0;
 
-    if (alreadyLocked) return res.json({ ...toApiLead(alreadyLocked), myAttemptsToday: countMyAttemptsToday(alreadyLocked.id) });
+    if (alreadyLocked) return res.json({
+      ...toApiLead(alreadyLocked),
+      ...relatedPropertyEnrichment(alreadyLocked.id),
+      myAttemptsToday: countMyAttemptsToday(alreadyLocked.id),
+      poolMode: earlyPoolMode,
+    });
 
     // 1. Callbacks due now (agent's own, all counties).
     const today = new Date().toISOString().split("T")[0];
@@ -3333,7 +3364,12 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       ORDER BY callback_date ASC
       LIMIT 1
     `).get(agentId, today);
-    if (callback) return res.json({ ...toApiLead(callback), myAttemptsToday: countMyAttemptsToday(callback.id) });
+    if (callback) return res.json({
+      ...toApiLead(callback),
+      ...relatedPropertyEnrichment(callback.id),
+      myAttemptsToday: countMyAttemptsToday(callback.id),
+      poolMode: earlyPoolMode,
+    });
 
     // Lead-type priority order (v14.4: FSBO and Land removed).
     // v17.5 — absentee retired. Only cold source is expired.
@@ -3368,22 +3404,33 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     };
 
     let next: any = null;
-    // Working territory: explicit ?territory= override, else agent home (territory1 ± territory2).
+    // Working territory: explicit ?territory=key → STRICT; else home (territory1 ± territory2) + overflow.
     const homeKeys: string[] = [];
     if (agent.territory1) homeKeys.push(String(agent.territory1));
     if (agent.territory2 && !homeKeys.includes(String(agent.territory2))) homeKeys.push(String(agent.territory2));
 
     let workingKeys: string[] | null = null; // null = all (killer)
+    let poolMode: "strict" | "home_overflow" | "all" = "all";
+    let allowOverflow = false;
     if (territoryOverride === null) {
       workingKeys = null;
+      poolMode = "all";
     } else if (territoryOverride !== undefined) {
+      // Explicit pick — STRICT, no overflow (fixes mistagged leads leaking across territories).
       workingKeys = [territoryOverride];
+      poolMode = "strict";
+      allowOverflow = false;
     } else if (homeKeys.length > 0) {
       workingKeys = homeKeys;
+      poolMode = "home_overflow";
+      allowOverflow = true;
     } else if (agent.role === "admin") {
       workingKeys = null; // admin with no home → all
+      poolMode = "all";
     } else {
-      workingKeys = homeKeys; // empty → will fall through to all-pool below if length 0
+      workingKeys = homeKeys; // empty → fall through to all-pool below if length 0
+      poolMode = "home_overflow";
+      allowOverflow = true;
     }
 
     if (workingKeys && workingKeys.length > 0) {
@@ -3394,8 +3441,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         if (next) break;
       }
 
-      // 3. Overflow — only if working territory produced nothing.
-      if (!next) {
+      // 3. Overflow — ONLY for home-default (legacy helpful). Never when ?territory=key.
+      if (!next && allowOverflow) {
         for (const t of TYPE_ORDER) {
           next = pullPool(t, `AND (l.territory IS NULL OR l.territory NOT IN (${placeholders}))`, workingKeys);
           if (next) break;
@@ -3421,7 +3468,13 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
 
     // v14.81.2 — Per-agent, per-lead, per-day dial counter (see comment above where
     // countMyAttemptsToday is defined).
-    res.json({ ...toApiLead(next), myAttemptsToday: countMyAttemptsToday(next.id) });
+    // v20.58.9 — relatedPropertyCount on dial pull (same as GET /api/leads/:id).
+    res.json({
+      ...toApiLead(next),
+      ...relatedPropertyEnrichment(next.id),
+      myAttemptsToday: countMyAttemptsToday(next.id),
+      poolMode,
+    });
   });
 
   // ─── LEAD LOCK RELEASE ─────────────────────────────────────────────────
@@ -3789,19 +3842,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
   app.get("/api/leads/:id", (req, res) => {
     const lead = storage.getLeadById(parseInt(req.params.id));
     if (!lead) return res.status(404).json({ error: "Lead not found" });
-    // v20.7.0 — enrich with owner_name_key + count of OTHER leads sharing the
-    // same normalized owner name. Powers the "Owner of N properties" badge.
-    // Uses raw SQL because drizzle doesn't know about owner_name_key yet.
-    let ownerNameKey: string | null = null;
-    let relatedPropertyCount = 0;
-    try {
-      const row = rawDb.prepare("SELECT owner_name_key FROM leads WHERE id = ?").get(lead.id) as any;
-      ownerNameKey = row?.owner_name_key || null;
-      if (ownerNameKey) {
-        const cnt = rawDb.prepare("SELECT COUNT(*) as n FROM leads WHERE owner_name_key = ? AND id != ?").get(ownerNameKey, lead.id) as any;
-        relatedPropertyCount = Number(cnt?.n || 0);
-      }
-    } catch {}
+    // v20.7.0 / v20.58.9 — enrich with owner_name_key + relatedPropertyCount.
+    const { ownerNameKey, relatedPropertyCount } = relatedPropertyEnrichment(lead.id);
     res.json({ ...lead, ownerNameKey, relatedPropertyCount });
   });
 
@@ -6655,11 +6697,10 @@ This template is for informational/outreach purposes only.`;
   });
 
 
-  // ─── AGENT: MY LEAD QUEUE COUNT (v20.58.8 — territory-aware) ─────────────
+  // ─── AGENT: MY LEAD QUEUE COUNT (v20.58.9 — territory-aware, strict explicit) ─
   // Counts what this agent can still call today:
   //   - Own assigned/no-answer/callback leads
-  //   - PLUS eligible unassigned pool (working/home territory if set, else all)
-  //   - If home territory pool is dry, falls through to overflow (other territories)
+  //   - PLUS eligible unassigned pool (home + overflow, or STRICT explicit territory, or all)
   app.get("/api/leads/my-count/:agentId", (req, res) => {
     const agentId = parseInt(req.params.agentId);
     const agent: any = rawDb.prepare(`SELECT home_county, role, territory1, territory2 FROM agents WHERE id = ?`).get(agentId);
@@ -6708,18 +6749,35 @@ This template is for informational/outreach purposes only.`;
     if (agent.territory2 && !homeKeys.includes(String(agent.territory2))) homeKeys.push(String(agent.territory2));
 
     let workingKeys: string[] | null = null;
-    if (territoryOverride === null) workingKeys = null;
-    else if (territoryOverride !== undefined) workingKeys = [territoryOverride];
-    else if (homeKeys.length > 0) workingKeys = homeKeys;
-    else if (agent.role === "admin") workingKeys = null;
-    else workingKeys = homeKeys;
+    let poolMode: "strict" | "home_overflow" | "all" = "all";
+    let allowOverflow = false;
+    if (territoryOverride === null) {
+      workingKeys = null;
+      poolMode = "all";
+    } else if (territoryOverride !== undefined) {
+      workingKeys = [territoryOverride];
+      poolMode = "strict";
+      allowOverflow = false;
+    } else if (homeKeys.length > 0) {
+      workingKeys = homeKeys;
+      poolMode = "home_overflow";
+      allowOverflow = true;
+    } else if (agent.role === "admin") {
+      workingKeys = null;
+      poolMode = "all";
+    } else {
+      workingKeys = homeKeys;
+      poolMode = "home_overflow";
+      allowOverflow = true;
+    }
 
     if (workingKeys && workingKeys.length > 0) {
       const placeholders = workingKeys.map(() => "?").join(",");
       const homeRow: any = rawDb.prepare(poolSql(`AND l.territory IN (${placeholders})`)).get(today, ...workingKeys);
       poolCount = homeRow?.n ?? 0;
 
-      if (poolCount === 0) {
+      // Overflow only for home-default — never when ?territory=key (strict).
+      if (poolCount === 0 && allowOverflow) {
         const ovRow: any = rawDb.prepare(poolSql(
           `AND (l.territory IS NULL OR l.territory NOT IN (${placeholders}))`
         )).get(today, ...workingKeys);
@@ -6730,7 +6788,7 @@ This template is for informational/outreach purposes only.`;
       poolCount = allRow?.n ?? 0;
     }
 
-    res.json({ count: (own?.n ?? 0) + poolCount });
+    res.json({ count: (own?.n ?? 0) + poolCount, poolMode });
   });
 
   // ─── AGENT SELF-SERVICE: SET OWN HOME COUNTY (v13.10) ──────────────

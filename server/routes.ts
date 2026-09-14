@@ -7,7 +7,7 @@ import { awardPoints } from "./points";
 import { Resend } from "resend";
 import { broadcast } from "./ws";
 import { randomBytes } from "node:crypto";
-import { pushOutcomeToFub, pushColdOutcomeToFub, pushIngestToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD, fubListTags, ensureFubMilestoneSchema, fireMilestoneTasks, FUB_MILESTONE_TRIGGER_EVENTS, fubRequest, resolveFubUserIdByName } from "./fub";
+import { pushOutcomeToFub, pushColdOutcomeToFub, pushIngestToFub, fubCreateAgentRecruit, pushEmailNoteToFub, scheduleFubEmailEvidence, fubApproveAgentAsVendor, fubGetSeatUsage, FUB_PRO_INCLUDED_SEATS, FUB_PRO_OVERAGE_PER_SEAT_USD, fubListTags, ensureFubMilestoneSchema, fireMilestoneTasks, FUB_MILESTONE_TRIGGER_EVENTS, fubRequest, resolveFubUserIdByName, COLLAB_USER_IDS } from "./fub";
 import { runFubInventorySweep } from "./fubSweep";
 import { parseWeeklyWorkbook } from "./workbookParser";
 import { enrichAddress, lookupCityState } from "./zipToCity";
@@ -174,7 +174,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -403,7 +403,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.58.4 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.58.6 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -462,7 +462,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -510,7 +510,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.4 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.6 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -1763,7 +1763,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.58.4</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.58.6</p>
             </div>
           `,
         });
@@ -1923,7 +1923,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.58.4 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.58.6 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -8626,7 +8626,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.58.4 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.58.6 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -8805,6 +8805,289 @@ This template is for informational/outreach purposes only.`;
     })();
 
     res.json({ success: true, pointsAwarded, id: insertedId });
+  });
+
+  // ─── v20.58.6 PACKAGE REQUEST (Buyer / Seller) ─────────────────────────
+  // Agent books a consult + requests Digital/Print/Both package for ops.
+  // Reuses Past Client Appt patterns: Appt Set points, FUB note/appointment/
+  // stage, optional new-network-lead (+20 pts) when client is not in FUB.
+  // Emails alex@ + nate@ with package details. Audit row in package_requests.
+  app.post("/api/package-request", async (req, res) => {
+    const {
+      agentId, side, clientMode, fubPersonId,
+      clientName, clientPhone, clientEmail,
+      propertyMode, propertyAddress, format, apptDatetime, notes,
+    } = req.body || {};
+
+    const submitterId = agentId ? parseInt(String(agentId)) : null;
+    if (!submitterId) return res.status(400).json({ error: "agentId required" });
+    if (side !== "buyer" && side !== "seller") return res.status(400).json({ error: "side must be buyer or seller" });
+    if (clientMode !== "fub" && clientMode !== "new") return res.status(400).json({ error: "clientMode must be fub or new" });
+    if (!clientName || !String(clientName).trim()) return res.status(400).json({ error: "Client name required" });
+    if (propertyMode !== "specific" && propertyMode !== "generic") return res.status(400).json({ error: "propertyMode required" });
+    if (propertyMode === "specific" && !String(propertyAddress || "").trim()) {
+      return res.status(400).json({ error: "Property address required for a specific-property package" });
+    }
+    const fmt = String(format || "").toLowerCase();
+    if (!["digital", "print", "both"].includes(fmt)) return res.status(400).json({ error: "format must be digital, print, or both" });
+    if (!apptDatetime || !String(apptDatetime).trim()) return res.status(400).json({ error: "Appointment date/time required" });
+
+    if (clientMode === "fub" && (!fubPersonId || !String(fubPersonId).trim())) {
+      return res.status(400).json({ error: "A Follow Up Boss contact must be selected" });
+    }
+    if (clientMode === "new" && (!clientPhone || !String(clientPhone).trim())) {
+      return res.status(400).json({ error: "Phone required for a new client" });
+    }
+
+    const agent = storage.getAgentById(submitterId);
+    const now = new Date().toISOString();
+    const cleanName = String(clientName).trim();
+    const cleanPhone = clientPhone ? String(clientPhone).trim() : "";
+    const cleanEmail = clientEmail ? String(clientEmail).trim() : "";
+    const cleanAddr = propertyMode === "specific" ? String(propertyAddress || "").trim() : "";
+    const warmIntent = side === "buyer" ? "buyer" : "seller";
+    const apptTypeLabel = side === "buyer" ? "Buyer Consult" : "Listing Consult";
+    const formatLabel = fmt === "both" ? "Digital + Print" : fmt.charAt(0).toUpperCase() + fmt.slice(1);
+    const scopeLabel = propertyMode === "specific" ? `Specific Property — ${cleanAddr}` : (side === "buyer" ? "Generic Buyer Package" : "Generic Seller Package");
+
+    let leadId: number | null = null;
+    let leadPointsAwarded = 0;
+    let personIdStr = fubPersonId ? String(fubPersonId).trim() : "";
+
+    // New client → create network lead (points + FUB ingest) like Add Lead.
+    if (clientMode === "new") {
+      try {
+        const extraData = JSON.stringify({
+          source: "network",
+          warmLeadSource: "network",
+          warmLeadIntent: warmIntent,
+          submittedByName: agent?.name || "Agent",
+          submittedById: submitterId,
+          networkNotes: notes || `Package request (${side})`,
+          packageRequest: true,
+          ingestedAt: now,
+        });
+        const [created] = storage.createLeadsFromBatch([{
+          leadType: "network",
+          address: cleanAddr || "",
+          ownerName: cleanName,
+          phone: cleanPhone,
+          email: cleanEmail || "",
+          motivation: notes || `Package request — ${side}`,
+          extraData,
+          status: "assigned",
+          assignedAgentId: submitterId,
+          attemptCount: 0,
+          uploadedAt: now,
+          uploadedBy: submitterId,
+          batchId: `package_${side}_${Date.now()}`,
+        }]);
+        leadId = created?.id ?? null;
+        if (leadId) {
+          try {
+            rawDb.prepare(`
+              INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, created_at)
+              VALUES (?, ?, 'network_referral', ?, ?)
+            `).run(leadId, submitterId, `Warm lead via ${side} package request`, now);
+          } catch (err) {
+            console.error("[package-request] lead_activity insert failed:", err);
+          }
+          try {
+            const beforeLead = (rawDb.prepare(`SELECT COALESCE(SUM(points),0) as total FROM agent_points WHERE agent_id = ?`).get(submitterId) as any)?.total || 0;
+            awardPoints(submitterId, "network_referral", leadId, "seller", `${side}_package`);
+            const afterLead = (rawDb.prepare(`SELECT COALESCE(SUM(points),0) as total FROM agent_points WHERE agent_id = ?`).get(submitterId) as any)?.total || 0;
+            leadPointsAwarded = afterLead - beforeLead;
+          } catch (err: any) {
+            console.error("[package-request] network_referral award failed:", err?.message || err);
+          }
+          broadcast({ type: "lead_created", leadId, assignedAgentId: submitterId });
+          pushIngestToFub({
+            ownerName: cleanName,
+            phone: cleanPhone,
+            email: cleanEmail || undefined,
+            address: cleanAddr || undefined,
+            agentId: submitterId,
+            agentName: agent?.name || undefined,
+            source: "network",
+            intent: warmIntent,
+            notes: notes || undefined,
+          }).catch(err => console.error("[package-request] pushIngestToFub failed:", err));
+        }
+      } catch (err: any) {
+        console.error("[package-request] new lead create failed:", err?.message || err);
+        return res.status(500).json({ error: "Failed to create new lead" });
+      }
+    }
+
+    // Appt Set points (same ladder as Past Client Appt / contacted_appointment).
+    let pointsAwarded = 0;
+    try {
+      const before = (rawDb.prepare(`SELECT COALESCE(SUM(points),0) as total FROM agent_points WHERE agent_id = ?`).get(submitterId) as any)?.total || 0;
+      awardPoints(submitterId, "contacted_appointment", leadId ?? undefined, "seller", `${side}_package`);
+      const after = (rawDb.prepare(`SELECT COALESCE(SUM(points),0) as total FROM agent_points WHERE agent_id = ?`).get(submitterId) as any)?.total || 0;
+      pointsAwarded = after - before;
+    } catch (err: any) {
+      console.error("[package-request] awardPoints failed:", err?.message || err);
+    }
+
+    // If we already have a lead, mark it contacted_appointment for pipeline parity.
+    if (leadId) {
+      try {
+        rawDb.prepare(`UPDATE leads SET status = 'contacted_appointment', assigned_agent_id = ? WHERE id = ?`).run(submitterId, leadId);
+        rawDb.prepare(`
+          INSERT INTO lead_activity (lead_id, agent_id, outcome, notes, created_at)
+          VALUES (?, ?, 'contacted_appointment', ?, ?)
+        `).run(leadId, submitterId, `${apptTypeLabel} via package request`, now);
+      } catch (err) {
+        console.error("[package-request] lead status update failed:", err);
+      }
+    }
+
+    let insertedId: number | null = null;
+    try {
+      const info = rawDb.prepare(`
+        INSERT INTO package_requests (
+          agent_id, agent_name, side, client_mode, fub_person_id, client_name, client_phone, client_email,
+          lead_id, property_mode, property_address, format, appt_datetime, notes,
+          points_awarded, lead_points_awarded, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        submitterId, agent?.name || null, side, clientMode, personIdStr || null,
+        cleanName, cleanPhone || null, cleanEmail || null, leadId,
+        propertyMode, cleanAddr || null, fmt, String(apptDatetime).trim(), notes || null,
+        pointsAwarded, leadPointsAwarded, now,
+      );
+      insertedId = Number(info.lastInsertRowid);
+    } catch (err: any) {
+      console.error("[package-request] audit insert failed:", err?.message || err);
+    }
+
+    broadcast({ type: "activity_event", event: {
+      type: "package_request", side, agentId: submitterId, agentName: agent?.name || "Agent",
+      agentHeadshot: (agent as any)?.headshotUrl || null, address: cleanAddr || null, ts: now,
+    }});
+
+    // Email alex@ + nate@ (required).
+    const apptWhen = new Date(String(apptDatetime));
+    const whenLabel = isNaN(apptWhen.getTime())
+      ? String(apptDatetime)
+      : apptWhen.toLocaleString("en-US", { timeZone: "America/New_York", timeZoneName: "short" });
+    const tdL = "padding:8px 0;color:#c8aa5a;font-size:12px;text-transform:uppercase;letter-spacing:.1em;width:160px;vertical-align:top";
+    const tdV = "padding:8px 0;color:#fff;font-size:14px;vertical-align:top";
+    const clientLine = clientMode === "fub"
+      ? `${cleanName} (FUB #${personIdStr})${cleanPhone ? ` · ${cleanPhone}` : ""}${cleanEmail ? ` · ${cleanEmail}` : ""}`
+      : `${cleanName} (new lead${leadId ? ` #${leadId}` : ""})${cleanPhone ? ` · ${cleanPhone}` : ""}${cleanEmail ? ` · ${cleanEmail}` : ""}`;
+    if (resend) {
+      try {
+        const subject = `${side === "buyer" ? "Buyer" : "Seller"} Package Request — ${cleanName} — ${agent?.name || "Agent"}`;
+        const html = `
+<!DOCTYPE html><html><body style="margin:0;padding:0;background:#111;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+<div style="max-width:580px;margin:0 auto;background:#0c0b0a;border-radius:14px;overflow:hidden;border:1px solid #2a2520">
+  <div style="background:linear-gradient(135deg,#c8aa5a 0%,#a8893a 100%);padding:22px 28px">
+    <p style="margin:0 0 4px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#5a3e00;font-weight:700">${side === "buyer" ? "Buyer" : "Seller"} Package Request</p>
+    <h1 style="margin:0;font-size:20px;color:#080808;font-weight:700">${agent?.name || "Agent"}</h1>
+  </div>
+  <div style="padding:24px 28px;color:#eee">
+    <table style="width:100%;border-collapse:collapse">
+      <tr><td style="${tdL}">Agent</td><td style="${tdV}">${agent?.name || "Agent"}</td></tr>
+      <tr><td style="${tdL}">Client</td><td style="${tdV}">${clientLine}</td></tr>
+      <tr><td style="${tdL}">Package</td><td style="${tdV}">${scopeLabel}</td></tr>
+      <tr><td style="${tdL}">Format</td><td style="${tdV}">${formatLabel}</td></tr>
+      <tr><td style="${tdL}">Consult</td><td style="${tdV}">${apptTypeLabel} · ${whenLabel}</td></tr>
+      <tr><td style="${tdL}">Submitted</td><td style="${tdV}">${new Date(now).toLocaleString("en-US", { timeZone: "America/New_York", timeZoneName: "short" })}</td></tr>
+      ${notes ? `<tr><td style="${tdL}">Notes</td><td style="${tdV}">${String(notes).replace(/</g, "&lt;").replace(/\n/g, "<br>")}</td></tr>` : ""}
+      <tr><td style="${tdL}">Points</td><td style="${tdV}">Appt Set +${pointsAwarded}${leadPointsAwarded ? ` · New lead +${leadPointsAwarded}` : ""}</td></tr>
+    </table>
+    <p style="margin:18px 0 0;font-size:12px;color:#888;line-height:1.5">Property research (when a specific address is provided) is included in the package Ops prepares.</p>
+  </div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.6 — Brothers Group · Momentum Realty</div>
+</div></body></html>`;
+        await resend.emails.send({
+          from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
+          to: ["alex@watsonbrothersgroup.com", "nate@watsonbrothersgroup.com"],
+          subject,
+          html,
+        });
+      } catch (err) {
+        console.error("[package-request] email failed:", err);
+      }
+    } else {
+      console.warn("[package-request] Resend not configured — email skipped");
+    }
+
+    // Best-effort FUB writes: note + real /appointments + stage Hot Prospect.
+    (async () => {
+      try {
+        let numericPersonId = personIdStr ? parseInt(personIdStr) : NaN;
+        if ((!numericPersonId || isNaN(numericPersonId)) && cleanPhone) {
+          const cleaned = cleanPhone.replace(/\D/g, "").slice(-10);
+          if (cleaned.length === 10) {
+            const searchRes = await fubRequest("GET", `/people?phone=${encodeURIComponent(cleaned)}&limit=1`);
+            const people = searchRes.data?.people || [];
+            if (people[0]?.id) {
+              numericPersonId = people[0].id;
+              personIdStr = String(numericPersonId);
+              if (insertedId) {
+                try { rawDb.prepare(`UPDATE package_requests SET fub_person_id = ? WHERE id = ?`).run(personIdStr, insertedId); } catch {}
+              }
+            }
+          }
+        }
+        if (!numericPersonId || isNaN(numericPersonId)) {
+          console.warn("[package-request] No FUB person id — skipping FUB appointment writes");
+          return;
+        }
+
+        const noteBody = [
+          `Package request (${side}) submitted by ${agent?.name || "an agent"}.`,
+          `Format: ${formatLabel}. Scope: ${scopeLabel}.`,
+          `Consult: ${apptTypeLabel} at ${whenLabel}.`,
+          notes ? `\nNotes: ${notes}` : "",
+        ].filter(Boolean).join("\n");
+        await fubRequest("POST", "/notes", { personId: numericPersonId, body: noteBody, isHtml: false });
+
+        let fubApptId: number | null = null;
+        if (!isNaN(apptWhen.getTime())) {
+          const endTime = new Date(apptWhen.getTime() + 60 * 60 * 1000);
+          const apptTitle = "Meet & Greet with Alex Watson @ Brothers Group Real Estate";
+          const apptRes = await fubRequest("POST", `/appointments`, {
+            personId: numericPersonId,
+            type: "Consultation",
+            title: apptTitle,
+            description: `${apptTypeLabel} via Lead Depot package request (${formatLabel}). Address: ${cleanAddr || "—"}. Agent: ${agent?.name || "—"}.`,
+            startTime: apptWhen.toISOString(),
+            endTime: endTime.toISOString(),
+            location: cleanAddr || undefined,
+            invitees: COLLAB_USER_IDS.map(uid => ({ userId: uid })),
+          });
+          if (apptRes.ok) {
+            fubApptId = apptRes.data?.id ?? null;
+            console.log(`[package-request] FUB appointment created id=${fubApptId} for person ${numericPersonId}`);
+          } else {
+            console.error("[package-request] FUB appointment failed:", apptRes.status, apptRes.data);
+          }
+        }
+
+        await fubRequest("PUT", `/people/${numericPersonId}`, {
+          stageId: 3,
+          assignedTo: agent?.name || undefined,
+        });
+
+        if (fubApptId && insertedId) {
+          try { rawDb.prepare(`UPDATE package_requests SET fub_appointment_id = ? WHERE id = ?`).run(fubApptId, insertedId); } catch {}
+        }
+      } catch (err: any) {
+        console.error("[package-request] FUB write failed (non-fatal):", err?.message || err);
+      }
+    })();
+
+    res.json({
+      success: true,
+      id: insertedId,
+      leadId,
+      pointsAwarded,
+      leadPointsAwarded,
+    });
   });
 
   // ─── v17.0 OPEN HOUSE LOG → APPROVAL QUEUE ─────────────────────────────
@@ -11742,7 +12025,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.58.4</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.58.6</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

@@ -1855,8 +1855,8 @@ function LeadCard({ lead }: { lead: Lead }) {
               {(lead as any).score}
             </span>
           )}
-          {/* v14.0 — Territory badge removed. Kept the render guard so old data is a no-op. */}
-          {false && (lead as any).territory && (
+          {/* v20.58.9 — Show lead.territory chip so mistags are visible on dial. */}
+          {(lead as any).territory && (
             <span style={{
               fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase",
               color: "rgba(200,170,90,0.55)", fontWeight: 600,
@@ -6520,7 +6520,17 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [(user as any)?.territory1]);
 
-  const territoryQuery = workingTerritory ? `&territory=${encodeURIComponent(workingTerritory)}` : "";
+  // v20.58.9 — Only send ?territory= for explicit non-home picks (strict) or all.
+  // Home default omits the param so my-next/my-count keep overflow-if-dry.
+  const isHomeWorkingTerritory = !!homeTerritoryDefault
+    && workingTerritory === homeTerritoryDefault
+    && workingTerritory !== "all";
+  const territoryQuery = (!workingTerritory || isHomeWorkingTerritory)
+    ? ""
+    : `&territory=${encodeURIComponent(workingTerritory)}`;
+  const territoryCountQuery = (!workingTerritory || isHomeWorkingTerritory)
+    ? ""
+    : `?territory=${encodeURIComponent(workingTerritory)}`;
 
   const { data: nextAgentLead, isLoading: agentLeadLoading } = useQuery<any | null>({
     queryKey: ["/api/agent-leads/my-next"],
@@ -6664,7 +6674,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
 
   const { data: myQueueData } = useQuery<{ count: number }>({
     queryKey: [`/api/leads/my-count/${user?.id}`, workingTerritory],
-    queryFn: () => apiRequest("GET", `/api/leads/my-count/${user?.id}?territory=${encodeURIComponent(workingTerritory)}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/leads/my-count/${user?.id}${territoryCountQuery}`).then(r => r.json()),
     enabled: !!user?.id,
     refetchInterval: 15000,
   });
@@ -6742,7 +6752,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.58.8</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.58.9</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -7299,7 +7309,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                         ? "All territories (killer mode)"
                         : workingTerritory === homeTerritoryDefault
                           ? "Home territory — overflow if dry"
-                          : `Dialing ${WORKING_TERRITORIES.find(t => t.key === workingTerritory)?.label || workingTerritory} (home is ${WORKING_TERRITORIES.find(t => t.key === homeTerritoryDefault)?.label || homeTerritoryDefault || "unset"})`}
+                          : `Strict — ${WORKING_TERRITORIES.find(t => t.key === workingTerritory)?.label || workingTerritory} only (no overflow)`}
                     </div>
                   </div>
                   <select

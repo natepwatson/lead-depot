@@ -95,7 +95,7 @@ import { parseBatchLeadsFile, insertImportedLeads } from "./batchleads-csv-impor
 import multer from "multer";
 // v18.0 — DBPR pipeline import removed with recruiting system.
 import { EXPIRED_SCRIPT_V14_16 } from "./expired-script";
-import { getTerritoryForZip, TERRITORIES as TERRITORY_META, ALL_NE_FLORIDA_ZIPS_ARRAY } from "./territories";
+import { getTerritoryForZip, TERRITORIES as TERRITORY_META, ALL_NE_FLORIDA_ZIPS_ARRAY, TERRITORY_KEYS, mapHomeCountyToTerritory1 } from "./territories";
 
 // v20.14.4 — Team Map territory gate. Brothers Group only operates leads in
 // Nassau/Duval/St Johns (NE Florida). Bad/placeholder addresses (e.g. "N/A")
@@ -174,7 +174,7 @@ async function notifyLeadGenActivity(opts: {
     </table>
     <p style="margin:20px 0 0;font-size:12px;color:#666">Awaiting Nate's approval. See Admin → Approvals.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.8 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
     await resend.emails.send({ from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>", to, cc, subject, html });
   } catch (err) {
@@ -403,7 +403,7 @@ async function sendCrmReport(opts: {
 
   <!-- Footer -->
   <div style="padding:14px 32px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444;display:flex;justify-content:space-between">
-    <span>Lead Depot v20.58.7 — Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.58.8 — Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>
@@ -462,7 +462,7 @@ async function sendAppointmentAlert(opts: {
       📋 Attend or delegate? Reply to this email or check Lead Depot: <a href="https://depot.watsonbrothersgroup.com" style="color:${isSeller ? '#c8aa5a' : '#4fb8a3'}">depot.watsonbrothersgroup.com</a>
     </div>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.8 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
 
   await resend.emails.send({
@@ -510,7 +510,7 @@ async function checkQueueDepthAlert(rawDb: any) {
     <p style="font-size:13px;color:rgba(255,255,255,0.5);margin:0 0 20px">Lead intake is CSV-only. Upload the latest LandVoice or BatchLeads export from the Admin panel to refill the queue.</p>
     <a href="https://depot.watsonbrothersgroup.com" style="display:inline-block;background:#c8aa5a;color:#080808;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:12px 20px;border-radius:8px;text-decoration:none">Open Lead Depot</a>
   </div>
-  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 26px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.8 — Brothers Group · Momentum Realty</div>
 </div></body></html>`,
     });
     console.log(`[QueueAlert] Sent low-queue alert: ${activeLeads} leads / ${activeAgents} agents`);
@@ -721,48 +721,15 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     })
     .catch(err => console.error("[v14.58 auth] migration failed:", err));
 
-  // ─── v14.10 / v20.58.7 — RETIRE-ON-DEPLOY SWEEP (runs on every boot) ────
-  // Any active lead with attemptCount >= 12 flips to status='retired'. Cap
-  // matches per-line PHONE_ATTEMPT_CAP (12). Idempotent: on subsequent boots
-  // there's nothing left to retire.
-  try {
-    const RETIRE_CAP = 12;
-    const result = rawDb.prepare(`
-      UPDATE leads
-         SET status = 'retired'
-       WHERE attempt_count >= ?
-         AND status NOT IN ('retired', 'contacted_appointment', 'contacted_not_interested', 'keep_in_touch', 'wrong_number', 'listed')
-    `).run(RETIRE_CAP);
-    if (result.changes > 0) {
-      console.log(`[v14.10 retire-sweep] Retired ${result.changes} leads with attemptCount >= ${RETIRE_CAP}`);
-    }
-  } catch (err) {
-    console.error("[v14.10 retire-sweep] Failed:", err);
-  }
+  // ─── v20.58.8 — STOP RULE (Alex): 12 dials PER PHONE LINE only ─────────
+  // Stop rule = 12 no-answers PER PHONE LINE (PHONE_ATTEMPT_CAP). When every
+  // line on a lead is struck, the outcome handlers exhaust/delete the lead.
+  // Lead-level attempt_count is display/stats only; it must NEVER auto-retire
+  // a lead. The old boot RETIRE_CAP / attempt_count retire-sweep and the
+  // unretire-at-<12 companion are permanently removed.
+  // Daily no_answer → unassigned thaw stays (day park, not permanent stop).
+  console.log("[v20.58.8] Lead-level attempt_count retire-sweep DISABLED — per-line PHONE_ATTEMPT_CAP=12 only");
 
-  // ─── v20.58.7 — UNRETIRE wrongly capped leads (boot, idempotent) ───────
-  // Prior RETIRE_CAP was 6; leads with attempt_count in [0, 11] that were
-  // retired solely by that sweep belong back in the pool. Status alone is
-  // the retire signal we have — no separate retire-reason column — so
-  // status='retired' AND attempt_count < 12 is the correct restore.
-  try {
-    const UNRETIRE_CAP = 12;
-    const unretire = rawDb.prepare(`
-      UPDATE leads
-         SET status = 'unassigned',
-             assigned_agent_id = NULL
-       WHERE status = 'retired'
-         AND attempt_count < ?
-         AND attempt_count >= 0
-    `).run(UNRETIRE_CAP);
-    if (unretire.changes > 0) {
-      console.log(`[v20.58.7 unretire-sweep] Unretired ${unretire.changes} leads with attempt_count < ${UNRETIRE_CAP}`);
-    } else {
-      console.log(`[v20.58.7 unretire-sweep] No wrongly-capped retired leads to restore`);
-    }
-  } catch (err) {
-    console.error("[v20.58.7 unretire-sweep] Failed:", err);
-  }
 
   // ─── v14.50 — ASSIGNMENT-RULE SWEEP (one-time, runs on every boot) ─────
   // NEW RULE: A lead is assigned to an agent ONLY IF the most recent activity
@@ -1054,6 +1021,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       id: agent.id, name: agent.name, email: agent.email, role: agent.role,
       headshotUrl: (agent as any).headshotUrl || (agent as any).headshot_url || null,
       homeCounty: (agent as any).homeCounty || (agent as any).home_county || null,
+      territory1: (agent as any).territory1 || null,
+      territory2: (agent as any).territory2 || null,
       // v14.81.2 — onboarding gate flags, echoed camelCase from DB snake_case.
       profileCompletedAt: (agent as any).profileCompletedAt || (agent as any).profile_completed_at || null,
       tutorialCompletedAt: (agent as any).tutorialCompletedAt || (agent as any).tutorial_completed_at || null,
@@ -1182,6 +1151,8 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       homeAddress: a.homeAddress ?? a.home_address ?? "",
       headshotUrl: a.headshotUrl ?? a.headshot_url ?? "",
       homeCounty: a.homeCounty ?? a.home_county ?? null,
+      territory1: a.territory1 ?? null,
+      territory2: a.territory2 ?? null,
       // v14.81.2 — onboarding gate flags (camelCase, echoing DB values).
       profileCompletedAt: a.profileCompletedAt ?? a.profile_completed_at ?? null,
       tutorialCompletedAt: a.tutorialCompletedAt ?? a.tutorial_completed_at ?? null,
@@ -1787,7 +1758,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
                 <a href="${verifyLink}" style="background:#facc15;color:#09090b;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Confirm new email</a>
               </p>
               <p style="color:#71717a;font-size:12px;">If the button doesn't work, paste this link into your browser:<br>${verifyLink}</p>
-              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.58.7</p>
+              <p style="color:#71717a;font-size:12px;margin-top:24px;">— Brothers Group Real Estate Team at Momentum Realty<br>Lead Depot v20.58.8</p>
             </div>
           `,
         });
@@ -1947,7 +1918,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
               <div style="text-align:center;margin-bottom:28px;">
                 <a href="${resetLink}" style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#c8aa5a,#a8893a);color:#080808;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;border-radius:8px;text-decoration:none;">Reset My Password</a>
               </div>
-              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.58.7 · Brothers Group Real Estate Team at Momentum Realty</p>
+              <p style="color:rgba(255,255,255,0.25);font-size:12px;line-height:1.6;border-top:1px solid rgba(200,170,90,0.1);padding-top:18px;">If you weren't expecting this reset, ignore this email — your password will not change. Lead Depot v20.58.8 · Brothers Group Real Estate Team at Momentum Realty</p>
             </div>
           `,
         });
@@ -3271,34 +3242,43 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     res.json({ lead: next || null, totalActive: total });
   });
 
-  // ─── AGENT: NEXT LEAD (v14.4 — home-county-first, cross-county overflow) ─────
+  // ─── AGENT: NEXT LEAD (v20.58.8 — territory-first, cross-territory overflow) ─
   // Priority order:
-  //   1. Callbacks due now (agent's own, any county)
-  //   2. Home-county unassigned pool: expired only (absentee retired v17.5)
-  //   3. Overflow to other counties ONLY when home county is completely dry
-  //      (expired only across all other counties — absentee retired v17.5)
-  // Admins with home_county=NULL skip step 2/3 gating — they see everything.
+  //   1. Callbacks due now (agent's own, any territory)
+  //   2. Working/home territory unassigned pool: expired only
+  //   3. Overflow to other territories ONLY when working territory is dry
+  // Agent home = territory1 and/or territory2. Session override: ?territory=key|all
+  // Admins / All → no territory gate (killer mode).
   //
   // Locks a lead to the agent for 60 min so no other agent gets it.
   app.get("/api/leads/my-next", (req, res) => {
     const agentId = parseInt(String(req.query.agentId || ""));
     if (!agentId || isNaN(agentId)) return res.status(400).json({ error: "Missing agentId" });
 
-    const agent: any = rawDb.prepare(`SELECT id, home_county, role FROM agents WHERE id = ?`).get(agentId);
+    const agent: any = rawDb.prepare(`SELECT id, home_county, role, territory1, territory2 FROM agents WHERE id = ?`).get(agentId);
     if (!agent) return res.status(404).json({ error: "Agent not found" });
 
-    // v20.58.5 — Dial-time Working county override (?county=Nassau|Duval|St Johns|all).
-    // Session-only; does not persist home_county. Empty / missing → agent home_county.
-    const ALLOWED_COUNTIES = ["Nassau", "Duval", "St Johns"];
-    const countyRaw = String(req.query.county || "").trim();
-    const countyLower = countyRaw.toLowerCase();
-    const countyIsAll = countyLower === "all" || countyLower === "all counties";
-    let countyOverride: string | null | undefined = undefined; // undefined = use home
-    if (countyIsAll) countyOverride = null; // killer mode this pull
-    else if (countyRaw) {
-      const match = ALLOWED_COUNTIES.find(c => c.toLowerCase() === countyLower);
-      if (!match) return res.status(400).json({ error: "Invalid county. Allowed: Nassau, Duval, St Johns, or all." });
-      countyOverride = match;
+    // v20.58.8 — Dial-time Working territory override (?territory=key|all).
+    // Session-only; does not persist territory1. Empty / missing → home territories.
+    // Legacy ?county= still accepted for one release (maps Nassau→nassau only; else ignored → home).
+    const territoryRaw = String(req.query.territory || "").trim();
+    const territoryLower = territoryRaw.toLowerCase();
+    const territoryIsAll = territoryLower === "all" || territoryLower === "all territories";
+    let territoryOverride: string | null | undefined = undefined; // undefined = use home
+    if (territoryIsAll) territoryOverride = null; // killer mode this pull
+    else if (territoryRaw) {
+      if (!TERRITORY_KEYS.includes(territoryLower)) {
+        return res.status(400).json({ error: `Invalid territory. Allowed: ${TERRITORY_KEYS.join(", ")}, or all.` });
+      }
+      territoryOverride = territoryLower;
+    } else if (req.query.county) {
+      // Legacy bridge: only unambiguous Nassau maps; Duval/St Johns fall through to home.
+      const mapped = mapHomeCountyToTerritory1(String(req.query.county));
+      if (String(req.query.county).toLowerCase() === "all" || String(req.query.county).toLowerCase() === "all counties") {
+        territoryOverride = null;
+      } else if (mapped) {
+        territoryOverride = mapped;
+      }
     }
 
     // Sweep expired locks so recycled leads are eligible again.
@@ -3370,7 +3350,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // v20.58.5 — Gate on callback_date so nice_ice recycled rows that were
     // thawed early (or left as unassigned with a future callback_date) stay
     // asleep until due. today already computed above for callbacks.
-    const pullPool = (leadType: string, countyClause: string, countyParams: any[]): any => {
+    const pullPool = (leadType: string, territoryClause: string, territoryParams: any[]): any => {
       return rawDb.prepare(`
         SELECT l.* FROM leads l
         LEFT JOIN lead_locks lk ON lk.lead_id = l.id
@@ -3381,32 +3361,48 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           AND lk.lead_id IS NULL
           AND h.lead_id IS NULL
           AND (l.callback_date IS NULL OR substr(l.callback_date, 1, 10) <= ?)
-          ${countyClause}
+          ${territoryClause}
         ORDER BY (l.owner_confirmed_at IS NOT NULL) DESC, l.owner_confirmed_at DESC, l.score DESC, l.uploaded_at ASC, l.id ASC
         LIMIT 1
-      `).get(agentId, leadType, today, ...countyParams);
+      `).get(agentId, leadType, today, ...territoryParams);
     };
 
     let next: any = null;
-    // Working county: explicit ?county= override, else agent home_county.
-    const homeCounty = countyOverride !== undefined ? countyOverride : agent.home_county;
+    // Working territory: explicit ?territory= override, else agent home (territory1 ± territory2).
+    const homeKeys: string[] = [];
+    if (agent.territory1) homeKeys.push(String(agent.territory1));
+    if (agent.territory2 && !homeKeys.includes(String(agent.territory2))) homeKeys.push(String(agent.territory2));
 
-    if (homeCounty) {
-      // 2. Working-county leads, in type-priority order.
+    let workingKeys: string[] | null = null; // null = all (killer)
+    if (territoryOverride === null) {
+      workingKeys = null;
+    } else if (territoryOverride !== undefined) {
+      workingKeys = [territoryOverride];
+    } else if (homeKeys.length > 0) {
+      workingKeys = homeKeys;
+    } else if (agent.role === "admin") {
+      workingKeys = null; // admin with no home → all
+    } else {
+      workingKeys = homeKeys; // empty → will fall through to all-pool below if length 0
+    }
+
+    if (workingKeys && workingKeys.length > 0) {
+      const placeholders = workingKeys.map(() => "?").join(",");
+      // 2. Working/home territory leads, in type-priority order.
       for (const t of TYPE_ORDER) {
-        next = pullPool(t, `AND LOWER(l.county) = LOWER(?)`, [homeCounty]);
+        next = pullPool(t, `AND l.territory IN (${placeholders})`, workingKeys);
         if (next) break;
       }
 
-      // 3. Overflow — only if working county produced nothing.
+      // 3. Overflow — only if working territory produced nothing.
       if (!next) {
         for (const t of TYPE_ORDER) {
-          next = pullPool(t, `AND (l.county IS NULL OR LOWER(l.county) <> LOWER(?))`, [homeCounty]);
+          next = pullPool(t, `AND (l.territory IS NULL OR l.territory NOT IN (${placeholders}))`, workingKeys);
           if (next) break;
         }
       }
     } else {
-      // Admin / All counties / no county restriction — killer mode.
+      // Admin / All territories / no home territory — killer mode.
       for (const t of TYPE_ORDER) {
         next = pullPool(t, ``, []);
         if (next) break;
@@ -4071,6 +4067,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       //           the marginal 2 attempts to lift cumulative contact rate from ~72% to ~78%
       //           (at p≈0.12 per-dial). Diminishing returns kick in hard past this;
       //           don't go higher without a UI warning at 9+ attempts.
+      // Stop rule = 12 no-answers PER PHONE LINE. Lead-level attempt_count is display/stats only; never retires.
       const PHONE_ATTEMPT_CAP = 12;
       const currentPhone = req.body.dialedPhone || lead.phone || "";
       let phoneAttempts: Record<string, number> = {};
@@ -4279,6 +4276,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
       //      same agent doesn't immediately re-pull the lead they just recycled.
       // NOTE: DB outcome key stays 'left_voicemail' for historical continuity.
       // NO voicemail language leaves the server — all copy is Owner-focused now.
+      // Stop rule = 12 no-answers PER PHONE LINE. Lead-level attempt_count is display/stats only; never retires.
       const PHONE_ATTEMPT_CAP_VM = 12;
       const currentPhone = req.body.dialedPhone || lead.phone || "";
       let phoneAttemptsVm: Record<string, number> = {};
@@ -6657,29 +6655,34 @@ This template is for informational/outreach purposes only.`;
   });
 
 
-  // ─── AGENT: MY LEAD QUEUE COUNT (v13.9 — home-county aware) ─────────────
+  // ─── AGENT: MY LEAD QUEUE COUNT (v20.58.8 — territory-aware) ─────────────
   // Counts what this agent can still call today:
   //   - Own assigned/no-answer/callback leads
-  //   - PLUS eligible unassigned pool (home-county if set, else all counties)
-  //   - If home-county pool is dry, falls through to overflow pool (all other counties)
+  //   - PLUS eligible unassigned pool (working/home territory if set, else all)
+  //   - If home territory pool is dry, falls through to overflow (other territories)
   app.get("/api/leads/my-count/:agentId", (req, res) => {
     const agentId = parseInt(req.params.agentId);
-    const agent: any = rawDb.prepare(`SELECT home_county FROM agents WHERE id = ?`).get(agentId);
+    const agent: any = rawDb.prepare(`SELECT home_county, role, territory1, territory2 FROM agents WHERE id = ?`).get(agentId);
     if (!agent) return res.json({ count: 0 });
 
     // Sweep expired locks first.
     rawDb.prepare(`DELETE FROM lead_locks WHERE expires_at < datetime('now')`).run();
 
     const today = new Date().toISOString().split("T")[0];
-    const ALLOWED_COUNTIES = ["Nassau", "Duval", "St Johns"];
-    const countyRaw = String(req.query.county || "").trim();
-    const countyLower = countyRaw.toLowerCase();
-    const countyIsAll = countyLower === "all" || countyLower === "all counties";
-    let countyOverride: string | null | undefined = undefined;
-    if (countyIsAll) countyOverride = null;
-    else if (countyRaw) {
-      const match = ALLOWED_COUNTIES.find(c => c.toLowerCase() === countyLower);
-      if (match) countyOverride = match;
+    const territoryRaw = String(req.query.territory || "").trim();
+    const territoryLower = territoryRaw.toLowerCase();
+    const territoryIsAll = territoryLower === "all" || territoryLower === "all territories";
+    let territoryOverride: string | null | undefined = undefined;
+    if (territoryIsAll) territoryOverride = null;
+    else if (territoryRaw && TERRITORY_KEYS.includes(territoryLower)) {
+      territoryOverride = territoryLower;
+    } else if (req.query.county) {
+      const mapped = mapHomeCountyToTerritory1(String(req.query.county));
+      if (String(req.query.county).toLowerCase() === "all" || String(req.query.county).toLowerCase() === "all counties") {
+        territoryOverride = null;
+      } else if (mapped) {
+        territoryOverride = mapped;
+      }
     }
 
     // Own queue.
@@ -6690,25 +6693,36 @@ This template is for informational/outreach purposes only.`;
     ).get(agentId);
 
     // Pool count — align with my-next: expired only + callback_date gate.
-    const poolSql = (countyClause: string) => `
+    const poolSql = (territoryClause: string) => `
       SELECT COUNT(*) as n FROM leads l
       LEFT JOIN lead_locks lk ON lk.lead_id = l.id
       WHERE l.status = 'unassigned' AND lk.lead_id IS NULL
         AND l.lead_type = 'expired'
         AND (l.callback_date IS NULL OR substr(l.callback_date, 1, 10) <= ?)
-        ${countyClause}
+        ${territoryClause}
     `;
 
     let poolCount = 0;
-    const homeCounty = countyOverride !== undefined ? countyOverride : agent.home_county;
-    if (homeCounty) {
-      const homeRow: any = rawDb.prepare(poolSql(`AND LOWER(l.county) = LOWER(?)`)).get(today, homeCounty);
+    const homeKeys: string[] = [];
+    if (agent.territory1) homeKeys.push(String(agent.territory1));
+    if (agent.territory2 && !homeKeys.includes(String(agent.territory2))) homeKeys.push(String(agent.territory2));
+
+    let workingKeys: string[] | null = null;
+    if (territoryOverride === null) workingKeys = null;
+    else if (territoryOverride !== undefined) workingKeys = [territoryOverride];
+    else if (homeKeys.length > 0) workingKeys = homeKeys;
+    else if (agent.role === "admin") workingKeys = null;
+    else workingKeys = homeKeys;
+
+    if (workingKeys && workingKeys.length > 0) {
+      const placeholders = workingKeys.map(() => "?").join(",");
+      const homeRow: any = rawDb.prepare(poolSql(`AND l.territory IN (${placeholders})`)).get(today, ...workingKeys);
       poolCount = homeRow?.n ?? 0;
 
       if (poolCount === 0) {
         const ovRow: any = rawDb.prepare(poolSql(
-          `AND (l.county IS NULL OR LOWER(l.county) <> LOWER(?))`
-        )).get(today, homeCounty);
+          `AND (l.territory IS NULL OR l.territory NOT IN (${placeholders}))`
+        )).get(today, ...workingKeys);
         poolCount = ovRow?.n ?? 0;
       }
     } else {
@@ -6742,6 +6756,32 @@ This template is for informational/outreach purposes only.`;
     const value = isAllCounties ? null : trimmed;
     rawDb.prepare(`UPDATE agents SET home_county = ? WHERE id = ?`).run(value, id);
     res.json({ ok: true, homeCounty: value });
+  });
+
+  // ─── AGENT SELF-SERVICE: SET HOME TERRITORIES (v20.58.8) ──────────
+  // PATCH /api/agents/:id/home-territory  { territory1: key, territory2?: key|null }
+  // Primary (territory1) required for agents. Optional second slot.
+  app.patch("/api/agents/:id/home-territory", (req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid agent id" });
+    if (!requireSelfOrAdmin(req, res, id)) return;
+    const t1raw = req.body?.territory1;
+    const t2raw = req.body?.territory2;
+    const t1 = t1raw != null && String(t1raw).trim() ? String(t1raw).trim().toLowerCase() : null;
+    const t2 = t2raw != null && String(t2raw).trim() ? String(t2raw).trim().toLowerCase() : null;
+    if (!t1 || !TERRITORY_KEYS.includes(t1)) {
+      return res.status(400).json({ error: `Invalid territory1. Allowed: ${TERRITORY_KEYS.join(", ")}` });
+    }
+    if (t2 && !TERRITORY_KEYS.includes(t2)) {
+      return res.status(400).json({ error: `Invalid territory2. Allowed: ${TERRITORY_KEYS.join(", ")}` });
+    }
+    if (t2 && t2 === t1) {
+      return res.status(400).json({ error: "territory2 must differ from territory1" });
+    }
+    const existing = storage.getAgentById(id);
+    if (!existing) return res.status(404).json({ error: "Agent not found" });
+    rawDb.prepare(`UPDATE agents SET territory1 = ?, territory2 = ? WHERE id = ?`).run(t1, t2, id);
+    res.json({ ok: true, territory1: t1, territory2: t2 });
   });
 
   // ─── ADMIN: SET AGENT HOME COUNTY (v13.9) ──────────────────────
@@ -7673,36 +7713,35 @@ This template is for informational/outreach purposes only.`;
   // or 2 has that slot cleared and gets a reselect notice.
   // ═══════════════════════════════════════════════════════════════════════════
   app.get("/api/territories", (_req, res) => {
-    // Pull display names from the source module so the UI can render them cleanly.
+    // v20.58.8 — territories.name stores the KEY (nassau, east_jax, …).
     const TER_META = TERRITORY_META as Record<string, { displayName: string }>;
     const rows = rawDb.prepare(`SELECT name, is_open FROM territories ORDER BY name`).all() as any[];
-    // Map by display name (that's what's stored in territories.name via the seed).
     const withCounts = rows.map(t => {
+      const key = t.name;
+      const displayName = TER_META[key]?.displayName || key;
       const leadCount = (rawDb.prepare(
         `SELECT COUNT(*) as c FROM leads WHERE territory = ? AND status NOT IN ('retired','contacted_appointment')`
-      ).get(t.name) as any)?.c || 0;
-      // Reverse-map display name → key for the frontend
-      const key = Object.entries(TER_META).find(([, v]) => v.displayName === t.name)?.[0] || t.name;
-      return { key, name: t.name, isOpen: !!t.is_open, leadCount };
+      ).get(key) as any)?.c || 0;
+      return { key, name: displayName, isOpen: !!t.is_open, leadCount };
     });
     res.json(withCounts);
   });
 
   app.post("/api/admin/territories/:name/close", (req: any, res) => {
-    const name = req.params.name;
-    const row = rawDb.prepare(`SELECT id, is_open FROM territories WHERE name = ?`).get(name) as any;
+    // v20.58.8 — :name is the territory KEY (encodeURIComponent on client).
+    const rawName = decodeURIComponent(req.params.name);
+    const TER_META = TERRITORY_META as Record<string, { displayName: string }>;
+    const key = TERRITORY_KEYS.includes(rawName)
+      ? rawName
+      : (Object.entries(TER_META).find(([, v]) => v.displayName === rawName)?.[0] || rawName);
+    const row = rawDb.prepare(`SELECT id, is_open FROM territories WHERE name = ?`).get(key) as any;
     if (!row) return res.status(404).json({ error: "Territory not found" });
 
-    // 1. Delete leads in this territory (activity history preserved for leaderboard).
-    // Match by both the stored territory key AND the display name for safety.
-    const TER_META = TERRITORY_META as Record<string, { displayName: string }>;
-    const key = Object.entries(TER_META).find(([, v]) => v.displayName === name)?.[0];
-    const territoryValues = key ? [name, key] : [name];
+    const displayName = TER_META[key]?.displayName || key;
+    const territoryValues = [key, displayName];
     const placeholders = territoryValues.map(() => "?").join(",");
     const del = rawDb.prepare(`DELETE FROM leads WHERE territory IN (${placeholders})`).run(...territoryValues);
 
-    // 2. Clear this territory from any agent's slot 1 or slot 2. Flag them.
-    // Match by both key and display name in case older records used either format.
     const affectedAgents = rawDb.prepare(`
       SELECT id, name, email, territory1, territory2 FROM agents
       WHERE territory1 IN (${placeholders}) OR territory2 IN (${placeholders})
@@ -7719,23 +7758,26 @@ This template is for informational/outreach purposes only.`;
       `).run(clearSlot1 ? 1 : 0, clearSlot2 ? 1 : 0, a.id);
     }
 
-    // 3. Flip the flag.
     rawDb.prepare(`UPDATE territories SET is_open = 0 WHERE id = ?`).run(row.id);
 
     res.json({
       ok: true,
-      territory: name,
+      territory: key,
       leadsDeleted: del.changes,
       agentsNotified: affectedAgents.length,
     });
   });
 
   app.post("/api/admin/territories/:name/open", (req: any, res) => {
-    const name = req.params.name;
-    const row = rawDb.prepare(`SELECT id FROM territories WHERE name = ?`).get(name) as any;
+    const rawName = decodeURIComponent(req.params.name);
+    const TER_META = TERRITORY_META as Record<string, { displayName: string }>;
+    const key = TERRITORY_KEYS.includes(rawName)
+      ? rawName
+      : (Object.entries(TER_META).find(([, v]) => v.displayName === rawName)?.[0] || rawName);
+    const row = rawDb.prepare(`SELECT id FROM territories WHERE name = ?`).get(key) as any;
     if (!row) return res.status(404).json({ error: "Territory not found" });
     rawDb.prepare(`UPDATE territories SET is_open = 1 WHERE id = ?`).run(row.id);
-    res.json({ ok: true, territory: name });
+    res.json({ ok: true, territory: key });
   });
 
   // Agent's territory-closed-notice: read + dismiss
@@ -8650,7 +8692,7 @@ This template is for informational/outreach purposes only.`;
     <p style="margin:20px 0 0;font-size:12px;color:#555">This lead is now live in Lead Depot assigned to ${agentName}.</p>
   </div>
   <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">
-    Lead Depot v20.58.7 \u2014 Brothers Group \u00b7 Momentum Realty
+    Lead Depot v20.58.8 \u2014 Brothers Group \u00b7 Momentum Realty
   </div>
 </div></body></html>`,
       }).catch(err => console.error("[network lead] Notify failed:", err));
@@ -9024,7 +9066,7 @@ This template is for informational/outreach purposes only.`;
     </table>
     <p style="margin:18px 0 0;font-size:12px;color:#888;line-height:1.5">Property research (when a specific address is provided) is included in the package Ops prepares.</p>
   </div>
-  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.7 — Brothers Group · Momentum Realty</div>
+  <div style="padding:12px 28px;background:#0a0908;border-top:1px solid #1e1c19;font-size:11px;color:#444">Lead Depot v20.58.8 — Brothers Group · Momentum Realty</div>
 </div></body></html>`;
         await resend.emails.send({
           from: "The Brothers Group Real Estate Team <noreply@watsonbrothersgroup.com>",
@@ -12049,7 +12091,7 @@ async function sendDailyDigest() {
 
   <!-- Footer -->
   <div style="padding:16px 24px;margin-top:24px;background:#080808;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:rgba(255,255,255,0.18);display:flex;justify-content:space-between">
-    <span>Lead Depot v20.58.7</span><span>Brothers Group · Momentum Realty</span>
+    <span>Lead Depot v20.58.8</span><span>Brothers Group · Momentum Realty</span>
   </div>
 </div>
 </body>

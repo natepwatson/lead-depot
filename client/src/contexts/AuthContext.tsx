@@ -7,6 +7,8 @@ interface AuthUser {
   role: "admin" | "agent" | "recruiter";
   headshotUrl?: string | null;
   homeCounty?: string | null;
+  territory1?: string | null;
+  territory2?: string | null;
   // v14.81 — onboarding gate flags
   profileCompletedAt?: string | null;
   tutorialCompletedAt?: string | null;
@@ -18,6 +20,7 @@ interface AuthContextType {
   logout: () => void;
   setHeadshot: (url: string) => void;
   setHomeCounty: (county: string) => void;
+  setHomeTerritory: (territory1: string, territory2?: string | null) => void;
   // v14.81 — onboarding gate setters
   setProfileCompleted: (iso: string) => void;
   setTutorialCompleted: (iso: string | null) => void;
@@ -128,6 +131,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const setHomeTerritory = (territory1: string, territory2?: string | null) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, territory1, territory2: territory2 ?? null };
+      saveUser(updated);
+      return updated;
+    });
+  };
+
   // v14.81 — onboarding gate setters. Update local + persisted user so
   // App.tsx's gate checks (profileCompletedAt / tutorialCompletedAt) flip
   // immediately without requiring a full re-login.
@@ -168,7 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, setHeadshot, setHomeCounty, setProfileCompleted, setTutorialCompleted, refreshUser }}>
+    <AuthContext.Provider value={{ user, login, logout, setHeadshot, setHomeCounty, setHomeTerritory, setProfileCompleted, setTutorialCompleted, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

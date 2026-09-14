@@ -6491,27 +6491,36 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   const prospectingMode = false as boolean;
   const isAdmin = user?.role === "admin";
 
-  // v14.0 — territories removed. Home County (Nassau/Duval/St Johns) is the only
-  // location construct. Agents pick it once at first login and can change it in Profile.
-  // v20.58.5 — Dial-time Working county selector. Defaults to home_county; always
-  // choosable (Nassau / Duval / St Johns). Passes ?county= to my-next / my-count.
-  // Session-only — does not persist; Profile still owns permanent home_county.
-  const WORKING_COUNTIES = ["Nassau", "Duval", "St Johns"] as const;
-  const homeCountyDefault = ((user as any)?.homeCounty || "").toString().trim();
-  const [workingCounty, setWorkingCounty] = useState<string>(() =>
-    (WORKING_COUNTIES as readonly string[]).includes(homeCountyDefault) ? homeCountyDefault : "Nassau"
-  );
-  const prevHomeRef = useRef(homeCountyDefault);
+  // v20.58.8 — Working territory (dial-time). Defaults to territory1 (home).
+  // Session-only override via ?territory=; Profile owns permanent territory1/2.
+  const WORKING_TERRITORIES = [
+    { key: "nassau", label: "Nassau" },
+    { key: "northside", label: "Northside" },
+    { key: "east_jax", label: "East Jax" },
+    { key: "intercoastal_towncenter", label: "Intercoastal/Towncenter" },
+    { key: "jax_beaches", label: "Jax Beaches" },
+    { key: "ponte_vedra", label: "Ponte Vedra" },
+    { key: "west_jax", label: "West Jax" },
+    { key: "st_johns_inland", label: "St Johns Inland" },
+  ] as const;
+  const homeTerritoryDefault = ((user as any)?.territory1 || "").toString().trim();
+  const isAdminUser = user?.role === "admin";
+  const [workingTerritory, setWorkingTerritory] = useState<string>(() => {
+    if (WORKING_TERRITORIES.some(t => t.key === homeTerritoryDefault)) return homeTerritoryDefault;
+    return isAdminUser ? "all" : (WORKING_TERRITORIES[0].key);
+  });
+  const prevHomeTerrRef = useRef(homeTerritoryDefault);
   useEffect(() => {
-    const hc = ((user as any)?.homeCounty || "").toString().trim();
-    if (!(WORKING_COUNTIES as readonly string[]).includes(hc)) return;
-    // Snap to new home only if agent was still on the previous home (not a deliberate switch).
-    if (workingCounty === prevHomeRef.current) setWorkingCounty(hc);
-    prevHomeRef.current = hc;
+    const ht = ((user as any)?.territory1 || "").toString().trim();
+    if (!WORKING_TERRITORIES.some(t => t.key === ht)) return;
+    if (workingTerritory === prevHomeTerrRef.current || workingTerritory === "all") {
+      setWorkingTerritory(ht);
+    }
+    prevHomeTerrRef.current = ht;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [(user as any)?.homeCounty]);
+  }, [(user as any)?.territory1]);
 
-  const countyQuery = workingCounty ? `&county=${encodeURIComponent(workingCounty)}` : "";
+  const territoryQuery = workingTerritory ? `&territory=${encodeURIComponent(workingTerritory)}` : "";
 
   const { data: nextAgentLead, isLoading: agentLeadLoading } = useQuery<any | null>({
     queryKey: ["/api/agent-leads/my-next"],
@@ -6557,9 +6566,9 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   };
 
   const { data: nextLead, isLoading: leadLoading } = useQuery<Lead | null>({
-    queryKey: ["/api/leads/my-next", workingCounty],
+    queryKey: ["/api/leads/my-next", workingTerritory],
     queryFn: () =>
-      apiRequest("GET", `/api/leads/my-next?agentId=${user?.id}${countyQuery}`).then(async r => {
+      apiRequest("GET", `/api/leads/my-next?agentId=${user?.id}${territoryQuery}`).then(async r => {
         if (r.status === 204) return null;
         return r.json();
       }),
@@ -6654,8 +6663,8 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
       : nextLead;
 
   const { data: myQueueData } = useQuery<{ count: number }>({
-    queryKey: [`/api/leads/my-count/${user?.id}`, workingCounty],
-    queryFn: () => apiRequest("GET", `/api/leads/my-count/${user?.id}?county=${encodeURIComponent(workingCounty)}`).then(r => r.json()),
+    queryKey: [`/api/leads/my-count/${user?.id}`, workingTerritory],
+    queryFn: () => apiRequest("GET", `/api/leads/my-count/${user?.id}?territory=${encodeURIComponent(workingTerritory)}`).then(r => r.json()),
     enabled: !!user?.id,
     refetchInterval: 15000,
   });
@@ -6733,7 +6742,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.58.7</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.58.8</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -7268,8 +7277,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             ) : (
               // ── EXISTING SELLER LEAD CARD ───────────────────────────────────────────
               <>
-                {/* v20.58.5 — Working county (dial-time). Defaults to home_county;
-                    always choosable so agents (e.g. Gabriel) can switch when home is dry. */}
+                {/* v20.58.8 — Working territory (dial-time). Defaults to territory1. */}
                 <div style={{
                   margin: "0 4px 12px",
                   padding: "10px 12px",
@@ -7285,25 +7293,28 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                     <div style={{
                       fontSize: 10, fontWeight: 700, letterSpacing: "0.12em",
                       textTransform: "uppercase", color: "#c8aa5a", marginBottom: 2,
-                    }}>Working county</div>
+                    }}>Working territory</div>
                     <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", lineHeight: 1.35 }}>
-                      {workingCounty === homeCountyDefault
-                        ? "Home territory — overflow if dry"
-                        : `Dialing ${workingCounty} (home is ${homeCountyDefault || "unset"})`}
+                      {workingTerritory === "all"
+                        ? "All territories (killer mode)"
+                        : workingTerritory === homeTerritoryDefault
+                          ? "Home territory — overflow if dry"
+                          : `Dialing ${WORKING_TERRITORIES.find(t => t.key === workingTerritory)?.label || workingTerritory} (home is ${WORKING_TERRITORIES.find(t => t.key === homeTerritoryDefault)?.label || homeTerritoryDefault || "unset"})`}
                     </div>
                   </div>
                   <select
-                    value={workingCounty}
+                    value={workingTerritory}
                     onChange={(e) => {
                       const next = e.target.value;
-                      if (!(WORKING_COUNTIES as readonly string[]).includes(next)) return;
-                      setWorkingCounty(next);
+                      const allowed = WORKING_TERRITORIES.some(t => t.key === next) || (isAdminUser && next === "all");
+                      if (!allowed) return;
+                      setWorkingTerritory(next);
                       qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
                       qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
                     }}
                     style={{
                       flexShrink: 0,
-                      minWidth: 120,
+                      minWidth: 160,
                       background: "rgba(8,8,8,0.95)",
                       border: "1px solid rgba(200,170,90,0.45)",
                       borderRadius: 8,
@@ -7315,11 +7326,14 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                       cursor: "pointer",
                     }}
                   >
-                    {WORKING_COUNTIES.map(c => (
-                      <option key={c} value={c} style={{ background: "#0a0a0a", color: "#e8d5a3" }}>
-                        {c}{c === homeCountyDefault ? " · home" : ""}
+                    {WORKING_TERRITORIES.map(t => (
+                      <option key={t.key} value={t.key} style={{ background: "#0a0a0a", color: "#e8d5a3" }}>
+                        {t.label}{t.key === homeTerritoryDefault ? " · home" : ""}
                       </option>
                     ))}
+                    {isAdminUser && (
+                      <option value="all" style={{ background: "#0a0a0a", color: "#e8d5a3" }}>All territories</option>
+                    )}
                   </select>
                 </div>
                 {/* v20.10.0 — Repair Consult entry point moved off the dial page.
@@ -7345,7 +7359,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                       fontSize: "2rem", fontWeight: 300, color: "#fff", marginBottom: 12,
                     }}>Pool Ready</h2>
                     <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", lineHeight: 1.65 }}>
-                      No pullable leads in {workingCounty}. Switch Working county above, or wait for tomorrow’s 8am ET pool reset.
+                      No pullable leads in {workingTerritory === "all" ? "any territory" : (WORKING_TERRITORIES.find(t => t.key === workingTerritory)?.label || workingTerritory)}. Switch Working territory above, or wait for tomorrow’s 8am ET pool reset.
                     </p>
                     {onBackToAdmin && (
                       <button onClick={onBackToAdmin} style={{

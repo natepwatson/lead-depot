@@ -7,6 +7,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { EXPIRED_SCRIPT_V14_16 } from "./expired-script";
 import { normalizeOwnerName, normalizeDate } from "./batchleads-csv-import";
+import { getTerritoryForZip, TERRITORY_KEYS, mapHomeCountyToTerritory1 } from "./territories";
 
 const require = createRequire(typeof __filename !== "undefined" ? __filename : import.meta.url);
 const BetterSQLite3 = require("better-sqlite3");
@@ -329,13 +330,23 @@ if (!existingTables.includes('push_fire_log')) rawDb.exec(`CREATE TABLE IF NOT E
 // v14.46 — LandVoice Intake v2 tables removed (landvoice_credentials, landvoice_raw_ingest,
 // lead_contacts, data_genie_lookups). CSV upload is the sole seller intake path.
 
-// Seed territories
-const TERRITORIES = [
-  'North Jax & Nassau', 'Jacksonville West', 'Jacksonville East',
-  'Intracoastal/Beaches', 'Ponte Vedra/Nocatee/St. Aug', 'St. Johns County'
+// Seed territories — v20.58.8 keys (admin close/open APIs use keys)
+const TERRITORY_SEED = [
+  'nassau', 'northside', 'east_jax', 'intercoastal_towncenter',
+  'jax_beaches', 'ponte_vedra', 'west_jax', 'st_johns_inland',
 ];
-for (const t of TERRITORIES) {
+for (const t of TERRITORY_SEED) {
   try { rawDb.prepare("INSERT OR IGNORE INTO territories (name) VALUES (?)").run(t); } catch {}
+}
+// Drop legacy combined-name rows from older catalogs (ignore if still referenced).
+const LEGACY_TERRITORY_NAMES = [
+  'North Jax & Nassau', 'Jacksonville West', 'Jacksonville East',
+  'Intracoastal/Beaches', 'Ponte Vedra/Nocatee/St. Aug', 'St. Johns County',
+  'north_jax_nassau', 'jacksonville_west', 'jacksonville_east',
+  'intracoastal_beaches', 'ponte_vedra_nocatee_st_aug', 'st_johns_county',
+];
+for (const legacy of LEGACY_TERRITORY_NAMES) {
+  try { rawDb.prepare("DELETE FROM territories WHERE name = ?").run(legacy); } catch {}
 }
 
 // v20.7.45 — Denise Jacobs RESTORED to headshotMap. Alex reversed the 7/22
@@ -1566,6 +1577,53 @@ try {
   }
 } catch (err: any) {
   console.error("[db] v20.7.33 backfill failed (non-fatal):", err?.message || err);
+}
+
+
+// ─── v20.58.8 — Territory catalog v2: backfill leads + migrate agent homes ───
+try {
+  // Clear agent territory1/2 that still hold legacy combined keys
+  const validKeys = new Set(TERRITORY_KEYS);
+  const agentsWithT = rawDb.prepare(`SELECT id, territory1, territory2, home_county FROM agents`).all() as any[];
+  let clearedLegacy = 0;
+  let mappedNassau = 0;
+  for (const a of agentsWithT) {
+    let t1 = a.territory1 || null;
+    let t2 = a.territory2 || null;
+    let changed = false;
+    if (t1 && !validKeys.has(t1)) { t1 = null; changed = true; clearedLegacy++; }
+    if (t2 && !validKeys.has(t2)) { t2 = null; changed = true; clearedLegacy++; }
+    // If still no territory1, try unambiguous home_county map (Nassau → nassau only)
+    if (!t1) {
+      const mapped = mapHomeCountyToTerritory1(a.home_county);
+      if (mapped) { t1 = mapped; changed = true; mappedNassau++; }
+    }
+    if (changed) {
+      rawDb.prepare(`UPDATE agents SET territory1 = ?, territory2 = ? WHERE id = ?`).run(t1, t2, a.id);
+    }
+  }
+  if (clearedLegacy || mappedNassau) {
+    console.log(`[db] v20.58.8 agent territory migrate: clearedLegacySlots=${clearedLegacy}, nassauMapped=${mappedNassau}`);
+  }
+
+  // Backfill leads.territory from zip when null or legacy key
+  const leadRows = rawDb.prepare(`
+    SELECT id, zip, territory FROM leads
+     WHERE zip IS NOT NULL AND TRIM(zip) <> ''
+       AND (territory IS NULL OR TRIM(territory) = '' OR territory NOT IN (${TERRITORY_KEYS.map(() => "?").join(",")}))
+  `).all(...TERRITORY_KEYS) as any[];
+  const upd = rawDb.prepare(`UPDATE leads SET territory = ? WHERE id = ?`);
+  let filled = 0;
+  const tx = rawDb.transaction(() => {
+    for (const row of leadRows) {
+      const key = getTerritoryForZip(String(row.zip || ""));
+      if (key) { upd.run(key, row.id); filled++; }
+    }
+  });
+  tx();
+  if (filled > 0) console.log(`[db] v20.58.8 lead territory backfill: set territory on ${filled} leads from zip`);
+} catch (err: any) {
+  console.error("[db] v20.58.8 territory backfill failed (non-fatal):", err?.message || err);
 }
 
 console.log("[db] WAL mode active, foreign keys ON, indexes verified");

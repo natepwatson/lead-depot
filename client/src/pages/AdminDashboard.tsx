@@ -309,16 +309,17 @@ function parseCSV(text: string): Record<string, string>[] {
   return results;
 }
 
-// Official 7 territories — agent can be assigned to one (or null = receives all)
+// Official 8 territories (v20.58.8) — agent territory1/territory2 keys
 const TERRITORY_OPTIONS = [
-  { value: "",                             label: "All Territories" },
-  { value: "north_jax_nassau",             label: "North Jax & Nassau" },
-  { value: "jacksonville_west",            label: "Jacksonville West" },
-  { value: "jacksonville_east",            label: "Jacksonville East" },
-  { value: "intracoastal_beaches",         label: "Intracoastal / Beaches" },
-  { value: "ponte_vedra_nocatee_st_aug",   label: "Ponte Vedra / Nocatee / St. Aug" },
-  { value: "st_johns_county",              label: "St. Johns County" },
-  // v14.0 — Clay County removed.
+  { value: "",                         label: "All Territories" },
+  { value: "nassau",                   label: "Nassau" },
+  { value: "northside",                label: "Northside" },
+  { value: "east_jax",                 label: "East Jax" },
+  { value: "intercoastal_towncenter",  label: "Intercoastal/Towncenter" },
+  { value: "jax_beaches",              label: "Jax Beaches" },
+  { value: "ponte_vedra",              label: "Ponte Vedra" },
+  { value: "west_jax",                 label: "West Jax" },
+  { value: "st_johns_inland",          label: "St Johns Inland" },
 ];
 
 const OUTCOME_ICONS: Record<string, any> = {
@@ -1430,7 +1431,7 @@ export default function AdminDashboard({
   const closeTerritoryMutation = useMutation({
     mutationFn: async ({ name, close }: { name: string; close: boolean }) => {
       const path = close ? "close" : "open";
-      const r = await apiRequest("POST", `/api/admin/territories/${name}/${path}`, {});
+      const r = await apiRequest("POST", `/api/admin/territories/${encodeURIComponent(name)}/${path}`, {});
       return r.json();
     },
     onSuccess: (_d, v) => {
@@ -1904,7 +1905,7 @@ export default function AdminDashboard({
               {user?.name} — Admin
             </p>
             <p style={{ fontSize: 9, color: "rgba(200,170,90,0.45)", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: 1, marginTop: 3, fontWeight: 600 }}>
-              v20.58.4
+              v20.58.8
             </p>
           </div>
         </div>

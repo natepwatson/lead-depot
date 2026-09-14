@@ -4,7 +4,7 @@
  * profile_completed_at is NULL on login. Mirrors HomeCountyGate's shell
  * (fixed, z-index above app chrome) and ProfilePage's form field styling.
  *
- * Required: Full Name, Phone, Brokerage, Home Address, Home County.
+ * Required: Full Name, Phone, Brokerage, Home Address, Primary Territory.
  * Optional (strongly encouraged, skippable): Headshot.
  *
  * On save: PATCH /api/agents/:id/profile (existing endpoint) then
@@ -18,11 +18,15 @@ import {
   User, Phone, Building2, Home, MapPin, Camera, Check,
 } from "lucide-react";
 
-// Reused from HomeCountyGate.tsx / ProfilePage.tsx county list.
-const COUNTIES = [
-  { value: "Nassau",   desc: "Yulee, Fernandina Beach, Callahan, Hilliard" },
-  { value: "Duval",    desc: "Jacksonville, Jax Beach, Atlantic Beach" },
-  { value: "St Johns", desc: "St Augustine, Ponte Vedra, Nocatee, WGV" },
+const TERRITORIES = [
+  { value: "nassau", display: "Nassau" },
+  { value: "northside", display: "Northside" },
+  { value: "east_jax", display: "East Jax" },
+  { value: "intercoastal_towncenter", display: "Intercoastal/Towncenter" },
+  { value: "jax_beaches", display: "Jax Beaches" },
+  { value: "ponte_vedra", display: "Ponte Vedra" },
+  { value: "west_jax", display: "West Jax" },
+  { value: "st_johns_inland", display: "St Johns Inland" },
 ];
 
 const lbl: React.CSSProperties = {
@@ -61,12 +65,12 @@ export default function ProfileGate({ onComplete }: { onComplete: () => void }) 
   const [phone, setPhone] = useState((user as any)?.phone ?? "");
   const [brokerage, setBrokerage] = useState((user as any)?.brokerage || "Momentum Realty");
   const [homeAddress, setHomeAddress] = useState((user as any)?.homeAddress ?? "");
-  const [homeCounty, setHomeCountyLocal] = useState(user?.homeCounty ?? "");
+  const [territory1, setTerritory1Local] = useState((user as any)?.territory1 ?? "");
   const [headshotUrl, setHeadshotUrl] = useState<string>((user as any)?.headshotUrl ?? "");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const canSave = name.trim() && phone.trim() && brokerage.trim() && homeAddress.trim() && homeCounty.trim();
+  const canSave = name.trim() && phone.trim() && brokerage.trim() && homeAddress.trim() && territory1.trim();
 
   // v15.11.46 — Compute per-field missing state so the button can show WHICH
   // fields are missing when the agent taps it. Silent-disabled buttons are the
@@ -76,7 +80,7 @@ export default function ProfileGate({ onComplete }: { onComplete: () => void }) 
   if (!phone.trim())       missingFields.push("Phone");
   if (!brokerage.trim())   missingFields.push("Brokerage");
   if (!homeAddress.trim()) missingFields.push("Home Address");
-  if (!homeCounty.trim())  missingFields.push("Home County");
+  if (!territory1.trim())  missingFields.push("Primary Territory");
 
   const initials = (name || user?.name || "").split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
 
@@ -133,11 +137,14 @@ export default function ProfileGate({ onComplete }: { onComplete: () => void }) 
         homeAddress: homeAddress.trim(),
       });
 
-      // Home county uses its own dedicated endpoint (drives lead routing).
-      if (homeCounty && homeCounty !== user.homeCounty) {
+      // Primary territory drives dial routing.
+      if (territory1 && territory1 !== (user as any).territory1) {
         try {
-          await apiRequest("PATCH", `/api/agents/${user.id}/home-county`, { homeCounty });
-        } catch { /* non-fatal — county can be fixed later in Profile */ }
+          await apiRequest("PATCH", `/api/agents/${user.id}/home-territory`, {
+            territory1,
+            territory2: (user as any).territory2 || null,
+          });
+        } catch { /* non-fatal — can fix later in Profile */ }
       }
 
       const completeRes = await apiRequest("POST", "/api/agent/complete-profile", {});
@@ -257,11 +264,11 @@ export default function ProfileGate({ onComplete }: { onComplete: () => void }) 
             <input style={inp} value={homeAddress} onChange={e => setHomeAddress(e.target.value)} placeholder="123 Main St, Fernandina Beach, FL 32034" />
           </div>
           <div>
-            <label style={lbl}><MapPin size={9} style={{ display: "inline", marginRight: 5 }} />Home County *</label>
-            <select style={inp} value={homeCounty} onChange={e => setHomeCountyLocal(e.target.value)}>
-              <option value="" disabled>Select your county</option>
-              {COUNTIES.map(c => (
-                <option key={c.value} value={c.value} style={{ background: "#0a0a0a" }}>{c.value} County</option>
+            <label style={lbl}><MapPin size={9} style={{ display: "inline", marginRight: 5 }} />Primary Territory *</label>
+            <select style={inp} value={territory1} onChange={e => setTerritory1Local(e.target.value)}>
+              <option value="" disabled>Select your territory</option>
+              {TERRITORIES.map(c => (
+                <option key={c.value} value={c.value} style={{ background: "#0a0a0a" }}>{c.display}</option>
               ))}
             </select>
           </div>
@@ -310,7 +317,7 @@ export default function ProfileGate({ onComplete }: { onComplete: () => void }) 
             { label: "Phone",        ok: !!phone.trim()       },
             { label: "Brokerage",    ok: !!brokerage.trim()   },
             { label: "Home Address", ok: !!homeAddress.trim() },
-            { label: "Home County",  ok: !!homeCounty.trim()  },
+            { label: "Primary Territory",  ok: !!territory1.trim()  },
           ].map(row => (
             <div key={row.label} style={{
               display: "flex", alignItems: "center", gap: 8,

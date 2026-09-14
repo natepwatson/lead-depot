@@ -1558,7 +1558,7 @@ function LeadCard({ lead }: { lead: Lead }) {
           } else {
             toast({
               title: "All numbers tried today",
-              description: "Lead returned to pool. Loading next lead…",
+              description: "Rested until tomorrow’s pool reset. Loading next lead…",
               duration: 3000,
             });
           }
@@ -6489,6 +6489,25 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
 
   // v14.0 — territories removed. Home County (Nassau/Duval/St Johns) is the only
   // location construct. Agents pick it once at first login and can change it in Profile.
+  // v20.58.5 — Dial-time Working county selector. Defaults to home_county; always
+  // choosable (Nassau / Duval / St Johns). Passes ?county= to my-next / my-count.
+  // Session-only — does not persist; Profile still owns permanent home_county.
+  const WORKING_COUNTIES = ["Nassau", "Duval", "St Johns"] as const;
+  const homeCountyDefault = ((user as any)?.homeCounty || "").toString().trim();
+  const [workingCounty, setWorkingCounty] = useState<string>(() =>
+    (WORKING_COUNTIES as readonly string[]).includes(homeCountyDefault) ? homeCountyDefault : "Nassau"
+  );
+  const prevHomeRef = useRef(homeCountyDefault);
+  useEffect(() => {
+    const hc = ((user as any)?.homeCounty || "").toString().trim();
+    if (!(WORKING_COUNTIES as readonly string[]).includes(hc)) return;
+    // Snap to new home only if agent was still on the previous home (not a deliberate switch).
+    if (workingCounty === prevHomeRef.current) setWorkingCounty(hc);
+    prevHomeRef.current = hc;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [(user as any)?.homeCounty]);
+
+  const countyQuery = workingCounty ? `&county=${encodeURIComponent(workingCounty)}` : "";
 
   const { data: nextAgentLead, isLoading: agentLeadLoading } = useQuery<any | null>({
     queryKey: ["/api/agent-leads/my-next"],
@@ -6534,9 +6553,9 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   };
 
   const { data: nextLead, isLoading: leadLoading } = useQuery<Lead | null>({
-    queryKey: ["/api/leads/my-next"],
+    queryKey: ["/api/leads/my-next", workingCounty],
     queryFn: () =>
-      apiRequest("GET", `/api/leads/my-next?agentId=${user?.id}`).then(async r => {
+      apiRequest("GET", `/api/leads/my-next?agentId=${user?.id}${countyQuery}`).then(async r => {
         if (r.status === 204) return null;
         return r.json();
       }),
@@ -6631,8 +6650,8 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
       : nextLead;
 
   const { data: myQueueData } = useQuery<{ count: number }>({
-    queryKey: [`/api/leads/my-count/${user?.id}`],
-    queryFn: () => apiRequest("GET", `/api/leads/my-count/${user?.id}`).then(r => r.json()),
+    queryKey: [`/api/leads/my-count/${user?.id}`, workingCounty],
+    queryFn: () => apiRequest("GET", `/api/leads/my-count/${user?.id}?county=${encodeURIComponent(workingCounty)}`).then(r => r.json()),
     enabled: !!user?.id,
     refetchInterval: 15000,
   });
@@ -6710,7 +6729,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.58.4</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.58.5</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -7234,6 +7253,60 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             ) : (
               // ── EXISTING SELLER LEAD CARD ───────────────────────────────────────────
               <>
+                {/* v20.58.5 — Working county (dial-time). Defaults to home_county;
+                    always choosable so agents (e.g. Gabriel) can switch when home is dry. */}
+                <div style={{
+                  margin: "0 4px 12px",
+                  padding: "10px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  background: "rgba(200,170,90,0.06)",
+                  border: "1px solid rgba(200,170,90,0.22)",
+                  borderRadius: 10,
+                }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: "0.12em",
+                      textTransform: "uppercase", color: "#c8aa5a", marginBottom: 2,
+                    }}>Working county</div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", lineHeight: 1.35 }}>
+                      {workingCounty === homeCountyDefault
+                        ? "Home territory — overflow if dry"
+                        : `Dialing ${workingCounty} (home is ${homeCountyDefault || "unset"})`}
+                    </div>
+                  </div>
+                  <select
+                    value={workingCounty}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (!(WORKING_COUNTIES as readonly string[]).includes(next)) return;
+                      setWorkingCounty(next);
+                      qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+                      qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
+                    }}
+                    style={{
+                      flexShrink: 0,
+                      minWidth: 120,
+                      background: "rgba(8,8,8,0.95)",
+                      border: "1px solid rgba(200,170,90,0.45)",
+                      borderRadius: 8,
+                      color: "#e8d5a3",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      padding: "8px 10px",
+                      outline: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {WORKING_COUNTIES.map(c => (
+                      <option key={c} value={c} style={{ background: "#0a0a0a", color: "#e8d5a3" }}>
+                        {c}{c === homeCountyDefault ? " · home" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 {/* v20.10.0 — Repair Consult entry point moved off the dial page.
                     Everyone now starts a repair consult from the Repair Quote nav tab. */}
                 {leadLoading ? (
@@ -7257,7 +7330,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
                       fontSize: "2rem", fontWeight: 300, color: "#fff", marginBottom: 12,
                     }}>Pool Ready</h2>
                     <p style={{ fontSize: 14, color: "rgba(255,255,255,0.45)", lineHeight: 1.65 }}>
-                      Tap Load Next Lead to grab the next lead from the shared pool.
+                      No pullable leads in {workingCounty}. Switch Working county above, or wait for tomorrow’s 8am ET pool reset.
                     </p>
                     {onBackToAdmin && (
                       <button onClick={onBackToAdmin} style={{

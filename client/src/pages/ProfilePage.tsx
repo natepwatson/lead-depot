@@ -52,7 +52,16 @@ const CHANGELOG: { version: string; date: string; note: string }[] = [
   { version: "v14.74",   date: "Jul 09", note: "Unified LandVoice + BatchLeads CSV importer. Supports all three LandVoice export shapes." },
 ];
 
-const COUNTIES = ["Nassau", "Duval", "St Johns"] as const;
+const TERRITORIES = [
+  { key: "nassau", label: "Nassau" },
+  { key: "northside", label: "Northside" },
+  { key: "east_jax", label: "East Jax" },
+  { key: "intercoastal_towncenter", label: "Intercoastal/Towncenter" },
+  { key: "jax_beaches", label: "Jax Beaches" },
+  { key: "ponte_vedra", label: "Ponte Vedra" },
+  { key: "west_jax", label: "West Jax" },
+  { key: "st_johns_inland", label: "St Johns Inland" },
+] as const;
 
 const lbl: React.CSSProperties = {
   display: "block", fontSize: 10, letterSpacing: "0.18em",
@@ -93,11 +102,13 @@ interface AgentProfile {
   homeAddress: string;
   headshotUrl: string;
   homeCounty: string;
+  territory1: string;
+  territory2: string;
   role: string;
 }
 
 export default function ProfilePage({ onBack }: { onBack: () => void }) {
-  const { user, logout, setHomeCounty, setTutorialCompleted, refreshUser } = useAuth();
+  const { user, logout, setHomeCounty, setHomeTerritory, setTutorialCompleted, refreshUser } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -116,6 +127,8 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
     homeAddress: "",
     headshotUrl: "",
     homeCounty: user?.homeCounty ?? "",
+    territory1: (user as any)?.territory1 ?? "",
+    territory2: (user as any)?.territory2 ?? "",
     role: user?.role ?? "agent",
   });
   const [savingCounty, setSavingCounty] = useState(false);
@@ -188,6 +201,8 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
             homeAddress: d.agent.homeAddress ?? d.agent.home_address ?? "",
             headshotUrl: d.agent.headshotUrl ?? d.agent.headshot_url ?? "",
             homeCounty:  d.agent.homeCounty  ?? d.agent.home_county ?? "",
+            territory1: d.agent.territory1 ?? "",
+            territory2: d.agent.territory2 ?? "",
             role:        d.agent.role        ?? p.role,
           }));
         }
@@ -461,43 +476,81 @@ export default function ProfilePage({ onBack }: { onBack: () => void }) {
             </div>
             {profile.role === "agent" && (
               <div>
-                <label style={lbl}><MapPin size={9} style={{ display: "inline", marginRight: 5 }} />Home County (Primary Lead Territory)</label>
+                <label style={lbl}><MapPin size={9} style={{ display: "inline", marginRight: 5 }} />Primary Territory</label>
                 <select
                   style={inp}
-                  value={profile.homeCounty}
+                  value={profile.territory1}
                   disabled={savingCounty}
                   onChange={async (e) => {
-                    const county = e.target.value;
-                    if (!county || !COUNTIES.includes(county as any)) return;
-                    const prev = profile.homeCounty;
-                    setProfile(p => ({ ...p, homeCounty: county }));
+                    const t1 = e.target.value;
+                    if (!t1 || !TERRITORIES.some(t => t.key === t1)) return;
+                    const prev1 = profile.territory1;
+                    const prev2 = profile.territory2;
+                    const next2 = prev2 === t1 ? "" : prev2;
+                    setProfile(p => ({ ...p, territory1: t1, territory2: next2 }));
                     setSavingCounty(true);
                     try {
-                      const res = await apiRequest("PATCH", `/api/agents/${user?.id}/home-county`, { homeCounty: county });
+                      const res = await apiRequest("PATCH", `/api/agents/${user?.id}/home-territory`, {
+                        territory1: t1,
+                        territory2: next2 || null,
+                      });
                       if (!res.ok) throw new Error("failed");
-                      setHomeCounty(county);
-                      // v14.13 — Bug A fix: invalidate lead queries so the agent's next-lead
-                      // pull and pipeline reflect the new territory immediately (no manual refresh).
+                      setHomeTerritory(t1, next2 || null);
                       qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
                       qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
-                      // v14.38 — my-pipeline endpoint removed. KIT lives in FUB.
                       qc.invalidateQueries({ queryKey: ["/api/agent/leaderboard"] });
-                      toast({ title: `Home county set to ${county}`, description: "Your lead queue has been refreshed." });
+                      const label = TERRITORIES.find(t => t.key === t1)?.label || t1;
+                      toast({ title: `Primary territory set to ${label}`, description: "Your lead queue has been refreshed." });
                     } catch {
-                      setProfile(p => ({ ...p, homeCounty: prev }));
-                      toast({ title: "Could not update home county", variant: "destructive" });
+                      setProfile(p => ({ ...p, territory1: prev1, territory2: prev2 }));
+                      toast({ title: "Could not update territory", variant: "destructive" });
                     } finally {
                       setSavingCounty(false);
                     }
                   }}
                 >
-                  <option value="" disabled>Select your county</option>
-                  {COUNTIES.map(c => (
-                    <option key={c} value={c} style={{ background: "#0a0a0a" }}>{c}</option>
+                  <option value="" disabled>Select primary territory</option>
+                  {TERRITORIES.map(t => (
+                    <option key={t.key} value={t.key} style={{ background: "#0a0a0a" }}>{t.label}</option>
+                  ))}
+                </select>
+                <label style={{ ...lbl, marginTop: 14 }}><MapPin size={9} style={{ display: "inline", marginRight: 5 }} />Second Territory (optional)</label>
+                <select
+                  style={inp}
+                  value={profile.territory2}
+                  disabled={savingCounty || !profile.territory1}
+                  onChange={async (e) => {
+                    const t2 = e.target.value;
+                    if (t2 && !TERRITORIES.some(t => t.key === t2)) return;
+                    if (!profile.territory1) return;
+                    const prev2 = profile.territory2;
+                    setProfile(p => ({ ...p, territory2: t2 }));
+                    setSavingCounty(true);
+                    try {
+                      const res = await apiRequest("PATCH", `/api/agents/${user?.id}/home-territory`, {
+                        territory1: profile.territory1,
+                        territory2: t2 || null,
+                      });
+                      if (!res.ok) throw new Error("failed");
+                      setHomeTerritory(profile.territory1, t2 || null);
+                      qc.invalidateQueries({ queryKey: ["/api/leads/my-next"] });
+                      qc.invalidateQueries({ queryKey: [`/api/leads/my-count/${user?.id}`] });
+                      toast({ title: t2 ? "Second territory saved" : "Second territory cleared" });
+                    } catch {
+                      setProfile(p => ({ ...p, territory2: prev2 }));
+                      toast({ title: "Could not update territory", variant: "destructive" });
+                    } finally {
+                      setSavingCounty(false);
+                    }
+                  }}
+                >
+                  <option value="">None</option>
+                  {TERRITORIES.filter(t => t.key !== profile.territory1).map(t => (
+                    <option key={t.key} value={t.key} style={{ background: "#0a0a0a" }}>{t.label}</option>
                   ))}
                 </select>
                 <div style={{ fontSize: 10, color: "rgba(200,170,90,0.55)", marginTop: 6, letterSpacing: "0.05em" }}>
-                  You get leads in this county first. Overflow from other counties only when yours runs dry.
+                  Dial defaults to your primary. Use Working territory on Dial to switch for the session. Overflow kicks in when dry.
                 </div>
               </div>
             )}

@@ -39,6 +39,7 @@
 
 import * as XLSX from "xlsx";
 import { computeUnifiedScore } from "../shared/scoring";
+import { getTerritoryForZip } from "./territories";
 
 export interface PhoneMeta {
   number: string;
@@ -55,6 +56,7 @@ export interface ImportRow {
   state: string;
   zip: string;
   county: string | null;
+  territory: string | null;
   email: string;
   phone: string;              // primary (digits-only, last 10)
   allPhones: string[];        // all phones digits-only, dedup, in rank order
@@ -366,6 +368,8 @@ function parseLandVoiceListingRow(r: any): ImportRow | null {
   };
 
   const county = inferCountyFromZip(propZip);
+
+  const territory = getTerritoryForZip(propZip);
   const unified = computeUnifiedScore({
     phoneCount: phones.length,
     hasEmail: !!email,
@@ -394,6 +398,7 @@ function parseLandVoiceListingRow(r: any): ImportRow | null {
     state: propState,
     zip: propZip,
     county,
+    territory,
     email,
     phone: primary.number,
     allPhones,
@@ -530,6 +535,8 @@ function parseLandVoiceExpiredRow(r: any): ImportRow | null {
   };
 
   const county = inferCountyFromZip(propZip);
+
+  const territory = getTerritoryForZip(propZip);
   const unified = computeUnifiedScore({
     phoneCount: phones.length,
     hasEmail: !!email,
@@ -558,6 +565,7 @@ function parseLandVoiceExpiredRow(r: any): ImportRow | null {
     state: propState,
     zip: propZip,
     county,
+    territory,
     email,
     phone: primary.number,
     allPhones,
@@ -651,6 +659,7 @@ function parseBatchLeadsRow(r: any): ImportRow | null {
     ownerName,
     address, city, state, zip,
     county: finalCounty,
+    territory: getTerritoryForZip(zip),
     email,
     phone: primary.number,
     allPhones,
@@ -723,6 +732,8 @@ export function parseGenericRow(r: any): ImportRow | null {
   if (!primaryPhone) return null;
 
   const county = inferCountyFromZip(zip);
+
+  const territory = getTerritoryForZip(zip);
   const listPrice    = toNum(pickFirst(r, CANONICAL_FIELD_MAP.listPrice));
   const beds         = toNum(pickFirst(r, CANONICAL_FIELD_MAP.beds));
   const baths        = toNum(pickFirst(r, CANONICAL_FIELD_MAP.baths));
@@ -764,6 +775,7 @@ export function parseGenericRow(r: any): ImportRow | null {
     state,
     zip,
     county,
+    territory,
     email,
     phone: primaryPhone.number,
     allPhones,
@@ -907,12 +919,12 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
 
   const insertStmt = rawDb.prepare(`
     INSERT OR IGNORE INTO leads (
-      owner_name, owner_name_key, address, city, state, zip, county,
+      owner_name, owner_name_key, address, city, state, zip, county, territory,
       phone, phones, phone_states, email,
       lead_type, status, score,
       list_price, assessed_value, last_sale_price, lot_size_acres, year_purchased,
       source, batch_id, extra_data, uploaded_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unassigned', ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
 
   // v14.76 — UPDATE statement used on duplicate hit. We merge fresh CSV intel
@@ -938,7 +950,8 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
            list_price = COALESCE(?, list_price),
            extra_data = ?,
            owner_name = COALESCE(NULLIF(?, ''), owner_name),
-           owner_name_key = COALESCE(NULLIF(?, ''), owner_name_key)
+           owner_name_key = COALESCE(NULLIF(?, ''), owner_name_key),
+           territory = COALESCE(NULLIF(territory, ''), ?)
      WHERE id = ?
   `);
 
@@ -1082,6 +1095,7 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
           // via /api/admin/leads/:id/merge-review after checking tax record.
           ownerMismatch ? "" : (r.ownerName || ""),
           mergedOwnerKey,
+          r.territory || getTerritoryForZip(r.zip) || "",
           matchId,
         );
         merged++;
@@ -1101,7 +1115,7 @@ export function insertImportedLeads(rawDb: any, rows: ImportRow[]): {
       // v20.7.0 — populate owner_name_key on insert (backfill fills legacy rows separately).
       const ownerKey = normalizeOwnerName(r.ownerName);
       const result = insertStmt.run(
-        r.ownerName, ownerKey, r.address, r.city, r.state, r.zip, r.county,
+        r.ownerName, ownerKey, r.address, r.city, r.state, r.zip, r.county, r.territory || getTerritoryForZip(r.zip),
         r.phone, JSON.stringify(r.allPhones), JSON.stringify(r.phoneStates), r.email,
         r.leadType, r.score,
         r.listPrice, r.assessedValue, r.lastSalePrice, r.lotSizeAcres, r.yearPurchased,

@@ -29,7 +29,7 @@ import InspectionAddonPage from "./pages/InspectionAddonPage";
 import { useEffect, useState } from "react";
 
 function AppRoutes() {
-  const { user, setHeadshot, setHomeCounty, setTutorialCompleted, refreshUser } = useAuth();
+  const { user, setHeadshot, setHomeTerritory, setTutorialCompleted, refreshUser } = useAuth();
 
   // v15.11 — On login, silently try to subscribe this browser to Web Push so
   // Prime Time alerts reach the agent even when the app is closed. If perms
@@ -66,18 +66,16 @@ function AppRoutes() {
 
   if (!user) return <LoginPage />;
 
-  // v13.10 — Two required gates for agents (admins skip both).
-  //   1. HomeCountyGate — hard block until they pick their county (drives lead flow)
-  //   2. HeadshotGate   — nag every login until a photo is on file
-  // Admins (Alex + Nate) skip both — they work all counties (killer mode) and
-  // their photo is optional.
+  // v20.58.8 — Territory gate for agents (admins skip — killer mode / all territories).
+  // Hard block until territory1 is set. Duval/St Johns home_county alone is ambiguous
+  // so those agents are forced to pick a clear territory on next login.
   const isAgent = user.role === "agent";
-  if (isAgent && !user.homeCounty) {
+  if (isAgent && !user.territory1) {
     return (
       <HomeCountyGate
         userId={user.id}
         userName={user.name}
-        onComplete={(county) => setHomeCounty(county)}
+        onComplete={(t1, t2) => setHomeTerritory(t1, t2)}
       />
     );
   }

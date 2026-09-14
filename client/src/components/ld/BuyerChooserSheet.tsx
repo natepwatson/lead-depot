@@ -1,12 +1,8 @@
-// v20.32.13 — "Buyers" bottom-nav button now opens this chooser overlay
-// first: dark radial-gradient backdrop with gold-gradient bubbles ("Write an
-// Offer", "Inspections+", "Instant Quote Repair"), matching the Lead Gen
-// chooser's visual language (gold liquid-glass bubbles on a dark scrim).
-// v20.32.12 — added the third "Instant Repair Quote" bubble (standalone
-// repair consult, not tied to a listing) per Alex's ask. Renamed from
-// "Instant Quote Repair" to "Instant Repair Quote" to match the seller side.
+// v20.58.6 — Buyers chooser: 4 gold bubbles (Inspections+, Instant Repair Quote,
+// Write an Offer, Request Buyer Package). Dark radial scrim + gold liquid-glass.
+// v20.32.13 — original 3-bubble Buyers chooser.
 import { useEffect } from "react";
-import { FileSignature, ClipboardCheck, Wrench, X } from "lucide-react";
+import { FileSignature, ClipboardCheck, Wrench, Package, X } from "lucide-react";
 
 const GOLD_GRADIENT = "radial-gradient(circle at 50% 22%, rgba(255,240,180,0.65) 0%, rgba(253,224,71,0.42) 30%, rgba(200,170,90,0.32) 62%, rgba(138,111,42,0.42) 100%)";
 const GOLD_BORDER = "1px solid rgba(255,220,140,0.75)";
@@ -29,17 +25,18 @@ function Bubble({ icon, label, onClick }: { icon: React.ReactNode; label: string
       cursor: "pointer", flexShrink: 0,
     }}>
       <span style={{ color: "#0a0700" }}>{icon}</span>
-      <span style={{ fontSize: 13, fontWeight: 700, color: "#0a0700", textAlign: "center", padding: "0 8px" }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: "#0a0700", textAlign: "center", padding: "0 8px", lineHeight: 1.2 }}>{label}</span>
     </button>
   );
 }
 
 export function BuyerChooserSheet({
-  onWriteOffer, onInspectionsPlus, onInstantQuoteRepair, onClose,
+  onWriteOffer, onInspectionsPlus, onInstantQuoteRepair, onRequestPackage, onClose,
 }: {
   onWriteOffer: () => void;
   onInspectionsPlus: () => void;
   onInstantQuoteRepair: () => void;
+  onRequestPackage: () => void;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -72,6 +69,7 @@ export function BuyerChooserSheet({
         <Bubble icon={<ClipboardCheck size={26} />} label="Inspections+" onClick={onInspectionsPlus} />
         <Bubble icon={<Wrench size={26} />} label="Instant Repair Quote" onClick={onInstantQuoteRepair} />
         <Bubble icon={<FileSignature size={26} />} label="Write an Offer" onClick={onWriteOffer} />
+        <Bubble icon={<Package size={26} />} label="Request Buyer Package" onClick={onRequestPackage} />
       </div>
     </div>
   );

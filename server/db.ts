@@ -250,6 +250,35 @@ rawDb.exec(`
 rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_past_client_appts_person
   ON past_client_appts(fub_person_id, created_at)`).run();
 
+// v20.58.6 — package_requests: audit trail for Buyer/Seller Package requests
+// (consult booking + Digital/Print/Both ops deliverable). Email to alex@+nate@
+// is required; this row is preferred for audit.
+rawDb.exec(`
+  CREATE TABLE IF NOT EXISTS package_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    agent_name TEXT,
+    side TEXT NOT NULL,
+    client_mode TEXT NOT NULL,
+    fub_person_id TEXT,
+    client_name TEXT NOT NULL,
+    client_phone TEXT,
+    client_email TEXT,
+    lead_id INTEGER,
+    property_mode TEXT NOT NULL,
+    property_address TEXT,
+    format TEXT NOT NULL,
+    appt_datetime TEXT NOT NULL,
+    notes TEXT,
+    points_awarded INTEGER NOT NULL DEFAULT 0,
+    lead_points_awarded INTEGER NOT NULL DEFAULT 0,
+    fub_appointment_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT ''
+  )
+`);
+rawDb.prepare(`CREATE INDEX IF NOT EXISTS idx_package_requests_agent
+  ON package_requests(agent_id, created_at)`).run();
+
 // v20.7.4 — Active-challenge slots are managed via the existing
 // `challenge_accepts` table (created in ensureChallengeSchema in challenges.ts).
 // Slot caps (3 daily + 2 weekly) are enforced in the accept endpoint. No new

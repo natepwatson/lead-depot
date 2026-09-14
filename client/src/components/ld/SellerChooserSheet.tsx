@@ -1,13 +1,8 @@
-// v20.32.12 — "Sellers+" bottom-nav button opens this chooser overlay first:
-// dark radial-gradient backdrop with 3 gold-gradient bubbles, bottom-to-top
-// render order "Instant Repair Quote", "Inspections+", "Listing Consultation"
-// (Listing Consultation last per Alex), matching the Buyer chooser's visual
-// language (gold liquid-glass bubbles on a dark scrim). Listing Consultation
-// still nests its own repair-consult flow inside it (unchanged) — the
-// standalone "Instant Repair Quote" bubble here is a separate entry point
-// for a repair quote that isn't tied to any listing.
+// v20.58.6 — Sellers+ chooser: 4 gold bubbles (Instant Repair Quote, Inspections+,
+// Listing Consultation, Request Seller Package). Dark radial scrim + gold liquid-glass.
+// v20.32.12 — original 3-bubble Sellers+ chooser.
 import { useEffect } from "react";
-import { Wrench, ClipboardCheck, ClipboardList, X } from "lucide-react";
+import { Wrench, ClipboardCheck, ClipboardList, Package, X } from "lucide-react";
 
 const GOLD_GRADIENT = "radial-gradient(circle at 50% 22%, rgba(255,240,180,0.65) 0%, rgba(253,224,71,0.42) 30%, rgba(200,170,90,0.32) 62%, rgba(138,111,42,0.42) 100%)";
 const GOLD_BORDER = "1px solid rgba(255,220,140,0.75)";
@@ -30,17 +25,18 @@ function Bubble({ icon, label, onClick }: { icon: React.ReactNode; label: string
       cursor: "pointer", flexShrink: 0,
     }}>
       <span style={{ color: "#0a0700" }}>{icon}</span>
-      <span style={{ fontSize: 13, fontWeight: 700, color: "#0a0700", textAlign: "center", padding: "0 8px" }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: "#0a0700", textAlign: "center", padding: "0 8px", lineHeight: 1.2 }}>{label}</span>
     </button>
   );
 }
 
 export function SellerChooserSheet({
-  onRepairConsult, onListingConsult, onInspectionsPlus, onClose,
+  onRepairConsult, onListingConsult, onInspectionsPlus, onRequestPackage, onClose,
 }: {
   onRepairConsult: () => void;
   onListingConsult: () => void;
   onInspectionsPlus: () => void;
+  onRequestPackage: () => void;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -73,6 +69,7 @@ export function SellerChooserSheet({
         <Bubble icon={<Wrench size={26} />} label="Instant Repair Quote" onClick={onRepairConsult} />
         <Bubble icon={<ClipboardCheck size={26} />} label="Inspections+" onClick={onInspectionsPlus} />
         <Bubble icon={<ClipboardList size={26} />} label="Listing Consultation" onClick={onListingConsult} />
+        <Bubble icon={<Package size={26} />} label="Request Seller Package" onClick={onRequestPackage} />
       </div>
     </div>
   );

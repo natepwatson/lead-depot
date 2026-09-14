@@ -33,6 +33,7 @@ import { WriteOfferSheet } from "../components/ld/WriteOfferSheet";
 import { InspectionsPlusSheet } from "../components/ld/InspectionsPlusSheet";
 import { BuyerChooserSheet } from "../components/ld/BuyerChooserSheet";
 import { SellerChooserSheet } from "../components/ld/SellerChooserSheet";
+import { PackageRequestSheet } from "../components/ld/PackageRequestSheet";
 import { playSound } from "@/lib/sounds";
 import { hapticApptSet, hapticKit } from "@/lib/haptics";
 import AnimatedNumber from "../components/AnimatedNumber";
@@ -6420,6 +6421,9 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
   const [leadGenOpen, setLeadGenOpen] = useState(false);
   const [buyerChooserOpen, setBuyerChooserOpen] = useState(false); // v20.32.13 — Buyers chooser: Write an Offer / Inspections+ / Instant Repair Quote (order: Inspections+, Instant Repair Quote, Write an Offer)
   const [sellerChooserOpen, setSellerChooserOpen] = useState(false); // v20.32.12 — Sellers+ chooser: Repair Consult / Listing Consultation / Inspections+
+  // v20.58.6 — Request Buyer/Seller Package sheet (from chooser 4th bubble).
+  const [packageRequestOpen, setPackageRequestOpen] = useState(false);
+  const [packageRequestSide, setPackageRequestSide] = useState<"buyer" | "seller">("buyer");
   // v20.33.1 — Repair Consult and Inspections+ are shared, single-mount tools
   // reachable from BOTH the Buyer and Seller choosers. Track which side of
   // the deal launched the tool so it knows whether the client's FUB
@@ -6729,7 +6733,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             }}>Lead Depot</p>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: "rgba(200,170,90,0.7)", letterSpacing: "0.08em" }}>{user?.name}</span>
-              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.58.5</span>
+              <span style={{ fontSize: 9, color: "rgba(200,170,90,0.55)", letterSpacing: "0.10em", fontWeight: 700 }}>v20.58.6</span>
             </div>
           </div>
           {onBackToAdmin && (
@@ -6997,6 +7001,7 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             onWriteOffer={() => { setBuyerChooserOpen(false); setTab("placeOffer"); }}
             onInspectionsPlus={() => { setSharedToolDealSide("buyer"); setBuyerChooserOpen(false); setTab("inspectionsPlus"); }}
             onInstantQuoteRepair={() => { setSharedToolDealSide("buyer"); setBuyerChooserOpen(false); setTab("repairQuote"); }}
+            onRequestPackage={() => { setBuyerChooserOpen(false); setPackageRequestSide("buyer"); setPackageRequestOpen(true); }}
             onClose={() => setBuyerChooserOpen(false)}
           />
         )}
@@ -7009,7 +7014,17 @@ export default function AgentView({ onBackToAdmin, onOpenAdmin, initialTab, mode
             onRepairConsult={() => { setSharedToolDealSide("seller"); setSellerChooserOpen(false); setTab("repairQuote"); }}
             onListingConsult={() => { setSellerChooserOpen(false); setTab("listingConsult"); }}
             onInspectionsPlus={() => { setSharedToolDealSide("seller"); setSellerChooserOpen(false); setTab("inspectionsPlus"); }}
+            onRequestPackage={() => { setSellerChooserOpen(false); setPackageRequestSide("seller"); setPackageRequestOpen(true); }}
             onClose={() => setSellerChooserOpen(false)}
+          />
+        )}
+
+        {packageRequestOpen && (
+          <PackageRequestSheet
+            side={packageRequestSide}
+            agentId={(user as any)?.id}
+            agentName={(user as any)?.name}
+            onClose={() => setPackageRequestOpen(false)}
           />
         )}
 

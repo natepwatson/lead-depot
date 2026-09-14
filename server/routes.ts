@@ -3263,6 +3263,20 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     const agent: any = rawDb.prepare(`SELECT id, home_county, role FROM agents WHERE id = ?`).get(agentId);
     if (!agent) return res.status(404).json({ error: "Agent not found" });
 
+    // v20.58.5 — Dial-time Working county override (?county=Nassau|Duval|St Johns|all).
+    // Session-only; does not persist home_county. Empty / missing → agent home_county.
+    const ALLOWED_COUNTIES = ["Nassau", "Duval", "St Johns"];
+    const countyRaw = String(req.query.county || "").trim();
+    const countyLower = countyRaw.toLowerCase();
+    const countyIsAll = countyLower === "all" || countyLower === "all counties";
+    let countyOverride: string | null | undefined = undefined; // undefined = use home
+    if (countyIsAll) countyOverride = null; // killer mode this pull
+    else if (countyRaw) {
+      const match = ALLOWED_COUNTIES.find(c => c.toLowerCase() === countyLower);
+      if (!match) return res.status(400).json({ error: "Invalid county. Allowed: Nassau, Duval, St Johns, or all." });
+      countyOverride = match;
+    }
+
     // Sweep expired locks so recycled leads are eligible again.
     rawDb.prepare(`DELETE FROM lead_locks WHERE expires_at < datetime('now')`).run();
 
@@ -3329,6 +3343,9 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
     // v15.11.26 — Exclude leads on THIS agent's holdout list. Both Skip and
     // Recycle write to agent_lead_holdouts so a just-recycled lead can't
     // bounce back to the same agent through pullPool's score DESC ordering.
+    // v20.58.5 — Gate on callback_date so nice_ice recycled rows that were
+    // thawed early (or left as unassigned with a future callback_date) stay
+    // asleep until due. today already computed above for callbacks.
     const pullPool = (leadType: string, countyClause: string, countyParams: any[]): any => {
       return rawDb.prepare(`
         SELECT l.* FROM leads l
@@ -3339,23 +3356,25 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
           AND l.status = 'unassigned'
           AND lk.lead_id IS NULL
           AND h.lead_id IS NULL
+          AND (l.callback_date IS NULL OR substr(l.callback_date, 1, 10) <= ?)
           ${countyClause}
         ORDER BY (l.owner_confirmed_at IS NOT NULL) DESC, l.owner_confirmed_at DESC, l.score DESC, l.uploaded_at ASC, l.id ASC
         LIMIT 1
-      `).get(agentId, leadType, ...countyParams);
+      `).get(agentId, leadType, today, ...countyParams);
     };
 
     let next: any = null;
-    const homeCounty = agent.home_county;
+    // Working county: explicit ?county= override, else agent home_county.
+    const homeCounty = countyOverride !== undefined ? countyOverride : agent.home_county;
 
     if (homeCounty) {
-      // 2. Home-county leads, in type-priority order.
+      // 2. Working-county leads, in type-priority order.
       for (const t of TYPE_ORDER) {
         next = pullPool(t, `AND LOWER(l.county) = LOWER(?)`, [homeCounty]);
         if (next) break;
       }
 
-      // 3. Overflow — only if home county produced nothing.
+      // 3. Overflow — only if working county produced nothing.
       if (!next) {
         for (const t of TYPE_ORDER) {
           next = pullPool(t, `AND (l.county IS NULL OR LOWER(l.county) <> LOWER(?))`, [homeCounty]);
@@ -3363,7 +3382,7 @@ export function registerRoutes(httpServer: ReturnType<typeof createServer>, app:
         }
       }
     } else {
-      // Admin / no county restriction — killer mode across all counties.
+      // Admin / All counties / no county restriction — killer mode.
       for (const t of TYPE_ORDER) {
         next = pullPool(t, ``, []);
         if (next) break;
@@ -6627,6 +6646,18 @@ This template is for informational/outreach purposes only.`;
     // Sweep expired locks first.
     rawDb.prepare(`DELETE FROM lead_locks WHERE expires_at < datetime('now')`).run();
 
+    const today = new Date().toISOString().split("T")[0];
+    const ALLOWED_COUNTIES = ["Nassau", "Duval", "St Johns"];
+    const countyRaw = String(req.query.county || "").trim();
+    const countyLower = countyRaw.toLowerCase();
+    const countyIsAll = countyLower === "all" || countyLower === "all counties";
+    let countyOverride: string | null | undefined = undefined;
+    if (countyIsAll) countyOverride = null;
+    else if (countyRaw) {
+      const match = ALLOWED_COUNTIES.find(c => c.toLowerCase() === countyLower);
+      if (match) countyOverride = match;
+    }
+
     // Own queue.
     const own: any = rawDb.prepare(
       `SELECT COUNT(*) as n FROM leads
@@ -6634,35 +6665,30 @@ This template is for informational/outreach purposes only.`;
          AND status IN ('assigned','no_answer','callback_requested')`
     ).get(agentId);
 
-    // Home-county pool count.
+    // Pool count — align with my-next: expired only + callback_date gate.
+    const poolSql = (countyClause: string) => `
+      SELECT COUNT(*) as n FROM leads l
+      LEFT JOIN lead_locks lk ON lk.lead_id = l.id
+      WHERE l.status = 'unassigned' AND lk.lead_id IS NULL
+        AND l.lead_type = 'expired'
+        AND (l.callback_date IS NULL OR substr(l.callback_date, 1, 10) <= ?)
+        ${countyClause}
+    `;
+
     let poolCount = 0;
-    const homeCounty = agent.home_county;
+    const homeCounty = countyOverride !== undefined ? countyOverride : agent.home_county;
     if (homeCounty) {
-      const homeRow: any = rawDb.prepare(`
-        SELECT COUNT(*) as n FROM leads l
-        LEFT JOIN lead_locks lk ON lk.lead_id = l.id
-        WHERE l.status = 'unassigned' AND lk.lead_id IS NULL
-          AND LOWER(l.county) = LOWER(?)
-      `).get(homeCounty);
+      const homeRow: any = rawDb.prepare(poolSql(`AND LOWER(l.county) = LOWER(?)`)).get(today, homeCounty);
       poolCount = homeRow?.n ?? 0;
 
-      // Home is dry → overflow to other counties.
       if (poolCount === 0) {
-        const ovRow: any = rawDb.prepare(`
-          SELECT COUNT(*) as n FROM leads l
-          LEFT JOIN lead_locks lk ON lk.lead_id = l.id
-          WHERE l.status = 'unassigned' AND lk.lead_id IS NULL
-            AND (l.county IS NULL OR LOWER(l.county) <> LOWER(?))
-        `).get(homeCounty);
+        const ovRow: any = rawDb.prepare(poolSql(
+          `AND (l.county IS NULL OR LOWER(l.county) <> LOWER(?))`
+        )).get(today, homeCounty);
         poolCount = ovRow?.n ?? 0;
       }
     } else {
-      // Admin / no home-county — sees all counties.
-      const allRow: any = rawDb.prepare(`
-        SELECT COUNT(*) as n FROM leads l
-        LEFT JOIN lead_locks lk ON lk.lead_id = l.id
-        WHERE l.status = 'unassigned' AND lk.lead_id IS NULL
-      `).get();
+      const allRow: any = rawDb.prepare(poolSql(``)).get(today);
       poolCount = allRow?.n ?? 0;
     }
 
@@ -12748,97 +12774,150 @@ scheduleDailyLedgerAttestation();
   }
 })();
 
-// ─── REDISTRIBUTION: Unassigned / Redistributed Leads ────────────────────────
-// Runs at server startup and daily at 8am EDT to push any
-// unassigned or redistributed leads into delegation to active agents.
-async function redistributeUnassignedLeads() {
-  const SKIP = [
-    "contacted_not_interested",
-    "contacted_appointment",
-    "keep_in_touch",
-    "callback_requested",
-    "wrong_number",
-  ];
+// ─── v20.58.5 DIAL-POOL THAW (pull-mode safe) ────────────────────────────────
+// Daily 8am America/New_York + once on boot. Restores pullable inventory WITHOUT
+// round-robin push-assign (that stays disabled — agents pull via /api/leads/my-next).
+//
+// Policy:
+//   • Reset phone_states no_answer_today → untried; point phone at first untried
+//   • Flip status no_answer → unassigned when unassigned + ≥1 viable (non-struck) phone
+//   • Thaw recycled (nice_ice) → unassigned when callback_date is due
+//   • NEVER touch appt / KIT / NI / wrong_number / listed / retired terminals
+function thawDialPool(): { phonesReset: number; noAnswerFlipped: number; recycledThawed: number } {
+  const today = new Date().toISOString().split("T")[0];
+  let phonesReset = 0;
+  let noAnswerFlipped = 0;
+  let recycledThawed = 0;
 
-  // ── SQL: only load no_answer leads with phone state data (v11.70) ──
-  const noAnswerLeads: any[] = rawDb.prepare(
-    `SELECT id, phone, phones, phone_states as phoneStates FROM leads
-     WHERE status = 'no_answer' AND phone_states IS NOT NULL`
-  ).all();
-  for (const lead of noAnswerLeads) {
-    try {
-      const states: Record<string, string> = JSON.parse(lead.phoneStates!);
-      let changed = false;
-      for (const p of Object.keys(states)) {
-        if (states[p] === "no_answer_today") { states[p] = "untried"; changed = true; }
-      }
-      if (changed) {
-        // Also restore phone to first untried number
+  // 1) Reset no_answer_today → untried across any lead that still has phone_states.
+  //    (Stuck-sweep + same-day park leave rows as status=no_answer; Owner-NA can
+  //    briefly sit as unassigned with no_answer_today phones.)
+  try {
+    const rows: any[] = rawDb.prepare(
+      `SELECT id, phone, phones, phone_states as phoneStates FROM leads
+       WHERE phone_states IS NOT NULL AND phone_states LIKE '%no_answer_today%'`
+    ).all();
+    for (const lead of rows) {
+      try {
+        const states: Record<string, string> = JSON.parse(lead.phoneStates!);
+        let changed = false;
+        for (const p of Object.keys(states)) {
+          if (states[p] === "no_answer_today") { states[p] = "untried"; changed = true; }
+        }
+        if (!changed) continue;
         const phones: string[] = lead.phones ? JSON.parse(lead.phones) : (lead.phone ? [lead.phone] : []);
-        const firstUntried = phones.find(p => states[p] === "untried");
+        const firstUntried = phones.find((p: string) => states[p] === "untried")
+          ?? phones.find((p: string) => states[p] !== "struck")
+          ?? null;
         rawDb.prepare("UPDATE leads SET phone_states = ?, phone = COALESCE(?, phone) WHERE id = ?")
-          .run(JSON.stringify(states), firstUntried ?? null, lead.id);
-      }
-    } catch {}
+          .run(JSON.stringify(states), firstUntried, lead.id);
+        phonesReset++;
+      } catch { /* skip corrupt row */ }
+    }
+  } catch (err) {
+    console.error("[dial-thaw] phone reset failed:", err);
   }
 
-  // SQL: only fetch unassigned/eligible leads — much faster at scale (v11.70)
-  const skipList = SKIP.map(() => "?").join(",");
-  const eligible: any[] = rawDb.prepare(
-    `SELECT id, lead_type as leadType FROM leads
-     WHERE status NOT IN (${skipList})
-       AND (assigned_agent_id IS NULL OR status = 'unassigned')`
-  ).all(...SKIP);
-  if (eligible.length === 0) {
-    console.log("[redistribution] No unassigned leads to redistribute.");
-    return;
-  }
-  let reassigned = 0;
-  let skipped = 0;
-  for (const lead of eligible) {
-    const nextAgent = storage.getNextAgentInRotation(lead.leadType);
-    if (nextAgent) {
-      storage.updateLead(lead.id, { assignedAgentId: nextAgent.id, status: "assigned" });
-      storage.updateRoundRobinState(nextAgent.id);
-      reassigned++;
-    } else {
-      skipped++;
+  // 2) Requeue parked no_answer → unassigned when eligible (unassigned agent +
+  //    at least one non-struck phone remaining). Terminals stay terminal.
+  try {
+    const parked: any[] = rawDb.prepare(
+      `SELECT id, phones, phone, phone_states FROM leads
+       WHERE status = 'no_answer' AND assigned_agent_id IS NULL`
+    ).all();
+    for (const lead of parked) {
+      try {
+        const phones: string[] = lead.phones
+          ? JSON.parse(lead.phones)
+          : (lead.phone ? [lead.phone] : []);
+        if (!phones.length) continue;
+        let states: Record<string, string> = {};
+        try { states = lead.phone_states ? JSON.parse(lead.phone_states) : {}; } catch { states = {}; }
+        const anyViable = phones.some((p: string) => (states[p] || "untried") !== "struck");
+        if (!anyViable) continue;
+        const firstUntried = phones.find((p: string) => (states[p] || "untried") === "untried")
+          ?? phones.find((p: string) => (states[p] || "untried") !== "struck")
+          ?? phones[0];
+        rawDb.prepare(
+          `UPDATE leads SET status = 'unassigned', phone = COALESCE(?, phone) WHERE id = ?`
+        ).run(firstUntried, lead.id);
+        rawDb.prepare(`DELETE FROM lead_locks WHERE lead_id = ?`).run(lead.id);
+        noAnswerFlipped++;
+      } catch { /* skip */ }
     }
+  } catch (err) {
+    console.error("[dial-thaw] no_answer flip failed:", err);
   }
-  if (reassigned > 0) {
-    broadcast({ type: "leads_updated" });
+
+  // 3) nice_ice / recycled wake when callback_date is due → shared pool.
+  try {
+    const info = rawDb.prepare(
+      `UPDATE leads
+          SET status = 'unassigned'
+        WHERE status = 'recycled'
+          AND assigned_agent_id IS NULL
+          AND callback_date IS NOT NULL
+          AND substr(callback_date, 1, 10) <= ?`
+    ).run(today);
+    recycledThawed = info.changes || 0;
+    if (recycledThawed > 0) {
+      // Drop any stale locks on freshly thawed rows.
+      rawDb.prepare(
+        `DELETE FROM lead_locks WHERE lead_id IN (
+           SELECT id FROM leads WHERE status = 'unassigned' AND substr(COALESCE(callback_date,''), 1, 10) <= ?
+         )`
+      ).run(today);
+    }
+  } catch (err) {
+    console.error("[dial-thaw] recycled thaw failed:", err);
   }
-  console.log(`[redistribution] Reset no_answer_today flags. Redistributed ${reassigned} lead(s), skipped ${skipped}.`);
+
+  if (phonesReset || noAnswerFlipped || recycledThawed) {
+    try { broadcast({ type: "leads_updated" }); } catch { /* ws optional at boot */ }
+  }
+  console.log(
+    `[dial-thaw] phonesReset=${phonesReset} noAnswer→unassigned=${noAnswerFlipped} recycledThawed=${recycledThawed}`
+  );
+  return { phonesReset, noAnswerFlipped, recycledThawed };
 }
 
-function scheduleRedistribution() {
-  // Fire once daily at 8am EDT = 12:00 UTC
-  function msUntil8amEDT(): number {
-    const now = new Date();
-    const next = new Date(now);
-    next.setUTCHours(12, 0, 0, 0);
-    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    return next.getTime() - now.getTime();
+function msUntil8amET(): number {
+  // DST-aware: find next wall-clock 08:00 America/New_York.
+  const now = Date.now();
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  });
+  // Probe next ~36h of UTC hours looking for ET 08:00.
+  const start = Math.floor(now / 3600_000) * 3600_000 - 3 * 3600_000;
+  for (let t = start; t < start + 40 * 3600_000; t += 60_000) {
+    const parts = Object.fromEntries(fmt.formatToParts(new Date(t)).map(p => [p.type, p.value]));
+    const hour = parts.hour === "24" ? "00" : parts.hour; // some engines emit 24
+    if (hour === "08" && parts.minute === "00" && t > now) {
+      return t - now;
+    }
   }
+  return 24 * 3600_000; // safety
+}
 
+function scheduleDialPoolThaw() {
   function scheduleNext() {
-    const delay = msUntil8amEDT();
-    console.log(`[redistribution] Next morning run in ${Math.round(delay / 60000)} min (8:00 AM EDT)`);
-    setTimeout(async () => {
-      await redistributeUnassignedLeads().catch((err) =>
-        console.error("[redistribution] Error:", err)
-      );
-      scheduleNext(); // schedule the next day's run
+    const delay = msUntil8amET();
+    console.log(`[dial-thaw] Next 8:00 AM ET run in ${Math.round(delay / 60000)} min`);
+    setTimeout(() => {
+      try { thawDialPool(); } catch (err) { console.error("[dial-thaw] Error:", err); }
+      scheduleNext();
     }, delay);
   }
-
   scheduleNext();
 }
 
-// v14.7 — PULL MODE ONLY. Auto-redistribution disabled.
-// Agents pull from the shared pool via /api/leads/my-next. No round-robin push.
-// (Startup redistribution + daily 8 AM redistribution both removed.)
-console.log("[redistribution] Auto-redistribution DISABLED (v14.7 pull mode).");
+// Boot once + daily 8am ET. Round-robin redistributeUnassignedLeads stays dead.
+try { thawDialPool(); } catch (err) { console.error("[dial-thaw] Boot thaw failed:", err); }
+scheduleDialPoolThaw();
+console.log("[dial-thaw] Pull-mode daily thaw ENABLED (v20.58.5). Round-robin push-assign remains OFF.");
 
 // ─── v13.8 — STALE LOCK RELEASER ─────────────────────────────────────────
 // Every 5 minutes, delete lead_locks rows whose expires_at is in the past.
